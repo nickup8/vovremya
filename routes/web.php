@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\CalendarController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Auth\TelegramAuthController;
+use App\Http\Controllers\BookingStatusController;
 use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
@@ -21,6 +22,7 @@ Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout'
 
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->name('booking.reserve');
+Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name('booking.status');
 
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->name('webhooks.telegram');
 Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->name('webhooks.max');
