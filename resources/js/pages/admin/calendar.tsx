@@ -1,0 +1,502 @@
+import { useState, useMemo } from 'react';
+import { Head, router, usePage } from '@inertiajs/react';
+import {
+    ChevronLeft, ChevronRight, Plus, Menu,
+    CalendarDays, Clock, User, Phone, DollarSign,
+    CheckCircle2, XCircle, Trash2, RotateCw,
+} from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import {
+    Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
+} from '@/components/ui/sheet';
+import Sidebar from '@/components/admin/Sidebar';
+
+/* ═══════════════ Types ═══════════════ */
+
+type AppointmentStatus = 'pending_client' | 'confirmed' | 'completed' | 'no_show' | 'cancelled';
+
+interface Appointment {
+    id: number;
+    client_name: string;
+    client_phone: string | null;
+    service: string;
+    time: string;
+    date: string;
+    duration: number;
+    price: number;
+    status: AppointmentStatus;
+}
+
+interface AuthUser {
+    name: string;
+    [key: string]: unknown;
+}
+
+interface PageProps {
+    appointments: Appointment[];
+    auth?: { user?: AuthUser };
+    [key: string]: unknown;
+}
+
+/* ═══════════════ Constants ═══════════════ */
+
+const STATUS_STYLES: Record<AppointmentStatus, { card: string; label: string; dot: string }> = {
+    confirmed: {
+        card: 'bg-blue-50/90 border-blue-500 text-blue-900 dark:bg-blue-950/40 dark:border-blue-500 dark:text-blue-200',
+        label: 'Подтверждено',
+        dot: 'bg-blue-500',
+    },
+    pending_client: {
+        card: 'bg-amber-50/90 border-amber-500 text-amber-900 dark:bg-amber-950/40 dark:border-amber-500 dark:text-amber-200',
+        label: 'Ожидает оплаты',
+        dot: 'bg-amber-500',
+    },
+    completed: {
+        card: 'bg-emerald-50/90 border-emerald-500 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-500 dark:text-emerald-200',
+        label: 'Оплачено',
+        dot: 'bg-emerald-500',
+    },
+    no_show: {
+        card: 'bg-rose-50/90 border-rose-500 text-rose-900 dark:bg-rose-950/40 dark:border-rose-500 dark:text-rose-200',
+        label: 'No-Show',
+        dot: 'bg-rose-500',
+    },
+    cancelled: {
+        card: 'bg-zinc-100/60 border-zinc-300 text-zinc-500 line-through dark:bg-zinc-900/30 dark:border-zinc-700 dark:text-zinc-500',
+        label: 'Отменена',
+        dot: 'bg-zinc-400',
+    },
+};
+
+const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const HOURS = Array.from({ length: 14 }, (_, i) => i + 8);
+const HOUR_HEIGHT = 64;
+
+/* ═══════════════ Helpers ═══════════════ */
+
+function timeToMinutes(t: string): number {
+    const [h, m] = t.split(':').map(Number);
+    return h * 60 + m;
+}
+
+function getEndTime(time: string, duration: number): string {
+    const total = timeToMinutes(time) + duration;
+    const h = Math.floor(total / 60);
+    const m = total % 60;
+    return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+}
+
+function getWeekDates(center: Date): Date[] {
+    const start = new Date(center);
+    const day = start.getDay();
+    const diff = day === 0 ? -6 : 1 - day;
+    start.setDate(start.getDate() + diff);
+    return Array.from({ length: 7 }, (_, i) => {
+        const d = new Date(start);
+        d.setDate(d.getDate() + i);
+        return d;
+    });
+}
+
+function formatDateRange(dates: Date[]): string {
+    const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+    const first = dates[0];
+    const last = dates[6];
+    if (first.getMonth() === last.getMonth()) {
+        return `${first.getDate()} – ${last.getDate()} ${months[first.getMonth()]} ${first.getFullYear()}`;
+    }
+    return `${first.getDate()} ${months[first.getMonth()]} – ${last.getDate()} ${months[last.getMonth()]} ${first.getFullYear()}`;
+}
+
+function dateToKey(d: Date): string {
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+}
+
+/* ═══════════════ Appointment Card ═══════════════ */
+
+function AppointmentCard({ appointment, onClick }: { appointment: Appointment; onClick: () => void }) {
+    const startMin = timeToMinutes(appointment.time);
+    const top = ((startMin - 8 * 60) / 60) * HOUR_HEIGHT;
+    const height = (appointment.duration / 60) * HOUR_HEIGHT;
+    const styles = STATUS_STYLES[appointment.status];
+    const endTime = getEndTime(appointment.time, appointment.duration);
+    const showService = height > 50;
+    const showPrice = height > 64;
+
+    return (
+        <button
+            onClick={onClick}
+            className={`absolute left-1 right-1 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2.5 py-1.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
+            style={{ top, height: Math.max(height, 44) }}
+        >
+            <div className="flex h-full flex-col justify-between">
+                <div>
+                    <p className="font-mono text-[10px] opacity-75">
+                        {appointment.time} – {endTime}
+                    </p>
+                    <p className="mt-0.5 truncate text-xs font-semibold">
+                        {appointment.client_name}
+                    </p>
+                    {showService && (
+                        <p className="mt-0.5 truncate text-[11px] opacity-80">
+                            {appointment.service}
+                        </p>
+                    )}
+                </div>
+                {showPrice && (
+                    <p className="text-[10px] opacity-60">
+                        {appointment.price.toLocaleString('ru-RU')} ₽
+                    </p>
+                )}
+            </div>
+        </button>
+    );
+}
+
+/* ═══════════════ Month Grid Placeholder ═══════════════ */
+
+function MonthViewPlaceholder() {
+    return (
+        <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-32 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="text-center">
+                <CalendarDays className="mx-auto size-12 text-slate-300 dark:text-zinc-600" />
+                <p className="mt-3 text-sm font-medium text-slate-500 dark:text-zinc-400">
+                    Календарь на месяц в разработке
+                </p>
+                <p className="mt-1 text-xs text-slate-400 dark:text-zinc-500">
+                    Пока доступен недельный вид
+                </p>
+            </div>
+        </div>
+    );
+}
+
+/* ═══════════════ Main Calendar Page ═══════════════ */
+
+export default function CalendarPage() {
+    const { appointments: initialAppointments, auth } = usePage<PageProps>().props;
+    const [selected, setSelected] = useState<Appointment | null>(null);
+    const [sheetOpen, setSheetOpen] = useState(false);
+    const [weekOffset, setWeekOffset] = useState(0);
+    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+
+    const userName = auth?.user?.name || 'Мастер';
+    const initials = userName
+        .split(' ')
+        .map((w) => w[0])
+        .join('')
+        .toUpperCase()
+        .slice(0, 2);
+
+    const today = new Date();
+    const centerDate = useMemo(() => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + weekOffset * 7);
+        return d;
+    }, [weekOffset]);
+    const weekDates = useMemo(() => getWeekDates(centerDate), [centerDate]);
+    const dateRangeStr = useMemo(() => formatDateRange(weekDates), [weekDates]);
+
+    const appointments = useMemo(
+        () => initialAppointments.filter((a) => a.status !== 'cancelled'),
+        [initialAppointments],
+    );
+
+    const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
+
+    function getAppointmentsForDay(dayIndex: number): Appointment[] {
+        const key = weekDateKeys[dayIndex];
+        return appointments.filter((a) => a.date === key);
+    }
+
+    function updateStatus(status: AppointmentStatus) {
+        if (!selected) return;
+        router.patch(`/admin/appointments/${selected.id}/status`, { status }, { preserveScroll: true });
+        setSheetOpen(false);
+        setSelected(null);
+    }
+
+    function deleteAppointment() {
+        if (!selected) return;
+        router.patch(`/admin/appointments/${selected.id}/status`, { status: 'cancelled' }, { preserveScroll: true });
+        setSheetOpen(false);
+        setSelected(null);
+    }
+
+    function rescheduleAppointment() {
+        if (!selected) return;
+        const [h, m] = selected.time.split(':').map(Number);
+        const newM = m + 30;
+        const newH = h + Math.floor(newM / 60);
+        const newTime = `${String(newH).padStart(2, '0')}:${String(newM % 60).padStart(2, '0')}`;
+        const dateTime = `${selected.date} ${newTime}:00`;
+        router.patch(`/admin/appointments/${selected.id}/status`, { start_time: dateTime }, { preserveScroll: true });
+        setSheetOpen(false);
+        setSelected(null);
+    }
+
+    function openDetail(appointment: Appointment) {
+        setSelected(appointment);
+        setSheetOpen(true);
+    }
+
+    function isToday(date: Date): boolean {
+        return (
+            date.getDate() === today.getDate() &&
+            date.getMonth() === today.getMonth() &&
+            date.getFullYear() === today.getFullYear()
+        );
+    }
+
+    function toggleViewMode() {
+        setViewMode((m) => (m === 'week' ? 'month' : 'week'));
+    }
+
+    return (
+        <>
+            <Head title="Календарь — Вовремя" />
+
+            <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
+                <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
+
+                <div className="flex min-w-0 flex-1 flex-col">
+                    {/* Header */}
+                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/80">
+                        <div className="flex items-center gap-4">
+                            <button
+                                onClick={() => setMobileMenuOpen(true)}
+                                className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 lg:hidden"
+                            >
+                                <Menu className="size-5 text-slate-700 dark:text-zinc-300" />
+                            </button>
+                            <h1 className="text-lg font-semibold text-slate-900 dark:text-zinc-100 md:text-xl">
+                                Рабочий календарь (Scheduler)
+                            </h1>
+                        </div>
+                        <div className="flex items-center gap-4">
+                            <div className="text-right hidden sm:block">
+                                <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
+                                <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: Профи</p>
+                            </div>
+                            <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
+                                {initials}
+                            </div>
+                        </div>
+                    </header>
+
+                    {/* Content Area */}
+                    <main className="flex-1 overflow-y-auto p-4 md:p-6">
+                        <div className="space-y-4">
+                            {/* ─── Date Control Panel ─── */}
+                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={() => setWeekOffset((w) => w - 1)}
+                                        className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                                    >
+                                        <ChevronLeft className="size-4 text-slate-600 dark:text-zinc-400" />
+                                    </button>
+                                    <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 md:text-base">
+                                        {dateRangeStr}
+                                    </h2>
+                                    <button
+                                        onClick={() => setWeekOffset((w) => w + 1)}
+                                        className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                                    >
+                                        <ChevronRight className="size-4 text-slate-600 dark:text-zinc-400" />
+                                    </button>
+                                    <button
+                                        onClick={() => setWeekOffset(0)}
+                                        className="ml-2 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                                    >
+                                        Сегодня
+                                    </button>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <button
+                                        onClick={toggleViewMode}
+                                        className="flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                                    >
+                                        <CalendarDays className="size-3.5" />
+                                        {viewMode === 'week' ? 'Месяц' : 'Неделя'}
+                                    </button>
+                                    <button className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+                                        <Plus className="size-3.5" />
+                                        Новая запись
+                                    </button>
+                                </div>
+                            </div>
+
+                            {/* ─── Calendar Content ─── */}
+                            {viewMode === 'month' ? (
+                                <MonthViewPlaceholder />
+                            ) : (
+                                /* ─── Week Schedule Grid ─── */
+                                <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                    <div className="max-h-[600px] overflow-y-auto">
+                                        {/* Day Headers — sticky at top */}
+                                        <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+                                            <div className="border-r border-slate-200 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:text-zinc-500">
+                                                Время
+                                            </div>
+                                            {weekDates.map((date, idx) => {
+                                                const todayMark = isToday(date);
+                                                return (
+                                                    <div
+                                                        key={`h-${idx}`}
+                                                        className={`cursor-pointer border-r border-slate-200 p-3 text-center transition-colors last:border-r-0 hover:bg-slate-100 dark:border-zinc-800 dark:hover:bg-zinc-800/50 ${todayMark ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
+                                                    >
+                                                        <div className="text-xs font-medium text-slate-500 dark:text-zinc-400">
+                                                            {DAY_NAMES[idx]}
+                                                        </div>
+                                                        <div className={`mt-0.5 text-lg font-bold ${todayMark ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-zinc-100'}`}>
+                                                            {date.getDate()}
+                                                        </div>
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+
+                                        {/* Grid Body — same grid-cols-8, borders align with header */}
+                                        <div className="grid grid-cols-8">
+                                            {/* Time Column */}
+                                            <div className="border-r border-slate-200 dark:border-zinc-800">
+                                                {HOURS.map((hour) => (
+                                                    <div
+                                                        key={hour}
+                                                        className="flex items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
+                                                        style={{ height: HOUR_HEIGHT }}
+                                                    >
+                                                        {String(hour).padStart(2, '0')}:00
+                                                    </div>
+                                                ))}
+                                            </div>
+
+                                            {/* Day Columns with Appointment Cards */}
+                                            {weekDates.map((_, dayIdx) => {
+                                                const dayAppts = getAppointmentsForDay(dayIdx);
+                                                return (
+                                                    <div
+                                                        key={`col-${dayIdx}`}
+                                                        className="relative border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
+                                                    >
+                                                        {HOURS.map((hour) => (
+                                                            <div
+                                                                key={hour}
+                                                                className="border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                                style={{ height: HOUR_HEIGHT }}
+                                                            />
+                                                        ))}
+                                                        {dayAppts.map((appt) => (
+                                                            <AppointmentCard
+                                                                key={appt.id}
+                                                                appointment={appt}
+                                                                onClick={() => openDetail(appt)}
+                                                            />
+                                                        ))}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* ─── Legend ─── */}
+                            <div className="flex flex-wrap gap-4 text-xs">
+                                {(['confirmed', 'pending_client', 'no_show', 'completed'] as const).map((status) => (
+                                    <div key={status} className="flex items-center gap-1.5">
+                                        <div className={`size-2.5 rounded-full ${STATUS_STYLES[status].dot}`} />
+                                        <span className="text-slate-500 dark:text-zinc-400">{STATUS_STYLES[status].label}</span>
+                                    </div>
+                                ))}
+                            </div>
+                        </div>
+                    </main>
+                </div>
+
+                {/* ─── Appointment Detail Sheet ─── */}
+                <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+                    <SheetContent side="bottom" className="rounded-t-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 md:mx-auto md:max-w-md md:rounded-2xl">
+                        {selected && (
+                            <>
+                                <SheetHeader className="pb-2">
+                                    <SheetTitle className="text-lg text-slate-900 dark:text-zinc-100">
+                                        Детали записи
+                                    </SheetTitle>
+                                    <SheetDescription className="text-slate-500 dark:text-zinc-400">
+                                        {STATUS_STYLES[selected.status].label}
+                                    </SheetDescription>
+                                </SheetHeader>
+
+                                <div className="space-y-3 px-4">
+                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
+                                        <User className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
+                                        {selected.client_name}
+                                    </div>
+                                    {selected.client_phone && (
+                                        <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
+                                            <Phone className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
+                                            {selected.client_phone}
+                                        </div>
+                                    )}
+                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
+                                        <Clock className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
+                                        {selected.service} · {selected.duration} мин
+                                    </div>
+                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
+                                        <DollarSign className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
+                                        {selected.price.toLocaleString('ru-RU')} ₽
+                                    </div>
+                                </div>
+
+                                <div className="flex flex-col gap-2 px-4 pt-4 pb-6">
+                                    {selected.status !== 'completed' && selected.status !== 'cancelled' && (
+                                        <Button
+                                            onClick={() => updateStatus('completed')}
+                                            className="w-full justify-start rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
+                                        >
+                                            <CheckCircle2 className="size-4" />
+                                            Оплата получена
+                                        </Button>
+                                    )}
+                                    {selected.status !== 'no_show' && selected.status !== 'cancelled' && (
+                                        <Button
+                                            onClick={() => updateStatus('no_show')}
+                                            variant="outline"
+                                            className="w-full justify-start rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
+                                        >
+                                            <XCircle className="size-4" />
+                                            Не пришёл
+                                        </Button>
+                                    )}
+                                    {selected.status !== 'cancelled' && (
+                                        <>
+                                            <Button
+                                                onClick={rescheduleAppointment}
+                                                variant="outline"
+                                                className="w-full justify-start rounded-lg"
+                                            >
+                                                <RotateCw className="size-4" />
+                                                Перенести на +30 мин
+                                            </Button>
+                                            <Button
+                                                onClick={deleteAppointment}
+                                                variant="outline"
+                                                className="w-full justify-start rounded-lg border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                            >
+                                                <Trash2 className="size-4" />
+                                                Удалить бронь
+                                            </Button>
+                                        </>
+                                    )}
+                                </div>
+                            </>
+                        )}
+                    </SheetContent>
+                </Sheet>
+            </div>
+        </>
+    );
+}
