@@ -68,8 +68,8 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasMany(Appointment::class, 'master_id');
     }
 
-    public function clientAppointments(): HasMany
+    public function clients(): HasMany
     {
-        return $this->hasMany(Appointment::class, 'client_id');
+        return $this->hasMany(Client::class, 'user_id');
     }
 }

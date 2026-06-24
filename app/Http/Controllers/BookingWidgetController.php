@@ -96,6 +96,8 @@ class BookingWidgetController extends Controller
             'provider' => $validated['provider'],
         ]);
 
+        session(['pending_telegram_appointment_id' => $appointment->id]);
+
         $botLink = $validated['provider'] === 'telegram'
             ? 'https://t.me/vovremia_bot?start=book_'.$appointment->id
             : 'https://max.ru/bot/vovremia_bot?start=book_'.$appointment->id;

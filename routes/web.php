@@ -7,6 +7,7 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\Client\BookingsController;
+use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\WebhookController;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
@@ -23,6 +24,9 @@ Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->name('
 
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->name('webhooks.telegram');
 Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->name('webhooks.max');
+
+Route::get('/client/auth/{token}', [ClientAuthController::class, 'loginByToken'])->name('client.login');
+Route::post('/client/logout', [ClientAuthController::class, 'logout'])->name('client.logout');
 
 Route::get('/dev/login-master', function () {
     $master = \App\Models\User::where('master_slug', 'test-master')->firstOrFail();
@@ -46,7 +50,9 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/services', [SettingsController::class, 'storeService'])->name('admin.services.store');
     Route::put('/admin/services/{service}', [SettingsController::class, 'updateService'])->name('admin.services.update');
     Route::delete('/admin/services/{service}', [SettingsController::class, 'destroyService'])->name('admin.services.destroy');
+});
 
+Route::middleware(['auth:client'])->group(function () {
     Route::get('/my-bookings', [BookingsController::class, 'index'])->name('client.bookings');
     Route::patch('/my-bookings/appointments/{appointment}/cancel', [BookingsController::class, 'cancel'])->name('client.appointments.cancel');
 });

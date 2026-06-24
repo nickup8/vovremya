@@ -4,16 +4,26 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use Illuminate\Http\RedirectResponse;
+use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
+use Inertia\Response;
 
 class BookingsController extends Controller
 {
-    public function index()
+    public function index(): Response
     {
-        $user = auth()->user();
+        $client = Auth::guard('client')->user();
 
-        $appointments = $user->clientAppointments()
+        if (! $client) {
+            return Inertia::render('client/bookings', [
+                'appointments' => collect(),
+            ]);
+        }
+
+        $appointments = Appointment::where('client_id', $client->id)
             ->with(['master', 'service'])
+            ->orderByDesc('start_time')
             ->get()
             ->map(fn (Appointment $a) => [
                 'id' => $a->id,
@@ -31,9 +41,13 @@ class BookingsController extends Controller
         ]);
     }
 
-    public function cancel(Appointment $appointment)
+    public function cancel(Appointment $appointment): RedirectResponse
     {
-        $appointment->update(['status' => 'cancelled']);
+        $client = Auth::guard('client')->user();
+
+        if ($client && $appointment->client_id === $client->id) {
+            $appointment->update(['status' => 'cancelled']);
+        }
 
         return back();
     }

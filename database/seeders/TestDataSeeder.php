@@ -3,6 +3,7 @@
 namespace Database\Seeders;
 
 use App\Models\Appointment;
+use App\Models\Client;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Database\Seeder;
@@ -13,6 +14,7 @@ class TestDataSeeder extends Seeder
     public function run(): void
     {
         Appointment::query()->delete();
+        Client::query()->delete();
         Service::query()->delete();
         User::query()->delete();
 
@@ -60,12 +62,11 @@ class TestDataSeeder extends Seeder
             ]),
         ];
 
-        $client = User::create([
+        $client = Client::create([
+            'user_id' => $master->id,
             'name' => 'Мария Клиентова',
-            'email' => 'client@vovremia.local',
-            'email_verified_at' => now(),
-            'password' => bcrypt('password'),
             'phone' => '+79009876543',
+            'telegram_id' => '123456789',
         ]);
 
         $today = Carbon::today();
@@ -97,6 +98,7 @@ class TestDataSeeder extends Seeder
         $this->command->info("Тестовые данные созданы:");
         $this->command->info("  Мастер: test-master (slug)");
         $this->command->info("  Услуги: " . count($services) . " шт.");
+        $this->command->info("  Клиент: Мария Клиентова (Client model)");
         $this->command->info("  Записи на сегодня: 3 шт.");
         $this->command->info("    10:00–11:00 (confirmed, 60 мин)");
         $this->command->info("    13:30–14:00 (pending_client, 30 мин)");
