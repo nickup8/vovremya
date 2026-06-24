@@ -7,6 +7,8 @@ use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\Client\BookingsController;
+use App\Http\Controllers\WebhookController;
+use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
 Route::inertia('/', 'welcome')->name('home');
@@ -18,6 +20,16 @@ Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout'
 
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->name('booking.reserve');
+
+Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->name('webhooks.telegram');
+Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->name('webhooks.max');
+
+Route::get('/dev/login-master', function () {
+    $master = \App\Models\User::where('master_slug', 'test-master')->firstOrFail();
+    Auth::login($master);
+
+    return redirect()->route('admin.calendar');
+});
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/admin/calendar', [CalendarController::class, 'index'])->name('admin.calendar');

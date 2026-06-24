@@ -39,6 +39,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'name', 'email', 'password', 'phone',
     'telegram_id', 'max_id', 'avatar_url',
     'is_master', 'master_slug', 'specialty', 'address',
+    'telegram_notifications', 'max_notifications',
+    'soft_deposit', 'deposit_timeout', 'deposit_percent',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser

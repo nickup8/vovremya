@@ -2,13 +2,13 @@ import { useState, useMemo } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     ChevronLeft, ChevronRight, Plus, Menu,
-    CalendarDays, Clock, User, Phone, DollarSign,
+    CalendarDays, Clock, User, Phone,
     CheckCircle2, XCircle, Trash2, RotateCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-    Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription,
-} from '@/components/ui/sheet';
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+} from '@/components/ui/dialog';
 import Sidebar from '@/components/admin/Sidebar';
 
 /* ═══════════════ Types ═══════════════ */
@@ -70,7 +70,9 @@ const STATUS_STYLES: Record<AppointmentStatus, { card: string; label: string; do
 
 const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const HOURS = Array.from({ length: 14 }, (_, i) => i + 8);
-const HOUR_HEIGHT = 64;
+const DAY_START_HOUR = 8;
+const HOUR_HEIGHT = 80;
+const MINUTE_HEIGHT = HOUR_HEIGHT / 60;
 
 /* ═══════════════ Helpers ═══════════════ */
 
@@ -115,33 +117,30 @@ function dateToKey(d: Date): string {
 /* ═══════════════ Appointment Card ═══════════════ */
 
 function AppointmentCard({ appointment, onClick }: { appointment: Appointment; onClick: () => void }) {
-    const startMin = timeToMinutes(appointment.time);
-    const top = ((startMin - 8 * 60) / 60) * HOUR_HEIGHT;
-    const height = (appointment.duration / 60) * HOUR_HEIGHT;
+    const startMinutes = timeToMinutes(appointment.time) - DAY_START_HOUR * 60;
+    const top = startMinutes * MINUTE_HEIGHT;
+    const height = appointment.duration * MINUTE_HEIGHT;
     const styles = STATUS_STYLES[appointment.status];
     const endTime = getEndTime(appointment.time, appointment.duration);
-    const showService = height > 50;
-    const showPrice = height > 64;
+    const showPrice = appointment.duration >= 45;
 
     return (
         <button
             onClick={onClick}
-            className={`absolute left-1 right-1 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2.5 py-1.5 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
-            style={{ top, height: Math.max(height, 44) }}
+            className={`absolute mx-1 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2 py-1 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
+            style={{ top, height: Math.max(height, 32) }}
         >
             <div className="flex h-full flex-col justify-between">
                 <div>
                     <p className="font-mono text-[10px] opacity-75">
                         {appointment.time} – {endTime}
                     </p>
-                    <p className="mt-0.5 truncate text-xs font-semibold">
+                    <p className="truncate text-xs font-semibold leading-tight">
                         {appointment.client_name}
                     </p>
-                    {showService && (
-                        <p className="mt-0.5 truncate text-[11px] opacity-80">
-                            {appointment.service}
-                        </p>
-                    )}
+                    <p className="truncate text-[11px] leading-tight opacity-80">
+                        {appointment.service}
+                    </p>
                 </div>
                 {showPrice && (
                     <p className="text-[10px] opacity-60">
@@ -365,8 +364,7 @@ export default function CalendarPage() {
                                                 {HOURS.map((hour) => (
                                                     <div
                                                         key={hour}
-                                                        className="flex items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
-                                                        style={{ height: HOUR_HEIGHT }}
+                                                        className="flex h-20 items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
                                                     >
                                                         {String(hour).padStart(2, '0')}:00
                                                     </div>
@@ -384,8 +382,7 @@ export default function CalendarPage() {
                                                         {HOURS.map((hour) => (
                                                             <div
                                                                 key={hour}
-                                                                className="border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
-                                                                style={{ height: HOUR_HEIGHT }}
+                                                                className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
                                                             />
                                                         ))}
                                                         {dayAppts.map((appt) => (
@@ -416,21 +413,21 @@ export default function CalendarPage() {
                     </main>
                 </div>
 
-                {/* ─── Appointment Detail Sheet ─── */}
-                <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
-                    <SheetContent side="bottom" className="rounded-t-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 md:mx-auto md:max-w-md md:rounded-2xl">
+                {/* ─── Appointment Detail Dialog ─── */}
+                <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
+                    <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
                         {selected && (
                             <>
-                                <SheetHeader className="pb-2">
-                                    <SheetTitle className="text-lg text-slate-900 dark:text-zinc-100">
+                                <DialogHeader className="pb-2">
+                                    <DialogTitle className="text-lg text-slate-900 dark:text-zinc-100">
                                         Детали записи
-                                    </SheetTitle>
-                                    <SheetDescription className="text-slate-500 dark:text-zinc-400">
+                                    </DialogTitle>
+                                    <DialogDescription className="text-slate-500 dark:text-zinc-400">
                                         {STATUS_STYLES[selected.status].label}
-                                    </SheetDescription>
-                                </SheetHeader>
+                                    </DialogDescription>
+                                </DialogHeader>
 
-                                <div className="space-y-3 px-4">
+                                <div className="space-y-3">
                                     <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
                                         <User className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
                                         {selected.client_name}
@@ -446,12 +443,12 @@ export default function CalendarPage() {
                                         {selected.service} · {selected.duration} мин
                                     </div>
                                     <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                        <DollarSign className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
+                                        <span className="size-4 shrink-0 text-center text-sm font-bold text-slate-400 dark:text-zinc-500">₽</span>
                                         {selected.price.toLocaleString('ru-RU')} ₽
                                     </div>
                                 </div>
 
-                                <div className="flex flex-col gap-2 px-4 pt-4 pb-6">
+                                <div className="flex flex-col gap-2 pt-2">
                                     {selected.status !== 'completed' && selected.status !== 'cancelled' && (
                                         <Button
                                             onClick={() => updateStatus('completed')}
@@ -494,8 +491,8 @@ export default function CalendarPage() {
                                 </div>
                             </>
                         )}
-                    </SheetContent>
-                </Sheet>
+                    </DialogContent>
+                </Dialog>
             </div>
         </>
     );

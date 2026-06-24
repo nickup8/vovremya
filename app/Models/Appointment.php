@@ -13,6 +13,7 @@ class Appointment extends Model
         'service_id',
         'start_time',
         'status',
+        'provider',
     ];
 
     protected function casts(): array
