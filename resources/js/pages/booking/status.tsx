@@ -2,6 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { Head } from '@inertiajs/react';
 import { Clock, CheckCircle2, AlertCircle, Phone, MapPin } from 'lucide-react';
 import PublicLayout from '@/layouts/PublicLayout';
+import { AppointmentStatus } from '@/types/appointment-status';
 
 Status.layout = (page: React.ReactNode) => <PublicLayout children={page} />;
 
@@ -112,10 +113,11 @@ function CountdownTimer({ expiresAt }: { expiresAt: Date }) {
 /* ═══════════════ Main Status Page ═══════════════ */
 
 export default function Status({ appointment }: PageProps) {
-    const { service, master } = appointment;
+    const safeAppointment = appointment || { id: 0, status: AppointmentStatus.PendingClient, start_time: '', created_at: '', service: { id: 0, title: '', price: 0, duration_minutes: 0 }, master: { id: 0, name: '', phone: null, specialty: null, soft_deposit: false, deposit_timeout: 15, deposit_percent: 30 } };
+    const { service, master } = safeAppointment;
 
-    const isPending = appointment.status === 'pending_client';
-    const isConfirmed = appointment.status === 'confirmed';
+    const isPending = safeAppointment.status === AppointmentStatus.PendingClient;
+    const isConfirmed = safeAppointment.status === AppointmentStatus.Confirmed;
 
     const depositAmount = useMemo(() => {
         if (!master.soft_deposit || !master.deposit_percent) return 0;

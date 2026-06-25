@@ -15,8 +15,8 @@ interface Client {
     id: number;
     name: string;
     phone: string | null;
-    avatar_url: string | null;
-    notes: string | null;
+    telegram_id: string | null;
+    max_id: string | null;
     total_bookings: number;
     completed_bookings: number;
     ltv: number;
@@ -93,30 +93,22 @@ function ClientCard({ client }: { client: Client }) {
             <div className="space-y-3 p-4">
                 {/* Tags */}
                 <div className="flex flex-wrap gap-2">
-                    <span className="flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-400">
-                        <Send className="size-3" />
-                        Telegram
-                    </span>
-                    <span className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
-                        <MessageCircle className="size-3" />
-                        Max
-                    </span>
+                    {client.telegram_id && (
+                        <span className="flex items-center gap-1 rounded-full border border-blue-100 bg-blue-50 px-2 py-0.5 text-xs font-medium text-blue-600 dark:border-blue-900/50 dark:bg-blue-950/40 dark:text-blue-400">
+                            <Send className="size-3" />
+                            Telegram
+                        </span>
+                    )}
+                    {client.max_id && (
+                        <span className="flex items-center gap-1 rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                            <MessageCircle className="size-3" />
+                            Max
+                        </span>
+                    )}
                     <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
                         {client.total_bookings} визитов
                     </span>
                 </div>
-
-                {/* Notes */}
-                {client.notes && (
-                    <div className="space-y-1 rounded-lg border border-slate-100 bg-slate-50 p-3 dark:border-zinc-800 dark:bg-zinc-800/50">
-                        <span className="block text-[11px] font-bold uppercase tracking-wider text-slate-400 dark:text-zinc-500">
-                            Заметки мастера
-                        </span>
-                        <p className="text-xs leading-relaxed text-slate-600 dark:text-zinc-300">
-                            {client.notes}
-                        </p>
-                    </div>
-                )}
 
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-2">
@@ -137,7 +129,7 @@ function ClientCard({ client }: { client: Client }) {
 /* ═══════════════ Main Clients Page ═══════════════ */
 
 export default function ClientsPage() {
-    const { clients: initialClients, auth } = usePage<PageProps>().props;
+    const { clients: initialClients = [], auth } = usePage<PageProps>().props;
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FilterType>('all');

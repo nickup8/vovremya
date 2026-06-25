@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\AppointmentStatus;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
@@ -20,6 +21,7 @@ class Appointment extends Model
     {
         return [
             'start_time' => 'datetime',
+            'status' => AppointmentStatus::class,
         ];
     }
 

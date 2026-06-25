@@ -39,6 +39,7 @@ Route::get('/dev/login-master', function () {
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/admin/calendar', [CalendarController::class, 'index'])->name('admin.calendar');
+    Route::post('/admin/calendar/appointments', [CalendarController::class, 'store'])->name('admin.calendar.store');
     Route::patch('/admin/appointments/{appointment}/status', [CalendarController::class, 'updateStatus'])->name('admin.appointments.update-status');
 
     Route::get('/admin/clients', [ClientController::class, 'index'])->name('admin.clients');
@@ -52,6 +53,10 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/services', [SettingsController::class, 'storeService'])->name('admin.services.store');
     Route::put('/admin/services/{service}', [SettingsController::class, 'updateService'])->name('admin.services.update');
     Route::delete('/admin/services/{service}', [SettingsController::class, 'destroyService'])->name('admin.services.destroy');
+
+    Route::put('/admin/working-hours', [SettingsController::class, 'updateWorkingHours'])->name('admin.working-hours.update');
+    Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');
+    Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
 });
 
 Route::middleware(['auth:client'])->group(function () {

@@ -2,7 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import Cropper from 'react-easy-crop';
 import {
-    Menu, Send, MessageCircle, Pencil, Plus, Trash2, X,
+    Menu, Send, MessageCircle, Pencil, Plus, Trash2, X, Clock,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -21,6 +21,7 @@ interface Profile {
     soft_deposit: boolean;
     deposit_timeout: number;
     deposit_percent: number;
+    slot_interval: number;
     telegram_notifications: boolean;
     max_notifications: boolean;
 }
@@ -37,9 +38,28 @@ interface AuthUser {
     [key: string]: unknown;
 }
 
+interface WorkingHour {
+    id: number;
+    day_of_week: number;
+    start_time: string | null;
+    end_time: string | null;
+    break_start_time: string | null;
+    break_end_time: string | null;
+    is_working: boolean;
+}
+
+interface BlockedTime {
+    id: number;
+    start_datetime: string;
+    end_datetime: string;
+    reason: string;
+}
+
 interface PageProps {
     profile: Profile;
     services: Service[];
+    workingHours: WorkingHour[];
+    blockedTimes: BlockedTime[];
     auth?: { user?: AuthUser };
     [key: string]: unknown;
 }
@@ -379,10 +399,352 @@ function ServiceModal({
     );
 }
 
+/* ═══════════════ Working Hours Card ═══════════════ */
+
+const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const SLOT_INTERVALS = [15, 30, 60];
+
+function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: { workingHours: WorkingHour[]; slotInterval: number }) {
+    const [localHours, setLocalHours] = useState<WorkingHour[]>(() => {
+        const hours: WorkingHour[] = [];
+        for (let i = 0; i < 7; i++) {
+            const existing = workingHours.find((h) => h.day_of_week === i);
+            hours.push(existing || {
+                id: 0,
+                day_of_week: i,
+                start_time: '09:00',
+                end_time: '18:00',
+                break_start_time: '13:00',
+                break_end_time: '14:00',
+                is_working: i < 5,
+            });
+        }
+        return hours;
+    });
+    const [slotInterval, setSlotInterval] = useState(initialSlotInterval);
+
+    function toggleDay(dayOfWeek: number) {
+        setLocalHours((prev) =>
+            prev.map((h) =>
+                h.day_of_week === dayOfWeek ? { ...h, is_working: !h.is_working } : h
+            )
+        );
+    }
+
+    function updateTime(dayOfWeek: number, field: 'start_time' | 'end_time' | 'break_start_time' | 'break_end_time', value: string) {
+        setLocalHours((prev) =>
+            prev.map((h) =>
+                h.day_of_week === dayOfWeek ? { ...h, [field]: value } : h
+            )
+        );
+    }
+
+    function handleSave() {
+        router.put('/admin/working-hours', {
+            working_hours: localHours,
+            slot_interval: slotInterval,
+        }, { preserveScroll: true });
+    }
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="mb-4 flex items-center justify-between">
+                <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
+                        График работы
+                    </h3>
+                    <p className="mt-0.5 text-sm text-slate-500 dark:text-zinc-400">
+                        Настройте рабочие дни, часы и обеденный перерыв
+                    </p>
+                </div>
+                <Button
+                    type="button"
+                    size="sm"
+                    onClick={handleSave}
+                    className="bg-blue-600 text-white hover:bg-blue-700"
+                >
+                    <Clock className="size-3.5" />
+                    Сохранить
+                </Button>
+            </div>
+
+            {/* Slot Interval Selector */}
+            <div className="mb-4 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
+                <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+                    Интервал записи:
+                </span>
+                <div className="flex gap-1">
+                    {SLOT_INTERVALS.map((interval) => (
+                        <button
+                            key={interval}
+                            type="button"
+                            onClick={() => setSlotInterval(interval)}
+                            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                                slotInterval === interval
+                                    ? 'bg-blue-600 text-white'
+                                    : 'bg-slate-200 text-slate-600 hover:bg-slate-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600'
+                            }`}
+                        >
+                            {interval} мин
+                        </button>
+                    ))}
+                </div>
+            </div>
+
+            <div className="space-y-2">
+                {localHours.map((hour) => (
+                    <div
+                        key={hour.day_of_week}
+                        className={`rounded-lg p-3 transition-colors ${
+                            hour.is_working
+                                ? 'bg-slate-50 dark:bg-zinc-800/50'
+                                : 'bg-slate-100/50 dark:bg-zinc-800/20'
+                        }`}
+                    >
+                        <div className="flex items-center gap-3">
+                            <button
+                                type="button"
+                                onClick={() => toggleDay(hour.day_of_week)}
+                                className={`w-10 shrink-0 rounded-md px-2 py-1 text-xs font-bold transition-colors ${
+                                    hour.is_working
+                                        ? 'bg-blue-600 text-white'
+                                        : 'bg-slate-200 text-slate-500 dark:bg-zinc-700 dark:text-zinc-400'
+                                }`}
+                            >
+                                {DAY_NAMES[hour.day_of_week]}
+                            </button>
+
+                            {hour.is_working ? (
+                                <div className="flex items-center gap-2">
+                                    <Input
+                                        type="time"
+                                        value={hour.start_time || '09:00'}
+                                        onChange={(e) => updateTime(hour.day_of_week, 'start_time', e.target.value)}
+                                        className="h-8 w-28 text-xs dark:bg-zinc-800"
+                                    />
+                                    <span className="text-xs text-slate-400 dark:text-zinc-500">—</span>
+                                    <Input
+                                        type="time"
+                                        value={hour.end_time || '18:00'}
+                                        onChange={(e) => updateTime(hour.day_of_week, 'end_time', e.target.value)}
+                                        className="h-8 w-28 text-xs dark:bg-zinc-800"
+                                    />
+                                </div>
+                            ) : (
+                                <span className="text-xs text-slate-400 dark:text-zinc-500">
+                                    Выходной
+                                </span>
+                            )}
+                        </div>
+
+                        {hour.is_working && (
+                            <div className="mt-2 flex items-center gap-3 pl-[52px]">
+                                <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">
+                                    Обед:
+                                </span>
+                                <Input
+                                    type="time"
+                                    value={hour.break_start_time || ''}
+                                    onChange={(e) => updateTime(hour.day_of_week, 'break_start_time', e.target.value)}
+                                    placeholder="Начало"
+                                    className="h-7 w-24 text-[11px] dark:bg-zinc-800"
+                                />
+                                <span className="text-[11px] text-slate-400 dark:text-zinc-500">—</span>
+                                <Input
+                                    type="time"
+                                    value={hour.break_end_time || ''}
+                                    onChange={(e) => updateTime(hour.day_of_week, 'break_end_time', e.target.value)}
+                                    placeholder="Конец"
+                                    className="h-7 w-24 text-[11px] dark:bg-zinc-800"
+                                />
+                            </div>
+                        )}
+                    </div>
+                ))}
+            </div>
+        </div>
+    );
+}
+
+/* ═══════════════ Blocked Times Card ═══════════════ */
+
+const BLOCKED_REASONS = ['Отпуск', 'Больничный', 'Обед', 'Личное время', 'Другое'];
+
+function BlockedTimesCard() {
+    const { blockedTimes: rawBlockedTimes } = usePage<PageProps>().props;
+    const blockedTimes = rawBlockedTimes || [];
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [startDate, setStartDate] = useState('');
+    const [endDate, setEndDate] = useState('');
+    const [reason, setReason] = useState('Другое');
+
+    function handleAdd() {
+        if (!startDate || !endDate) return;
+
+        router.post('/admin/blocked-times', {
+            start_datetime: startDate,
+            end_datetime: endDate,
+            reason,
+        }, {
+            preserveScroll: true,
+            onSuccess: () => {
+                setDialogOpen(false);
+                setStartDate('');
+                setEndDate('');
+                setReason('Другое');
+            },
+        });
+    }
+
+    function handleDelete(id: number) {
+        if (confirm('Удалить блокировку?')) {
+            router.delete(`/admin/blocked-times/${id}`, { preserveScroll: true });
+        }
+    }
+
+    return (
+        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+            <div className="mb-4 flex items-center justify-between">
+                <div>
+                    <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
+                        Недоступное время
+                    </h3>
+                    <p className="mt-0.5 text-sm text-slate-500 dark:text-zinc-400">
+                        Блокировки отпуска, обедов и прочего
+                    </p>
+                </div>
+                <Button
+                    type="button"
+                    size="sm"
+                    className="bg-blue-600 text-white hover:bg-blue-700"
+                    onClick={() => setDialogOpen(true)}
+                >
+                    <Plus className="size-3.5" />
+                    Добавить
+                </Button>
+            </div>
+
+            {blockedTimes.length === 0 ? (
+                <p className="py-6 text-center text-sm text-slate-400 dark:text-zinc-500">
+                    Нет активных блокировок
+                </p>
+            ) : (
+                <div className="space-y-2">
+                    {blockedTimes.map((bt) => (
+                        <div
+                            key={bt.id}
+                            className="flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50"
+                        >
+                            <div>
+                                <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+                                    {bt.reason}
+                                </p>
+                                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                                    {new Date(bt.start_datetime).toLocaleDateString('ru-RU')} — {new Date(bt.end_datetime).toLocaleDateString('ru-RU')}
+                                </p>
+                            </div>
+                            <button
+                                type="button"
+                                onClick={() => handleDelete(bt.id)}
+                                className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                            >
+                                <Trash2 className="size-3.5" />
+                            </button>
+                        </div>
+                    ))}
+                </div>
+            )}
+
+            {dialogOpen && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center">
+                    <div className="fixed inset-0 bg-black/50" onClick={() => setDialogOpen(false)} />
+                    <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
+                        <div className="mb-4 flex items-center justify-between">
+                            <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+                                Новая блокировка
+                            </h3>
+                            <button
+                                onClick={() => setDialogOpen(false)}
+                                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-800"
+                            >
+                                <X className="size-5" />
+                            </button>
+                        </div>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Причина
+                                </label>
+                                <select
+                                    value={reason}
+                                    onChange={(e) => setReason(e.target.value)}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                >
+                                    {BLOCKED_REASONS.map((r) => (
+                                        <option key={r} value={r}>{r}</option>
+                                    ))}
+                                </select>
+                            </div>
+
+                            <div className="grid grid-cols-2 gap-4">
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        С
+                                    </label>
+                                    <input
+                                        type="datetime-local"
+                                        value={startDate}
+                                        onChange={(e) => setStartDate(e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    />
+                                </div>
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        По
+                                    </label>
+                                    <input
+                                        type="datetime-local"
+                                        value={endDate}
+                                        onChange={(e) => setEndDate(e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    />
+                                </div>
+                            </div>
+
+                            <div className="flex justify-end gap-2 pt-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setDialogOpen(false)}
+                                    className="rounded-lg"
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    type="button"
+                                    onClick={handleAdd}
+                                    disabled={!startDate || !endDate}
+                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                                >
+                                    Добавить
+                                </Button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+}
+
 /* ═══════════════ Main Settings Page ═══════════════ */
 
 export default function SettingsPage() {
-    const { profile, services, auth } = usePage<PageProps>().props;
+    const { profile: rawProfile, services: rawServices, workingHours: rawWorkingHours, auth } = usePage<PageProps>().props;
+    const profile = rawProfile || { name: '', phone: null, master_slug: null, specialty: null, address: null, avatar_url: null, telegram_id: null, soft_deposit: false, deposit_timeout: 15, deposit_percent: 30, telegram_notifications: false, max_notifications: false };
+    const services = rawServices || [];
+    const workingHours = rawWorkingHours || [];
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [serviceModalOpen, setServiceModalOpen] = useState(false);
     const [editingService, setEditingService] = useState<Service | null>(null);
@@ -786,6 +1148,12 @@ export default function SettingsPage() {
                                     )}
                                 </div>
                             </div>
+
+                            {/* ═══ Card 5: Working Hours ═══ */}
+                            <WorkingHoursCard workingHours={workingHours} slotInterval={profile.slot_interval || 30} />
+
+                            {/* ═══ Card 6: Blocked Times ═══ */}
+                            <BlockedTimesCard />
 
                             {/* ═══ Action Buttons ═══ */}
                             <div className="flex justify-end gap-2">

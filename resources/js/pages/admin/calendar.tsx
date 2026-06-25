@@ -3,17 +3,16 @@ import { Head, router, usePage } from '@inertiajs/react';
 import {
     ChevronLeft, ChevronRight, Plus, Menu,
     CalendarDays, Clock, User, Phone,
-    CheckCircle2, XCircle, Trash2, RotateCw,
+    CheckCircle2, XCircle, Trash2, RotateCw, AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription,
+    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import Sidebar from '@/components/admin/Sidebar';
+import { AppointmentStatus } from '@/types/appointment-status';
 
 /* ═══════════════ Types ═══════════════ */
-
-type AppointmentStatus = 'pending_client' | 'confirmed' | 'completed' | 'no_show' | 'cancelled';
 
 interface Appointment {
     id: number;
@@ -27,6 +26,13 @@ interface Appointment {
     status: AppointmentStatus;
 }
 
+interface BlockedTime {
+    id: number;
+    start_datetime: string;
+    end_datetime: string;
+    reason: string;
+}
+
 interface AuthUser {
     name: string;
     [key: string]: unknown;
@@ -34,6 +40,7 @@ interface AuthUser {
 
 interface PageProps {
     appointments: Appointment[];
+    blockedTimes: BlockedTime[];
     auth?: { user?: AuthUser };
     [key: string]: unknown;
 }
@@ -41,27 +48,27 @@ interface PageProps {
 /* ═══════════════ Constants ═══════════════ */
 
 const STATUS_STYLES: Record<AppointmentStatus, { card: string; label: string; dot: string }> = {
-    confirmed: {
+    [AppointmentStatus.Confirmed]: {
         card: 'bg-blue-50/90 border-blue-500 text-blue-900 dark:bg-blue-950/40 dark:border-blue-500 dark:text-blue-200',
         label: 'Подтверждено',
         dot: 'bg-blue-500',
     },
-    pending_client: {
+    [AppointmentStatus.PendingClient]: {
         card: 'bg-amber-50/90 border-amber-500 text-amber-900 dark:bg-amber-950/40 dark:border-amber-500 dark:text-amber-200',
         label: 'Ожидает оплаты',
         dot: 'bg-amber-500',
     },
-    completed: {
+    [AppointmentStatus.Completed]: {
         card: 'bg-emerald-50/90 border-emerald-500 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-500 dark:text-emerald-200',
         label: 'Оплачено',
         dot: 'bg-emerald-500',
     },
-    no_show: {
+    [AppointmentStatus.NoShow]: {
         card: 'bg-rose-50/90 border-rose-500 text-rose-900 dark:bg-rose-950/40 dark:border-rose-500 dark:text-rose-200',
         label: 'No-Show',
         dot: 'bg-rose-500',
     },
-    cancelled: {
+    [AppointmentStatus.Cancelled]: {
         card: 'bg-zinc-100/60 border-zinc-300 text-zinc-500 line-through dark:bg-zinc-900/30 dark:border-zinc-700 dark:text-zinc-500',
         label: 'Отменена',
         dot: 'bg-zinc-400',
@@ -152,6 +159,37 @@ function AppointmentCard({ appointment, onClick }: { appointment: Appointment; o
     );
 }
 
+/* ═══════════════ Blocked Time Card ═══════════════ */
+
+function BlockedTimeCard({ blockedTime, dayDate }: { blockedTime: BlockedTime; dayDate: string }) {
+    const btStart = new Date(blockedTime.start_datetime);
+    const btEnd = new Date(blockedTime.end_datetime);
+
+    const dayStart = new Date(dayDate + 'T00:00:00');
+    const dayEnd = new Date(dayDate + 'T23:59:59');
+
+    const effectiveStart = btStart < dayStart ? dayStart : btStart;
+    const effectiveEnd = btEnd > dayEnd ? dayEnd : btEnd;
+
+    const startMinutes = effectiveStart.getHours() * 60 + effectiveStart.getMinutes() - DAY_START_HOUR * 60;
+    const endMinutes = effectiveEnd.getHours() * 60 + effectiveEnd.getMinutes() - DAY_START_HOUR * 60;
+    const durationMinutes = Math.max(endMinutes - startMinutes, 15);
+
+    const top = startMinutes * MINUTE_HEIGHT;
+    const height = durationMinutes * MINUTE_HEIGHT;
+
+    return (
+        <div
+            className="absolute mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-zinc-400 bg-zinc-100/80 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-800/50"
+            style={{ top, height: Math.max(height, 24) }}
+        >
+            <p className="truncate text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+                {blockedTime.reason}
+            </p>
+        </div>
+    );
+}
+
 /* ═══════════════ Month Grid Placeholder ═══════════════ */
 
 function MonthViewPlaceholder() {
@@ -173,12 +211,15 @@ function MonthViewPlaceholder() {
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
-    const { appointments: initialAppointments, auth } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], auth } = usePage<PageProps>().props;
     const [selected, setSelected] = useState<Appointment | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+    const [breakWarningOpen, setBreakWarningOpen] = useState(false);
+    const [breakWarningMessage, setBreakWarningMessage] = useState('');
+    const [pendingReschedule, setPendingReschedule] = useState<{ appointmentId: number; date: string; time: string } | null>(null);
 
     const userName = auth?.user?.name || 'Мастер';
     const initials = userName
@@ -198,15 +239,29 @@ export default function CalendarPage() {
     const dateRangeStr = useMemo(() => formatDateRange(weekDates), [weekDates]);
 
     const appointments = useMemo(
-        () => initialAppointments.filter((a) => a.status !== 'cancelled'),
+        () => initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
         [initialAppointments],
     );
+
+    const blockedTimes = useMemo(() => initialBlockedTimes, [initialBlockedTimes]);
 
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
     function getAppointmentsForDay(dayIndex: number): Appointment[] {
         const key = weekDateKeys[dayIndex];
         return appointments.filter((a) => a.date === key);
+    }
+
+    function getBlockedTimesForDay(dayIndex: number): BlockedTime[] {
+        const key = weekDateKeys[dayIndex];
+        const dayStart = new Date(key + 'T00:00:00');
+        const dayEnd = new Date(key + 'T23:59:59');
+
+        return blockedTimes.filter((bt) => {
+            const btStart = new Date(bt.start_datetime);
+            const btEnd = new Date(bt.end_datetime);
+            return btStart <= dayEnd && btEnd >= dayStart;
+        });
     }
 
     function updateStatus(status: AppointmentStatus) {
@@ -218,7 +273,7 @@ export default function CalendarPage() {
 
     function deleteAppointment() {
         if (!selected) return;
-        router.patch(`/admin/appointments/${selected.id}/status`, { status: 'cancelled' }, { preserveScroll: true });
+        router.patch(`/admin/appointments/${selected.id}/status`, { status: AppointmentStatus.Cancelled }, { preserveScroll: true });
         setSheetOpen(false);
         setSelected(null);
     }
@@ -229,10 +284,40 @@ export default function CalendarPage() {
         const newM = m + 30;
         const newH = h + Math.floor(newM / 60);
         const newTime = `${String(newH).padStart(2, '0')}:${String(newM % 60).padStart(2, '0')}`;
-        const dateTime = `${selected.date} ${newTime}:00`;
-        router.patch(`/admin/appointments/${selected.id}/status`, { start_time: dateTime }, { preserveScroll: true });
+
+        router.patch(`/admin/appointments/${selected.id}/status`, {
+            start_time: `${selected.date} ${newTime}:00`,
+        }, {
+            preserveScroll: true,
+            onError: (errors: Record<string, string>) => {
+                if (errors.lunch_intersection) {
+                    setBreakWarningMessage(errors.lunch_intersection);
+                    setPendingReschedule({ appointmentId: selected.id, date: selected.date, time: newTime });
+                    setBreakWarningOpen(true);
+                }
+            },
+        });
         setSheetOpen(false);
         setSelected(null);
+    }
+
+    function confirmRescheduleWithBreak() {
+        if (!pendingReschedule) return;
+
+        router.patch(`/admin/appointments/${pendingReschedule.appointmentId}/status`, {
+            start_time: `${pendingReschedule.date} ${pendingReschedule.time}:00`,
+            ignore_warnings: true,
+        }, { preserveScroll: true });
+
+        setBreakWarningOpen(false);
+        setPendingReschedule(null);
+        setBreakWarningMessage('');
+    }
+
+    function cancelReschedule() {
+        setBreakWarningOpen(false);
+        setPendingReschedule(null);
+        setBreakWarningMessage('');
     }
 
     function openDetail(appointment: Appointment) {
@@ -333,9 +418,9 @@ export default function CalendarPage() {
                             ) : (
                                 /* ─── Week Schedule Grid ─── */
                                 <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                    <div className="max-h-[600px] overflow-y-auto">
+                                    <div className="max-h-[600px] overflow-x-auto overflow-y-auto">
                                         {/* Day Headers — sticky at top */}
-                                        <div className="grid grid-cols-8 border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+                                        <div className="grid min-w-[700px] grid-cols-8 border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/50">
                                             <div className="border-r border-slate-200 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:text-zinc-500">
                                                 Время
                                             </div>
@@ -358,7 +443,7 @@ export default function CalendarPage() {
                                         </div>
 
                                         {/* Grid Body — same grid-cols-8, borders align with header */}
-                                        <div className="grid grid-cols-8">
+                                        <div className="grid min-w-[700px] grid-cols-8">
                                             {/* Time Column */}
                                             <div className="border-r border-slate-200 dark:border-zinc-800">
                                                 {HOURS.map((hour) => (
@@ -372,8 +457,10 @@ export default function CalendarPage() {
                                             </div>
 
                                             {/* Day Columns with Appointment Cards */}
-                                            {weekDates.map((_, dayIdx) => {
+                                            {weekDates.map((date, dayIdx) => {
                                                 const dayAppts = getAppointmentsForDay(dayIdx);
+                                                const dayBlocked = getBlockedTimesForDay(dayIdx);
+                                                const dateKey = weekDateKeys[dayIdx];
                                                 return (
                                                     <div
                                                         key={`col-${dayIdx}`}
@@ -383,6 +470,13 @@ export default function CalendarPage() {
                                                             <div
                                                                 key={hour}
                                                                 className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                            />
+                                                        ))}
+                                                        {dayBlocked.map((bt) => (
+                                                            <BlockedTimeCard
+                                                                key={`bt-${bt.id}`}
+                                                                blockedTime={bt}
+                                                                dayDate={dateKey}
                                                             />
                                                         ))}
                                                         {dayAppts.map((appt) => (
@@ -402,7 +496,7 @@ export default function CalendarPage() {
 
                             {/* ─── Legend ─── */}
                             <div className="flex flex-wrap gap-4 text-xs">
-                                {(['confirmed', 'pending_client', 'no_show', 'completed'] as const).map((status) => (
+                                {[AppointmentStatus.Confirmed, AppointmentStatus.PendingClient, AppointmentStatus.NoShow, AppointmentStatus.Completed].map((status) => (
                                     <div key={status} className="flex items-center gap-1.5">
                                         <div className={`size-2.5 rounded-full ${STATUS_STYLES[status].dot}`} />
                                         <span className="text-slate-500 dark:text-zinc-400">{STATUS_STYLES[status].label}</span>
@@ -449,18 +543,18 @@ export default function CalendarPage() {
                                 </div>
 
                                 <div className="flex flex-col gap-2 pt-2">
-                                    {selected.status !== 'completed' && selected.status !== 'cancelled' && (
+                                    {selected.status !== AppointmentStatus.Completed && selected.status !== AppointmentStatus.Cancelled && (
                                         <Button
-                                            onClick={() => updateStatus('completed')}
+                                            onClick={() => updateStatus(AppointmentStatus.Completed)}
                                             className="w-full justify-start rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
                                         >
                                             <CheckCircle2 className="size-4" />
                                             Оплата получена
                                         </Button>
                                     )}
-                                    {selected.status !== 'no_show' && selected.status !== 'cancelled' && (
+                                    {selected.status !== AppointmentStatus.NoShow && selected.status !== AppointmentStatus.Cancelled && (
                                         <Button
-                                            onClick={() => updateStatus('no_show')}
+                                            onClick={() => updateStatus(AppointmentStatus.NoShow)}
                                             variant="outline"
                                             className="w-full justify-start rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
                                         >
@@ -468,7 +562,7 @@ export default function CalendarPage() {
                                             Не пришёл
                                         </Button>
                                     )}
-                                    {selected.status !== 'cancelled' && (
+                                    {selected.status !== AppointmentStatus.Cancelled && (
                                         <>
                                             <Button
                                                 onClick={rescheduleAppointment}
@@ -491,6 +585,38 @@ export default function CalendarPage() {
                                 </div>
                             </>
                         )}
+                    </DialogContent>
+                </Dialog>
+
+                {/* ─── Break Intersection Warning Dialog ─── */}
+                <Dialog open={breakWarningOpen} onOpenChange={setBreakWarningOpen}>
+                    <DialogContent className="rounded-2xl border-amber-200 bg-white dark:border-amber-800 dark:bg-zinc-900 sm:max-w-md">
+                        <DialogHeader>
+                            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40">
+                                <AlertTriangle className="size-6 text-amber-600 dark:text-amber-400" />
+                            </div>
+                            <DialogTitle className="text-center text-slate-900 dark:text-zinc-100">
+                                Пересечение с обедом
+                            </DialogTitle>
+                            <DialogDescription className="text-center text-slate-500 dark:text-zinc-400">
+                                {breakWarningMessage}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+                            <Button
+                                variant="outline"
+                                onClick={cancelReschedule}
+                                className="flex-1 rounded-xl sm:flex-none"
+                            >
+                                Отмена
+                            </Button>
+                            <Button
+                                onClick={confirmRescheduleWithBreak}
+                                className="flex-1 rounded-xl bg-amber-600 text-white hover:bg-amber-700 sm:flex-none"
+                            >
+                                Всё равно перенести
+                            </Button>
+                        </DialogFooter>
                     </DialogContent>
                 </Dialog>
             </div>

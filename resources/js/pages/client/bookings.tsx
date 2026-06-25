@@ -10,12 +10,9 @@ import {
     DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import ClientLayout from '@/layouts/ClientLayout';
+import { AppointmentStatus } from '@/types/appointment-status';
 
 Bookings.layout = (page: React.ReactNode) => <ClientLayout>{page}</ClientLayout>;
-
-/* ═══════════════ Types ═══════════════ */
-
-type VisitStatus = 'pending_client' | 'confirmed' | 'completed' | 'cancelled';
 
 interface Appointment {
     id: number;
@@ -25,7 +22,7 @@ interface Appointment {
     date: string;
     time: string;
     price: number;
-    status: VisitStatus;
+    status: AppointmentStatus;
 }
 
 interface PageProps {
@@ -35,18 +32,20 @@ interface PageProps {
 
 /* ═══════════════ Styles ═══════════════ */
 
-const STATUS_STYLES: Record<VisitStatus, string> = {
-    pending_client: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
-    confirmed: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
-    completed: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
-    cancelled: 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400',
+const STATUS_STYLES: Record<AppointmentStatus, string> = {
+    [AppointmentStatus.PendingClient]: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    [AppointmentStatus.Confirmed]: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
+    [AppointmentStatus.Completed]: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+    [AppointmentStatus.NoShow]: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
+    [AppointmentStatus.Cancelled]: 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400',
 };
 
-const STATUS_LABELS: Record<VisitStatus, string> = {
-    pending_client: 'Ожидает подтверждения',
-    confirmed: 'Подтверждён',
-    completed: 'Завершён',
-    cancelled: 'Отменён',
+const STATUS_LABELS: Record<AppointmentStatus, string> = {
+    [AppointmentStatus.PendingClient]: 'Ожидает подтверждения',
+    [AppointmentStatus.Confirmed]: 'Подтверждён',
+    [AppointmentStatus.Completed]: 'Завершён',
+    [AppointmentStatus.NoShow]: 'Не пришёл',
+    [AppointmentStatus.Cancelled]: 'Отменён',
 };
 
 /* ═══════════════ Helpers ═══════════════ */
@@ -59,16 +58,16 @@ function formatDate(dateStr: string): string {
 /* ═══════════════ Main Page ═══════════════ */
 
 export default function Bookings() {
-    const { appointments: initialAppointments } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [] } = usePage<PageProps>().props;
     const [tab, setTab] = useState<'upcoming' | 'archive'>('upcoming');
     const [cancelId, setCancelId] = useState<number | null>(null);
 
     const upcoming = useMemo(
-        () => initialAppointments.filter((v) => v.status === 'pending_client' || v.status === 'confirmed'),
+        () => initialAppointments.filter((v) => v.status === AppointmentStatus.PendingClient || v.status === AppointmentStatus.Confirmed),
         [initialAppointments],
     );
     const archive = useMemo(
-        () => initialAppointments.filter((v) => v.status === 'completed' || v.status === 'cancelled'),
+        () => initialAppointments.filter((v) => v.status === AppointmentStatus.Completed || v.status === AppointmentStatus.Cancelled),
         [initialAppointments],
     );
 
@@ -182,7 +181,7 @@ export default function Bookings() {
                                         </div>
                                     </div>
 
-                                    {(visit.status === 'pending_client' || visit.status === 'confirmed') && (
+                                    {(visit.status === AppointmentStatus.PendingClient || visit.status === AppointmentStatus.Confirmed) && (
                                         <div className="mt-3 border-t border-stone-100 pt-3 dark:border-stone-800">
                                             <Button
                                                 variant="outline"

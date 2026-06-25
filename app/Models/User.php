@@ -41,6 +41,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'is_master', 'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
+    'slot_interval',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
@@ -55,6 +56,12 @@ class User extends Authenticatable implements PasskeyUser
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
             'is_master' => 'boolean',
+            'soft_deposit' => 'boolean',
+            'deposit_timeout' => 'integer',
+            'deposit_percent' => 'integer',
+            'slot_interval' => 'integer',
+            'telegram_notifications' => 'boolean',
+            'max_notifications' => 'boolean',
         ];
     }
 
@@ -71,5 +78,15 @@ class User extends Authenticatable implements PasskeyUser
     public function clients(): HasMany
     {
         return $this->hasMany(Client::class, 'user_id');
+    }
+
+    public function workingHours(): HasMany
+    {
+        return $this->hasMany(WorkingHour::class);
+    }
+
+    public function blockedTimes(): HasMany
+    {
+        return $this->hasMany(BlockedTime::class);
     }
 }

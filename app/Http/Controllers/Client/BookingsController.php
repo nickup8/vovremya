@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Client;
 
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Services\Booking\BookingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Inertia\Inertia;
@@ -11,6 +12,10 @@ use Inertia\Response;
 
 class BookingsController extends Controller
 {
+    public function __construct(
+        private BookingService $bookingService,
+    ) {}
+
     public function index(): Response
     {
         $client = Auth::guard('client')->user();
@@ -46,7 +51,7 @@ class BookingsController extends Controller
         $client = Auth::guard('client')->user();
 
         if ($client && $appointment->client_id === $client->id) {
-            $appointment->update(['status' => 'cancelled']);
+            $this->bookingService->cancel($appointment);
         }
 
         return back();

@@ -2,15 +2,19 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Appointment;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 
 class BookingWidgetController extends Controller
 {
+    public function __construct(
+        private BookingService $bookingService,
+    ) {}
+
     public function show(string $slug, Request $request)
     {
         $master = User::where('master_slug', $slug)
@@ -21,7 +25,7 @@ class BookingWidgetController extends Controller
         $selectedServiceId = $request->query('service_id');
         $selectedDate = $request->query('date', Carbon::today()->toDateString());
 
-        $availableSlots = $this->calculateAvailableSlots(
+        $availableSlots = $this->bookingService->getAvailableSlots(
             $master,
             $selectedServiceId ? Service::find($selectedServiceId) : null,
             $selectedDate
@@ -62,39 +66,26 @@ class BookingWidgetController extends Controller
 
         $service = Service::findOrFail($validated['service_id']);
 
-        $startDateTime = Carbon::parse($validated['date'].' '.$validated['time']);
-        $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
-
-        $bookedEndTimes = Appointment::where('master_id', $master->id)
-            ->whereIn('status', ['pending_client', 'confirmed'])
-            ->whereDate('start_time', $validated['date'])
-            ->with('service')
-            ->get()
-            ->map(fn (Appointment $a) => [
-                'start' => $a->start_time,
-                'end' => $a->start_time->copy()->addMinutes(
-                    $a->service ? $a->service->duration_minutes : 60
-                ),
-            ]);
-
-        $hasConflict = $bookedEndTimes->contains(
-            fn (array $period) => $startDateTime->lt($period['end']) && $endDateTime->gt($period['start'])
+        $isAvailable = $this->bookingService->validateSlot(
+            $master,
+            $service,
+            $validated['date'],
+            $validated['time'],
         );
 
-        if ($hasConflict) {
+        if (! $isAvailable) {
             return back()->withErrors([
-                'time' => 'Этот слот уже занят. Выберите другое время.',
+                'time' => 'Этот слот недоступен. Он может быть занят, попадать на обеденный перерыв или находиться за пределами рабочего времени.',
             ])->withInput();
         }
 
-        $appointment = Appointment::create([
-            'master_id' => $master->id,
-            'client_id' => null,
-            'service_id' => $service->id,
-            'start_time' => $startDateTime,
-            'status' => 'pending_client',
-            'provider' => $validated['provider'],
-        ]);
+        $appointment = $this->bookingService->createAppointment(
+            $master,
+            $service,
+            $validated['date'],
+            $validated['time'],
+            $validated['provider'],
+        );
 
         session(['pending_telegram_appointment_id' => $appointment->id]);
 
@@ -103,51 +94,5 @@ class BookingWidgetController extends Controller
             : 'https://max.ru/bot/vovremia_bot?start=book_'.$appointment->id;
 
         return redirect()->away($botLink);
-    }
-
-    private function calculateAvailableSlots(User $master, ?Service $service, string $date): array
-    {
-        if (! $service) {
-            return [];
-        }
-
-        $dayStart = Carbon::parse($date)->setTime(8, 0);
-        $dayEnd = Carbon::parse($date)->setTime(21, 0);
-        $duration = $service->duration_minutes;
-
-        $existingAppointments = Appointment::where('master_id', $master->id)
-            ->whereIn('status', ['pending_client', 'confirmed'])
-            ->whereDate('start_time', $date)
-            ->with('service')
-            ->get();
-
-        $bookedPeriods = $existingAppointments->map(fn (Appointment $a) => [
-            'start' => $a->start_time,
-            'end' => $a->start_time->copy()->addMinutes(
-                $a->service ? $a->service->duration_minutes : 60
-            ),
-        ]);
-
-        $slots = [];
-        $slot = $dayStart->copy();
-
-        while ($slot->copy()->addMinutes($duration)->lte($dayEnd)) {
-            $slotEnd = $slot->copy()->addMinutes($duration);
-
-            $isPast = $date === Carbon::today()->toDateString()
-                && $slot->lt(Carbon::now());
-
-            $hasOverlap = $bookedPeriods->contains(
-                fn (array $period) => $slot->lt($period['end']) && $slotEnd->gt($period['start'])
-            );
-
-            if (! $isPast && ! $hasOverlap) {
-                $slots[] = $slot->format('H:i');
-            }
-
-            $slot->addMinutes(30);
-        }
-
-        return $slots;
     }
 }

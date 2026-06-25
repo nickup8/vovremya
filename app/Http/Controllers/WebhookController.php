@@ -2,9 +2,11 @@
 
 namespace App\Http\Controllers;
 
+use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
+use App\Services\Client\ClientMergeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
@@ -14,8 +16,9 @@ class WebhookController extends Controller
 {
     private string $telegramBotToken;
 
-    public function __construct()
-    {
+    public function __construct(
+        private ClientMergeService $clientMergeService,
+    ) {
         $this->telegramBotToken = config('services.telegram.bot_token', '');
     }
 
@@ -92,7 +95,7 @@ class WebhookController extends Controller
 
         $appointment = Appointment::with(['master', 'service'])
             ->where('id', $appointmentId)
-            ->where('status', 'pending_client')
+            ->where('status', AppointmentStatus::PendingClient)
             ->first();
 
         if (! $appointment) {
@@ -141,7 +144,7 @@ class WebhookController extends Controller
 
         $appointment = Appointment::with(['master', 'service'])
             ->where('id', $pendingId)
-            ->where('status', 'pending_client')
+            ->where('status', AppointmentStatus::PendingClient)
             ->first();
 
         if (! $appointment) {
@@ -153,12 +156,11 @@ class WebhookController extends Controller
 
         $masterId = $appointment->master_id;
 
-        $client = Client::updateOrCreate(
-            ['user_id' => $masterId, 'phone' => $phone],
-            [
-                'telegram_id' => $telegramId,
-                'name' => $firstName,
-            ]
+        $client = $this->clientMergeService->findOrCreateByPhone(
+            $masterId,
+            $phone,
+            $telegramId,
+            $firstName,
         );
 
         $appointment->update(['client_id' => $client->id]);
@@ -198,13 +200,13 @@ class WebhookController extends Controller
 
             $this->sendMessage($chatId, $message, $provider, $inlineKeyboard);
         } else {
-            $appointment->update(['status' => 'confirmed']);
+            $appointment->update(['status' => AppointmentStatus::Confirmed]);
 
             $message = "Вы успешно записаны к {$master->name}!\n\n"
                 ."Услуга: {$service->title}\n"
                 ."Дата: {$date} в {$time}\n"
                 ."Стоимость: {$service->price}₽\n\n"
-                ."Ждём вас!}";
+                ."Ждём вас!";
 
             $this->sendMessage($chatId, $message, $provider);
         }

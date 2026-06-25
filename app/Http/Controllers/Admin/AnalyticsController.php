@@ -3,11 +3,20 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Appointment;
+use App\Services\Analytics\AnalyticsService;
+use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Collection;
 use Inertia\Inertia;
 
 class AnalyticsController extends Controller
 {
-    public function index()
+    public function __construct(
+        private AnalyticsService $analyticsService,
+    ) {}
+
+    public function index(Request $request)
     {
         $master = auth()->user();
 
@@ -16,26 +25,204 @@ class AnalyticsController extends Controller
                 ->with('error', 'У вас нет профиля мастера.');
         }
 
+        $period = $request->query('period', 'week');
+        $dateFrom = null;
+        $dateTo = null;
+
+        if ($period === 'custom') {
+            $dateFrom = $request->query('date_from', Carbon::now()->startOfMonth()->format('Y-m-d'));
+            $dateTo = $request->query('date_to', Carbon::today()->format('Y-m-d'));
+        }
+
         $appointments = $master->masterAppointments()
             ->with('service')
+            ->whereBetween('start_time', [
+                ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00',
+                ($dateTo ?? Carbon::now()->toDateString()).' 23:59:59',
+            ])
             ->get();
 
-        $completed = $appointments->where('status', 'completed');
-
-        $revenue = (float) $completed->sum(fn ($app) => $app->service ? $app->service->price : 0);
-        $totalVisits = $completed->count();
-        $avgCheck = $totalVisits > 0 ? round($revenue / $totalVisits, 2) : 0;
-
-        $totalEnded = $appointments->whereIn('status', ['completed', 'no_show', 'cancelled'])->count();
-        $attendanceRate = $totalEnded > 0 ? round(($totalVisits / $totalEnded) * 100) : 100;
+        $metrics = $this->analyticsService->calculateMetrics($appointments);
+        $chartData = $this->buildChartData($appointments, $period, $dateFrom, $dateTo);
+        $serviceStats = $this->buildServiceStats($appointments);
 
         return Inertia::render('admin/analytics', [
-            'metrics' => [
-                'revenue' => $revenue,
-                'total_visits' => $totalVisits,
-                'avg_check' => $avgCheck,
-                'attendance_rate' => $attendanceRate,
-            ],
+            'metrics' => $metrics,
+            'chartData' => $chartData,
+            'serviceStats' => $serviceStats,
+            'activePeriod' => $period,
+            'dateFrom' => $dateFrom,
+            'dateTo' => $dateTo,
         ]);
+    }
+
+    private function buildChartData(Collection $appointments, string $period, ?string $dateFrom = null, ?string $dateTo = null): array
+    {
+        $completed = $this->analyticsService->getCompleted($appointments);
+
+        $groupByFn = function ($app) use ($period, $dateFrom, $dateTo) {
+            $date = $app->start_time;
+
+            if ($period === 'custom' && $dateFrom && $dateTo) {
+                $diff = Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo));
+
+                return match (true) {
+                    $diff <= 1 => $date->format('H:00'),
+                    $diff <= 31 => $date->format('Y-m-d'),
+                    default => $date->format('Y-m'),
+                };
+            }
+
+            return match ($period) {
+                'day' => $date->format('H:00'),
+                'week' => $date->format('N'),
+                'month' => $date->format('Y-m-d'),
+                'year' => $date->format('Y-m'),
+                default => $date->format('Y-m-d'),
+            };
+        };
+
+        $grouped = $completed->groupBy($groupByFn);
+
+        $keys = $this->getChartKeys($period, $dateFrom, $dateTo);
+        $labels = $this->getChartLabels($period, $dateFrom, $dateTo);
+
+        $data = [];
+        foreach ($keys as $i => $key) {
+            $group = $grouped->get($key, collect());
+            $data[] = [
+                'label' => $labels[$i] ?? $key,
+                'value' => (float) $group->sum(fn ($app) => $app->service ? $app->service->price : 0),
+                'count' => $group->count(),
+            ];
+        }
+
+        $maxValue = $data !== [] ? max(array_column($data, 'value')) : 0;
+
+        return array_map(function ($item) use ($maxValue) {
+            return [
+                'label' => $item['label'],
+                'value' => $item['value'],
+                'count' => $item['count'],
+                'percent' => $maxValue > 0 ? round(($item['value'] / $maxValue) * 100) : 0,
+            ];
+        }, $data);
+    }
+
+    private function getChartKeys(string $period, ?string $dateFrom = null, ?string $dateTo = null): array
+    {
+        if ($period === 'custom' && $dateFrom && $dateTo) {
+            $diff = Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo));
+
+            return match (true) {
+                $diff <= 1 => array_map(
+                    fn ($h) => sprintf('%02d:00', $h),
+                    range(0, 23)
+                ),
+                $diff <= 31 => collect()
+                    ->range(0, $diff)
+                    ->map(fn ($d) => Carbon::parse($dateFrom)->addDays($d)->format('Y-m-d'))
+                    ->toArray(),
+                default => collect()
+                    ->range(0, (int) ceil($diff / 30))
+                    ->map(fn ($m) => Carbon::parse($dateFrom)->addMonths($m)->format('Y-m'))
+                    ->toArray(),
+            };
+        }
+
+        $now = Carbon::now();
+
+        return match ($period) {
+            'day' => array_map(
+                fn ($h) => sprintf('%02d:00', $h),
+                range(8, 20)
+            ),
+            'week' => ['1', '2', '3', '4', '5', '6', '7'],
+            'month' => collect()
+                ->range(1, $now->daysInMonth)
+                ->map(fn ($d) => $now->copy()->startOfMonth()->addDays($d - 1)->format('Y-m-d'))
+                ->toArray(),
+            'year' => collect()
+                ->range(1, 12)
+                ->map(fn ($m) => $now->copy()->startOfYear()->addMonths($m - 1)->format('Y-m'))
+                ->toArray(),
+            default => [],
+        };
+    }
+
+    private function getChartLabels(string $period, ?string $dateFrom = null, ?string $dateTo = null): array
+    {
+        if ($period === 'custom' && $dateFrom && $dateTo) {
+            $diff = Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo));
+
+            return match (true) {
+                $diff <= 1 => array_map(
+                    fn ($h) => sprintf('%02d:00', $h),
+                    range(0, 23)
+                ),
+                $diff <= 31 => collect()
+                    ->range(0, $diff)
+                    ->map(fn ($d) => (string) Carbon::parse($dateFrom)->addDays($d)->day)
+                    ->toArray(),
+                default => collect()
+                    ->range(0, (int) ceil($diff / 30))
+                    ->map(fn ($m) => Carbon::parse($dateFrom)->addMonths($m)->format('M Y'))
+                    ->toArray(),
+            };
+        }
+
+        $now = Carbon::now();
+
+        return match ($period) {
+            'day' => array_map(
+                fn ($h) => sprintf('%02d:00', $h),
+                range(8, 20)
+            ),
+            'week' => ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
+            'month' => collect()
+                ->range(1, $now->daysInMonth)
+                ->map(fn ($d) => (string) $d)
+                ->toArray(),
+            'year' => ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'],
+            default => [],
+        };
+    }
+
+    private function buildServiceStats(Collection $appointments): array
+    {
+        $completed = $this->analyticsService->getCompleted($appointments);
+
+        if ($completed->isEmpty()) {
+            return [];
+        }
+
+        $grouped = $completed->groupBy('service_id');
+        $totalCount = $completed->count();
+
+        $stats = $grouped->map(function ($apps, $serviceId) use ($totalCount) {
+            $service = $apps->first()->service;
+            $count = $apps->count();
+            $revenue = (float) $apps->sum(fn ($app) => $app->service ? $app->service->price : 0);
+
+            return [
+                'name' => $service?->title ?? 'Услуга #'.$serviceId,
+                'count' => $count,
+                'revenue' => $revenue,
+                'percent' => $totalCount > 0 ? round(($count / $totalCount) * 100) : 0,
+            ];
+        });
+
+        return $stats->sortByDesc('count')->values()->take(10)->toArray();
+    }
+
+    private function getPeriodStart(string $period)
+    {
+        return match ($period) {
+            'day' => now()->startOfDay(),
+            'week' => now()->startOfWeek(),
+            'month' => now()->startOfMonth(),
+            'year' => now()->startOfYear(),
+            default => now()->startOfMonth(),
+        };
     }
 }
