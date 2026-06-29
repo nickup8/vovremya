@@ -21,21 +21,23 @@ Route::get('/auth/provider/{provider}', [TelegramAuthController::class, 'loginWi
 Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout');
 
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
-Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->name('booking.reserve');
+Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
 Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name('booking.status');
 
-Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->name('webhooks.telegram');
-Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->name('webhooks.max');
+Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->middleware('throttle:60,1')->name('webhooks.telegram');
+Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->middleware('throttle:60,1')->name('webhooks.max');
 
 Route::get('/client/auth/{token}', [ClientAuthController::class, 'loginByToken'])->name('client.login');
 Route::post('/client/logout', [ClientAuthController::class, 'logout'])->name('client.logout');
 
-Route::get('/dev/login-master', function () {
-    $master = \App\Models\User::where('master_slug', 'test-master')->firstOrFail();
-    Auth::login($master);
+if (app()->environment('local')) {
+    Route::get('/dev/login-master', function () {
+        $master = \App\Models\User::where('master_slug', 'test-master')->firstOrFail();
+        Auth::login($master);
 
-    return redirect()->route('admin.calendar');
-});
+        return redirect()->route('admin.calendar');
+    });
+}
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/admin/calendar', [CalendarController::class, 'index'])->name('admin.calendar');
@@ -43,11 +45,15 @@ Route::middleware(['auth'])->group(function () {
     Route::patch('/admin/appointments/{appointment}/status', [CalendarController::class, 'updateStatus'])->name('admin.appointments.update-status');
 
     Route::get('/admin/clients', [ClientController::class, 'index'])->name('admin.clients');
+    Route::post('/admin/clients', [ClientController::class, 'store'])->name('admin.clients.store');
+    Route::put('/admin/clients/{client}', [ClientController::class, 'update'])->name('admin.clients.update');
+    Route::post('/admin/clients/{client}/toggle-block', [ClientController::class, 'toggleBlock'])->name('admin.clients.toggle-block');
 
     Route::get('/admin/analytics', [AnalyticsController::class, 'index'])->name('admin.analytics');
 
     Route::get('/admin/settings', [SettingsController::class, 'index'])->name('admin.settings');
     Route::put('/admin/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
+    Route::patch('/admin/settings/timezone', [SettingsController::class, 'updateTimezone'])->name('admin.settings.timezone');
     Route::post('/admin/settings/avatar', [SettingsController::class, 'updateAvatar'])->name('admin.settings.avatar');
 
     Route::post('/admin/services', [SettingsController::class, 'storeService'])->name('admin.services.store');
@@ -57,6 +63,23 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/admin/working-hours', [SettingsController::class, 'updateWorkingHours'])->name('admin.working-hours.update');
     Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');
     Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
+
+    Route::post('/admin/checkout', [\App\Http\Controllers\Admin\PaymentController::class, 'createCheckout'])->name('admin.checkout');
+});
+
+Route::post('/webhooks/payment', [\App\Http\Controllers\Webhook\PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
+
+Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function () {
+    Route::get('/', [\App\Http\Controllers\Admin\SuperAdminController::class, 'index'])->name('super_admin.dashboard');
+    Route::get('/users', [\App\Http\Controllers\Admin\SuperAdminController::class, 'users'])->name('super_admin.users');
+    Route::post('/users/{user}/block', [\App\Http\Controllers\Admin\SuperAdminController::class, 'blockUser'])->name('super_admin.block');
+    Route::post('/users/{user}/extend', [\App\Http\Controllers\Admin\SuperAdminController::class, 'extendSubscription'])->name('super_admin.extend');
+    Route::post('/users/{user}/impersonate', [\App\Http\Controllers\Admin\SuperAdminController::class, 'impersonate'])->name('super_admin.impersonate');
+});
+
+Route::middleware(['auth'])->group(function () {
+    Route::post('/client-mode/enable', [\App\Http\Controllers\ClientModeController::class, 'enable'])->name('client_mode.enable');
+    Route::post('/client-mode/disable', [\App\Http\Controllers\ClientModeController::class, 'disable'])->name('client_mode.disable');
 });
 
 Route::middleware(['auth:client'])->group(function () {

@@ -4,14 +4,16 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\Service;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
+use Inertia\Response as InertiaResponse;
 
 class SettingsController extends Controller
 {
-    public function index()
+    public function index(): InertiaResponse
     {
         $user = auth()->user();
 
@@ -30,6 +32,8 @@ class SettingsController extends Controller
                 'slot_interval' => $user->slot_interval,
                 'telegram_notifications' => $user->telegram_notifications,
                 'max_notifications' => $user->max_notifications,
+                'timezone' => $user->getTimezone(),
+                'timezone_confirmed' => $user->isTimezoneConfirmed(),
             ],
             'services' => $user->services()->get(),
             'workingHours' => $user->workingHours()->get(),
@@ -257,5 +261,21 @@ class SettingsController extends Controller
         $blockedTime->delete();
 
         return back()->with('success', 'Блокировка удалена');
+    }
+
+    public function updateTimezone(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'timezone' => ['required', 'string', function ($attribute, $value, $fail) {
+                if (! in_array($value, timezone_identifiers_list(), true)) {
+                    $fail('Неверный часовой пояс.');
+                }
+            }],
+        ]);
+
+        $user = auth()->user();
+        $user->setTimezone($validated['timezone']);
+
+        return back()->with('success', 'Часовой пояс обновлён');
     }
 }

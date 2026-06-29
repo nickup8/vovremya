@@ -37,6 +37,13 @@ return [
 
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
+        'secret_token' => env('TELEGRAM_SECRET_TOKEN'),
+    ],
+
+    'max' => [
+        'bot_token' => env('MAX_BOT_TOKEN'),
+        'secret_token' => env('MAX_SECRET_TOKEN'),
+        'api_url' => env('MAX_API_URL', 'https://botapi.max.ru/v1'),
     ],
 
 ];

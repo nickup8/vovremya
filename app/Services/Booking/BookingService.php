@@ -6,12 +6,15 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Service;
 use App\Models\User;
+use App\Services\AppointmentStatusService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class BookingService
 {
     public function __construct(
         private AvailabilityService $availabilityService,
+        private AppointmentStatusService $statusService,
     ) {}
 
     public function createAppointment(
@@ -20,17 +23,37 @@ class BookingService
         string $date,
         string $time,
         string $provider,
+        ?int $clientId = null,
     ): Appointment {
         $startDateTime = Carbon::parse($date.' '.$time);
+        $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
 
-        return Appointment::create([
-            'master_id' => $master->id,
-            'client_id' => null,
-            'service_id' => $service->id,
-            'start_time' => $startDateTime,
-            'status' => AppointmentStatus::PendingClient,
-            'provider' => $provider,
-        ]);
+        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId) {
+            $hasConflict = Appointment::join('services', 'appointments.service_id', '=', 'services.id')
+                ->where('appointments.master_id', $master->id)
+                ->whereIn('appointments.status', [
+                    AppointmentStatus::PendingClient,
+                    AppointmentStatus::Confirmed,
+                    AppointmentStatus::Completed,
+                ])
+                ->where('appointments.start_time', '<', $endDateTime)
+                ->whereRaw("appointments.start_time + (services.duration_minutes || ' minutes')::interval > ?", [$startDateTime])
+                ->lockForUpdate()
+                ->exists();
+
+            if ($hasConflict) {
+                abort(422, 'Это время уже занято, выберите другой слот.');
+            }
+
+            return Appointment::create([
+                'master_id' => $master->id,
+                'client_id' => $clientId,
+                'service_id' => $service->id,
+                'start_time' => $startDateTime,
+                'status' => $clientId ? AppointmentStatus::Confirmed : AppointmentStatus::PendingClient,
+                'provider' => $provider,
+            ]);
+        });
     }
 
     public function createManualAppointment(
@@ -39,6 +62,7 @@ class BookingService
         string $date,
         string $time,
         bool $ignoreWarnings = false,
+        ?int $clientId = null,
     ): array {
         $startDateTime = Carbon::parse($date.' '.$time);
 
@@ -77,6 +101,7 @@ class BookingService
             $date,
             $time,
             'crm',
+            $clientId,
         );
 
         return [
@@ -87,29 +112,27 @@ class BookingService
 
     public function updateStatus(Appointment $appointment, AppointmentStatus $status): Appointment
     {
-        $appointment->update(['status' => $status]);
-
-        return $appointment;
+        return $this->statusService->transition($appointment, $status);
     }
 
     public function confirm(Appointment $appointment): Appointment
     {
-        return $this->updateStatus($appointment, AppointmentStatus::Confirmed);
+        return $this->statusService->transition($appointment, AppointmentStatus::Confirmed);
     }
 
     public function complete(Appointment $appointment): Appointment
     {
-        return $this->updateStatus($appointment, AppointmentStatus::Completed);
+        return $this->statusService->transition($appointment, AppointmentStatus::Completed);
     }
 
     public function cancel(Appointment $appointment): Appointment
     {
-        return $this->updateStatus($appointment, AppointmentStatus::Cancelled);
+        return $this->statusService->transition($appointment, AppointmentStatus::Cancelled);
     }
 
     public function markNoShow(Appointment $appointment): Appointment
     {
-        return $this->updateStatus($appointment, AppointmentStatus::NoShow);
+        return $this->statusService->transition($appointment, AppointmentStatus::NoShow);
     }
 
     public function validateSlot(
@@ -159,6 +182,7 @@ class BookingService
             $master,
             $startDateTime,
             $service->duration_minutes,
+            $appointment->id,
         );
 
         if (! $isAvailable) {

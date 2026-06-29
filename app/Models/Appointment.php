@@ -3,11 +3,13 @@
 namespace App\Models;
 
 use App\Enums\AppointmentStatus;
+use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
 class Appointment extends Model
 {
+    use HasFactory;
     protected $fillable = [
         'master_id',
         'client_id',
@@ -15,6 +17,8 @@ class Appointment extends Model
         'start_time',
         'status',
         'provider',
+        'reminder_24h_sent',
+        'reminder_final_sent',
     ];
 
     protected function casts(): array
@@ -22,6 +26,8 @@ class Appointment extends Model
         return [
             'start_time' => 'datetime',
             'status' => AppointmentStatus::class,
+            'reminder_24h_sent' => 'boolean',
+            'reminder_final_sent' => 'boolean',
         ];
     }
 

@@ -52,27 +52,22 @@ class AvailabilityService
         User $master,
         Carbon $startDateTime,
         int $durationMinutes,
+        ?int $excludeAppointmentId = null,
     ): bool {
         $endDateTime = $startDateTime->copy()->addMinutes($durationMinutes);
-
         $dayOfWeek = $startDateTime->dayOfWeek;
         $workingHour = WorkingHour::where('user_id', $master->id)
-            ->where('day_of_week', $dayOfWeek)
-            ->first();
+            ->where('day_of_week', $dayOfWeek)->first();
 
-        if (! $workingHour || ! $workingHour->is_working) {
-            return false;
-        }
+        if (! $workingHour || ! $workingHour->is_working) return false;
 
         $dayStart = $startDateTime->copy()->setTimeFromTimeString($workingHour->start_time);
         $dayEnd = $startDateTime->copy()->setTimeFromTimeString($workingHour->end_time);
 
-        if ($startDateTime->lt($dayStart) || $endDateTime->gt($dayEnd)) {
-            return false;
-        }
+        if ($startDateTime->lt($dayStart) || $endDateTime->gt($dayEnd)) return false;
 
         $breakPeriods = $this->getBreakPeriods($workingHour, $startDateTime);
-        $bookedPeriods = $this->getBookedPeriods($master, $startDateTime);
+        $bookedPeriods = $this->getBookedPeriods($master, $startDateTime, $excludeAppointmentId);
         $blockedPeriods = $this->getBlockedPeriods($master, $startDateTime);
 
         $allUnavailable = $breakPeriods->merge($bookedPeriods)->merge($blockedPeriods);
@@ -96,11 +91,12 @@ class AvailabilityService
         ]);
     }
 
-    private function getBookedPeriods(User $master, Carbon $date): Collection
+    private function getBookedPeriods(User $master, Carbon $date, ?int $excludeAppointmentId = null): Collection
     {
         return Appointment::where('master_id', $master->id)
             ->whereIn('status', [AppointmentStatus::PendingClient, AppointmentStatus::Confirmed])
             ->whereDate('start_time', $date)
+            ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
             ->with('service')
             ->get()
             ->map(fn (Appointment $a) => [

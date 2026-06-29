@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Models\Client;
 use App\Models\Service;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
@@ -28,18 +29,26 @@ class CalendarController extends Controller
 
         $appointments = $master->masterAppointments()
             ->with(['client', 'service'])
+            ->whereBetween('start_time', [
+                Carbon::now()->subWeeks(2)->startOfDay(),
+                Carbon::now()->addWeeks(2)->endOfDay(),
+            ])
             ->get()
-            ->map(fn (Appointment $a) => [
-                'id' => $a->id,
-                'client_name' => $a->client->name,
-                'client_phone' => $a->client->phone,
-                'service' => $a->service->title,
-                'duration' => $a->service->duration_minutes,
-                'price' => (float) $a->service->price,
-                'time' => $a->start_time->format('H:i'),
-                'date' => $a->start_time->format('Y-m-d'),
-                'status' => $a->status,
-            ]);
+            ->map(function (Appointment $a) use ($master) {
+                $tz = $master->getTimezone();
+
+                return [
+                    'id' => $a->id,
+                    'client_name' => $a->client?->name ?? 'Клиент не указан',
+                    'client_phone' => $a->client?->phone,
+                    'service' => $a->service?->title ?? 'Услуга удалена',
+                    'duration' => $a->service?->duration_minutes ?? 0,
+                    'price' => (float) ($a->service?->price ?? 0),
+                    'time' => $a->start_time->timezone($tz)->format('H:i'),
+                    'date' => $a->start_time->timezone($tz)->format('Y-m-d'),
+                    'status' => $a->status,
+                ];
+            });
 
         $blockedTimes = $master->blockedTimes()
             ->get()
@@ -52,10 +61,36 @@ class CalendarController extends Controller
 
         $workingHours = $master->workingHours()->get();
 
+        $clients = Client::where('user_id', $master->id)
+            ->get()
+            ->map(fn (Client $c) => [
+                'id' => $c->id,
+                'name' => $c->name,
+                'phone' => $c->phone,
+            ]);
+
+        $services = $master->services()
+            ->get()
+            ->map(fn (Service $s) => [
+                'id' => $s->id,
+                'title' => $s->title,
+                'duration_minutes' => $s->duration_minutes,
+                'price' => (float) $s->price,
+            ]);
+
+        $slotInterval = $master->slot_interval ?? 30;
+        $timezone = $master->getTimezone();
+        $timezoneConfirmed = $master->isTimezoneConfirmed();
+
         return Inertia::render('admin/calendar', [
             'appointments' => $appointments,
             'blockedTimes' => $blockedTimes,
             'workingHours' => $workingHours,
+            'clients' => $clients,
+            'services' => $services,
+            'slotInterval' => $slotInterval,
+            'timezone' => $timezone,
+            'timezoneConfirmed' => $timezoneConfirmed,
         ]);
     }
 
@@ -64,11 +99,15 @@ class CalendarController extends Controller
         $master = auth()->user();
 
         $validated = $request->validate([
+            'client_id' => 'required|exists:clients,id',
             'service_id' => 'required|exists:services,id',
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
             'ignore_warnings' => 'sometimes|boolean',
         ]);
+
+        $client = Client::findOrFail($validated['client_id']);
+        $this->authorize('view', $client);
 
         $service = Service::findOrFail($validated['service_id']);
 
@@ -78,6 +117,7 @@ class CalendarController extends Controller
             $validated['date'],
             $validated['time'],
             $validated['ignore_warnings'] ?? false,
+            (int) $validated['client_id'],
         );
 
         if (! $result['success']) {
@@ -101,17 +141,31 @@ class CalendarController extends Controller
 
     public function updateStatus(Request $request, Appointment $appointment)
     {
+        $this->authorize('update', $appointment);
+
         $validated = $request->validate([
-            'status' => 'required|in:pending_client,confirmed,completed,no_show,cancelled',
+            'status' => 'sometimes|in:pending_client,confirmed,completed,no_show,cancelled',
             'start_time' => 'sometimes|date',
             'ignore_warnings' => 'sometimes|boolean',
         ]);
 
+        if (! isset($validated['status']) && ! isset($validated['start_time'])) {
+            return back()->withErrors([
+                'status' => 'Необходимо указать статус или новое время.',
+            ]);
+        }
+
         if (isset($validated['status'])) {
-            $this->bookingService->updateStatus(
-                $appointment,
-                AppointmentStatus::from($validated['status'])
-            );
+            $newStatus = AppointmentStatus::from($validated['status']);
+
+            if (! $appointment->status->canTransitionTo($newStatus)) {
+                return response()->json([
+                    'error' => 'invalid_transition',
+                    'message' => "Невозможно перевести запись из «{$appointment->status->label()}» в «{$newStatus->label()}».",
+                ], 422);
+            }
+
+            $this->bookingService->updateStatus($appointment, $newStatus);
             unset($validated['status']);
         }
 
@@ -147,9 +201,17 @@ class CalendarController extends Controller
         }
 
         if (! empty($validated)) {
-            $appointment->update(
-                array_filter($validated, fn ($v) => $v !== null)
+            $dbFields = array_filter(
+                $validated,
+                fn ($key) => in_array($key, $appointment->getFillable()),
+                ARRAY_FILTER_USE_KEY
             );
+
+            if (! empty($dbFields)) {
+                $appointment->update(
+                    array_filter($dbFields, fn ($v) => $v !== null)
+                );
+            }
         }
 
         return back();

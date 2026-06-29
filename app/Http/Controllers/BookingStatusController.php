@@ -9,10 +9,20 @@ use Inertia\Response;
 
 class BookingStatusController extends Controller
 {
-    public function show(int $id): Response
+    public function show(int $id, Request $request): Response
     {
+        $sessionId = session('current_appointment_id');
+
+        if ($sessionId === null || (int) $sessionId !== $id) {
+            abort(403);
+        }
+
         $appointment = Appointment::with(['service', 'master'])
-            ->findOrFail($id);
+            ->find($id);
+
+        if (! $appointment) {
+            abort(404);
+        }
 
         return Inertia::render('booking/status', [
             'appointment' => [
@@ -23,17 +33,11 @@ class BookingStatusController extends Controller
                 'service' => [
                     'id' => $appointment->service->id,
                     'title' => $appointment->service->title,
-                    'price' => (float) $appointment->service->price,
-                    'duration_minutes' => $appointment->service->duration_minutes,
                 ],
                 'master' => [
                     'id' => $appointment->master->id,
                     'name' => $appointment->master->name,
-                    'phone' => $appointment->master->phone,
                     'specialty' => $appointment->master->specialty,
-                    'soft_deposit' => $appointment->master->soft_deposit,
-                    'deposit_timeout' => $appointment->master->deposit_timeout,
-                    'deposit_percent' => $appointment->master->deposit_percent,
                 ],
             ],
         ]);

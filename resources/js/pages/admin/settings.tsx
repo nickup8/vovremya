@@ -2,11 +2,12 @@ import { useState, useEffect, useRef } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import Cropper from 'react-easy-crop';
 import {
-    Menu, Send, MessageCircle, Pencil, Plus, Trash2, X, Clock,
+    Menu, Send, MessageCircle, Pencil, Plus, Trash2, X, Clock, ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import Sidebar from '@/components/admin/Sidebar';
+import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 
 /* ═══════════════ Types ═══════════════ */
 
@@ -24,6 +25,8 @@ interface Profile {
     slot_interval: number;
     telegram_notifications: boolean;
     max_notifications: boolean;
+    timezone: string;
+    timezone_confirmed: boolean;
 }
 
 interface Service {
@@ -859,6 +862,8 @@ export default function SettingsPage() {
 
                     {/* Content Area */}
                     <main className="flex-1 overflow-y-auto p-4 md:p-6">
+                        <TimezoneConfirmBanner confirmed={profile.timezone_confirmed} />
+
                         <form onSubmit={handleSubmit} className="max-w-4xl space-y-6">
                             {/* Success Message */}
                             {form.recentlySuccessful && (
@@ -969,6 +974,37 @@ export default function SettingsPage() {
                                         {form.errors.telegram_id && (
                                             <p className="mt-1 text-xs text-red-500">{form.errors.telegram_id}</p>
                                         )}
+                                    </div>
+
+                                    {/* Timezone */}
+                                    <div className="mt-4">
+                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                            Часовой пояс
+                                        </label>
+                                        <div className="relative">
+                                            <select
+                                                value={form.data.timezone}
+                                                onChange={(e) => {
+                                                    router.patch('/admin/settings/timezone', { timezone: e.target.value }, {
+                                                        preserveScroll: true,
+                                                    });
+                                                }}
+                                                className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pr-10 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                                            >
+                                                <option value="Europe/Kaliningrad">Kaliningrad (UTC+2)</option>
+                                                <option value="Europe/Moscow">Moscow (UTC+3)</option>
+                                                <option value="Europe/Samara">Samara (UTC+4)</option>
+                                                <option value="Asia/Yekaterinburg">Yekaterinburg (UTC+5)</option>
+                                                <option value="Asia/Omsk">Omsk (UTC+6)</option>
+                                                <option value="Asia/Krasnoyarsk">Krasnoyarsk (UTC+7)</option>
+                                                <option value="Asia/Irkutsk">Irkutsk (UTC+8)</option>
+                                                <option value="Asia/Yakutsk">Yakutsk (UTC+9)</option>
+                                                <option value="Asia/Vladivostok">Vladivostok (UTC+10)</option>
+                                                <option value="Asia/Magadan">Magadan (UTC+11)</option>
+                                                <option value="Asia/Kamchatka">Kamchatka (UTC+12)</option>
+                                            </select>
+                                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
+                                        </div>
                                     </div>
                                 </div>
                             </div>

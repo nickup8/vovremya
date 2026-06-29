@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\Request;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class TelegramAuthController extends Controller
@@ -20,19 +21,24 @@ class TelegramAuthController extends Controller
             return redirect('/');
         }
 
-        $randomId = rand(100, 999);
+        $baseName = ucfirst($provider).' Master';
+        $slug = Str::slug($baseName);
 
-        $telegramId = $provider === 'telegram' ? 'tg_'.$randomId : null;
-        $maxId = $provider === 'max' ? 'max_'.$randomId : null;
+        while (User::where('master_slug', $slug)->exists()) {
+            $slug = Str::slug($baseName.'-'.Str::random(6));
+        }
+
+        $telegramId = $provider === 'telegram' ? 'tg_'.Str::random(10) : null;
+        $maxId = $provider === 'max' ? 'max_'.Str::random(10) : null;
 
         $user = User::create([
-            'name' => 'Мастер ('.ucfirst($provider).' #'.$randomId.')',
+            'name' => $baseName,
             'telegram_id' => $telegramId,
             'max_id' => $maxId,
             'is_master' => true,
-            'master_slug' => 'master-'.$randomId,
+            'master_slug' => $slug,
             'specialty' => 'Бьюти-мастер',
-            'address' => 'Адрес студии #'.$randomId,
+            'address' => 'Адрес студии',
         ]);
 
         auth()->login($user);

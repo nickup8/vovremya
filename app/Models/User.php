@@ -41,7 +41,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'is_master', 'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
-    'slot_interval',
+    'slot_interval', 'tariff', 'expires_at', 'is_super_admin', 'is_blocked',
+    'settings',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
@@ -60,8 +61,13 @@ class User extends Authenticatable implements PasskeyUser
             'deposit_timeout' => 'integer',
             'deposit_percent' => 'integer',
             'slot_interval' => 'integer',
+            'tariff' => 'string',
+            'expires_at' => 'datetime',
+            'is_super_admin' => 'boolean',
+            'is_blocked' => 'boolean',
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
+            'settings' => 'array',
         ];
     }
 
@@ -88,5 +94,49 @@ class User extends Authenticatable implements PasskeyUser
     public function blockedTimes(): HasMany
     {
         return $this->hasMany(BlockedTime::class);
+    }
+
+    public function subscriptions(): HasMany
+    {
+        return $this->hasMany(Subscription::class);
+    }
+
+    public function hasTariff(string $tariff): bool
+    {
+        return $this->tariff === $tariff;
+    }
+
+    public function isFreeTariff(): bool
+    {
+        return $this->tariff === 'free';
+    }
+
+    public function isSuperAdmin(): bool
+    {
+        return $this->is_super_admin;
+    }
+
+    public function isBlocked(): bool
+    {
+        return $this->is_blocked;
+    }
+
+    public function getTimezone(): string
+    {
+        return $this->settings['timezone'] ?? 'Europe/Moscow';
+    }
+
+    public function isTimezoneConfirmed(): bool
+    {
+        return ($this->settings['timezone_confirmed'] ?? false) === true;
+    }
+
+    public function setTimezone(string $timezone): void
+    {
+        $settings = $this->settings ?? [];
+        $settings['timezone'] = $timezone;
+        $settings['timezone_confirmed'] = true;
+        $this->settings = $settings;
+        $this->save();
     }
 }

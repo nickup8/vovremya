@@ -6,6 +6,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
+use App\Services\AppointmentStatusService;
 use App\Services\Client\ClientMergeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,24 +15,19 @@ use Illuminate\Support\Facades\Log;
 
 class WebhookController extends Controller
 {
-    private string $telegramBotToken;
+    private ?string $telegramBotToken;
 
     public function __construct(
         private ClientMergeService $clientMergeService,
+        private AppointmentStatusService $statusService,
     ) {
-        $this->telegramBotToken = config('services.telegram.bot_token', '');
+        $this->telegramBotToken = config('services.telegram.bot_token');
     }
 
-    /**
-     * Обработка входящих обновлений от Telegram-бота.
-     *
-     * Сценарии:
-     * 1. /start book_X — бот запрашивает контакт
-     * 2. message.contact — привязка клиента к записи + предоплата/подтверждение
-     * 3. callback_query — обработка нажатия инлайн-кнопок
-     */
     public function handleTelegram(Request $request): JsonResponse
     {
+        $this->verifySignature('telegram', $request);
+
         $payload = $request->all();
 
         $message = $payload['message'] ?? $payload['callback_query'] ?? null;
@@ -59,11 +55,10 @@ class WebhookController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /**
-     * Обработка входящих обновлений от Max-бота.
-     */
     public function handleMax(Request $request): JsonResponse
     {
+        $this->verifySignature('max', $request);
+
         $payload = $request->all();
 
         $event = $payload['event'] ?? null;
@@ -81,14 +76,52 @@ class WebhookController extends Controller
             if ($contact) {
                 return $this->handleContact($chatId, $contact, 'max');
             }
+
+            $callbackData = $data['callback_data'] ?? null;
+            if ($callbackData) {
+                return $this->handleCallback($chatId, $callbackData, ['chat' => $data['chat'] ?? []]);
+            }
         }
 
         return response()->json(['ok' => true]);
     }
 
-    /**
-     * Обработка команды /start book_X — отправка клавиатуры request_contact.
-     */
+    private function verifySignature(string $provider, Request $request): void
+    {
+        $secretKey = match ($provider) {
+            'telegram' => 'services.telegram.secret_token',
+            'max' => 'services.max.secret_token',
+        };
+
+        $secret = config($secretKey);
+
+        if (empty($secret)) {
+            Log::critical("Webhook secret not configured for {$provider}");
+            abort(500, 'Webhook secret not configured');
+        }
+
+        $headerName = match ($provider) {
+            'telegram' => 'X-Telegram-Bot-Api-Secret-Token',
+            'max' => 'X-Max-Signature',
+        };
+
+        $provided = $request->header($headerName);
+
+        if ($provided === null || $provided === '') {
+            Log::warning("Webhook signature missing for {$provider}", [
+                'ip' => $request->ip(),
+            ]);
+            abort(403, 'Webhook signature required');
+        }
+
+        if (! hash_equals((string) $secret, $provided)) {
+            Log::warning("Webhook signature mismatch for {$provider}", [
+                'ip' => $request->ip(),
+            ]);
+            abort(403, 'Invalid webhook signature');
+        }
+    }
+
     private function handleStartBook(?int $chatId, string $text, string $provider): JsonResponse
     {
         $appointmentId = (int) str_replace('/start book_', '', $text);
@@ -125,15 +158,12 @@ class WebhookController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /**
-     * Обработка полученного контакта — UPSERT клиента + привязка к записи + логика предоплаты.
-     */
     private function handleContact(?int $chatId, array $contact, string $provider): JsonResponse
     {
         $rawPhone = $contact['phone_number'] ?? $contact['phone'] ?? '';
         $phone = $this->cleanPhone($rawPhone);
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
-        $firstName = $contact['first_name'] ?? $contact['first_name'] ?? 'Клиент';
+        $firstName = $contact['first_name'] ?? 'Клиент';
 
         $pendingId = session('pending_telegram_appointment_id');
         if (! $pendingId) {
@@ -162,6 +192,14 @@ class WebhookController extends Controller
             $telegramId,
             $firstName,
         );
+
+        if ($client->isBlocked()) {
+            $appointment->delete();
+            session()->forget('pending_telegram_appointment_id');
+            $this->sendMessage($chatId, 'К сожалению, запись к этому мастеру недоступна.', $provider);
+
+            return response()->json(['ok' => true]);
+        }
 
         $appointment->update(['client_id' => $client->id]);
         session()->forget('pending_telegram_appointment_id');
@@ -200,7 +238,7 @@ class WebhookController extends Controller
 
             $this->sendMessage($chatId, $message, $provider, $inlineKeyboard);
         } else {
-            $appointment->update(['status' => AppointmentStatus::Confirmed]);
+            $this->statusService->transition($appointment, AppointmentStatus::Confirmed);
 
             $message = "Вы успешно записаны к {$master->name}!\n\n"
                 ."Услуга: {$service->title}\n"
@@ -225,25 +263,74 @@ class WebhookController extends Controller
         return response()->json(['ok' => true]);
     }
 
-    /**
-     * Обработка нажатия инлайн-кнопок.
-     */
     private function handleCallback(?int $chatId, string $data, array $message): JsonResponse
     {
+        if (str_starts_with($data, 'confirm_')) {
+            $appointmentId = (int) str_replace('confirm_', '', $data);
+
+            $appointment = Appointment::with(['master', 'service'])
+                ->where('id', $appointmentId)
+                ->first();
+
+            if (! $appointment) {
+                return response()->json(['ok' => true]);
+            }
+
+            if ($appointment->status->canTransitionTo(AppointmentStatus::Confirmed)) {
+                $this->statusService->transition($appointment, AppointmentStatus::Confirmed);
+
+                $service = $appointment->service;
+                $master = $appointment->master;
+                $date = $appointment->start_time->format('d.m.Y');
+                $time = $appointment->start_time->format('H:i');
+
+                $this->sendMessage(
+                    $chatId,
+                    "✅ Запись подтверждена!\n\n"
+                    ."Услуга: {$service->title}\n"
+                    ."Дата: {$date} в {$time}\n"
+                    ."Мастер: {$master->name}\n\n"
+                    ."Ждём вас!",
+                    $this->detectProvider($message)
+                );
+            }
+        }
+
+        if (str_starts_with($data, 'cancel_')) {
+            $appointmentId = (int) str_replace('cancel_', '', $data);
+
+            $appointment = Appointment::find($appointmentId);
+
+            if ($appointment && $appointment->status->canTransitionTo(AppointmentStatus::Cancelled)) {
+                $this->statusService->transition($appointment, AppointmentStatus::Cancelled);
+
+                $this->sendMessage(
+                    $chatId,
+                    '❌ Запись отменена.',
+                    $this->detectProvider($message)
+                );
+            }
+        }
+
         return response()->json(['ok' => true]);
     }
 
-    /**
-     * Очистка телефона: убираем все нецифровые символы, приводим к формату без +.
-     */
+    private function detectProvider(array $message): string
+    {
+        $chatType = $message['chat']['type'] ?? '';
+
+        if (str_contains($chatType, 'max')) {
+            return 'max';
+        }
+
+        return 'telegram';
+    }
+
     private function cleanPhone(string $phone): string
     {
         return preg_replace('/[^0-9]/', '', $phone);
     }
 
-    /**
-     * Отправка сообщения через Telegram Bot API.
-     */
     private function sendMessage(?int $chatId, string $text, string $provider, ?array $extra = null): void
     {
         if (! $chatId) {
@@ -270,7 +357,28 @@ class WebhookController extends Controller
         }
 
         if ($provider === 'max') {
-            Log::info('Max bot message (stub)', ['chat_id' => $chatId, 'text' => $text]);
+            $maxApiUrl = config('services.max.api_url');
+            $maxToken = config('services.max.bot_token');
+
+            if ($maxApiUrl && $maxToken) {
+                $payload = [
+                    'chat_id' => $chatId,
+                    'text' => $text,
+                ];
+
+                if ($extra) {
+                    $payload = array_merge($payload, $extra);
+                }
+
+                try {
+                    Http::timeout(10)
+                        ->post("{$maxApiUrl}/sendMessage", $payload);
+                } catch (\Exception $e) {
+                    Log::error('Max send failed', ['error' => $e->getMessage(), 'chat_id' => $chatId]);
+                }
+            } else {
+                Log::info('Max bot message (stub)', ['chat_id' => $chatId, 'text' => $text]);
+            }
         }
     }
 }

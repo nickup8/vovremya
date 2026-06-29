@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Billing\TariffLimitService;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -13,6 +14,7 @@ class BookingWidgetController extends Controller
 {
     public function __construct(
         private BookingService $bookingService,
+        private TariffLimitService $tariffLimitService,
     ) {}
 
     public function show(string $slug, Request $request)
@@ -79,6 +81,12 @@ class BookingWidgetController extends Controller
             ])->withInput();
         }
 
+        if (! $this->tariffLimitService->canCreateAppointment($master)) {
+            return back()->withErrors([
+                'time' => __('notifications.tariff_limit_reached'),
+            ])->withInput();
+        }
+
         $appointment = $this->bookingService->createAppointment(
             $master,
             $service,
@@ -87,7 +95,10 @@ class BookingWidgetController extends Controller
             $validated['provider'],
         );
 
-        session(['pending_telegram_appointment_id' => $appointment->id]);
+        session([
+            'pending_telegram_appointment_id' => $appointment->id,
+            'current_appointment_id' => $appointment->id,
+        ]);
 
         $botLink = $validated['provider'] === 'telegram'
             ? 'https://t.me/vovremia_bot?start=book_'.$appointment->id

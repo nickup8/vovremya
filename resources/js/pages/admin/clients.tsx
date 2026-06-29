@@ -1,9 +1,10 @@
 import { useState, useMemo } from 'react';
-import { Head, usePage } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import {
     Menu, Search, Plus,
     Users, Phone, Send, MessageCircle,
     CalendarPlus, Pencil, AlertTriangle, ShieldCheck,
+    ShieldOff, Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,6 +18,7 @@ interface Client {
     phone: string | null;
     telegram_id: string | null;
     max_id: string | null;
+    is_blocked: boolean;
     total_bookings: number;
     completed_bookings: number;
     ltv: number;
@@ -55,11 +57,15 @@ const FILTER_TABS: { key: FilterType; label: string }[] = [
 
 /* ═══════════════ Client Card ═══════════════ */
 
-function ClientCard({ client }: { client: Client }) {
+function ClientCard({ client, onEdit, onToggleBlock }: { client: Client; onEdit: (c: Client) => void; onToggleBlock: (c: Client) => void }) {
     const initials = getInitials(client.name);
 
     return (
-        <div className="overflow-hidden rounded-lg border border-slate-200 bg-white transition-shadow hover:shadow-md dark:border-zinc-700 dark:bg-zinc-900">
+        <div className={`overflow-hidden rounded-lg border bg-white transition-shadow hover:shadow-md dark:bg-zinc-900 ${
+            client.is_blocked
+                ? 'border-red-200 dark:border-red-800/50'
+                : 'border-slate-200 dark:border-zinc-700'
+        }`}>
             {/* Header */}
             <div className="flex items-start justify-between border-b border-slate-100 p-4 dark:border-zinc-800">
                 <div className="flex items-center gap-3">
@@ -76,15 +82,15 @@ function ClientCard({ client }: { client: Client }) {
                         </p>
                     </div>
                 </div>
-                {client.total_bookings > 5 ? (
+                {client.is_blocked ? (
+                    <span className="inline-flex shrink-0 items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
+                        <ShieldOff className="size-3" />
+                        Заблокирован
+                    </span>
+                ) : (
                     <span className="inline-flex shrink-0 items-center gap-1 rounded border border-emerald-200 bg-emerald-50 px-2 py-1 text-xs font-semibold text-emerald-600 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-400">
                         <ShieldCheck className="size-3" />
                         Активен
-                    </span>
-                ) : (
-                    <span className="inline-flex shrink-0 items-center gap-1 rounded border border-red-200 bg-red-50 px-2 py-1 text-xs font-semibold text-red-600 dark:border-red-800 dark:bg-red-950/40 dark:text-red-400">
-                        <AlertTriangle className="size-3" />
-                        Блок
                     </span>
                 )}
             </div>
@@ -116,9 +122,22 @@ function ClientCard({ client }: { client: Client }) {
                         <CalendarPlus className="size-3" />
                         Записать
                     </button>
-                    <button className="flex flex-1 items-center justify-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+                    <button
+                        onClick={() => onEdit(client)}
+                        className="flex flex-1 items-center justify-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
                         <Pencil className="size-3" />
                         Изменить
+                    </button>
+                    <button
+                        onClick={() => onToggleBlock(client)}
+                        className={`flex items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                            client.is_blocked
+                                ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50'
+                                : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
+                        }`}
+                    >
+                        {client.is_blocked ? <Shield className="size-3" /> : <ShieldOff className="size-3" />}
                     </button>
                 </div>
             </div>
@@ -133,7 +152,10 @@ export default function ClientsPage() {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FilterType>('all');
-    const [createDialogOpen, setCreateDialogOpen] = useState(false);
+    const [dialogOpen, setDialogOpen] = useState(false);
+    const [editingClient, setEditingClient] = useState<Client | null>(null);
+    const [formName, setFormName] = useState('');
+    const [formPhone, setFormPhone] = useState('');
 
     const userName = auth?.user?.name || 'Мастер';
     const initials = userName
@@ -156,13 +178,54 @@ export default function ClientsPage() {
         }
 
         if (filter === 'active') {
-            result = result.filter((c) => c.total_bookings > 5);
+            result = result.filter((c) => !c.is_blocked);
         } else if (filter === 'blocked') {
-            result = result.filter((c) => c.total_bookings <= 5);
+            result = result.filter((c) => c.is_blocked);
         }
 
         return result;
     }, [initialClients, search, filter]);
+
+    function openCreate() {
+        setEditingClient(null);
+        setFormName('');
+        setFormPhone('');
+        setDialogOpen(true);
+    }
+
+    function openEdit(client: Client) {
+        setEditingClient(client);
+        setFormName(client.name);
+        setFormPhone(client.phone || '');
+        setDialogOpen(true);
+    }
+
+    function handleToggleBlock(client: Client) {
+        router.post(`/admin/clients/${client.id}/toggle-block`, {}, {
+            preserveScroll: true,
+        });
+    }
+
+    function handleSubmit() {
+        if (!formName.trim() || !formPhone.trim()) return;
+
+        if (editingClient) {
+            router.put(`/admin/clients/${editingClient.id}`, {
+                name: formName,
+                phone: formPhone,
+            }, { preserveScroll: true });
+        } else {
+            router.post('/admin/clients', {
+                name: formName,
+                phone: formPhone,
+            }, { preserveScroll: true });
+        }
+
+        setDialogOpen(false);
+        setEditingClient(null);
+        setFormName('');
+        setFormPhone('');
+    }
 
     return (
         <>
@@ -227,7 +290,7 @@ export default function ClientsPage() {
                                 </div>
                                 <Button
                                     className="bg-blue-600 text-white hover:bg-blue-700"
-                                    onClick={() => setCreateDialogOpen(true)}
+                                    onClick={openCreate}
                                 >
                                     <Plus className="size-4" />
                                     Добавить
@@ -245,7 +308,7 @@ export default function ClientsPage() {
                             ) : (
                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                                     {clients.map((client) => (
-                                        <ClientCard key={client.id} client={client} />
+                                        <ClientCard key={client.id} client={client} onEdit={openEdit} onToggleBlock={handleToggleBlock} />
                                     ))}
                                 </div>
                             )}
@@ -254,20 +317,48 @@ export default function ClientsPage() {
                 </div>
             </div>
 
-            {/* ─── Create Client Dialog Placeholder ─── */}
-            {createDialogOpen && (
+            {/* ─── Create / Edit Client Dialog ─── */}
+            {dialogOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center">
-                    <div className="fixed inset-0 bg-black/50" onClick={() => setCreateDialogOpen(false)} />
+                    <div className="fixed inset-0 bg-black/50" onClick={() => setDialogOpen(false)} />
                     <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
                         <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
-                            Новый клиент
+                            {editingClient ? 'Редактировать клиента' : 'Новый клиент'}
                         </h3>
-                        <p className="mt-2 text-sm text-slate-500 dark:text-zinc-400">
-                            Форма создания клиента будет доступна после реализации API.
-                        </p>
-                        <div className="mt-4 flex justify-end">
-                            <Button variant="outline" onClick={() => setCreateDialogOpen(false)}>
-                                Закрыть
+                        <div className="mt-4 space-y-4">
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Имя *
+                                </label>
+                                <Input
+                                    value={formName}
+                                    onChange={(e) => setFormName(e.target.value)}
+                                    placeholder="Иван Иванов"
+                                    className="dark:bg-zinc-800"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Телефон *
+                                </label>
+                                <Input
+                                    value={formPhone}
+                                    onChange={(e) => setFormPhone(e.target.value)}
+                                    placeholder="+7 (911) 123-45-67"
+                                    className="dark:bg-zinc-800"
+                                />
+                            </div>
+                        </div>
+                        <div className="mt-6 flex justify-end gap-2">
+                            <Button variant="outline" onClick={() => setDialogOpen(false)} className="rounded-lg">
+                                Отмена
+                            </Button>
+                            <Button
+                                onClick={handleSubmit}
+                                disabled={!formName.trim() || !formPhone.trim()}
+                                className="rounded-lg bg-blue-600 text-white hover:bg-blue-700"
+                            >
+                                {editingClient ? 'Сохранить' : 'Добавить'}
                             </Button>
                         </div>
                     </div>

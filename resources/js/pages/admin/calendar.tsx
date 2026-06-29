@@ -1,5 +1,5 @@
 import { useState, useMemo } from 'react';
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, router, useForm, usePage } from '@inertiajs/react';
 import {
     ChevronLeft, ChevronRight, Plus, Menu,
     CalendarDays, Clock, User, Phone,
@@ -10,6 +10,7 @@ import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
 import Sidebar from '@/components/admin/Sidebar';
+import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 import { AppointmentStatus } from '@/types/appointment-status';
 
 /* ═══════════════ Types ═══════════════ */
@@ -33,14 +34,39 @@ interface BlockedTime {
     reason: string;
 }
 
+interface ClientOption {
+    id: number;
+    name: string;
+    phone: string | null;
+}
+
+interface ServiceOption {
+    id: number;
+    title: string;
+    duration_minutes: number;
+    price: number;
+}
+
 interface AuthUser {
     name: string;
     [key: string]: unknown;
 }
 
+interface WorkingHour {
+    day_of_week: number;
+    start_time: string | null;
+    end_time: string | null;
+    is_working: boolean;
+}
+
 interface PageProps {
     appointments: Appointment[];
     blockedTimes: BlockedTime[];
+    clients: ClientOption[];
+    services: ServiceOption[];
+    slotInterval: number;
+    workingHours: WorkingHour[];
+    timezoneConfirmed: boolean;
     auth?: { user?: AuthUser };
     [key: string]: unknown;
 }
@@ -76,8 +102,6 @@ const STATUS_STYLES: Record<AppointmentStatus, { card: string; label: string; do
 };
 
 const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-const HOURS = Array.from({ length: 14 }, (_, i) => i + 8);
-const DAY_START_HOUR = 8;
 const HOUR_HEIGHT = 80;
 const MINUTE_HEIGHT = HOUR_HEIGHT / 60;
 
@@ -123,8 +147,8 @@ function dateToKey(d: Date): string {
 
 /* ═══════════════ Appointment Card ═══════════════ */
 
-function AppointmentCard({ appointment, onClick }: { appointment: Appointment; onClick: () => void }) {
-    const startMinutes = timeToMinutes(appointment.time) - DAY_START_HOUR * 60;
+function AppointmentCard({ appointment, onClick, dayStartHour }: { appointment: Appointment; onClick: () => void; dayStartHour: number }) {
+    const startMinutes = timeToMinutes(appointment.time) - dayStartHour * 60;
     const top = startMinutes * MINUTE_HEIGHT;
     const height = appointment.duration * MINUTE_HEIGHT;
     const styles = STATUS_STYLES[appointment.status];
@@ -161,7 +185,7 @@ function AppointmentCard({ appointment, onClick }: { appointment: Appointment; o
 
 /* ═══════════════ Blocked Time Card ═══════════════ */
 
-function BlockedTimeCard({ blockedTime, dayDate }: { blockedTime: BlockedTime; dayDate: string }) {
+function BlockedTimeCard({ blockedTime, dayDate, dayStartHour }: { blockedTime: BlockedTime; dayDate: string; dayStartHour: number }) {
     const btStart = new Date(blockedTime.start_datetime);
     const btEnd = new Date(blockedTime.end_datetime);
 
@@ -171,8 +195,8 @@ function BlockedTimeCard({ blockedTime, dayDate }: { blockedTime: BlockedTime; d
     const effectiveStart = btStart < dayStart ? dayStart : btStart;
     const effectiveEnd = btEnd > dayEnd ? dayEnd : btEnd;
 
-    const startMinutes = effectiveStart.getHours() * 60 + effectiveStart.getMinutes() - DAY_START_HOUR * 60;
-    const endMinutes = effectiveEnd.getHours() * 60 + effectiveEnd.getMinutes() - DAY_START_HOUR * 60;
+    const startMinutes = effectiveStart.getHours() * 60 + effectiveStart.getMinutes() - dayStartHour * 60;
+    const endMinutes = effectiveEnd.getHours() * 60 + effectiveEnd.getMinutes() - dayStartHour * 60;
     const durationMinutes = Math.max(endMinutes - startMinutes, 15);
 
     const top = startMinutes * MINUTE_HEIGHT;
@@ -211,7 +235,7 @@ function MonthViewPlaceholder() {
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
-    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], auth } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, auth } = usePage<PageProps>().props;
     const [selected, setSelected] = useState<Appointment | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
@@ -220,6 +244,18 @@ export default function CalendarPage() {
     const [breakWarningOpen, setBreakWarningOpen] = useState(false);
     const [breakWarningMessage, setBreakWarningMessage] = useState('');
     const [pendingReschedule, setPendingReschedule] = useState<{ appointmentId: number; date: string; time: string } | null>(null);
+    const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
+    const [rescheduleOpen, setRescheduleOpen] = useState(false);
+    const [rescheduleDate, setRescheduleDate] = useState('');
+    const [rescheduleTime, setRescheduleTime] = useState('');
+
+    const newAppointmentForm = useForm({
+        client_id: '',
+        service_id: '',
+        date: '',
+        time: '',
+        ignore_warnings: false,
+    });
 
     const userName = auth?.user?.name || 'Мастер';
     const initials = userName
@@ -247,6 +283,26 @@ export default function CalendarPage() {
 
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
+    const gridHours = useMemo(() => {
+        let minHour = 24;
+        let maxHour = 0;
+        for (const wh of workingHours) {
+            if (wh.is_working && wh.start_time && wh.end_time) {
+                const sh = parseInt(wh.start_time.split(':')[0], 10);
+                const eh = parseInt(wh.end_time.split(':')[0], 10);
+                if (sh < minHour) minHour = sh;
+                if (eh > maxHour) maxHour = eh;
+            }
+        }
+        if (minHour >= maxHour) {
+            minHour = 8;
+            maxHour = 21;
+        }
+        return Array.from({ length: maxHour - minHour }, (_, i) => minHour + i);
+    }, [workingHours]);
+
+    const DAY_START_HOUR = gridHours.length > 0 ? gridHours[0] : 8;
+
     function getAppointmentsForDay(dayIndex: number): Appointment[] {
         const key = weekDateKeys[dayIndex];
         return appointments.filter((a) => a.date === key);
@@ -266,58 +322,151 @@ export default function CalendarPage() {
 
     function updateStatus(status: AppointmentStatus) {
         if (!selected) return;
-        router.patch(`/admin/appointments/${selected.id}/status`, { status }, { preserveScroll: true });
+        router.patch(`/admin/appointments/${selected.id}/status`, { status }, {
+            preserveScroll: true,
+            only: ['appointments'],
+        });
         setSheetOpen(false);
         setSelected(null);
     }
 
     function deleteAppointment() {
         if (!selected) return;
-        router.patch(`/admin/appointments/${selected.id}/status`, { status: AppointmentStatus.Cancelled }, { preserveScroll: true });
-        setSheetOpen(false);
-        setSelected(null);
-    }
-
-    function rescheduleAppointment() {
-        if (!selected) return;
-        const [h, m] = selected.time.split(':').map(Number);
-        const newM = m + 30;
-        const newH = h + Math.floor(newM / 60);
-        const newTime = `${String(newH).padStart(2, '0')}:${String(newM % 60).padStart(2, '0')}`;
-
-        router.patch(`/admin/appointments/${selected.id}/status`, {
-            start_time: `${selected.date} ${newTime}:00`,
-        }, {
+        router.patch(`/admin/appointments/${selected.id}/status`, { status: AppointmentStatus.Cancelled }, {
             preserveScroll: true,
-            onError: (errors: Record<string, string>) => {
-                if (errors.lunch_intersection) {
-                    setBreakWarningMessage(errors.lunch_intersection);
-                    setPendingReschedule({ appointmentId: selected.id, date: selected.date, time: newTime });
-                    setBreakWarningOpen(true);
-                }
-            },
+            only: ['appointments'],
         });
         setSheetOpen(false);
         setSelected(null);
     }
 
+    function generateTimeOptions(interval: number): string[] {
+        const options: string[] = [];
+        for (let h = 0; h < 24; h++) {
+            for (let m = 0; m < 60; m += interval) {
+                options.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+            }
+        }
+        return options;
+    }
+
+    const timeOptions = useMemo(() => generateTimeOptions(slotInterval), [slotInterval]);
+
+    function openReschedule() {
+        if (!selected) return;
+        setRescheduleDate(selected.date);
+        setRescheduleTime(selected.time);
+        setRescheduleOpen(true);
+        setSheetOpen(false);
+    }
+
+    function submitReschedule() {
+        if (!selected || !rescheduleDate || !rescheduleTime) return;
+
+        router.patch(`/admin/appointments/${selected.id}/status`, {
+            start_time: `${rescheduleDate} ${rescheduleTime}:00`,
+        }, {
+            preserveScroll: true,
+            only: ['appointments'],
+            onError: (errors: Record<string, string>) => {
+                if (errors.lunch_intersection) {
+                    setBreakWarningMessage(errors.lunch_intersection);
+                    setPendingReschedule({ appointmentId: selected.id, date: rescheduleDate, time: rescheduleTime });
+                    setBreakWarningOpen(true);
+                }
+                if (errors.time) {
+                    alert(errors.time);
+                }
+            },
+            onFinish: () => {
+                setRescheduleOpen(false);
+                setSelected(null);
+            },
+        });
+    }
+
     function confirmRescheduleWithBreak() {
-        if (!pendingReschedule) return;
+        if (pendingReschedule) {
+            router.patch(`/admin/appointments/${pendingReschedule.appointmentId}/status`, {
+                start_time: `${pendingReschedule.date} ${pendingReschedule.time}:00`,
+                ignore_warnings: true,
+            }, {
+                preserveScroll: true,
+                only: ['appointments'],
+                onError: (errors: Record<string, string>) => {
+                    if (errors.time) {
+                        alert(errors.time);
+                    }
+                },
+            });
 
-        router.patch(`/admin/appointments/${pendingReschedule.appointmentId}/status`, {
-            start_time: `${pendingReschedule.date} ${pendingReschedule.time}:00`,
-            ignore_warnings: true,
-        }, { preserveScroll: true });
-
-        setBreakWarningOpen(false);
-        setPendingReschedule(null);
-        setBreakWarningMessage('');
+            setBreakWarningOpen(false);
+            setPendingReschedule(null);
+            setBreakWarningMessage('');
+        } else if (newAppointmentOpen) {
+            submitNewAppointmentIgnoreBreak();
+        }
     }
 
     function cancelReschedule() {
         setBreakWarningOpen(false);
         setPendingReschedule(null);
         setBreakWarningMessage('');
+    }
+
+    function openNewAppointment() {
+        newAppointmentForm.reset();
+        newAppointmentForm.setData('date', dateToKey(new Date()));
+        newAppointmentForm.setData('time', '09:00');
+        setNewAppointmentOpen(true);
+    }
+
+    function submitNewAppointment(e: React.FormEvent) {
+        e.preventDefault();
+        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) return;
+
+        newAppointmentForm.post('/admin/calendar/appointments', {
+            preserveScroll: true,
+            onError: (errors: Record<string, string>) => {
+                if (errors.lunch_intersection) {
+                    setBreakWarningMessage(errors.lunch_intersection);
+                    setPendingReschedule(null);
+                    setBreakWarningOpen(true);
+                }
+                if (errors.time) {
+                    alert(errors.time);
+                }
+                if (errors.client_id) {
+                    alert(errors.client_id);
+                }
+            },
+            onSuccess: () => {
+                setNewAppointmentOpen(false);
+                newAppointmentForm.reset();
+            },
+        });
+    }
+
+    function submitNewAppointmentIgnoreBreak() {
+        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) return;
+
+        newAppointmentForm.setData('ignore_warnings', true);
+        newAppointmentForm.post('/admin/calendar/appointments', {
+            preserveScroll: true,
+            onError: (errors: Record<string, string>) => {
+                if (errors.time) {
+                    alert(errors.time);
+                }
+                if (errors.client_id) {
+                    alert(errors.client_id);
+                }
+            },
+            onSuccess: () => {
+                setNewAppointmentOpen(false);
+                setBreakWarningOpen(false);
+                newAppointmentForm.reset();
+            },
+        });
     }
 
     function openDetail(appointment: Appointment) {
@@ -372,6 +521,8 @@ export default function CalendarPage() {
                     {/* Content Area */}
                     <main className="flex-1 overflow-y-auto p-4 md:p-6">
                         <div className="space-y-4">
+                            <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
+
                             {/* ─── Date Control Panel ─── */}
                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
                                 <div className="flex items-center gap-2">
@@ -405,7 +556,10 @@ export default function CalendarPage() {
                                         <CalendarDays className="size-3.5" />
                                         {viewMode === 'week' ? 'Месяц' : 'Неделя'}
                                     </button>
-                                    <button className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700">
+                                    <button
+                                        onClick={openNewAppointment}
+                                        className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                                    >
                                         <Plus className="size-3.5" />
                                         Новая запись
                                     </button>
@@ -446,7 +600,7 @@ export default function CalendarPage() {
                                         <div className="grid min-w-[700px] grid-cols-8">
                                             {/* Time Column */}
                                             <div className="border-r border-slate-200 dark:border-zinc-800">
-                                                {HOURS.map((hour) => (
+                                                {gridHours.map((hour) => (
                                                     <div
                                                         key={hour}
                                                         className="flex h-20 items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
@@ -466,7 +620,7 @@ export default function CalendarPage() {
                                                         key={`col-${dayIdx}`}
                                                         className="relative border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
                                                     >
-                                                        {HOURS.map((hour) => (
+                                                        {gridHours.map((hour) => (
                                                             <div
                                                                 key={hour}
                                                                 className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
@@ -477,6 +631,7 @@ export default function CalendarPage() {
                                                                 key={`bt-${bt.id}`}
                                                                 blockedTime={bt}
                                                                 dayDate={dateKey}
+                                                                dayStartHour={DAY_START_HOUR}
                                                             />
                                                         ))}
                                                         {dayAppts.map((appt) => (
@@ -484,6 +639,7 @@ export default function CalendarPage() {
                                                                 key={appt.id}
                                                                 appointment={appt}
                                                                 onClick={() => openDetail(appt)}
+                                                                dayStartHour={DAY_START_HOUR}
                                                             />
                                                         ))}
                                                     </div>
@@ -523,6 +679,26 @@ export default function CalendarPage() {
 
                                 <div className="space-y-3">
                                     <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
+                                        <CalendarDays className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
+                                        {(() => {
+                                            const d = new Date(selected.date + 'T00:00:00');
+                                            const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+                                            const monthNames = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+                                            return `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+                                        })()}
+                                    </div>
+                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
+                                        <Clock className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
+                                        {selected.time} — {(() => {
+                                            const [h, m] = selected.time.split(':').map(Number);
+                                            const total = h * 60 + m + selected.duration;
+                                            const eh = Math.floor(total / 60);
+                                            const em = total % 60;
+                                            return `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
+                                        })()}
+                                        <span className="text-xs text-slate-400 dark:text-zinc-500">({selected.duration} мин)</span>
+                                    </div>
+                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
                                         <User className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
                                         {selected.client_name}
                                     </div>
@@ -533,12 +709,8 @@ export default function CalendarPage() {
                                         </div>
                                     )}
                                     <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                        <Clock className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                        {selected.service} · {selected.duration} мин
-                                    </div>
-                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
                                         <span className="size-4 shrink-0 text-center text-sm font-bold text-slate-400 dark:text-zinc-500">₽</span>
-                                        {selected.price.toLocaleString('ru-RU')} ₽
+                                        {selected.service} — {selected.price.toLocaleString('ru-RU')} ₽
                                     </div>
                                 </div>
 
@@ -565,12 +737,12 @@ export default function CalendarPage() {
                                     {selected.status !== AppointmentStatus.Cancelled && (
                                         <>
                                             <Button
-                                                onClick={rescheduleAppointment}
+                                                onClick={openReschedule}
                                                 variant="outline"
                                                 className="w-full justify-start rounded-lg"
                                             >
                                                 <RotateCw className="size-4" />
-                                                Перенести на +30 мин
+                                                Перенести запись
                                             </Button>
                                             <Button
                                                 onClick={deleteAppointment}
@@ -615,6 +787,163 @@ export default function CalendarPage() {
                                 className="flex-1 rounded-xl bg-amber-600 text-white hover:bg-amber-700 sm:flex-none"
                             >
                                 Всё равно перенести
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
+                {/* ─── New Appointment Dialog ─── */}
+                <Dialog open={newAppointmentOpen} onOpenChange={setNewAppointmentOpen}>
+                    <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
+                        <form onSubmit={submitNewAppointment}>
+                            <DialogHeader>
+                                <DialogTitle className="text-slate-900 dark:text-zinc-100">
+                                    Новая запись
+                                </DialogTitle>
+                                <DialogDescription className="text-slate-500 dark:text-zinc-400">
+                                    Выберите клиента, услугу и время
+                                </DialogDescription>
+                            </DialogHeader>
+
+                            <div className="space-y-4">
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        Клиент *
+                                    </label>
+                                    <select
+                                        value={newAppointmentForm.data.client_id}
+                                        onChange={(e) => newAppointmentForm.setData('client_id', e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    >
+                                        <option value="">Выберите клиента</option>
+                                        {clients.map((c: ClientOption) => (
+                                            <option key={c.id} value={c.id}>
+                                                {c.name}{c.phone ? ` (${c.phone})` : ''}
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        Услуга *
+                                    </label>
+                                    <select
+                                        value={newAppointmentForm.data.service_id}
+                                        onChange={(e) => newAppointmentForm.setData('service_id', e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    >
+                                        <option value="">Выберите услугу</option>
+                                        {services.map((s: ServiceOption) => (
+                                            <option key={s.id} value={s.id}>
+                                                {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
+                                            </option>
+                                        ))}
+                                    </select>
+                                </div>
+
+                                <div className="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                            Дата *
+                                        </label>
+                                        <input
+                                            type="date"
+                                            value={newAppointmentForm.data.date}
+                                            onChange={(e) => newAppointmentForm.setData('date', e.target.value)}
+                                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                        />
+                                    </div>
+                                    <div>
+                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                            Время *
+                                        </label>
+                                        <input
+                                            type="time"
+                                            value={newAppointmentForm.data.time}
+                                            onChange={(e) => newAppointmentForm.setData('time', e.target.value)}
+                                            step={slotInterval * 60}
+                                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    onClick={() => setNewAppointmentOpen(false)}
+                                    className="flex-1 rounded-xl sm:flex-none"
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={newAppointmentForm.processing || !newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time}
+                                    className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 sm:flex-none"
+                                >
+                                    {newAppointmentForm.processing ? 'Создание...' : 'Создать запись'}
+                                </Button>
+                            </DialogFooter>
+                        </form>
+                    </DialogContent>
+                </Dialog>
+
+                {/* ─── Reschedule Dialog ─── */}
+                <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
+                    <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
+                        <DialogHeader>
+                            <DialogTitle className="text-slate-900 dark:text-zinc-100">
+                                Перенос записи
+                            </DialogTitle>
+                            <DialogDescription className="text-slate-500 dark:text-zinc-400">
+                                Выберите новую дату и время
+                            </DialogDescription>
+                        </DialogHeader>
+
+                        <div className="space-y-4">
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Дата
+                                </label>
+                                <input
+                                    type="date"
+                                    value={rescheduleDate}
+                                    onChange={(e) => setRescheduleDate(e.target.value)}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                />
+                            </div>
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Время
+                                </label>
+                                <select
+                                    value={rescheduleTime}
+                                    onChange={(e) => setRescheduleTime(e.target.value)}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                >
+                                    {timeOptions.map((t) => (
+                                        <option key={t} value={t}>{t}</option>
+                                    ))}
+                                </select>
+                            </div>
+                        </div>
+
+                        <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+                            <Button
+                                variant="outline"
+                                onClick={() => setRescheduleOpen(false)}
+                                className="flex-1 rounded-xl sm:flex-none"
+                            >
+                                Отмена
+                            </Button>
+                            <Button
+                                onClick={submitReschedule}
+                                disabled={!rescheduleDate || !rescheduleTime}
+                                className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 sm:flex-none"
+                            >
+                                Сохранить перенос
                             </Button>
                         </DialogFooter>
                     </DialogContent>

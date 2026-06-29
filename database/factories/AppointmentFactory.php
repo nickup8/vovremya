@@ -25,8 +25,8 @@ class AppointmentFactory extends Factory
         );
 
         return [
-            'master_id' => User::factory()->master(),
-            'client_id' => User::factory(),
+            'master_id' => User::factory()->master()->create()->id,
+            'client_id' => null,
             'service_id' => $service->id,
             'start_time' => $start,
             'status' => fake()->randomElement(['confirmed', 'pending_client']),
@@ -44,6 +44,55 @@ class AppointmentFactory extends Factory
     {
         return $this->state(fn () => [
             'status' => 'pending_client',
+        ]);
+    }
+
+    public function completed(): static
+    {
+        return $this->state(fn () => [
+            'status' => 'completed',
+        ]);
+    }
+
+    public function cancelled(): static
+    {
+        return $this->state(fn () => [
+            'status' => 'cancelled',
+        ]);
+    }
+
+    public function noShow(): static
+    {
+        return $this->state(fn () => [
+            'status' => 'no_show',
+        ]);
+    }
+
+    public function forMaster(User $master): static
+    {
+        return $this->state(fn () => [
+            'master_id' => $master->id,
+        ]);
+    }
+
+    public function forClient(\App\Models\Client $client): static
+    {
+        return $this->state(fn () => [
+            'client_id' => $client->id,
+        ]);
+    }
+
+    public function withService(Service $service): static
+    {
+        return $this->state(fn () => [
+            'service_id' => $service->id,
+        ]);
+    }
+
+    public function provider(string $provider): static
+    {
+        return $this->state(fn () => [
+            'provider' => $provider,
         ]);
     }
 }
