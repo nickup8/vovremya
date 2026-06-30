@@ -1,17 +1,17 @@
 <?php
 
+use App\Models\Appointment;
+use App\Models\Client;
+use App\Models\Service;
 use App\Models\User;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Str;
-use App\Models\Service;
-use App\Models\Client;
-use App\Models\Appointment;
-use Carbon\Carbon;
 
 Route::prefix('dev')->middleware(['web'])->group(function () {
-    Route::get('/impersonate/{userId}', function (int $userId): JsonResponse|Illuminate\Http\RedirectResponse {
+    Route::get('/impersonate/{userId}', function (int $userId): JsonResponse|RedirectResponse {
         if (app()->isProduction()) {
             abort(404);
         }
@@ -86,7 +86,7 @@ Route::prefix('dev')->middleware(['web'])->group(function () {
 
             $existingCount = Appointment::where('master_id', $master->id)->count();
             if ($existingCount < 50) {
-                $statuses = ['completed', 'completed', 'confirmed', 'confirmed', 'pending_client'];
+                $statuses = ['paid', 'paid', 'booked', 'booked', 'booked'];
                 $clientIds = $clients->pluck('id')->toArray();
                 $serviceIds = $services->pluck('id')->toArray();
                 $today = Carbon::today();

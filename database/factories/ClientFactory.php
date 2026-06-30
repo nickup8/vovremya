@@ -29,14 +29,14 @@ class ClientFactory extends Factory
     public function withTelegram(): static
     {
         return $this->state(fn () => [
-            'telegram_id' => 'tg_' . fake()->unique()->numerify('######'),
+            'telegram_id' => 'tg_'.fake()->unique()->numerify('######'),
         ]);
     }
 
     public function withMax(): static
     {
         return $this->state(fn () => [
-            'max_id' => 'max_' . fake()->unique()->numerify('######'),
+            'max_id' => 'max_'.fake()->unique()->numerify('######'),
         ]);
     }
 }

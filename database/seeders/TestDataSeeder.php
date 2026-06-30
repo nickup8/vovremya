@@ -76,7 +76,7 @@ class TestDataSeeder extends Seeder
             'client_id' => $client->id,
             'service_id' => $services[0]->id,
             'start_time' => $today->copy()->setTime(10, 0),
-            'status' => 'confirmed',
+            'status' => 'booked',
         ]);
 
         Appointment::create([
@@ -84,7 +84,7 @@ class TestDataSeeder extends Seeder
             'client_id' => $client->id,
             'service_id' => $services[2]->id,
             'start_time' => $today->copy()->setTime(13, 30),
-            'status' => 'pending_client',
+            'status' => 'booked',
         ]);
 
         Appointment::create([
@@ -92,16 +92,16 @@ class TestDataSeeder extends Seeder
             'client_id' => $client->id,
             'service_id' => $services[1]->id,
             'start_time' => $today->copy()->setTime(17, 0),
-            'status' => 'confirmed',
+            'status' => 'booked',
         ]);
 
-        $this->command->info("Тестовые данные созданы:");
-        $this->command->info("  Мастер: test-master (slug)");
-        $this->command->info("  Услуги: " . count($services) . " шт.");
-        $this->command->info("  Клиент: Мария Клиентова (Client model)");
-        $this->command->info("  Записи на сегодня: 3 шт.");
-        $this->command->info("    10:00–11:00 (confirmed, 60 мин)");
-        $this->command->info("    13:30–14:00 (pending_client, 30 мин)");
-        $this->command->info("    17:00–18:30 (confirmed, 90 мин)");
+        $this->command->info('Тестовые данные созданы:');
+        $this->command->info('  Мастер: test-master (slug)');
+        $this->command->info('  Услуги: '.count($services).' шт.');
+        $this->command->info('  Клиент: Мария Клиентова (Client model)');
+        $this->command->info('  Записи на сегодня: 3 шт.');
+        $this->command->info('    10:00–11:00 (booked, 60 мин)');
+        $this->command->info('    13:30–14:00 (booked, 30 мин)');
+        $this->command->info('    17:00–18:30 (booked, 90 мин)');
     }
 }

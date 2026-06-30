@@ -35,7 +35,7 @@ class SecurityAndLogicBreakTest extends TestCase
             ->forMaster($masterA)
             ->forClient($client)
             ->withService($serviceA)
-            ->confirmed()
+            ->booked()
             ->create();
 
         $this->actingAs($masterB);
@@ -50,7 +50,7 @@ class SecurityAndLogicBreakTest extends TestCase
 
         $this->assertDatabaseHas('appointments', [
             'id' => $appointment->id,
-            'status' => AppointmentStatus::Confirmed->value,
+            'status' => AppointmentStatus::Booked->value,
         ]);
     }
 
@@ -72,7 +72,7 @@ class SecurityAndLogicBreakTest extends TestCase
                 ->forMaster($master)
                 ->forClient($client)
                 ->withService($service)
-                ->confirmed()
+                ->booked()
                 ->create();
         }
 
@@ -98,13 +98,11 @@ class SecurityAndLogicBreakTest extends TestCase
     }
 
     /**
-     * Тест 2.3: Конечный автомат — отменённую запись нельзя вернуть в confirmed.
+     * Тест 2.3: Конечный автомат — отменённую запись можно восстановить в booked.
      *
-     * BUG: CalendarController::updateStatus не валидирует переходы состояний.
-     * Запись в статусе cancelled можно перевести обратно в confirmed.
-     * Это нарушает бизнес-логику: отменённая запись не должна восстанавливаться.
+     * Новое правило: cancelled → booked разрешён (восстановление записи).
      */
-    public function test_cancelled_appointment_cannot_be_reactivated(): void
+    public function test_cancelled_appointment_can_be_reactivated_to_booked(): void
     {
         $master = User::factory()->master()->create();
         $service = Service::factory()->for($master)->create();
@@ -120,16 +118,14 @@ class SecurityAndLogicBreakTest extends TestCase
         $this->actingAs($master);
 
         $response = $this->patchJson(route('admin.appointments.update-status', $appointment->id), [
-            'status' => AppointmentStatus::Confirmed->value,
+            'status' => AppointmentStatus::Booked->value,
         ]);
 
-        // Если код НЕ проверяет допустимые переходы состояний — вернёт 302 (redirect back).
-        // Ожидаем 422 или 400 — но текущий код вернёт 302, что и подтверждает баг.
-        $response->assertStatus(422);
+        $response->assertStatus(302);
 
         $this->assertDatabaseHas('appointments', [
             'id' => $appointment->id,
-            'status' => AppointmentStatus::Cancelled->value,
+            'status' => AppointmentStatus::Booked->value,
         ]);
     }
 

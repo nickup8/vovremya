@@ -109,7 +109,7 @@ class DemoDataSeeder extends Seeder
 
     private function createAppointments(int $masterId, $clients, array $services): void
     {
-        $statuses = ['completed', 'completed', 'completed', 'completed', 'confirmed', 'confirmed', 'confirmed', 'pending_client', 'cancelled'];
+        $statuses = ['paid', 'paid', 'paid', 'paid', 'booked', 'booked', 'booked', 'booked', 'cancelled'];
         $clientIds = $clients->pluck('id')->toArray();
         $serviceIds = array_column($services, 'id');
         $serviceDurations = array_column($services, 'duration_minutes');

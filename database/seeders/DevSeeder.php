@@ -76,7 +76,7 @@ class DevSeeder extends Seeder
                 return;
             }
 
-            $statuses = ['completed', 'completed', 'confirmed', 'confirmed', 'pending_client'];
+            $statuses = ['paid', 'paid', 'booked', 'booked', 'booked'];
             $clientIds = $clients->pluck('id')->toArray();
             $serviceIds = $services->pluck('id')->toArray();
             $today = Carbon::today();
@@ -108,8 +108,8 @@ class DevSeeder extends Seeder
 
         $this->command->info('Dev data seeded:');
         $this->command->info("  Master: {$master->name} (ID: {$master->id})");
-        $this->command->info("  Services: " . Service::where('user_id', $master->id)->count());
-        $this->command->info("  Clients: " . Client::where('user_id', $master->id)->count());
-        $this->command->info("  Appointments: " . Appointment::where('master_id', $master->id)->count());
+        $this->command->info('  Services: '.Service::where('user_id', $master->id)->count());
+        $this->command->info('  Clients: '.Client::where('user_id', $master->id)->count());
+        $this->command->info('  Appointments: '.Appointment::where('master_id', $master->id)->count());
     }
 }

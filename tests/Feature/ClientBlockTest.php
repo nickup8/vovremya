@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Services\Booking\AvailabilityService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -49,6 +50,10 @@ class ClientBlockTest extends TestCase
     {
         Http::fake();
 
+        if ($pendingAppointmentId !== null) {
+            Cache::put("bot_pending:telegram:{$chatId}", $pendingAppointmentId, now()->addMinutes(15));
+        }
+
         $payload = [
             'message' => [
                 'chat' => ['id' => $chatId],
@@ -60,9 +65,7 @@ class ClientBlockTest extends TestCase
             ],
         ];
 
-        $request = $this->withSession([
-            'pending_telegram_appointment_id' => $pendingAppointmentId,
-        ])->postJson(route('webhooks.telegram'), $payload, [
+        $request = $this->postJson(route('webhooks.telegram'), $payload, [
             'X-Telegram-Bot-Api-Secret-Token' => 'test_webhook_secret',
         ]);
 
@@ -83,8 +86,8 @@ class ClientBlockTest extends TestCase
             'master_id' => $this->masterA->id,
             'client_id' => null,
             'service_id' => $this->serviceA->id,
-            'start_time' => now()->addDay()->setTime(10, 0),
-            'status' => 'pending_client',
+            'start_time' => now()->addDay()->setTime(6, 0),
+            'status' => 'booked',
             'provider' => 'telegram',
         ]);
 
@@ -95,7 +98,8 @@ class ClientBlockTest extends TestCase
         $startDateTime = new Carbon($appointment->start_time);
         $availability = app(AvailabilityService::class);
         $this->assertTrue(
-            $availability->isSlotAvailable($this->masterA, $startDateTime, $this->serviceA->duration_minutes)
+            $availability->isSlotAvailable($this->masterA, $startDateTime->utc(), $this->serviceA->duration_minutes),
+            'Slot should be available after appointment is deleted'
         );
     }
 
@@ -114,7 +118,7 @@ class ClientBlockTest extends TestCase
             'client_id' => null,
             'service_id' => $this->serviceB->id,
             'start_time' => now()->addDay()->setTime(10, 0),
-            'status' => 'pending_client',
+            'status' => 'booked',
             'provider' => 'telegram',
         ]);
 
@@ -126,7 +130,7 @@ class ClientBlockTest extends TestCase
         ]);
 
         $appointment->refresh();
-        $this->assertEquals('pending_client', $appointment->status->value);
+        $this->assertEquals('booked', $appointment->status->value);
     }
 
     public function test_toggle_block_own_client_sets_is_blocked(): void

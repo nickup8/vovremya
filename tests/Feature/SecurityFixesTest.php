@@ -14,6 +14,7 @@ class SecurityFixesTest extends TestCase
     use RefreshDatabase;
 
     private User $master;
+
     private User $otherMaster;
 
     protected function setUp(): void
@@ -38,7 +39,7 @@ class SecurityFixesTest extends TestCase
 
         $response = $this->actingAs($this->master)
             ->patchJson("/admin/appointments/{$appointment->id}/status", [
-                'status' => 'completed',
+                'status' => 'paid',
             ]);
 
         $response->assertStatus(403);
@@ -50,12 +51,12 @@ class SecurityFixesTest extends TestCase
         $appointment = Appointment::factory()->create([
             'master_id' => $this->master->id,
             'service_id' => $service->id,
-            'status' => 'pending_client',
+            'status' => 'booked',
         ]);
 
         $response = $this->actingAs($this->master)
             ->patchJson("/admin/appointments/{$appointment->id}/status", [
-                'status' => 'confirmed',
+                'status' => 'paid',
             ]);
 
         $response->assertRedirect();

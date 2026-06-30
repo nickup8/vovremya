@@ -3,6 +3,7 @@
 namespace Database\Factories;
 
 use App\Models\Appointment;
+use App\Models\Client;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
@@ -29,28 +30,14 @@ class AppointmentFactory extends Factory
             'client_id' => null,
             'service_id' => $service->id,
             'start_time' => $start,
-            'status' => fake()->randomElement(['confirmed', 'pending_client']),
+            'status' => fake()->randomElement(['booked']),
         ];
     }
 
-    public function confirmed(): static
+    public function booked(): static
     {
         return $this->state(fn () => [
-            'status' => 'confirmed',
-        ]);
-    }
-
-    public function pending(): static
-    {
-        return $this->state(fn () => [
-            'status' => 'pending_client',
-        ]);
-    }
-
-    public function completed(): static
-    {
-        return $this->state(fn () => [
-            'status' => 'completed',
+            'status' => 'booked',
         ]);
     }
 
@@ -75,7 +62,7 @@ class AppointmentFactory extends Factory
         ]);
     }
 
-    public function forClient(\App\Models\Client $client): static
+    public function forClient(Client $client): static
     {
         return $this->state(fn () => [
             'client_id' => $client->id,
