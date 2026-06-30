@@ -1,8 +1,16 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import Cropper from 'react-easy-crop';
 import {
-    Menu, Send, MessageCircle, Pencil, Plus, Trash2, X, Clock, ChevronDown,
+    Menu,
+    Send,
+    MessageCircle,
+    Pencil,
+    Plus,
+    Trash2,
+    X,
+    Clock,
+    ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -80,7 +88,7 @@ function Toggle({
         <button
             type="button"
             onClick={onToggle}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 ${
+            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none ${
                 enabled ? 'bg-blue-600' : 'bg-slate-300 dark:bg-zinc-600'
             }`}
         >
@@ -106,10 +114,18 @@ function AvatarCropModal({
 }) {
     const [crop, setCrop] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
-    const [croppedAreaPixels, setCroppedAreaPixels] = useState<{ x: number; y: number; width: number; height: number } | null>(null);
+    const [croppedAreaPixels, setCroppedAreaPixels] = useState<{
+        x: number;
+        y: number;
+        width: number;
+        height: number;
+    } | null>(null);
     const [uploading, setUploading] = useState(false);
 
-    const getCroppedImg = (src: string, pixelCrop: { x: number; y: number; width: number; height: number }): Promise<File> => {
+    const getCroppedImg = (
+        src: string,
+        pixelCrop: { x: number; y: number; width: number; height: number },
+    ): Promise<File> => {
         return new Promise((resolve, reject) => {
             const image = new Image();
             image.src = src;
@@ -138,17 +154,24 @@ function AvatarCropModal({
                     pixelCrop.height,
                 );
 
-                canvas.toBlob((blob) => {
-                    if (!blob) {
-                        reject(new Error('Canvas пустой'));
-                        return;
-                    }
-                    const file = new File([blob], 'avatar.jpg', { type: 'image/jpeg' });
-                    resolve(file);
-                }, 'image/jpeg', 0.95);
+                canvas.toBlob(
+                    (blob) => {
+                        if (!blob) {
+                            reject(new Error('Canvas пустой'));
+                            return;
+                        }
+                        const file = new File([blob], 'avatar.jpg', {
+                            type: 'image/jpeg',
+                        });
+                        resolve(file);
+                    },
+                    'image/jpeg',
+                    0.95,
+                );
             };
 
-            image.onerror = () => reject(new Error('Не удалось загрузить изображение'));
+            image.onerror = () =>
+                reject(new Error('Не удалось загрузить изображение'));
         });
     };
 
@@ -158,12 +181,20 @@ function AvatarCropModal({
         try {
             setUploading(true);
 
-            const croppedFile = await getCroppedImg(imageSrc, croppedAreaPixels);
+            const croppedFile = await getCroppedImg(
+                imageSrc,
+                croppedAreaPixels,
+            );
 
             const formData = new FormData();
             formData.append('avatar', croppedFile);
 
-            const csrfToken = (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '';
+            const csrfToken =
+                (
+                    document.querySelector(
+                        'meta[name="csrf-token"]',
+                    ) as HTMLMetaElement
+                )?.content || '';
 
             const response = await fetch('/admin/settings/avatar', {
                 method: 'POST',
@@ -179,7 +210,10 @@ function AvatarCropModal({
                 window.location.reload();
             } else {
                 const errorData = await response.json().catch(() => ({}));
-                alert('Ошибка при загрузке: ' + (errorData.message || 'Неизвестная ошибка'));
+                alert(
+                    'Ошибка при загрузке: ' +
+                        (errorData.message || 'Неизвестная ошибка'),
+                );
             }
         } catch (error) {
             console.error(error);
@@ -218,13 +252,17 @@ function AvatarCropModal({
                         cropShape="round"
                         onCropChange={setCrop}
                         onZoomChange={setZoom}
-                        onCropComplete={(_croppedArea, croppedAreaPixels) => setCroppedAreaPixels(croppedAreaPixels)}
+                        onCropComplete={(_croppedArea, croppedAreaPixels) =>
+                            setCroppedAreaPixels(croppedAreaPixels)
+                        }
                     />
                 </div>
 
                 {/* Zoom Slider */}
                 <div className="mt-4 flex items-center gap-3">
-                    <span className="text-xs text-slate-500 dark:text-zinc-400">−</span>
+                    <span className="text-xs text-slate-500 dark:text-zinc-400">
+                        −
+                    </span>
                     <input
                         type="range"
                         min={1}
@@ -234,7 +272,9 @@ function AvatarCropModal({
                         onChange={(e) => setZoom(Number(e.target.value))}
                         className="h-1.5 flex-1 cursor-pointer appearance-none rounded-full bg-slate-200 dark:bg-zinc-700 [&::-webkit-slider-thumb]:size-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-blue-600 [&::-webkit-slider-thumb]:shadow-sm"
                     />
-                    <span className="text-xs text-slate-500 dark:text-zinc-400">+</span>
+                    <span className="text-xs text-slate-500 dark:text-zinc-400">
+                        +
+                    </span>
                 </div>
 
                 {/* Action Buttons */}
@@ -334,12 +374,16 @@ function ServiceModal({
                         </label>
                         <Input
                             value={form.data.title}
-                            onChange={(e) => form.setData('title', e.target.value)}
+                            onChange={(e) =>
+                                form.setData('title', e.target.value)
+                            }
                             placeholder="Маникюр + покрытие"
                             className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                         />
                         {form.errors.title && (
-                            <p className="mt-1 text-xs text-red-500">{form.errors.title}</p>
+                            <p className="mt-1 text-xs text-red-500">
+                                {form.errors.title}
+                            </p>
                         )}
                     </div>
 
@@ -352,12 +396,19 @@ function ServiceModal({
                                 type="number"
                                 min="1"
                                 value={form.data.duration_minutes}
-                                onChange={(e) => form.setData('duration_minutes', e.target.value)}
+                                onChange={(e) =>
+                                    form.setData(
+                                        'duration_minutes',
+                                        e.target.value,
+                                    )
+                                }
                                 placeholder="60"
                                 className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                             />
                             {form.errors.duration_minutes && (
-                                <p className="mt-1 text-xs text-red-500">{form.errors.duration_minutes}</p>
+                                <p className="mt-1 text-xs text-red-500">
+                                    {form.errors.duration_minutes}
+                                </p>
                             )}
                         </div>
                         <div>
@@ -369,12 +420,16 @@ function ServiceModal({
                                 min="0"
                                 step="0.01"
                                 value={form.data.price}
-                                onChange={(e) => form.setData('price', e.target.value)}
+                                onChange={(e) =>
+                                    form.setData('price', e.target.value)
+                                }
                                 placeholder="1500"
                                 className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                             />
                             {form.errors.price && (
-                                <p className="mt-1 text-xs text-red-500">{form.errors.price}</p>
+                                <p className="mt-1 text-xs text-red-500">
+                                    {form.errors.price}
+                                </p>
                             )}
                         </div>
                     </div>
@@ -393,7 +448,11 @@ function ServiceModal({
                             disabled={form.processing}
                             className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
                         >
-                            {form.processing ? 'Сохранение...' : service ? 'Сохранить' : 'Добавить'}
+                            {form.processing
+                                ? 'Сохранение...'
+                                : service
+                                  ? 'Сохранить'
+                                  : 'Добавить'}
                         </Button>
                     </div>
                 </form>
@@ -410,28 +469,62 @@ const SLOT_INTERVALS = [15, 30, 60];
 const uiToCarbon = (uiIndex: number) => (uiIndex + 1) % 7;
 const carbonToUi = (carbonDow: number) => (carbonDow + 6) % 7;
 
-function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: { workingHours: WorkingHour[]; slotInterval: number }) {
-    const [localHours, setLocalHours] = useState<WorkingHour[]>(() => {
-        const hours: WorkingHour[] = [];
-        for (let i = 0; i < 7; i++) {
-            const existing = workingHours.find((h) => h.day_of_week === uiToCarbon(i));
-            hours.push(
-                existing
-                    ? { ...existing, day_of_week: i }
-                    : {
-                        id: 0,
-                        day_of_week: i,
-                        start_time: '09:00',
-                        end_time: '18:00',
-                        break_start_time: '13:00',
-                        break_end_time: '14:00',
-                        is_working: i < 5,
-                    }
-            );
-        }
-        return hours;
-    });
+function buildHours(workingHours: WorkingHour[]): WorkingHour[] {
+    const hours: WorkingHour[] = [];
+    for (let i = 0; i < 7; i++) {
+        const existing = workingHours.find(
+            (h) => h.day_of_week === uiToCarbon(i),
+        );
+        hours.push(
+            existing
+                ? { ...existing, day_of_week: i }
+                : {
+                      id: 0,
+                      day_of_week: i,
+                      start_time: '09:00',
+                      end_time: '18:00',
+                      break_start_time: '13:00',
+                      break_end_time: '14:00',
+                      is_working: i < 5,
+                  },
+        );
+    }
+    return hours;
+}
+
+function WorkingHoursCard({
+    workingHours,
+    slotInterval: initialSlotInterval,
+}: {
+    workingHours: WorkingHour[];
+    slotInterval: number;
+}) {
+    const [localHours, setLocalHours] = useState<WorkingHour[]>(() =>
+        buildHours(workingHours),
+    );
     const [slotInterval, setSlotInterval] = useState(initialSlotInterval);
+    const initialHours = useMemo(
+        () => buildHours(workingHours),
+        [workingHours],
+    );
+    const serialize = (hours: WorkingHour[]) =>
+        JSON.stringify(
+            hours.map((h) => ({
+                day_of_week: h.day_of_week,
+                is_working: h.is_working,
+                start_time: h.start_time,
+                end_time: h.end_time,
+                break_start_time: h.break_start_time,
+                break_end_time: h.break_end_time,
+            }))
+        );
+
+    const isDirty = useMemo(
+        () =>
+            slotInterval !== initialSlotInterval ||
+            serialize(localHours) !== serialize(initialHours),
+        [localHours, slotInterval, initialHours, initialSlotInterval],
+    );
 
     function toggleDay(dayOfWeek: number) {
         setLocalHours((prev) =>
@@ -446,47 +539,62 @@ function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: {
                     };
                 }
                 return { ...h, is_working: false };
-            })
+            }),
         );
     }
 
-    function updateTime(dayOfWeek: number, field: 'start_time' | 'end_time' | 'break_start_time' | 'break_end_time', value: string) {
+    function updateTime(
+        dayOfWeek: number,
+        field:
+            | 'start_time'
+            | 'end_time'
+            | 'break_start_time'
+            | 'break_end_time',
+        value: string,
+    ) {
         setLocalHours((prev) =>
             prev.map((h) =>
-                h.day_of_week === dayOfWeek ? { ...h, [field]: value } : h
-            )
+                h.day_of_week === dayOfWeek ? { ...h, [field]: value } : h,
+            ),
         );
     }
 
     function handleSave() {
-        router.put('/admin/working-hours', {
-            working_hours: localHours.map((h) => ({
-                ...h,
-                day_of_week: uiToCarbon(h.day_of_week),
-            })),
-            slot_interval: slotInterval,
-        }, { preserveScroll: true });
+        router.put(
+            '/admin/working-hours',
+            {
+                working_hours: localHours.map((h) => ({
+                    ...h,
+                    day_of_week: uiToCarbon(h.day_of_week),
+                })),
+                slot_interval: slotInterval,
+            },
+            { preserveScroll: true },
+        );
     }
 
     return (
         <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
             <div className="mb-4 flex items-center justify-between">
-                <div>
+                <div className="flex items-center gap-2">
                     <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
                         График работы
                     </h3>
-                    <p className="mt-0.5 text-sm text-slate-500 dark:text-zinc-400">
-                        Настройте рабочие дни, часы и обеденный перерыв
-                    </p>
+                    {isDirty && (
+                        <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
+                            ● Несохранённые изменения
+                        </span>
+                    )}
                 </div>
                 <Button
                     type="button"
                     size="sm"
                     onClick={handleSave}
-                    className="bg-blue-600 text-white hover:bg-blue-700"
+                    disabled={!isDirty}
+                    className="bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     <Clock className="size-3.5" />
-                    Сохранить
+                    Сохранить график
                 </Button>
             </div>
 
@@ -541,14 +649,28 @@ function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: {
                                     <Input
                                         type="time"
                                         value={hour.start_time ?? ''}
-                                        onChange={(e) => updateTime(hour.day_of_week, 'start_time', e.target.value)}
+                                        onChange={(e) =>
+                                            updateTime(
+                                                hour.day_of_week,
+                                                'start_time',
+                                                e.target.value,
+                                            )
+                                        }
                                         className="h-8 w-28 text-xs dark:bg-zinc-800"
                                     />
-                                    <span className="text-xs text-slate-400 dark:text-zinc-500">—</span>
+                                    <span className="text-xs text-slate-400 dark:text-zinc-500">
+                                        —
+                                    </span>
                                     <Input
                                         type="time"
                                         value={hour.end_time ?? ''}
-                                        onChange={(e) => updateTime(hour.day_of_week, 'end_time', e.target.value)}
+                                        onChange={(e) =>
+                                            updateTime(
+                                                hour.day_of_week,
+                                                'end_time',
+                                                e.target.value,
+                                            )
+                                        }
                                         className="h-8 w-28 text-xs dark:bg-zinc-800"
                                     />
                                 </div>
@@ -567,15 +689,29 @@ function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: {
                                 <Input
                                     type="time"
                                     value={hour.break_start_time || ''}
-                                    onChange={(e) => updateTime(hour.day_of_week, 'break_start_time', e.target.value)}
+                                    onChange={(e) =>
+                                        updateTime(
+                                            hour.day_of_week,
+                                            'break_start_time',
+                                            e.target.value,
+                                        )
+                                    }
                                     placeholder="Начало"
                                     className="h-7 w-24 text-[11px] dark:bg-zinc-800"
                                 />
-                                <span className="text-[11px] text-slate-400 dark:text-zinc-500">—</span>
+                                <span className="text-[11px] text-slate-400 dark:text-zinc-500">
+                                    —
+                                </span>
                                 <Input
                                     type="time"
                                     value={hour.break_end_time || ''}
-                                    onChange={(e) => updateTime(hour.day_of_week, 'break_end_time', e.target.value)}
+                                    onChange={(e) =>
+                                        updateTime(
+                                            hour.day_of_week,
+                                            'break_end_time',
+                                            e.target.value,
+                                        )
+                                    }
                                     placeholder="Конец"
                                     className="h-7 w-24 text-[11px] dark:bg-zinc-800"
                                 />
@@ -590,7 +726,13 @@ function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: {
 
 /* ═══════════════ Blocked Times Card ═══════════════ */
 
-const BLOCKED_REASONS = ['Отпуск', 'Больничный', 'Обед', 'Личное время', 'Другое'];
+const BLOCKED_REASONS = [
+    'Отпуск',
+    'Больничный',
+    'Обед',
+    'Личное время',
+    'Другое',
+];
 
 function BlockedTimesCard() {
     const { blockedTimes: rawBlockedTimes } = usePage<PageProps>().props;
@@ -603,24 +745,30 @@ function BlockedTimesCard() {
     function handleAdd() {
         if (!startDate || !endDate) return;
 
-        router.post('/admin/blocked-times', {
-            start_datetime: startDate,
-            end_datetime: endDate,
-            reason,
-        }, {
-            preserveScroll: true,
-            onSuccess: () => {
-                setDialogOpen(false);
-                setStartDate('');
-                setEndDate('');
-                setReason('Другое');
+        router.post(
+            '/admin/blocked-times',
+            {
+                start_datetime: startDate,
+                end_datetime: endDate,
+                reason,
             },
-        });
+            {
+                preserveScroll: true,
+                onSuccess: () => {
+                    setDialogOpen(false);
+                    setStartDate('');
+                    setEndDate('');
+                    setReason('Другое');
+                },
+            },
+        );
     }
 
     function handleDelete(id: number) {
         if (confirm('Удалить блокировку?')) {
-            router.delete(`/admin/blocked-times/${id}`, { preserveScroll: true });
+            router.delete(`/admin/blocked-times/${id}`, {
+                preserveScroll: true,
+            });
         }
     }
 
@@ -662,7 +810,13 @@ function BlockedTimesCard() {
                                     {bt.reason}
                                 </p>
                                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                    {new Date(bt.start_datetime).toLocaleDateString('ru-RU')} — {new Date(bt.end_datetime).toLocaleDateString('ru-RU')}
+                                    {new Date(
+                                        bt.start_datetime,
+                                    ).toLocaleDateString('ru-RU')}{' '}
+                                    —{' '}
+                                    {new Date(
+                                        bt.end_datetime,
+                                    ).toLocaleDateString('ru-RU')}
                                 </p>
                             </div>
                             <button
@@ -679,7 +833,10 @@ function BlockedTimesCard() {
 
             {dialogOpen && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center">
-                    <div className="fixed inset-0 bg-black/50" onClick={() => setDialogOpen(false)} />
+                    <div
+                        className="fixed inset-0 bg-black/50"
+                        onClick={() => setDialogOpen(false)}
+                    />
                     <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
                         <div className="mb-4 flex items-center justify-between">
                             <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
@@ -704,7 +861,9 @@ function BlockedTimesCard() {
                                     className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                                 >
                                     {BLOCKED_REASONS.map((r) => (
-                                        <option key={r} value={r}>{r}</option>
+                                        <option key={r} value={r}>
+                                            {r}
+                                        </option>
                                     ))}
                                 </select>
                             </div>
@@ -717,7 +876,9 @@ function BlockedTimesCard() {
                                     <input
                                         type="datetime-local"
                                         value={startDate}
-                                        onChange={(e) => setStartDate(e.target.value)}
+                                        onChange={(e) =>
+                                            setStartDate(e.target.value)
+                                        }
                                         className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                                     />
                                 </div>
@@ -728,7 +889,9 @@ function BlockedTimesCard() {
                                     <input
                                         type="datetime-local"
                                         value={endDate}
-                                        onChange={(e) => setEndDate(e.target.value)}
+                                        onChange={(e) =>
+                                            setEndDate(e.target.value)
+                                        }
                                         className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                                     />
                                 </div>
@@ -763,8 +926,29 @@ function BlockedTimesCard() {
 /* ═══════════════ Main Settings Page ═══════════════ */
 
 export default function SettingsPage() {
-    const { profile: rawProfile, services: rawServices, workingHours: rawWorkingHours, auth } = usePage<PageProps>().props;
-    const profile = rawProfile || { name: '', phone: null, master_slug: null, specialty: null, address: null, avatar_url: null, telegram_id: null, soft_deposit: false, deposit_timeout: 15, deposit_percent: 30, slot_interval: 30, telegram_notifications: false, max_notifications: false, timezone: 'Europe/Moscow', timezone_confirmed: false };
+    const {
+        profile: rawProfile,
+        services: rawServices,
+        workingHours: rawWorkingHours,
+        auth,
+    } = usePage<PageProps>().props;
+    const profile = rawProfile || {
+        name: '',
+        phone: null,
+        master_slug: null,
+        specialty: null,
+        address: null,
+        avatar_url: null,
+        telegram_id: null,
+        soft_deposit: false,
+        deposit_timeout: 15,
+        deposit_percent: 30,
+        slot_interval: 30,
+        telegram_notifications: false,
+        max_notifications: false,
+        timezone: 'Europe/Moscow',
+        timezone_confirmed: false,
+    };
     const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -852,7 +1036,10 @@ export default function SettingsPage() {
             <Head title="Настройки профиля — Вовремя" />
 
             <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
-                <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
+                <Sidebar
+                    mobileOpen={mobileMenuOpen}
+                    onMobileClose={() => setMobileMenuOpen(false)}
+                />
 
                 <div className="flex min-w-0 flex-1 flex-col">
                     {/* Header */}
@@ -860,18 +1047,22 @@ export default function SettingsPage() {
                         <div className="flex items-center gap-4">
                             <button
                                 onClick={() => setMobileMenuOpen(true)}
-                                className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 lg:hidden"
+                                className="rounded-md p-2 hover:bg-slate-100 lg:hidden dark:hover:bg-zinc-800"
                             >
                                 <Menu className="size-5 text-slate-700 dark:text-zinc-300" />
                             </button>
-                            <h1 className="text-lg font-semibold text-slate-900 dark:text-zinc-100 md:text-xl">
+                            <h1 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-100">
                                 Настройки профиля
                             </h1>
                         </div>
                         <div className="flex items-center gap-4">
-                            <div className="text-right hidden sm:block">
-                                <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
-                                <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: Профи</p>
+                            <div className="hidden text-right sm:block">
+                                <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    {userName}
+                                </p>
+                                <p className="text-xs text-slate-400 dark:text-zinc-500">
+                                    Тариф: Профи
+                                </p>
                             </div>
                             <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
                                 {initials}
@@ -881,9 +1072,14 @@ export default function SettingsPage() {
 
                     {/* Content Area */}
                     <main className="flex-1 overflow-y-auto p-4 md:p-6">
-                        <TimezoneConfirmBanner confirmed={profile.timezone_confirmed} />
+                        <TimezoneConfirmBanner
+                            confirmed={profile.timezone_confirmed}
+                        />
 
-                        <form onSubmit={handleSubmit} className="max-w-4xl space-y-6">
+                        <form
+                            onSubmit={handleSubmit}
+                            className="max-w-4xl space-y-6"
+                        >
                             {/* Success Message */}
                             {form.recentlySuccessful && (
                                 <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
@@ -924,7 +1120,9 @@ export default function SettingsPage() {
                                         variant="outline"
                                         size="sm"
                                         className="rounded-lg"
-                                        onClick={() => fileInputRef.current?.click()}
+                                        onClick={() =>
+                                            fileInputRef.current?.click()
+                                        }
                                     >
                                         <Pencil className="size-3.5" />
                                         Изменить фото
@@ -939,12 +1137,19 @@ export default function SettingsPage() {
                                         </label>
                                         <Input
                                             value={form.data.name}
-                                            onChange={(e) => form.setData('name', e.target.value)}
+                                            onChange={(e) =>
+                                                form.setData(
+                                                    'name',
+                                                    e.target.value,
+                                                )
+                                            }
                                             placeholder="ИП Климин П. А."
                                             className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                         />
                                         {form.errors.name && (
-                                            <p className="mt-1 text-xs text-red-500">{form.errors.name}</p>
+                                            <p className="mt-1 text-xs text-red-500">
+                                                {form.errors.name}
+                                            </p>
                                         )}
                                     </div>
                                     <div>
@@ -953,12 +1158,19 @@ export default function SettingsPage() {
                                         </label>
                                         <Input
                                             value={form.data.phone}
-                                            onChange={(e) => form.setData('phone', e.target.value)}
+                                            onChange={(e) =>
+                                                form.setData(
+                                                    'phone',
+                                                    e.target.value,
+                                                )
+                                            }
                                             placeholder="+7 (911) 123-45-67"
                                             className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                         />
                                         {form.errors.phone && (
-                                            <p className="mt-1 text-xs text-red-500">{form.errors.phone}</p>
+                                            <p className="mt-1 text-xs text-red-500">
+                                                {form.errors.phone}
+                                            </p>
                                         )}
                                     </div>
                                     <div>
@@ -971,13 +1183,25 @@ export default function SettingsPage() {
                                             </span>
                                             <Input
                                                 value={form.data.master_slug}
-                                                onChange={(e) => form.setData('master_slug', e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                                                onChange={(e) =>
+                                                    form.setData(
+                                                        'master_slug',
+                                                        e.target.value
+                                                            .toLowerCase()
+                                                            .replace(
+                                                                /[^a-z0-9_-]/g,
+                                                                '',
+                                                            ),
+                                                    )
+                                                }
                                                 placeholder="nails_studio"
                                                 className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                             />
                                         </div>
                                         {form.errors.master_slug && (
-                                            <p className="mt-1 text-xs text-red-500">{form.errors.master_slug}</p>
+                                            <p className="mt-1 text-xs text-red-500">
+                                                {form.errors.master_slug}
+                                            </p>
                                         )}
                                     </div>
                                     <div>
@@ -986,12 +1210,19 @@ export default function SettingsPage() {
                                         </label>
                                         <Input
                                             value={form.data.telegram_id}
-                                            onChange={(e) => form.setData('telegram_id', e.target.value)}
+                                            onChange={(e) =>
+                                                form.setData(
+                                                    'telegram_id',
+                                                    e.target.value,
+                                                )
+                                            }
                                             placeholder="555666777"
                                             className="bg-slate-50 font-mono placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                         />
                                         {form.errors.telegram_id && (
-                                            <p className="mt-1 text-xs text-red-500">{form.errors.telegram_id}</p>
+                                            <p className="mt-1 text-xs text-red-500">
+                                                {form.errors.telegram_id}
+                                            </p>
                                         )}
                                     </div>
 
@@ -1004,27 +1235,56 @@ export default function SettingsPage() {
                                             <select
                                                 value={profile.timezone}
                                                 onChange={(e) => {
-                                                    router.patch('/admin/settings/timezone', { timezone: e.target.value }, {
-                                                        preserveScroll: true,
-                                                        preserveState: false,
-                                                        only: ['profile'],
-                                                    });
+                                                    router.patch(
+                                                        '/admin/settings/timezone',
+                                                        {
+                                                            timezone:
+                                                                e.target.value,
+                                                        },
+                                                        {
+                                                            preserveScroll: true,
+                                                            preserveState: false,
+                                                            only: ['profile'],
+                                                        },
+                                                    );
                                                 }}
                                                 className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pr-10 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
                                             >
-                                                <option value="Europe/Kaliningrad">Kaliningrad (UTC+2)</option>
-                                                <option value="Europe/Moscow">Moscow (UTC+3)</option>
-                                                <option value="Europe/Samara">Samara (UTC+4)</option>
-                                                <option value="Asia/Yekaterinburg">Yekaterinburg (UTC+5)</option>
-                                                <option value="Asia/Omsk">Omsk (UTC+6)</option>
-                                                <option value="Asia/Krasnoyarsk">Krasnoyarsk (UTC+7)</option>
-                                                <option value="Asia/Irkutsk">Irkutsk (UTC+8)</option>
-                                                <option value="Asia/Yakutsk">Yakutsk (UTC+9)</option>
-                                                <option value="Asia/Vladivostok">Vladivostok (UTC+10)</option>
-                                                <option value="Asia/Magadan">Magadan (UTC+11)</option>
-                                                <option value="Asia/Kamchatka">Kamchatka (UTC+12)</option>
+                                                <option value="Europe/Kaliningrad">
+                                                    Kaliningrad (UTC+2)
+                                                </option>
+                                                <option value="Europe/Moscow">
+                                                    Moscow (UTC+3)
+                                                </option>
+                                                <option value="Europe/Samara">
+                                                    Samara (UTC+4)
+                                                </option>
+                                                <option value="Asia/Yekaterinburg">
+                                                    Yekaterinburg (UTC+5)
+                                                </option>
+                                                <option value="Asia/Omsk">
+                                                    Omsk (UTC+6)
+                                                </option>
+                                                <option value="Asia/Krasnoyarsk">
+                                                    Krasnoyarsk (UTC+7)
+                                                </option>
+                                                <option value="Asia/Irkutsk">
+                                                    Irkutsk (UTC+8)
+                                                </option>
+                                                <option value="Asia/Yakutsk">
+                                                    Yakutsk (UTC+9)
+                                                </option>
+                                                <option value="Asia/Vladivostok">
+                                                    Vladivostok (UTC+10)
+                                                </option>
+                                                <option value="Asia/Magadan">
+                                                    Magadan (UTC+11)
+                                                </option>
+                                                <option value="Asia/Kamchatka">
+                                                    Kamchatka (UTC+12)
+                                                </option>
                                             </select>
-                                            <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
+                                            <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
                                         </div>
                                     </div>
                                 </div>
@@ -1043,15 +1303,25 @@ export default function SettingsPage() {
                                     </div>
                                     <Toggle
                                         enabled={form.data.soft_deposit}
-                                        onToggle={() => form.setData('soft_deposit', !form.data.soft_deposit)}
+                                        onToggle={() =>
+                                            form.setData(
+                                                'soft_deposit',
+                                                !form.data.soft_deposit,
+                                            )
+                                        }
                                     />
                                 </div>
 
                                 {/* Conditional content */}
-                                <div className={`overflow-hidden transition-all duration-300 ${form.data.soft_deposit ? 'mt-4 max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}>
+                                <div
+                                    className={`overflow-hidden transition-all duration-300 ${form.data.soft_deposit ? 'mt-4 max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
+                                >
                                     {/* Warning Banner */}
                                     <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200">
-                                        При включении опции новая запись переходит в статус «Ожидает подтверждения». Клиенту дается 15 минут на перевод по вашим реквизитам.
+                                        При включении опции новая запись
+                                        переходит в статус «Ожидает
+                                        подтверждения». Клиенту дается 15 минут
+                                        на перевод по вашим реквизитам.
                                     </div>
 
                                     {/* Fields */}
@@ -1063,12 +1333,24 @@ export default function SettingsPage() {
                                             <Input
                                                 type="number"
                                                 min="1"
-                                                value={form.data.deposit_timeout}
-                                                onChange={(e) => form.setData('deposit_timeout', e.target.value)}
+                                                value={
+                                                    form.data.deposit_timeout
+                                                }
+                                                onChange={(e) =>
+                                                    form.setData(
+                                                        'deposit_timeout',
+                                                        e.target.value,
+                                                    )
+                                                }
                                                 className="bg-slate-50 dark:bg-zinc-800"
                                             />
                                             {form.errors.deposit_timeout && (
-                                                <p className="mt-1 text-xs text-red-500">{form.errors.deposit_timeout}</p>
+                                                <p className="mt-1 text-xs text-red-500">
+                                                    {
+                                                        form.errors
+                                                            .deposit_timeout
+                                                    }
+                                                </p>
                                             )}
                                         </div>
                                         <div>
@@ -1079,12 +1361,24 @@ export default function SettingsPage() {
                                                 type="number"
                                                 min="1"
                                                 max="100"
-                                                value={form.data.deposit_percent}
-                                                onChange={(e) => form.setData('deposit_percent', e.target.value)}
+                                                value={
+                                                    form.data.deposit_percent
+                                                }
+                                                onChange={(e) =>
+                                                    form.setData(
+                                                        'deposit_percent',
+                                                        e.target.value,
+                                                    )
+                                                }
                                                 className="bg-slate-50 dark:bg-zinc-800"
                                             />
                                             {form.errors.deposit_percent && (
-                                                <p className="mt-1 text-xs text-red-500">{form.errors.deposit_percent}</p>
+                                                <p className="mt-1 text-xs text-red-500">
+                                                    {
+                                                        form.errors
+                                                            .deposit_percent
+                                                    }
+                                                </p>
                                             )}
                                         </div>
                                     </div>
@@ -1108,13 +1402,22 @@ export default function SettingsPage() {
                                                     Telegram Bot
                                                 </p>
                                                 <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                    PUSH-уведомления о новых записях
+                                                    PUSH-уведомления о новых
+                                                    записях
                                                 </p>
                                             </div>
                                         </div>
                                         <Toggle
-                                            enabled={form.data.telegram_notifications}
-                                            onToggle={() => form.setData('telegram_notifications', !form.data.telegram_notifications)}
+                                            enabled={
+                                                form.data.telegram_notifications
+                                            }
+                                            onToggle={() =>
+                                                form.setData(
+                                                    'telegram_notifications',
+                                                    !form.data
+                                                        .telegram_notifications,
+                                                )
+                                            }
                                         />
                                     </div>
 
@@ -1134,8 +1437,16 @@ export default function SettingsPage() {
                                             </div>
                                         </div>
                                         <Toggle
-                                            enabled={form.data.max_notifications}
-                                            onToggle={() => form.setData('max_notifications', !form.data.max_notifications)}
+                                            enabled={
+                                                form.data.max_notifications
+                                            }
+                                            onToggle={() =>
+                                                form.setData(
+                                                    'max_notifications',
+                                                    !form.data
+                                                        .max_notifications,
+                                                )
+                                            }
                                         />
                                     </div>
                                 </div>
@@ -1165,7 +1476,8 @@ export default function SettingsPage() {
                                 <div className="space-y-2">
                                     {services.length === 0 ? (
                                         <p className="py-8 text-center text-sm text-slate-400 dark:text-zinc-500">
-                                            Пока нет услуг. Нажмите «Добавить», чтобы создать первую.
+                                            Пока нет услуг. Нажмите «Добавить»,
+                                            чтобы создать первую.
                                         </p>
                                     ) : (
                                         services.map((service) => (
@@ -1178,23 +1490,39 @@ export default function SettingsPage() {
                                                         {service.title}
                                                     </p>
                                                     <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                        {service.duration_minutes} мин
+                                                        {
+                                                            service.duration_minutes
+                                                        }{' '}
+                                                        мин
                                                     </p>
                                                 </div>
                                                 <div className="flex items-center gap-3">
                                                     <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">
-                                                        {Number(service.price).toLocaleString('ru-RU')} ₽
+                                                        {Number(
+                                                            service.price,
+                                                        ).toLocaleString(
+                                                            'ru-RU',
+                                                        )}{' '}
+                                                        ₽
                                                     </span>
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleEditService(service)}
+                                                        onClick={() =>
+                                                            handleEditService(
+                                                                service,
+                                                            )
+                                                        }
                                                         className="rounded p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
                                                     >
                                                         <Pencil className="size-3.5" />
                                                     </button>
                                                     <button
                                                         type="button"
-                                                        onClick={() => handleDeleteService(service)}
+                                                        onClick={() =>
+                                                            handleDeleteService(
+                                                                service,
+                                                            )
+                                                        }
                                                         className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
                                                     >
                                                         <Trash2 className="size-3.5" />
@@ -1207,7 +1535,10 @@ export default function SettingsPage() {
                             </div>
 
                             {/* ═══ Card 5: Working Hours ═══ */}
-                            <WorkingHoursCard workingHours={workingHours} slotInterval={profile.slot_interval || 30} />
+                            <WorkingHoursCard
+                                workingHours={workingHours}
+                                slotInterval={profile.slot_interval || 30}
+                            />
 
                             {/* ═══ Card 6: Blocked Times ═══ */}
                             <BlockedTimesCard />
@@ -1226,7 +1557,9 @@ export default function SettingsPage() {
                                     disabled={form.processing}
                                     className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
                                 >
-                                    {form.processing ? 'Сохранение...' : 'Сохранить изменения'}
+                                    {form.processing
+                                        ? 'Сохранение...'
+                                        : 'Сохранить изменения'}
                                 </Button>
                             </div>
                         </form>
