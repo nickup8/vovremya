@@ -17,7 +17,9 @@ class AvailabilityService
         Carbon $date,
         int $serviceDuration,
     ): array {
-        $dayOfWeek = $date->dayOfWeek;
+        $tz = $master->getTimezone();
+        $localDate = $date->copy()->timezone($tz)->startOfDay();
+        $dayOfWeek = $localDate->dayOfWeek;
 
         $workingHour = WorkingHour::where('user_id', $master->id)
             ->where('day_of_week', $dayOfWeek)
@@ -27,12 +29,12 @@ class AvailabilityService
             return [];
         }
 
-        $dayStart = $date->copy()->setTimeFromTimeString($workingHour->start_time);
-        $dayEnd = $date->copy()->setTimeFromTimeString($workingHour->end_time);
+        $dayStart = $localDate->copy()->setTimeFromTimeString($workingHour->start_time);
+        $dayEnd = $localDate->copy()->setTimeFromTimeString($workingHour->end_time);
 
-        $breakPeriods = $this->getBreakPeriods($workingHour, $date);
-        $bookedPeriods = $this->getBookedPeriods($master, $date);
-        $blockedPeriods = $this->getBlockedPeriods($master, $date);
+        $breakPeriods = $this->getBreakPeriods($workingHour, $localDate);
+        $bookedPeriods = $this->getBookedPeriods($master, $localDate);
+        $blockedPeriods = $this->getBlockedPeriods($master, $localDate);
 
         $allUnavailable = $breakPeriods->merge($bookedPeriods)->merge($blockedPeriods);
 
@@ -43,8 +45,9 @@ class AvailabilityService
             $dayEnd,
             $slotInterval,
             $serviceDuration,
-            $date,
+            $localDate,
             $allUnavailable,
+            $tz,
         );
     }
 
@@ -54,26 +57,33 @@ class AvailabilityService
         int $durationMinutes,
         ?int $excludeAppointmentId = null,
     ): bool {
-        $endDateTime = $startDateTime->copy()->addMinutes($durationMinutes);
-        $dayOfWeek = $startDateTime->dayOfWeek;
+        $tz = $master->getTimezone();
+        $localSlot = $startDateTime->copy()->timezone($tz);
+
+        $endDateTime = $localSlot->copy()->addMinutes($durationMinutes);
+        $dayOfWeek = $localSlot->dayOfWeek;
         $workingHour = WorkingHour::where('user_id', $master->id)
             ->where('day_of_week', $dayOfWeek)->first();
 
-        if (! $workingHour || ! $workingHour->is_working) return false;
+        if (! $workingHour || ! $workingHour->is_working) {
+            return false;
+        }
 
-        $dayStart = $startDateTime->copy()->setTimeFromTimeString($workingHour->start_time);
-        $dayEnd = $startDateTime->copy()->setTimeFromTimeString($workingHour->end_time);
+        $dayStart = $localSlot->copy()->setTimeFromTimeString($workingHour->start_time);
+        $dayEnd = $localSlot->copy()->setTimeFromTimeString($workingHour->end_time);
 
-        if ($startDateTime->lt($dayStart) || $endDateTime->gt($dayEnd)) return false;
+        if ($localSlot->lt($dayStart) || $endDateTime->gt($dayEnd)) {
+            return false;
+        }
 
-        $breakPeriods = $this->getBreakPeriods($workingHour, $startDateTime);
-        $bookedPeriods = $this->getBookedPeriods($master, $startDateTime, $excludeAppointmentId);
-        $blockedPeriods = $this->getBlockedPeriods($master, $startDateTime);
+        $breakPeriods = $this->getBreakPeriods($workingHour, $localSlot);
+        $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId);
+        $blockedPeriods = $this->getBlockedPeriods($master, $localSlot);
 
         $allUnavailable = $breakPeriods->merge($bookedPeriods)->merge($blockedPeriods);
 
         return ! $allUnavailable->contains(
-            fn (array $period) => $startDateTime->lt($period['end']) && $endDateTime->gt($period['start'])
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
         );
     }
 
@@ -93,15 +103,19 @@ class AvailabilityService
 
     private function getBookedPeriods(User $master, Carbon $date, ?int $excludeAppointmentId = null): Collection
     {
+        $tz = $master->getTimezone();
+        $utcStart = $date->copy()->timezone('UTC')->startOfDay();
+        $utcEnd = $date->copy()->timezone('UTC')->endOfDay();
+
         return Appointment::where('master_id', $master->id)
-            ->whereIn('status', [AppointmentStatus::PendingClient, AppointmentStatus::Confirmed])
-            ->whereDate('start_time', $date)
+            ->whereIn('status', [AppointmentStatus::Booked])
+            ->whereBetween('start_time', [$utcStart, $utcEnd])
             ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
             ->with('service')
             ->get()
             ->map(fn (Appointment $a) => [
-                'start' => $a->start_time,
-                'end' => $a->start_time->copy()->addMinutes(
+                'start' => $a->start_time->copy()->timezone($tz),
+                'end' => $a->start_time->copy()->timezone($tz)->addMinutes(
                     $a->service ? $a->service->duration_minutes : 60
                 ),
             ]);
@@ -109,13 +123,17 @@ class AvailabilityService
 
     private function getBlockedPeriods(User $master, Carbon $date): Collection
     {
+        $tz = $master->getTimezone();
+        $utcStart = $date->copy()->timezone('UTC')->startOfDay();
+        $utcEnd = $date->copy()->timezone('UTC')->endOfDay();
+
         return BlockedTime::where('user_id', $master->id)
-            ->where('start_datetime', '<=', $date->copy()->endOfDay())
-            ->where('end_datetime', '>=', $date->copy()->startOfDay())
+            ->where('start_datetime', '<=', $utcEnd)
+            ->where('end_datetime', '>=', $utcStart)
             ->get()
             ->map(fn (BlockedTime $b) => [
-                'start' => $b->start_datetime,
-                'end' => $b->end_datetime,
+                'start' => $b->start_datetime->copy()->timezone($tz),
+                'end' => $b->end_datetime->copy()->timezone($tz),
             ]);
     }
 
@@ -126,14 +144,16 @@ class AvailabilityService
         int $serviceDuration,
         Carbon $date,
         Collection $unavailablePeriods,
+        string $timezone,
     ): array {
         $slots = [];
         $slot = $dayStart->copy();
+        $now = Carbon::now($timezone);
 
         while ($slot->copy()->addMinutes($serviceDuration)->lte($dayEnd)) {
             $slotEnd = $slot->copy()->addMinutes($serviceDuration);
 
-            $isPast = $date->isToday() && $slot->lt(Carbon::now());
+            $isPast = $date->isToday() && $slot->lt($now);
 
             $hasOverlap = $unavailablePeriods->contains(
                 fn (array $period) => $slot->lt($period['end']) && $slotEnd->gt($period['start'])
@@ -154,7 +174,9 @@ class AvailabilityService
         Carbon $startDateTime,
         int $durationMinutes,
     ): ?array {
-        $dayOfWeek = $startDateTime->dayOfWeek;
+        $tz = $master->getTimezone();
+        $localSlot = $startDateTime->copy()->timezone($tz);
+        $dayOfWeek = $localSlot->dayOfWeek;
         $workingHour = WorkingHour::where('user_id', $master->id)
             ->where('day_of_week', $dayOfWeek)
             ->first();
@@ -163,11 +185,11 @@ class AvailabilityService
             return null;
         }
 
-        $endDateTime = $startDateTime->copy()->addMinutes($durationMinutes);
-        $breakStart = $startDateTime->copy()->setTimeFromTimeString($workingHour->break_start_time);
-        $breakEnd = $startDateTime->copy()->setTimeFromTimeString($workingHour->break_end_time);
+        $endDateTime = $localSlot->copy()->addMinutes($durationMinutes);
+        $breakStart = $localSlot->copy()->setTimeFromTimeString($workingHour->break_start_time);
+        $breakEnd = $localSlot->copy()->setTimeFromTimeString($workingHour->break_end_time);
 
-        if ($startDateTime->lt($breakEnd) && $endDateTime->gt($breakStart)) {
+        if ($localSlot->lt($breakEnd) && $endDateTime->gt($breakStart)) {
             return [
                 'break_start' => $workingHour->break_start_time,
                 'break_end' => $workingHour->break_end_time,

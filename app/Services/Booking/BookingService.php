@@ -25,23 +25,27 @@ class BookingService
         string $provider,
         ?int $clientId = null,
     ): Appointment {
-        $startDateTime = Carbon::parse($date.' '.$time);
+        $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
         $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
 
         return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId) {
-            $hasConflict = Appointment::join('services', 'appointments.service_id', '=', 'services.id')
-                ->where('appointments.master_id', $master->id)
-                ->whereIn('appointments.status', [
-                    AppointmentStatus::PendingClient,
-                    AppointmentStatus::Confirmed,
-                    AppointmentStatus::Completed,
+            $conflict = Appointment::with('service')
+                ->where('master_id', $master->id)
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
                 ])
-                ->where('appointments.start_time', '<', $endDateTime)
-                ->whereRaw("appointments.start_time + (services.duration_minutes || ' minutes')::interval > ?", [$startDateTime])
+                ->whereDate('start_time', $startDateTime->toDateString())
                 ->lockForUpdate()
-                ->exists();
+                ->get()
+                ->contains(function (Appointment $existing) use ($startDateTime, $endDateTime) {
+                    $existingEnd = $existing->start_time->copy()->addMinutes(
+                        $existing->service?->duration_minutes ?? 60
+                    );
 
-            if ($hasConflict) {
+                    return $startDateTime->lt($existingEnd) && $existing->start_time->lt($endDateTime);
+                });
+
+            if ($conflict) {
                 abort(422, 'Это время уже занято, выберите другой слот.');
             }
 
@@ -50,7 +54,7 @@ class BookingService
                 'client_id' => $clientId,
                 'service_id' => $service->id,
                 'start_time' => $startDateTime,
-                'status' => $clientId ? AppointmentStatus::Confirmed : AppointmentStatus::PendingClient,
+                'status' => AppointmentStatus::Booked,
                 'provider' => $provider,
             ]);
         });
@@ -64,7 +68,7 @@ class BookingService
         bool $ignoreWarnings = false,
         ?int $clientId = null,
     ): array {
-        $startDateTime = Carbon::parse($date.' '.$time);
+        $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone());
 
         $isAvailable = $this->availabilityService->isSlotAvailable(
             $master,
@@ -117,12 +121,12 @@ class BookingService
 
     public function confirm(Appointment $appointment): Appointment
     {
-        return $this->statusService->transition($appointment, AppointmentStatus::Confirmed);
+        return $this->statusService->transition($appointment, AppointmentStatus::Booked);
     }
 
     public function complete(Appointment $appointment): Appointment
     {
-        return $this->statusService->transition($appointment, AppointmentStatus::Completed);
+        return $this->statusService->transition($appointment, AppointmentStatus::Paid);
     }
 
     public function cancel(Appointment $appointment): Appointment
@@ -141,7 +145,7 @@ class BookingService
         string $date,
         string $time,
     ): bool {
-        $startDateTime = Carbon::parse($date.' '.$time);
+        $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone());
 
         return $this->availabilityService->isSlotAvailable(
             $master,
@@ -159,7 +163,7 @@ class BookingService
             return [];
         }
 
-        $dateObj = Carbon::parse($date);
+        $dateObj = Carbon::parse($date, $master->getTimezone());
 
         return $this->availabilityService->getAvailableSlots(
             $master,
@@ -176,7 +180,7 @@ class BookingService
     ): array {
         $master = $appointment->master;
         $service = $appointment->service;
-        $startDateTime = Carbon::parse($newDate.' '.$newTime);
+        $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
 
         $isAvailable = $this->availabilityService->isSlotAvailable(
             $master,
@@ -209,6 +213,10 @@ class BookingService
         }
 
         $appointment->update(['start_time' => $startDateTime]);
+
+        if ($appointment->status === AppointmentStatus::NoShow) {
+            $this->statusService->transition($appointment, AppointmentStatus::Booked);
+        }
 
         return [
             'success' => true,
