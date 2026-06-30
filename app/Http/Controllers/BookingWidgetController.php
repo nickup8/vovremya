@@ -96,7 +96,6 @@ class BookingWidgetController extends Controller
         );
 
         session([
-            'pending_telegram_appointment_id' => $appointment->id,
             'current_appointment_id' => $appointment->id,
         ]);
 

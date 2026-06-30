@@ -16,7 +16,7 @@ class AnalyticsService
         $avgCheck = $totalVisits > 0 ? round($revenue / $totalVisits, 2) : 0;
 
         $totalEnded = $appointments->filter(fn ($app) => in_array($app->status, [
-            AppointmentStatus::Completed,
+            AppointmentStatus::Paid,
             AppointmentStatus::NoShow,
             AppointmentStatus::Cancelled,
         ]))->count();
@@ -32,6 +32,6 @@ class AnalyticsService
 
     public function getCompleted(Collection $appointments): Collection
     {
-        return $appointments->filter(fn ($app) => $app->status === AppointmentStatus::Completed);
+        return $appointments->filter(fn ($app) => $app->status === AppointmentStatus::Paid);
     }
 }

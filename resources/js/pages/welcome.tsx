@@ -362,9 +362,9 @@ function MasterAsClient() {
                             </p>
                             <div className="mt-4 space-y-2">
                                 {[
-                                    { time: '10:00', client: 'Мария', service: 'Маникюр', status: 'confirmed' },
-                                    { time: '12:00', client: 'Елена', service: 'Стрижка', status: 'pending' },
-                                    { time: '14:30', client: 'Ольга', service: 'Окрашивание', status: 'confirmed' },
+                                    { time: '10:00', client: 'Мария', service: 'Маникюр', status: 'booked' },
+                                    { time: '12:00', client: 'Елена', service: 'Стрижка', status: 'no_show' },
+                                    { time: '14:30', client: 'Ольга', service: 'Окрашивание', status: 'booked' },
                                 ].map((s) => (
                                     <div key={s.time} className="flex items-center gap-3 rounded-2xl bg-stone-50 p-3 dark:bg-stone-800/50">
                                         <span className="w-12 text-sm font-semibold text-stone-900 dark:text-stone-100">{s.time}</span>
@@ -373,11 +373,11 @@ function MasterAsClient() {
                                             <p className="text-xs text-stone-400 dark:text-stone-500">{s.service}</p>
                                         </div>
                                         <span className={`rounded-full px-2 py-0.5 text-[10px] font-medium ${
-                                            s.status === 'confirmed'
+                                            s.status === 'booked'
                                                 ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                                                 : 'bg-amber-50 text-amber-700 dark:bg-amber-900/30 dark:text-amber-400'
                                         }`}>
-                                            {s.status === 'confirmed' ? 'Подтв.' : 'Ожид.'}
+                                            {s.status === 'booked' ? 'Подтв.' : 'Ожид.'}
                                         </span>
                                     </div>
                                 ))}

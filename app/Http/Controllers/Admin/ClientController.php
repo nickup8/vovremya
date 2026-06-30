@@ -29,7 +29,7 @@ class ClientController extends Controller
             ->get()
             ->map(function (Client $client) use ($appointmentsByClient) {
                 $appointments = $appointmentsByClient->get($client->id, collect());
-                $completed = $appointments->where('status', AppointmentStatus::Completed);
+                $completed = $appointments->where('status', AppointmentStatus::Paid);
 
                 return [
                     'id' => $client->id,

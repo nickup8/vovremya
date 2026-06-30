@@ -3,13 +3,18 @@
 use App\Http\Controllers\Admin\AnalyticsController;
 use App\Http\Controllers\Admin\CalendarController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingStatusController;
 use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
+use App\Http\Controllers\ClientModeController;
+use App\Http\Controllers\Webhook\PaymentWebhookController;
 use App\Http\Controllers\WebhookController;
+use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 
@@ -32,7 +37,7 @@ Route::post('/client/logout', [ClientAuthController::class, 'logout'])->name('cl
 
 if (app()->environment('local')) {
     Route::get('/dev/login-master', function () {
-        $master = \App\Models\User::where('master_slug', 'test-master')->firstOrFail();
+        $master = User::where('master_slug', 'test-master')->firstOrFail();
         Auth::login($master);
 
         return redirect()->route('admin.calendar');
@@ -64,22 +69,22 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');
     Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
 
-    Route::post('/admin/checkout', [\App\Http\Controllers\Admin\PaymentController::class, 'createCheckout'])->name('admin.checkout');
+    Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
 });
 
-Route::post('/webhooks/payment', [\App\Http\Controllers\Webhook\PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
+Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
 
 Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function () {
-    Route::get('/', [\App\Http\Controllers\Admin\SuperAdminController::class, 'index'])->name('super_admin.dashboard');
-    Route::get('/users', [\App\Http\Controllers\Admin\SuperAdminController::class, 'users'])->name('super_admin.users');
-    Route::post('/users/{user}/block', [\App\Http\Controllers\Admin\SuperAdminController::class, 'blockUser'])->name('super_admin.block');
-    Route::post('/users/{user}/extend', [\App\Http\Controllers\Admin\SuperAdminController::class, 'extendSubscription'])->name('super_admin.extend');
-    Route::post('/users/{user}/impersonate', [\App\Http\Controllers\Admin\SuperAdminController::class, 'impersonate'])->name('super_admin.impersonate');
+    Route::get('/', [SuperAdminController::class, 'index'])->name('super_admin.dashboard');
+    Route::get('/users', [SuperAdminController::class, 'users'])->name('super_admin.users');
+    Route::post('/users/{user}/block', [SuperAdminController::class, 'blockUser'])->name('super_admin.block');
+    Route::post('/users/{user}/extend', [SuperAdminController::class, 'extendSubscription'])->name('super_admin.extend');
+    Route::post('/users/{user}/impersonate', [SuperAdminController::class, 'impersonate'])->name('super_admin.impersonate');
 });
 
 Route::middleware(['auth'])->group(function () {
-    Route::post('/client-mode/enable', [\App\Http\Controllers\ClientModeController::class, 'enable'])->name('client_mode.enable');
-    Route::post('/client-mode/disable', [\App\Http\Controllers\ClientModeController::class, 'disable'])->name('client_mode.disable');
+    Route::post('/client-mode/enable', [ClientModeController::class, 'enable'])->name('client_mode.enable');
+    Route::post('/client-mode/disable', [ClientModeController::class, 'disable'])->name('client_mode.disable');
 });
 
 Route::middleware(['auth:client'])->group(function () {

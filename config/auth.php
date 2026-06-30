@@ -1,5 +1,6 @@
 <?php
 
+use App\Models\Client;
 use App\Models\User;
 
 return [
@@ -72,7 +73,7 @@ return [
         ],
         'clients' => [
             'driver' => 'eloquent',
-            'model' => \App\Models\Client::class,
+            'model' => Client::class,
         ],
     ],
 

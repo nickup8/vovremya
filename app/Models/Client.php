@@ -11,6 +11,7 @@ use Illuminate\Support\Str;
 class Client extends Model
 {
     use HasFactory;
+
     protected $fillable = [
         'user_id',
         'phone',

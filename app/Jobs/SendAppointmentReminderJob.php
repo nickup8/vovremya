@@ -2,7 +2,6 @@
 
 namespace App\Jobs;
 
-use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use Illuminate\Bus\Queueable;

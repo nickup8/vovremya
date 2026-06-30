@@ -15,6 +15,7 @@ use Illuminate\Support\ServiceProvider;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rules\Password;
 use Inertia\Inertia;
+use Laravel\Fortify\Contracts\ConfirmPasswordViewResponse;
 use Laravel\Fortify\Features;
 use Laravel\Fortify\Fortify;
 
@@ -25,8 +26,9 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->singleton(\Laravel\Fortify\Contracts\ConfirmPasswordViewResponse::class, function () {
-            return new class implements \Laravel\Fortify\Contracts\ConfirmPasswordViewResponse {
+        $this->app->singleton(ConfirmPasswordViewResponse::class, function () {
+            return new class implements ConfirmPasswordViewResponse
+            {
                 public function toResponse($request)
                 {
                     return new RedirectResponse(route('home'));

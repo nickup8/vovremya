@@ -1,8 +1,5 @@
 <?php
 
-use App\Jobs\SendAppointmentReminderJob;
-use App\Models\Appointment;
-use App\Enums\AppointmentStatus;
 use Illuminate\Support\Facades\Artisan;
 use Illuminate\Support\Facades\Schedule;
 
