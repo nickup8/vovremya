@@ -764,7 +764,7 @@ function BlockedTimesCard() {
 
 export default function SettingsPage() {
     const { profile: rawProfile, services: rawServices, workingHours: rawWorkingHours, auth } = usePage<PageProps>().props;
-    const profile = rawProfile || { name: '', phone: null, master_slug: null, specialty: null, address: null, avatar_url: null, telegram_id: null, soft_deposit: false, deposit_timeout: 15, deposit_percent: 30, telegram_notifications: false, max_notifications: false };
+    const profile = rawProfile || { name: '', phone: null, master_slug: null, specialty: null, address: null, avatar_url: null, telegram_id: null, soft_deposit: false, deposit_timeout: 15, deposit_percent: 30, slot_interval: 30, telegram_notifications: false, max_notifications: false, timezone: 'Europe/Moscow', timezone_confirmed: false };
     const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -1002,10 +1002,12 @@ export default function SettingsPage() {
                                         </label>
                                         <div className="relative">
                                             <select
-                                                value={form.data.timezone}
+                                                value={profile.timezone}
                                                 onChange={(e) => {
                                                     router.patch('/admin/settings/timezone', { timezone: e.target.value }, {
                                                         preserveScroll: true,
+                                                        preserveState: false,
+                                                        only: ['profile'],
                                                     });
                                                 }}
                                                 className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pr-10 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
