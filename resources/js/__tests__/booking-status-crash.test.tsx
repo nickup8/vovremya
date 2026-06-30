@@ -42,7 +42,7 @@ describe('booking/status.tsx — resilience to broken data', () => {
 
         const brokenAppointment = {
             id: 1,
-            status: 'confirmed',
+            status: 'booked',
             start_time: null,
             created_at: null,
             service: null,

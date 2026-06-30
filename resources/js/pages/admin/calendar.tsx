@@ -56,6 +56,8 @@ interface WorkingHour {
     day_of_week: number;
     start_time: string | null;
     end_time: string | null;
+    break_start_time: string | null;
+    break_end_time: string | null;
     is_working: boolean;
 }
 
@@ -74,29 +76,24 @@ interface PageProps {
 /* ═══════════════ Constants ═══════════════ */
 
 const STATUS_STYLES: Record<AppointmentStatus, { card: string; label: string; dot: string }> = {
-    [AppointmentStatus.Confirmed]: {
+    [AppointmentStatus.Booked]: {
         card: 'bg-blue-50/90 border-blue-500 text-blue-900 dark:bg-blue-950/40 dark:border-blue-500 dark:text-blue-200',
-        label: 'Подтверждено',
+        label: 'Записан',
         dot: 'bg-blue-500',
     },
-    [AppointmentStatus.PendingClient]: {
-        card: 'bg-amber-50/90 border-amber-500 text-amber-900 dark:bg-amber-950/40 dark:border-amber-500 dark:text-amber-200',
-        label: 'Ожидает оплаты',
-        dot: 'bg-amber-500',
-    },
-    [AppointmentStatus.Completed]: {
+    [AppointmentStatus.Paid]: {
         card: 'bg-emerald-50/90 border-emerald-500 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-500 dark:text-emerald-200',
-        label: 'Оплачено',
+        label: 'Оплачен',
         dot: 'bg-emerald-500',
     },
     [AppointmentStatus.NoShow]: {
         card: 'bg-rose-50/90 border-rose-500 text-rose-900 dark:bg-rose-950/40 dark:border-rose-500 dark:text-rose-200',
-        label: 'No-Show',
+        label: 'Неявка',
         dot: 'bg-rose-500',
     },
     [AppointmentStatus.Cancelled]: {
         card: 'bg-zinc-100/60 border-zinc-300 text-zinc-500 line-through dark:bg-zinc-900/30 dark:border-zinc-700 dark:text-zinc-500',
-        label: 'Отменена',
+        label: 'Отменён',
         dot: 'bg-zinc-400',
     },
 };
@@ -209,6 +206,27 @@ function BlockedTimeCard({ blockedTime, dayDate, dayStartHour }: { blockedTime: 
         >
             <p className="truncate text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
                 {blockedTime.reason}
+            </p>
+        </div>
+    );
+}
+
+/* ═══════════════ Break Zone ═══════════════ */
+
+function BreakZone({ breakStart, breakEnd, dayStartHour }: { breakStart: string; breakEnd: string; dayStartHour: number }) {
+    const startMinutes = timeToMinutes(breakStart) - dayStartHour * 60;
+    const endMinutes = timeToMinutes(breakEnd) - dayStartHour * 60;
+    const durationMinutes = Math.max(endMinutes - startMinutes, 15);
+    const top = startMinutes * MINUTE_HEIGHT;
+    const height = durationMinutes * MINUTE_HEIGHT;
+
+    return (
+        <div
+            className="absolute mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-amber-300 bg-amber-50/70 px-2 py-1 dark:border-amber-700 dark:bg-amber-950/30"
+            style={{ top, height: Math.max(height, 24) }}
+        >
+            <p className="truncate text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                Обед
             </p>
         </div>
     );
@@ -615,6 +633,8 @@ export default function CalendarPage() {
                                                 const dayAppts = getAppointmentsForDay(dayIdx);
                                                 const dayBlocked = getBlockedTimesForDay(dayIdx);
                                                 const dateKey = weekDateKeys[dayIdx];
+                                                const backendDow = (dayIdx + 1) % 7;
+                                                const wh = workingHours.find((w) => w.day_of_week === backendDow);
                                                 return (
                                                     <div
                                                         key={`col-${dayIdx}`}
@@ -626,6 +646,13 @@ export default function CalendarPage() {
                                                                 className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
                                                             />
                                                         ))}
+                                                        {wh?.is_working && wh.break_start_time && wh.break_end_time && (
+                                                            <BreakZone
+                                                                breakStart={wh.break_start_time}
+                                                                breakEnd={wh.break_end_time}
+                                                                dayStartHour={DAY_START_HOUR}
+                                                            />
+                                                        )}
                                                         {dayBlocked.map((bt) => (
                                                             <BlockedTimeCard
                                                                 key={`bt-${bt.id}`}
@@ -652,7 +679,7 @@ export default function CalendarPage() {
 
                             {/* ─── Legend ─── */}
                             <div className="flex flex-wrap gap-4 text-xs">
-                                {[AppointmentStatus.Confirmed, AppointmentStatus.PendingClient, AppointmentStatus.NoShow, AppointmentStatus.Completed].map((status) => (
+                                {[AppointmentStatus.Booked, AppointmentStatus.NoShow, AppointmentStatus.Paid, AppointmentStatus.Cancelled].map((status) => (
                                     <div key={status} className="flex items-center gap-1.5">
                                         <div className={`size-2.5 rounded-full ${STATUS_STYLES[status].dot}`} />
                                         <span className="text-slate-500 dark:text-zinc-400">{STATUS_STYLES[status].label}</span>
@@ -715,9 +742,9 @@ export default function CalendarPage() {
                                 </div>
 
                                 <div className="flex flex-col gap-2 pt-2">
-                                    {selected.status !== AppointmentStatus.Completed && selected.status !== AppointmentStatus.Cancelled && (
+                                    {selected.status !== AppointmentStatus.Paid && selected.status !== AppointmentStatus.Cancelled && (
                                         <Button
-                                            onClick={() => updateStatus(AppointmentStatus.Completed)}
+                                            onClick={() => updateStatus(AppointmentStatus.Paid)}
                                             className="w-full justify-start rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
                                         >
                                             <CheckCircle2 className="size-4" />

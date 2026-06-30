@@ -14,7 +14,7 @@ return new class extends Migration
             $table->foreignId('client_id')->constrained('users')->cascadeOnDelete();
             $table->foreignId('service_id')->constrained()->restrictOnDelete();
             $table->dateTime('start_time');
-            $table->string('status')->default('pending_client');
+            $table->string('status')->default('booked');
             $table->timestamps();
 
             $table->index('master_id');

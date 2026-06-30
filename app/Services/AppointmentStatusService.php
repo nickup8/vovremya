@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\AppointmentStatus;
+use App\Exceptions\InvalidStatusTransitionException;
 use App\Models\Appointment;
 
 class AppointmentStatusService
@@ -12,9 +13,7 @@ class AppointmentStatusService
         $from = $appointment->status;
 
         if (! $from->canTransitionTo($to)) {
-            throw new \InvalidArgumentException(
-                "Недопустимый переход статуса: {$from->value} -> {$to->value}"
-            );
+            throw new InvalidStatusTransitionException($from, $to);
         }
 
         $appointment->update(['status' => $to]);
