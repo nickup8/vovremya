@@ -20,10 +20,10 @@ class MasterNotificationService
         $time = $appointment->start_time->format('d.m.Y H:i');
 
         $text = "🔔 Новая запись!\n\n"
-            . "Клиент: {$clientName}\n"
-            . "Услуга: {$serviceName}\n"
-            . "Время: {$time}\n"
-            . "Стоимость: " . ($service?->price ?? 0) . "₽";
+            ."Клиент: {$clientName}\n"
+            ."Услуга: {$serviceName}\n"
+            ."Время: {$time}\n"
+            .'Стоимость: '.($service?->price ?? 0).'₽';
 
         $this->sendToMaster($master, $text);
     }
@@ -31,8 +31,8 @@ class MasterNotificationService
     public function sendSubscriptionExpired(User $master): void
     {
         $text = "⚠️ Ваша подписка истекла.\n\n"
-            . "Вы переведены на бесплатный тариф.\n"
-            . "Обновите подписку для продолжения работы.";
+            ."Вы переведены на бесплатный тариф.\n"
+            .'Обновите подписку для продолжения работы.';
 
         $this->sendToMaster($master, $text);
     }
@@ -80,6 +80,7 @@ class MasterNotificationService
                 'chat_id' => $chatId,
                 'text' => $text,
             ]);
+
             return;
         }
 

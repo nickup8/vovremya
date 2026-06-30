@@ -5,11 +5,11 @@ namespace App\Http\Controllers;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\Client\ClientMergeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -128,12 +128,15 @@ class WebhookController extends Controller
 
         $appointment = Appointment::with(['master', 'service'])
             ->where('id', $appointmentId)
-            ->where('status', AppointmentStatus::PendingClient)
+            ->where('status', AppointmentStatus::Booked)
             ->first();
 
         if (! $appointment) {
             return response()->json(['ok' => true]);
         }
+
+        $cacheKey = "bot_pending:{$provider}:{$chatId}";
+        Cache::put($cacheKey, $appointment->id, now()->addMinutes(15));
 
         $keyboard = [
             'keyboard' => [
@@ -165,7 +168,8 @@ class WebhookController extends Controller
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
         $firstName = $contact['first_name'] ?? 'Клиент';
 
-        $pendingId = session('pending_telegram_appointment_id');
+        $cacheKey = "bot_pending:{$provider}:{$chatId}";
+        $pendingId = Cache::get($cacheKey);
         if (! $pendingId) {
             $this->sendMessage($chatId, 'Не удалось найти активную запись. Попробуйте записаться заново.', $provider);
 
@@ -174,11 +178,11 @@ class WebhookController extends Controller
 
         $appointment = Appointment::with(['master', 'service'])
             ->where('id', $pendingId)
-            ->where('status', AppointmentStatus::PendingClient)
+            ->where('status', AppointmentStatus::Booked)
             ->first();
 
         if (! $appointment) {
-            session()->forget('pending_telegram_appointment_id');
+            Cache::forget($cacheKey);
             $this->sendMessage($chatId, 'Запись уже обработана или аннулирована.', $provider);
 
             return response()->json(['ok' => true]);
@@ -195,14 +199,14 @@ class WebhookController extends Controller
 
         if ($client->isBlocked()) {
             $appointment->delete();
-            session()->forget('pending_telegram_appointment_id');
+            Cache::forget($cacheKey);
             $this->sendMessage($chatId, 'К сожалению, запись к этому мастеру недоступна.', $provider);
 
             return response()->json(['ok' => true]);
         }
 
         $appointment->update(['client_id' => $client->id]);
-        session()->forget('pending_telegram_appointment_id');
+        Cache::forget($cacheKey);
 
         $master = $appointment->master;
         $service = $appointment->service;
@@ -217,7 +221,7 @@ class WebhookController extends Controller
                 ."Услуга: {$service->title}\n"
                 ."Дата: {$date} в {$time}\n"
                 ."Сумма к оплате: {$depositAmount}₽\n\n"
-                ."Реквизиты для перевода будут отправлены следующим сообщением.";
+                .'Реквизиты для перевода будут отправлены следующим сообщением.';
 
             $inlineKeyboard = [
                 'inline_keyboard' => [
@@ -230,7 +234,7 @@ class WebhookController extends Controller
                     [
                         [
                             'text' => '📅 Мои записи',
-                            'url' => config('app.url')."/my-bookings",
+                            'url' => config('app.url').'/my-bookings',
                         ],
                     ],
                 ],
@@ -238,13 +242,15 @@ class WebhookController extends Controller
 
             $this->sendMessage($chatId, $message, $provider, $inlineKeyboard);
         } else {
-            $this->statusService->transition($appointment, AppointmentStatus::Confirmed);
+            if ($appointment->status !== AppointmentStatus::Booked) {
+                $this->statusService->transition($appointment, AppointmentStatus::Booked);
+            }
 
             $message = "Вы успешно записаны к {$master->name}!\n\n"
                 ."Услуга: {$service->title}\n"
                 ."Дата: {$date} в {$time}\n"
                 ."Стоимость: {$service->price}₽\n\n"
-                ."Ждём вас!";
+                .'Ждём вас!';
 
             $this->sendMessage($chatId, $message, $provider);
         }
@@ -276,8 +282,8 @@ class WebhookController extends Controller
                 return response()->json(['ok' => true]);
             }
 
-            if ($appointment->status->canTransitionTo(AppointmentStatus::Confirmed)) {
-                $this->statusService->transition($appointment, AppointmentStatus::Confirmed);
+            if ($appointment->status->canTransitionTo(AppointmentStatus::Booked)) {
+                $this->statusService->transition($appointment, AppointmentStatus::Booked);
 
                 $service = $appointment->service;
                 $master = $appointment->master;
@@ -290,7 +296,7 @@ class WebhookController extends Controller
                     ."Услуга: {$service->title}\n"
                     ."Дата: {$date} в {$time}\n"
                     ."Мастер: {$master->name}\n\n"
-                    ."Ждём вас!",
+                    .'Ждём вас!',
                     $this->detectProvider($message)
                 );
             }
