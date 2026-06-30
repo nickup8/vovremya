@@ -35,7 +35,7 @@ class CalendarController extends Controller
             ])
             ->get()
             ->map(function (Appointment $a) use ($master) {
-                $tz = $master->getTimezone();
+                $tz = $a->master->getTimezone();
 
                 return [
                     'id' => $a->id,
@@ -104,6 +104,7 @@ class CalendarController extends Controller
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
             'ignore_warnings' => 'sometimes|boolean',
+            'confirm_outside_hours' => 'sometimes|boolean',
         ]);
 
         $client = Client::findOrFail($validated['client_id']);
@@ -117,11 +118,16 @@ class CalendarController extends Controller
             $validated['date'],
             $validated['time'],
             $validated['ignore_warnings'] ?? false,
+            $validated['confirm_outside_hours'] ?? false,
             (int) $validated['client_id'],
         );
 
         if (! $result['success']) {
-            $errorKey = $result['error'] === 'break_intersection' ? 'lunch_intersection' : 'time';
+            $errorMap = [
+                'break_intersection' => 'lunch_intersection',
+                'outside_working_hours' => 'outside_working_hours',
+            ];
+            $errorKey = $errorMap[$result['error']] ?? 'time';
 
             if ($request->header('X-Inertia')) {
                 return back()->withErrors([
@@ -147,6 +153,7 @@ class CalendarController extends Controller
             'status' => 'sometimes|in:booked,no_show,paid,cancelled',
             'start_time' => 'sometimes|date',
             'ignore_warnings' => 'sometimes|boolean',
+            'confirm_outside_hours' => 'sometimes|boolean',
         ]);
 
         if (! isset($validated['status']) && ! isset($validated['start_time'])) {
@@ -170,7 +177,8 @@ class CalendarController extends Controller
         }
 
         if (isset($validated['start_time'])) {
-            $newDateTime = Carbon::parse($validated['start_time']);
+            $tz = $appointment->master->getTimezone();
+            $newDateTime = Carbon::parse($validated['start_time'], $tz);
             $newDate = $newDateTime->format('Y-m-d');
             $newTime = $newDateTime->format('H:i');
 
@@ -179,10 +187,15 @@ class CalendarController extends Controller
                 $newDate,
                 $newTime,
                 $validated['ignore_warnings'] ?? false,
+                $validated['confirm_outside_hours'] ?? false,
             );
 
             if (! $result['success']) {
-                $errorKey = $result['error'] === 'break_intersection' ? 'lunch_intersection' : 'time';
+                $errorMap = [
+                    'break_intersection' => 'lunch_intersection',
+                    'outside_working_hours' => 'outside_working_hours',
+                ];
+                $errorKey = $errorMap[$result['error']] ?? 'time';
 
                 if ($request->header('X-Inertia')) {
                     return back()->withErrors([

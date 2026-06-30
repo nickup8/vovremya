@@ -253,7 +253,7 @@ function MonthViewPlaceholder() {
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
-    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, auth } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', auth } = usePage<PageProps>().props;
     const [selected, setSelected] = useState<Appointment | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
@@ -262,6 +262,9 @@ export default function CalendarPage() {
     const [breakWarningOpen, setBreakWarningOpen] = useState(false);
     const [breakWarningMessage, setBreakWarningMessage] = useState('');
     const [pendingReschedule, setPendingReschedule] = useState<{ appointmentId: number; date: string; time: string } | null>(null);
+    const [outsideHoursOpen, setOutsideHoursOpen] = useState(false);
+    const [outsideHoursMessage, setOutsideHoursMessage] = useState('');
+    const [pendingOutsideHours, setPendingOutsideHours] = useState<{ appointmentId?: number; date: string; time: string } | null>(null);
     const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
     const [rescheduleOpen, setRescheduleOpen] = useState(false);
     const [rescheduleDate, setRescheduleDate] = useState('');
@@ -273,6 +276,7 @@ export default function CalendarPage() {
         date: '',
         time: '',
         ignore_warnings: false,
+        confirm_outside_hours: false,
     });
 
     const userName = auth?.user?.name || 'Мастер';
@@ -358,17 +362,27 @@ export default function CalendarPage() {
         setSelected(null);
     }
 
-    function generateTimeOptions(interval: number): string[] {
+    function generateTimeOptions(interval: number, dateStr: string, tz: string): string[] {
         const options: string[] = [];
+        const now = new Date(new Date().toLocaleString('en-US', { timeZone: tz }));
+        const todayStr = dateToKey(now);
+        const isToday = dateStr === todayStr;
+
         for (let h = 0; h < 24; h++) {
             for (let m = 0; m < 60; m += interval) {
-                options.push(`${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`);
+                const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                if (isToday) {
+                    const slotDate = new Date(`${dateStr}T${timeStr}:00`);
+                    const slotInTz = new Date(slotDate.toLocaleString('en-US', { timeZone: tz }));
+                    if (slotInTz < now) continue;
+                }
+                options.push(timeStr);
             }
         }
         return options;
     }
 
-    const timeOptions = useMemo(() => generateTimeOptions(slotInterval), [slotInterval]);
+    const timeOptions = useMemo(() => generateTimeOptions(slotInterval, rescheduleDate || dateToKey(new Date()), timezone), [slotInterval, rescheduleDate, timezone]);
 
     function openReschedule() {
         if (!selected) return;
@@ -391,6 +405,11 @@ export default function CalendarPage() {
                     setBreakWarningMessage(errors.lunch_intersection);
                     setPendingReschedule({ appointmentId: selected.id, date: rescheduleDate, time: rescheduleTime });
                     setBreakWarningOpen(true);
+                }
+                if (errors.outside_working_hours) {
+                    setOutsideHoursMessage(errors.outside_working_hours);
+                    setPendingOutsideHours({ appointmentId: selected.id, date: rescheduleDate, time: rescheduleTime });
+                    setOutsideHoursOpen(true);
                 }
                 if (errors.time) {
                     alert(errors.time);
@@ -432,6 +451,35 @@ export default function CalendarPage() {
         setBreakWarningMessage('');
     }
 
+    function confirmOutsideHours() {
+        if (pendingOutsideHours?.appointmentId) {
+            router.patch(`/admin/appointments/${pendingOutsideHours.appointmentId}/status`, {
+                start_time: `${pendingOutsideHours.date} ${pendingOutsideHours.time}:00`,
+                confirm_outside_hours: true,
+            }, {
+                preserveScroll: true,
+                only: ['appointments'],
+                onError: (errors: Record<string, string>) => {
+                    if (errors.time) {
+                        alert(errors.time);
+                    }
+                },
+            });
+
+            setOutsideHoursOpen(false);
+            setPendingOutsideHours(null);
+            setOutsideHoursMessage('');
+        } else if (newAppointmentOpen) {
+            submitNewAppointmentConfirmOutside();
+        }
+    }
+
+    function cancelOutsideHours() {
+        setOutsideHoursOpen(false);
+        setPendingOutsideHours(null);
+        setOutsideHoursMessage('');
+    }
+
     function openNewAppointment() {
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateToKey(new Date()));
@@ -450,6 +498,11 @@ export default function CalendarPage() {
                     setBreakWarningMessage(errors.lunch_intersection);
                     setPendingReschedule(null);
                     setBreakWarningOpen(true);
+                }
+                if (errors.outside_working_hours) {
+                    setOutsideHoursMessage(errors.outside_working_hours);
+                    setPendingOutsideHours(null);
+                    setOutsideHoursOpen(true);
                 }
                 if (errors.time) {
                     alert(errors.time);
@@ -482,6 +535,28 @@ export default function CalendarPage() {
             onSuccess: () => {
                 setNewAppointmentOpen(false);
                 setBreakWarningOpen(false);
+                newAppointmentForm.reset();
+            },
+        });
+    }
+
+    function submitNewAppointmentConfirmOutside() {
+        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) return;
+
+        newAppointmentForm.setData('confirm_outside_hours', true);
+        newAppointmentForm.post('/admin/calendar/appointments', {
+            preserveScroll: true,
+            onError: (errors: Record<string, string>) => {
+                if (errors.time) {
+                    alert(errors.time);
+                }
+                if (errors.client_id) {
+                    alert(errors.client_id);
+                }
+            },
+            onSuccess: () => {
+                setNewAppointmentOpen(false);
+                setOutsideHoursOpen(false);
                 newAppointmentForm.reset();
             },
         });
@@ -819,6 +894,38 @@ export default function CalendarPage() {
                     </DialogContent>
                 </Dialog>
 
+                {/* ─── Outside Working Hours Warning Dialog ─── */}
+                <Dialog open={outsideHoursOpen} onOpenChange={setOutsideHoursOpen}>
+                    <DialogContent className="rounded-2xl border-amber-200 bg-white dark:border-amber-800 dark:bg-zinc-900 sm:max-w-md">
+                        <DialogHeader>
+                            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40">
+                                <AlertTriangle className="size-6 text-amber-600 dark:text-amber-400" />
+                            </div>
+                            <DialogTitle className="text-center text-slate-900 dark:text-zinc-100">
+                                Вне рабочего графика
+                            </DialogTitle>
+                            <DialogDescription className="text-center text-slate-500 dark:text-zinc-400">
+                                {outsideHoursMessage}
+                            </DialogDescription>
+                        </DialogHeader>
+                        <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+                            <Button
+                                variant="outline"
+                                onClick={cancelOutsideHours}
+                                className="flex-1 rounded-xl sm:flex-none"
+                            >
+                                Отмена
+                            </Button>
+                            <Button
+                                onClick={confirmOutsideHours}
+                                className="flex-1 rounded-xl bg-amber-600 text-white hover:bg-amber-700 sm:flex-none"
+                            >
+                                Всё равно создать
+                            </Button>
+                        </DialogFooter>
+                    </DialogContent>
+                </Dialog>
+
                 {/* ─── New Appointment Dialog ─── */}
                 <Dialog open={newAppointmentOpen} onOpenChange={setNewAppointmentOpen}>
                     <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
@@ -877,6 +984,7 @@ export default function CalendarPage() {
                                         <input
                                             type="date"
                                             value={newAppointmentForm.data.date}
+                                            min={dateToKey(new Date())}
                                             onChange={(e) => newAppointmentForm.setData('date', e.target.value)}
                                             className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                                         />
@@ -937,6 +1045,7 @@ export default function CalendarPage() {
                                 <input
                                     type="date"
                                     value={rescheduleDate}
+                                    min={dateToKey(new Date())}
                                     onChange={(e) => setRescheduleDate(e.target.value)}
                                     className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                                 />

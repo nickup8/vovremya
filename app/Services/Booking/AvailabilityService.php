@@ -57,8 +57,21 @@ class AvailabilityService
         int $durationMinutes,
         ?int $excludeAppointmentId = null,
     ): bool {
+        return $this->isWithinWorkingHours($master, $startDateTime, $durationMinutes)
+            && $this->isSlotFree($master, $startDateTime, $durationMinutes, $excludeAppointmentId);
+    }
+
+    public function isWithinWorkingHours(
+        User $master,
+        Carbon $startDateTime,
+        int $durationMinutes,
+    ): bool {
         $tz = $master->getTimezone();
         $localSlot = $startDateTime->copy()->timezone($tz);
+
+        if ($localSlot->lt(Carbon::now($tz))) {
+            return false;
+        }
 
         $endDateTime = $localSlot->copy()->addMinutes($durationMinutes);
         $dayOfWeek = $localSlot->dayOfWeek;
@@ -72,17 +85,50 @@ class AvailabilityService
         $dayStart = $localSlot->copy()->setTimeFromTimeString($workingHour->start_time);
         $dayEnd = $localSlot->copy()->setTimeFromTimeString($workingHour->end_time);
 
-        if ($localSlot->lt($dayStart) || $endDateTime->gt($dayEnd)) {
-            return false;
-        }
+        return ! ($localSlot->lt($dayStart) || $endDateTime->gt($dayEnd));
+    }
 
-        $breakPeriods = $this->getBreakPeriods($workingHour, $localSlot);
+    public function isSlotFree(
+        User $master,
+        Carbon $startDateTime,
+        int $durationMinutes,
+        ?int $excludeAppointmentId = null,
+    ): bool {
+        $tz = $master->getTimezone();
+        $localSlot = $startDateTime->copy()->timezone($tz);
+        $endDateTime = $localSlot->copy()->addMinutes($durationMinutes);
+
+        $dayOfWeek = $localSlot->dayOfWeek;
+        $workingHour = WorkingHour::where('user_id', $master->id)
+            ->where('day_of_week', $dayOfWeek)->first();
+
+        $breakPeriods = $workingHour ? $this->getBreakPeriods($workingHour, $localSlot) : collect();
         $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId);
         $blockedPeriods = $this->getBlockedPeriods($master, $localSlot);
 
         $allUnavailable = $breakPeriods->merge($bookedPeriods)->merge($blockedPeriods);
 
         return ! $allUnavailable->contains(
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
+        );
+    }
+
+    public function isSlotBookedOrBlocked(
+        User $master,
+        Carbon $startDateTime,
+        int $durationMinutes,
+        ?int $excludeAppointmentId = null,
+    ): bool {
+        $tz = $master->getTimezone();
+        $localSlot = $startDateTime->copy()->timezone($tz);
+        $endDateTime = $localSlot->copy()->addMinutes($durationMinutes);
+
+        $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId);
+        $blockedPeriods = $this->getBlockedPeriods($master, $localSlot);
+
+        $conflicts = $bookedPeriods->merge($blockedPeriods);
+
+        return $conflicts->contains(
             fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
         );
     }

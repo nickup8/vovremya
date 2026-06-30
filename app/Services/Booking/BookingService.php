@@ -17,6 +17,69 @@ class BookingService
         private AppointmentStatusService $statusService,
     ) {}
 
+    public function checkSlot(
+        User $master,
+        Carbon $startDateTime,
+        int $durationMinutes,
+        string $role = 'client',
+        bool $confirmOutsideHours = false,
+        ?int $excludeAppointmentId = null,
+    ): array {
+        $tz = $master->getTimezone();
+        $localSlot = $startDateTime->copy()->timezone($tz);
+
+        if ($localSlot->lt(Carbon::now($tz))) {
+            return [
+                'status' => 'error',
+                'error' => 'past_time',
+                'message' => 'Нельзя создать запись на прошедшее время.',
+            ];
+        }
+
+        if (! $this->availabilityService->isWithinWorkingHours($master, $startDateTime, $durationMinutes)) {
+            if ($role === 'client') {
+                return [
+                    'status' => 'error',
+                    'error' => 'outside_working_hours',
+                    'message' => 'Выбранное время не попадает в рабочий график мастера.',
+                ];
+            }
+
+            if (! $confirmOutsideHours) {
+                return [
+                    'status' => 'warning',
+                    'error' => 'outside_working_hours',
+                    'message' => 'Выбранное время не попадает в рабочий график. Всё равно создать?',
+                ];
+            }
+        }
+
+        if ($this->availabilityService->isSlotBookedOrBlocked($master, $startDateTime, $durationMinutes, $excludeAppointmentId)) {
+            return [
+                'status' => 'error',
+                'error' => 'slot_taken',
+                'message' => 'Этот слот уже занят.',
+            ];
+        }
+
+        $breakIntersection = $this->availabilityService->checkBreakIntersection(
+            $master,
+            $startDateTime,
+            $durationMinutes,
+        );
+
+        if ($breakIntersection) {
+            return [
+                'status' => 'error',
+                'error' => 'break_intersection',
+                'message' => "Запись пересекается с обеденным перерывом ({$breakIntersection['break_start']}–{$breakIntersection['break_end']}).",
+                'break_info' => $breakIntersection,
+            ];
+        }
+
+        return ['status' => 'ok'];
+    }
+
     public function createAppointment(
         User $master,
         Service $service,
@@ -66,36 +129,33 @@ class BookingService
         string $date,
         string $time,
         bool $ignoreWarnings = false,
+        bool $confirmOutsideHours = false,
         ?int $clientId = null,
     ): array {
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone());
 
-        $isAvailable = $this->availabilityService->isSlotAvailable(
+        $check = $this->checkSlot(
             $master,
             $startDateTime,
             $service->duration_minutes,
+            'master',
+            $confirmOutsideHours,
         );
 
-        if (! $isAvailable) {
+        if ($check['status'] === 'warning') {
             return [
                 'success' => false,
-                'error' => 'slot_unavailable',
-                'message' => 'Этот слот уже занят или находится за пределами рабочего времени.',
+                'error' => $check['error'],
+                'message' => $check['message'],
             ];
         }
 
-        $breakIntersection = $this->availabilityService->checkBreakIntersection(
-            $master,
-            $startDateTime,
-            $service->duration_minutes,
-        );
-
-        if ($breakIntersection && ! $ignoreWarnings) {
+        if ($check['status'] === 'error') {
             return [
                 'success' => false,
-                'error' => 'break_intersection',
-                'message' => "Запись пересекается с обеденным перерывом ({$breakIntersection['break_start']}–{$breakIntersection['break_end']}).",
-                'break_info' => $breakIntersection,
+                'error' => $check['error'],
+                'message' => $check['message'],
+                'break_info' => $check['break_info'] ?? null,
             ];
         }
 
@@ -147,11 +207,14 @@ class BookingService
     ): bool {
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone());
 
-        return $this->availabilityService->isSlotAvailable(
+        $check = $this->checkSlot(
             $master,
             $startDateTime,
             $service->duration_minutes,
+            'client',
         );
+
+        return $check['status'] === 'ok';
     }
 
     public function getAvailableSlots(
@@ -177,38 +240,35 @@ class BookingService
         string $newDate,
         string $newTime,
         bool $ignoreWarnings = false,
+        bool $confirmOutsideHours = false,
     ): array {
         $master = $appointment->master;
         $service = $appointment->service;
         $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
 
-        $isAvailable = $this->availabilityService->isSlotAvailable(
+        $check = $this->checkSlot(
             $master,
             $startDateTime,
             $service->duration_minutes,
+            'master',
+            $confirmOutsideHours,
             $appointment->id,
         );
 
-        if (! $isAvailable) {
+        if ($check['status'] === 'warning') {
             return [
                 'success' => false,
-                'error' => 'slot_unavailable',
-                'message' => 'Этот слот уже занят или находится за пределами рабочего времени.',
+                'error' => $check['error'],
+                'message' => $check['message'],
             ];
         }
 
-        $breakIntersection = $this->availabilityService->checkBreakIntersection(
-            $master,
-            $startDateTime,
-            $service->duration_minutes,
-        );
-
-        if ($breakIntersection && ! $ignoreWarnings) {
+        if ($check['status'] === 'error') {
             return [
                 'success' => false,
-                'error' => 'break_intersection',
-                'message' => "Запись пересекается с обеденным перерывом ({$breakIntersection['break_start']}–{$breakIntersection['break_end']}).",
-                'break_info' => $breakIntersection,
+                'error' => $check['error'],
+                'message' => $check['message'],
+                'break_info' => $check['break_info'] ?? null,
             ];
         }
 
