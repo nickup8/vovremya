@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\BlockedTime;
 use App\Models\Service;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -169,6 +170,8 @@ class SettingsController extends Controller
             'slot_interval' => 'required|integer|in:15,30,60',
         ]);
 
+        $errors = [];
+
         foreach ($validated['working_hours'] as $index => $hour) {
             if (! $hour['is_working']) {
                 $user->workingHours()->updateOrCreate(
@@ -181,40 +184,36 @@ class SettingsController extends Controller
                         'break_end_time' => null,
                     ]
                 );
+
                 continue;
             }
 
             if (empty($hour['start_time']) || empty($hour['end_time'])) {
-                return back()->withErrors([
-                    "working_hours.{$index}.start_time" => 'Для рабочего дня обязательно укажите время начала и окончания.',
-                ])->withInput();
+                $errors["working_hours.{$index}.start_time"] = 'Для рабочего дня укажите время начала и окончания.';
+                continue;
             }
 
             $hasBreak = ! empty($hour['break_start_time']) || ! empty($hour['break_end_time']);
 
             if ($hasBreak) {
                 if (empty($hour['break_start_time']) || empty($hour['break_end_time'])) {
-                    return back()->withErrors([
-                        "working_hours.{$index}.break_start_time" => 'Если указано время начала обеда, необходимо указать и время окончания.',
-                    ])->withInput();
+                    $errors["working_hours.{$index}.break_start_time"] = 'Если указано время начала обеда, необходимо указать и время окончания.';
+                    continue;
                 }
 
                 if ($hour['break_start_time'] <= $hour['start_time']) {
-                    return back()->withErrors([
-                        "working_hours.{$index}.break_start_time" => 'Обед должен начинаться после начала рабочего дня.',
-                    ])->withInput();
+                    $errors["working_hours.{$index}.break_start_time"] = 'Обед должен начинаться после начала рабочего дня.';
+                    continue;
                 }
 
                 if ($hour['break_end_time'] >= $hour['end_time']) {
-                    return back()->withErrors([
-                        "working_hours.{$index}.break_end_time" => 'Обед должен заканчиваться до окончания рабочего дня.',
-                    ])->withInput();
+                    $errors["working_hours.{$index}.break_end_time"] = 'Обед должен заканчиваться до окончания рабочего дня.';
+                    continue;
                 }
 
                 if ($hour['break_end_time'] <= $hour['break_start_time']) {
-                    return back()->withErrors([
-                        "working_hours.{$index}.break_end_time" => 'Время окончания обеда должно быть позже времени начала.',
-                    ])->withInput();
+                    $errors["working_hours.{$index}.break_end_time"] = 'Время окончания обеда должно быть позже времени начала.';
+                    continue;
                 }
             }
 
@@ -228,6 +227,10 @@ class SettingsController extends Controller
                     'break_end_time' => $hasBreak ? $hour['break_end_time'] : null,
                 ]
             );
+        }
+
+        if (! empty($errors)) {
+            return back()->withErrors($errors)->withInput();
         }
 
         $user->update(['slot_interval' => $validated['slot_interval']]);
@@ -250,7 +253,7 @@ class SettingsController extends Controller
         return back()->with('success', 'Блокировка добавлена');
     }
 
-    public function destroyBlockedTime(\App\Models\BlockedTime $blockedTime)
+    public function destroyBlockedTime(BlockedTime $blockedTime)
     {
         $user = auth()->user();
 

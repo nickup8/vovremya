@@ -407,20 +407,27 @@ function ServiceModal({
 const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const SLOT_INTERVALS = [15, 30, 60];
 
+const uiToCarbon = (uiIndex: number) => (uiIndex + 1) % 7;
+const carbonToUi = (carbonDow: number) => (carbonDow + 6) % 7;
+
 function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: { workingHours: WorkingHour[]; slotInterval: number }) {
     const [localHours, setLocalHours] = useState<WorkingHour[]>(() => {
         const hours: WorkingHour[] = [];
         for (let i = 0; i < 7; i++) {
-            const existing = workingHours.find((h) => h.day_of_week === i);
-            hours.push(existing || {
-                id: 0,
-                day_of_week: i,
-                start_time: '09:00',
-                end_time: '18:00',
-                break_start_time: '13:00',
-                break_end_time: '14:00',
-                is_working: i < 5,
-            });
+            const existing = workingHours.find((h) => h.day_of_week === uiToCarbon(i));
+            hours.push(
+                existing
+                    ? { ...existing, day_of_week: i }
+                    : {
+                        id: 0,
+                        day_of_week: i,
+                        start_time: '09:00',
+                        end_time: '18:00',
+                        break_start_time: '13:00',
+                        break_end_time: '14:00',
+                        is_working: i < 5,
+                    }
+            );
         }
         return hours;
     });
@@ -428,9 +435,18 @@ function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: {
 
     function toggleDay(dayOfWeek: number) {
         setLocalHours((prev) =>
-            prev.map((h) =>
-                h.day_of_week === dayOfWeek ? { ...h, is_working: !h.is_working } : h
-            )
+            prev.map((h) => {
+                if (h.day_of_week !== dayOfWeek) return h;
+                if (!h.is_working) {
+                    return {
+                        ...h,
+                        is_working: true,
+                        start_time: h.start_time ?? '09:00',
+                        end_time: h.end_time ?? '18:00',
+                    };
+                }
+                return { ...h, is_working: false };
+            })
         );
     }
 
@@ -444,7 +460,10 @@ function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: {
 
     function handleSave() {
         router.put('/admin/working-hours', {
-            working_hours: localHours,
+            working_hours: localHours.map((h) => ({
+                ...h,
+                day_of_week: uiToCarbon(h.day_of_week),
+            })),
             slot_interval: slotInterval,
         }, { preserveScroll: true });
     }
@@ -521,14 +540,14 @@ function WorkingHoursCard({ workingHours, slotInterval: initialSlotInterval }: {
                                 <div className="flex items-center gap-2">
                                     <Input
                                         type="time"
-                                        value={hour.start_time || '09:00'}
+                                        value={hour.start_time ?? ''}
                                         onChange={(e) => updateTime(hour.day_of_week, 'start_time', e.target.value)}
                                         className="h-8 w-28 text-xs dark:bg-zinc-800"
                                     />
                                     <span className="text-xs text-slate-400 dark:text-zinc-500">—</span>
                                     <Input
                                         type="time"
-                                        value={hour.end_time || '18:00'}
+                                        value={hour.end_time ?? ''}
                                         onChange={(e) => updateTime(hour.day_of_week, 'end_time', e.target.value)}
                                         className="h-8 w-28 text-xs dark:bg-zinc-800"
                                     />
