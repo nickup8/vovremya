@@ -11,7 +11,7 @@ class PaymentServiceProvider extends ServiceProvider
     public function register(): void
     {
         $this->app->bind(PaymentGatewayInterface::class, function () {
-            return new MockPaymentGateway();
+            return new MockPaymentGateway;
         });
     }
 }

@@ -20,7 +20,7 @@ class TariffLimitService
         $monthEnd = Carbon::now()->endOfMonth();
 
         $usedCount = $master->masterAppointments()
-            ->whereIn('status', [AppointmentStatus::Confirmed, AppointmentStatus::Completed])
+            ->whereIn('status', [AppointmentStatus::Booked, AppointmentStatus::Paid])
             ->whereBetween('start_time', [$monthStart, $monthEnd])
             ->count();
 
@@ -37,7 +37,7 @@ class TariffLimitService
         $monthEnd = Carbon::now()->endOfMonth();
 
         $usedCount = $master->masterAppointments()
-            ->whereIn('status', [AppointmentStatus::Confirmed, AppointmentStatus::Completed])
+            ->whereIn('status', [AppointmentStatus::Booked, AppointmentStatus::Paid])
             ->whereBetween('start_time', [$monthStart, $monthEnd])
             ->count();
 

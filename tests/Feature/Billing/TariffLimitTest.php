@@ -7,6 +7,7 @@ use App\Models\Client;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\WorkingHour;
+use App\Services\Billing\TariffLimitService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -15,6 +16,7 @@ class TariffLimitTest extends TestCase
     use RefreshDatabase;
 
     private User $master;
+
     private Service $service;
 
     protected function setUp(): void
@@ -41,7 +43,7 @@ class TariffLimitTest extends TestCase
                 ->forMaster($this->master)
                 ->forClient($client)
                 ->withService($this->service)
-                ->confirmed()
+                ->booked()
                 ->create([
                     'start_time' => now()->startOfMonth()->addDays($i)->setTime(10, 0),
                 ]);
@@ -71,7 +73,7 @@ class TariffLimitTest extends TestCase
                 ->forMaster($this->master)
                 ->forClient($client)
                 ->withService($this->service)
-                ->confirmed()
+                ->booked()
                 ->create([
                     'start_time' => now()->startOfMonth()->addDays($i)->setTime(10, 0),
                 ]);
@@ -80,7 +82,7 @@ class TariffLimitTest extends TestCase
         $this->assertDatabaseCount('appointments', 35);
     }
 
-    public function test_free_tariff_counts_only_confirmed_and_completed(): void
+    public function test_free_tariff_counts_only_booked_and_paid(): void
     {
         $client = Client::factory()->for($this->master)->create();
 
@@ -89,7 +91,7 @@ class TariffLimitTest extends TestCase
                 ->forMaster($this->master)
                 ->forClient($client)
                 ->withService($this->service)
-                ->confirmed()
+                ->booked()
                 ->create([
                     'start_time' => now()->startOfMonth()->addDays($i)->setTime(10, 0),
                 ]);
@@ -109,7 +111,7 @@ class TariffLimitTest extends TestCase
         $this->assertDatabaseCount('appointments', 35);
 
         $this->assertTrue(
-            app(\App\Services\Billing\TariffLimitService::class)->canCreateAppointment($this->master)
+            app(TariffLimitService::class)->canCreateAppointment($this->master)
         );
     }
 }

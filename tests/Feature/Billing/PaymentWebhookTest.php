@@ -7,6 +7,7 @@ use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Payment\MockPaymentGateway;
+use App\Services\Payment\PaymentGatewayInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -44,7 +45,7 @@ class PaymentWebhookTest extends TestCase
             'is_active' => true,
         ]);
 
-        $this->app->bind(\App\Services\Payment\PaymentGatewayInterface::class, MockPaymentGateway::class);
+        $this->app->bind(PaymentGatewayInterface::class, MockPaymentGateway::class);
     }
 
     public function test_successful_payment_activates_subscription(): void

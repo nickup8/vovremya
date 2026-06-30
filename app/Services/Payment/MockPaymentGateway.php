@@ -8,11 +8,11 @@ class MockPaymentGateway implements PaymentGatewayInterface
 {
     public function createPayment(Subscription $subscription, int $amount): array
     {
-        $paymentId = 'mock_' . bin2hex(random_bytes(16));
+        $paymentId = 'mock_'.bin2hex(random_bytes(16));
 
         return [
             'payment_id' => $paymentId,
-            'confirmation_url' => config('app.url') . "/admin/settings?payment={$paymentId}",
+            'confirmation_url' => config('app.url')."/admin/settings?payment={$paymentId}",
         ];
     }
 

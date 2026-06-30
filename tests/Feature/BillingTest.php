@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\DiscountRule;
-use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Billing\BillingService;
@@ -16,14 +15,16 @@ class BillingTest extends TestCase
     use RefreshDatabase;
 
     private BillingService $billingService;
+
     private TariffPlan $proPlan;
+
     private TariffPlan $studioPlan;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        $this->billingService = new BillingService(new MockPaymentGateway());
+        $this->billingService = new BillingService(new MockPaymentGateway);
 
         $this->proPlan = TariffPlan::create([
             'code' => 'pro',
