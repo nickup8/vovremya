@@ -8,4 +8,5 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('appointments:reminders')->everyMinute();
+Schedule::command('appointments:cancel-unpaid')->everyMinute();
 Schedule::command('subscriptions:check-expirations')->dailyAt('00:00');
