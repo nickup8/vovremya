@@ -213,15 +213,23 @@ class WebhookController extends Controller
         $date = $appointment->start_time->format('d.m.Y');
         $time = $appointment->start_time->format('H:i');
 
-        if ($master->soft_deposit) {
+        if ($master->getBookingFlowType() === 'prepayment_custom') {
             $depositAmount = round($service->price * $master->deposit_percent / 100);
             $timeout = $master->deposit_timeout;
 
-            $message = "Для завершения записи к {$master->name} необходимо внести предоплату {$master->deposit_percent}% ({$depositAmount}₽) в течение {$timeout} мин.\n\n"
-                ."Услуга: {$service->title}\n"
-                ."Дата: {$date} в {$time}\n"
-                ."Сумма к оплате: {$depositAmount}₽\n\n"
-                .'Реквизиты для перевода будут отправлены следующим сообщением.';
+            $customMessage = $master->getCustomPrepaymentMessage();
+
+            if ($customMessage) {
+                $message = $customMessage."\n\n"
+                    ."Сумма предоплаты: {$depositAmount}₽ ({$master->deposit_percent}% от {$service->price}₽)\n"
+                    ."Время на оплату: {$timeout} мин.";
+            } else {
+                $message = "Для завершения записи к {$master->name} необходимо внести предоплату {$master->deposit_percent}% ({$depositAmount}₽) в течение {$timeout} мин.\n\n"
+                    ."Услуга: {$service->title}\n"
+                    ."Дата: {$date} в {$time}\n"
+                    ."Сумма к оплате: {$depositAmount}₽\n\n"
+                    .'Реквизиты для перевода будут отправлены следующим сообщением.';
+            }
 
             $inlineKeyboard = [
                 'inline_keyboard' => [

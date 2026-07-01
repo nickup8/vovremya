@@ -35,6 +35,9 @@ class SettingsController extends Controller
                 'max_notifications' => $user->max_notifications,
                 'timezone' => $user->getTimezone(),
                 'timezone_confirmed' => $user->isTimezoneConfirmed(),
+                'booking_flow_type' => $user->getBookingFlowType(),
+                'custom_prepayment_message' => $user->getCustomPrepaymentMessage(),
+                'reminder_hours_before_final' => $user->getReminderHoursBeforeFinal(),
             ],
             'services' => $user->services()->get(),
             'workingHours' => $user->workingHours()->get(),
@@ -64,9 +67,24 @@ class SettingsController extends Controller
             'deposit_percent' => 'nullable|integer|min:1|max:100',
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
+            'booking_flow_type' => ['nullable', Rule::in(['free_verification', 'prepayment_custom'])],
+            'custom_prepayment_message' => ['nullable', 'string', 'max:1000'],
+            'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([2, 3])],
         ]);
 
         $user->update($validated);
+
+        $settings = $user->settings ?? [];
+        if (isset($validated['booking_flow_type'])) {
+            $settings['booking_flow_type'] = $validated['booking_flow_type'];
+        }
+        if (array_key_exists('custom_prepayment_message', $validated)) {
+            $settings['custom_prepayment_message'] = $validated['custom_prepayment_message'] ?? null;
+        }
+        if (isset($validated['reminder_hours_before_final'])) {
+            $settings['reminder_hours_before_final'] = $validated['reminder_hours_before_final'];
+        }
+        $user->update(['settings' => $settings]);
 
         return back()->with('success', 'Настройки успешно сохранены');
     }

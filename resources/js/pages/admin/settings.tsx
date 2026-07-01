@@ -14,6 +14,9 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { Textarea } from '@/components/ui/textarea';
+import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import Sidebar from '@/components/admin/Sidebar';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 
@@ -35,6 +38,9 @@ interface Profile {
     max_notifications: boolean;
     timezone: string;
     timezone_confirmed: boolean;
+    booking_flow_type: string;
+    custom_prepayment_message: string | null;
+    reminder_hours_before_final: number;
 }
 
 interface Service {
@@ -940,7 +946,6 @@ export default function SettingsPage() {
         address: null,
         avatar_url: null,
         telegram_id: null,
-        soft_deposit: false,
         deposit_timeout: 15,
         deposit_percent: 30,
         slot_interval: 30,
@@ -948,6 +953,9 @@ export default function SettingsPage() {
         max_notifications: false,
         timezone: 'Europe/Moscow',
         timezone_confirmed: false,
+        booking_flow_type: 'free_verification',
+        custom_prepayment_message: null,
+        reminder_hours_before_final: 3,
     };
     const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
@@ -957,6 +965,24 @@ export default function SettingsPage() {
     const [avatarImageSrc, setAvatarImageSrc] = useState('');
     const [avatarCropOpen, setAvatarCropOpen] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    const VALID_TABS = ['profile', 'booking', 'notifications', 'services', 'schedule'] as const;
+    type TabValue = (typeof VALID_TABS)[number];
+
+    const getTabFromUrl = (): TabValue => {
+        const params = new URLSearchParams(window.location.search);
+        const tab = params.get('tab');
+        return VALID_TABS.includes(tab as TabValue) ? (tab as TabValue) : 'profile';
+    };
+
+    const [activeTab, setActiveTab] = useState<TabValue>(getTabFromUrl);
+
+    const handleTabChange = (value: string) => {
+        setActiveTab(value as TabValue);
+        const url = new URL(window.location.href);
+        url.searchParams.set('tab', value);
+        window.history.replaceState({}, '', url.toString());
+    };
 
     const userName = auth?.user?.name || 'Мастер';
     const initials = userName
@@ -973,11 +999,13 @@ export default function SettingsPage() {
         address: profile.address || '',
         master_slug: profile.master_slug || '',
         telegram_id: profile.telegram_id || '',
-        soft_deposit: profile.soft_deposit,
         deposit_timeout: profile.deposit_timeout?.toString() || '15',
         deposit_percent: profile.deposit_percent?.toString() || '30',
         telegram_notifications: profile.telegram_notifications,
         max_notifications: profile.max_notifications,
+        booking_flow_type: profile.booking_flow_type,
+        custom_prepayment_message: profile.custom_prepayment_message || '',
+        reminder_hours_before_final: profile.reminder_hours_before_final,
     });
 
     const handleSubmit = (e: React.FormEvent) => {
@@ -1086,6 +1114,19 @@ export default function SettingsPage() {
                                     Настройки успешно сохранены
                                 </div>
                             )}
+
+                            {/* ═══ Tabs ═══ */}
+                            <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
+                                <TabsList className="mb-6 w-full justify-start gap-1 overflow-x-auto">
+                                    <TabsTrigger value="profile">Профиль</TabsTrigger>
+                                    <TabsTrigger value="booking">Запись и оплата</TabsTrigger>
+                                    <TabsTrigger value="notifications">Уведомления</TabsTrigger>
+                                    <TabsTrigger value="services">Услуги</TabsTrigger>
+                                    <TabsTrigger value="schedule">Расписание</TabsTrigger>
+                                </TabsList>
+
+                            {/* ═══ Tab: Profile ═══ */}
+                            <TabsContent value="profile">
 
                             {/* ═══ Card 1: Master Profile ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1290,100 +1331,166 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
-                            {/* ═══ Card 2: Soft Deposit ═══ */}
+                            </TabsContent>
+
+                            {/* ═══ Tab: Booking & Payment ═══ */}
+                            <TabsContent value="booking">
+
+                            {/* ═══ Card: Режим записи ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <div className="flex items-start justify-between">
-                                    <div>
-                                        <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                            Мягкая предоплата
-                                        </h3>
-                                        <p className="mt-0.5 text-sm text-slate-500 dark:text-zinc-400">
-                                            Защита от No-Show без эквайринга
-                                        </p>
-                                    </div>
-                                    <Toggle
-                                        enabled={form.data.soft_deposit}
-                                        onToggle={() =>
-                                            form.setData(
-                                                'soft_deposit',
-                                                !form.data.soft_deposit,
-                                            )
-                                        }
-                                    />
-                                </div>
+                                <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
+                                    Режим записи
+                                </h3>
+                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
+                                    Как клиенты записываются к вам
+                                </p>
 
-                                {/* Conditional content */}
-                                <div
-                                    className={`overflow-hidden transition-all duration-300 ${form.data.soft_deposit ? 'mt-4 max-h-[500px] opacity-100' : 'max-h-0 opacity-0'}`}
+                                <RadioGroup
+                                    value={form.data.booking_flow_type}
+                                    onValueChange={(value) => form.setData('booking_flow_type', value)}
+                                    className="space-y-3"
                                 >
-                                    {/* Warning Banner */}
-                                    <div className="mb-4 rounded-lg border border-amber-200 bg-amber-50/60 p-4 text-sm text-amber-900 dark:border-amber-800/50 dark:bg-amber-950/20 dark:text-amber-200">
-                                        При включении опции новая запись
-                                        переходит в статус «Ожидает
-                                        подтверждения». Клиенту дается 15 минут
-                                        на перевод по вашим реквизитам.
-                                    </div>
+                                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
+                                        <RadioGroupItem value="free_verification" id="flow-free" className="mt-0.5" />
+                                        <div>
+                                            <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+                                                Свободная запись
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-zinc-400">
+                                                Клиент записывается, вы подтверждаете вручную
+                                            </p>
+                                        </div>
+                                    </label>
 
-                                    {/* Fields */}
-                                    <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
+                                        <RadioGroupItem value="prepayment_custom" id="flow-prepay" className="mt-0.5" />
+                                        <div>
+                                            <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+                                                Предоплата по реквизитам
+                                            </p>
+                                            <p className="text-xs text-slate-500 dark:text-zinc-400">
+                                                Клиент вносит предоплату и присылает подтверждение
+                                            </p>
+                                        </div>
+                                    </label>
+                                </RadioGroup>
+
+                                {form.data.booking_flow_type === 'prepayment_custom' && (
+                                    <div className="mt-4 space-y-4">
                                         <div>
                                             <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                                Таймаут (минуты)
+                                                Реквизиты и инструкция для клиента
                                             </label>
-                                            <Input
-                                                type="number"
-                                                min="1"
-                                                value={
-                                                    form.data.deposit_timeout
-                                                }
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'deposit_timeout',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="bg-slate-50 dark:bg-zinc-800"
+                                            <Textarea
+                                                value={form.data.custom_prepayment_message}
+                                                onChange={(e) => form.setData('custom_prepayment_message', e.target.value)}
+                                                placeholder="Например: Переведите 500 ₽ на карту 0000 0000 0000 0000 (Сбербанк) и пришлите скриншот в этот чат"
+                                                maxLength={1000}
+                                                rows={4}
+                                                className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                             />
-                                            {form.errors.deposit_timeout && (
+                                            <p className="mt-1 text-right text-xs text-slate-400 dark:text-zinc-500">
+                                                {form.data.custom_prepayment_message.length}/1000
+                                            </p>
+                                            {form.errors.custom_prepayment_message && (
                                                 <p className="mt-1 text-xs text-red-500">
-                                                    {
-                                                        form.errors
-                                                            .deposit_timeout
-                                                    }
+                                                    {form.errors.custom_prepayment_message}
                                                 </p>
                                             )}
                                         </div>
-                                        <div>
-                                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                                Процент предоплаты
-                                            </label>
-                                            <Input
-                                                type="number"
-                                                min="1"
-                                                max="100"
-                                                value={
-                                                    form.data.deposit_percent
-                                                }
-                                                onChange={(e) =>
-                                                    form.setData(
-                                                        'deposit_percent',
-                                                        e.target.value,
-                                                    )
-                                                }
-                                                className="bg-slate-50 dark:bg-zinc-800"
-                                            />
-                                            {form.errors.deposit_percent && (
-                                                <p className="mt-1 text-xs text-red-500">
-                                                    {
-                                                        form.errors
-                                                            .deposit_percent
-                                                    }
+
+                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                            <div>
+                                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                                    Процент предоплаты
+                                                </label>
+                                                <div className="relative">
+                                                    <Input
+                                                        type="number"
+                                                        min="1"
+                                                        max="100"
+                                                        value={form.data.deposit_percent}
+                                                        onChange={(e) => form.setData('deposit_percent', Number(e.target.value) || 0)}
+                                                        className="bg-slate-50 pr-8 dark:bg-zinc-800"
+                                                    />
+                                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-zinc-500">
+                                                        %
+                                                    </span>
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                                                    Сколько процентов от стоимости услуги клиент вносит заранее
                                                 </p>
-                                            )}
+                                                {form.errors.deposit_percent && (
+                                                    <p className="mt-1 text-xs text-red-500">
+                                                        {form.errors.deposit_percent}
+                                                    </p>
+                                                )}
+                                            </div>
+                                            <div>
+                                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                                    Время на оплату
+                                                </label>
+                                                <div className="relative">
+                                                    <Input
+                                                        type="number"
+                                                        min="5"
+                                                        max="1440"
+                                                        value={form.data.deposit_timeout}
+                                                        onChange={(e) => form.setData('deposit_timeout', Number(e.target.value) || 0)}
+                                                        className="bg-slate-50 pr-12 dark:bg-zinc-800"
+                                                    />
+                                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-zinc-500">
+                                                        мин
+                                                    </span>
+                                                </div>
+                                                <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
+                                                    Сколько минут слот удерживается в ожидании оплаты. После — освобождается автоматически
+                                                </p>
+                                                {form.errors.deposit_timeout && (
+                                                    <p className="mt-1 text-xs text-red-500">
+                                                        {form.errors.deposit_timeout}
+                                                    </p>
+                                                )}
+                                            </div>
                                         </div>
                                     </div>
-                                </div>
+                                )}
                             </div>
+
+                            {/* ═══ Card: Финальное напоминание ═══ */}
+                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
+                                    Финальное напоминание
+                                </h3>
+                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
+                                    За сколько часов до записи отправить клиенту финальное напоминание
+                                </p>
+
+                                <RadioGroup
+                                    value={String(form.data.reminder_hours_before_final)}
+                                    onValueChange={(value) => form.setData('reminder_hours_before_final', Number(value))}
+                                    className="flex gap-4"
+                                >
+                                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
+                                        <RadioGroupItem value="2" id="reminder-2h" />
+                                        <span className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+                                            За 2 часа
+                                        </span>
+                                    </label>
+
+                                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
+                                        <RadioGroupItem value="3" id="reminder-3h" />
+                                        <span className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+                                            За 3 часа
+                                        </span>
+                                    </label>
+                                </RadioGroup>
+                            </div>
+
+                            </TabsContent>
+
+                            {/* ═══ Tab: Notifications ═══ */}
+                            <TabsContent value="notifications">
 
                             {/* ═══ Card 3: Notification Channels ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1451,6 +1558,11 @@ export default function SettingsPage() {
                                     </div>
                                 </div>
                             </div>
+
+                            </TabsContent>
+
+                            {/* ═══ Tab: Services ═══ */}
+                            <TabsContent value="services">
 
                             {/* ═══ Card 4: Services Price List ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1534,6 +1646,11 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
+                            </TabsContent>
+
+                            {/* ═══ Tab: Schedule ═══ */}
+                            <TabsContent value="schedule">
+
                             {/* ═══ Card 5: Working Hours ═══ */}
                             <WorkingHoursCard
                                 workingHours={workingHours}
@@ -1542,6 +1659,9 @@ export default function SettingsPage() {
 
                             {/* ═══ Card 6: Blocked Times ═══ */}
                             <BlockedTimesCard />
+
+                            </TabsContent>
+                            </Tabs>
 
                             {/* ═══ Action Buttons ═══ */}
                             <div className="flex justify-end gap-2">
