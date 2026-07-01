@@ -193,8 +193,84 @@ class StatusTransitionTest extends TestCase
     public function test_labels(): void
     {
         $this->assertEquals('Записан', AppointmentStatus::Booked->label());
+        $this->assertEquals('Ожидает оплаты', AppointmentStatus::PendingPayment->label());
+        $this->assertEquals('Предоплата получена', AppointmentStatus::Prepaid->label());
         $this->assertEquals('Неявка', AppointmentStatus::NoShow->label());
         $this->assertEquals('Оплачен', AppointmentStatus::Paid->label());
         $this->assertEquals('Отменён', AppointmentStatus::Cancelled->label());
+    }
+
+    // ─── PendingPayment ───
+
+    public function test_pending_payment_to_prepaid(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::PendingPayment);
+        $this->statusService->transition($a, AppointmentStatus::Prepaid);
+        $this->assertEquals(AppointmentStatus::Prepaid, $a->fresh()->status);
+    }
+
+    public function test_pending_payment_to_cancelled(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::PendingPayment);
+        $this->statusService->transition($a, AppointmentStatus::Cancelled);
+        $this->assertEquals(AppointmentStatus::Cancelled, $a->fresh()->status);
+    }
+
+    public function test_pending_payment_to_paid_throws(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::PendingPayment);
+        $this->expectException(InvalidStatusTransitionException::class);
+        $this->statusService->transition($a, AppointmentStatus::Paid);
+    }
+
+    public function test_pending_payment_to_no_show_throws(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::PendingPayment);
+        $this->expectException(InvalidStatusTransitionException::class);
+        $this->statusService->transition($a, AppointmentStatus::NoShow);
+    }
+
+    public function test_pending_payment_to_booked_throws(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::PendingPayment);
+        $this->expectException(InvalidStatusTransitionException::class);
+        $this->statusService->transition($a, AppointmentStatus::Booked);
+    }
+
+    // ─── Prepaid ───
+
+    public function test_prepaid_to_paid(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::Prepaid);
+        $this->statusService->transition($a, AppointmentStatus::Paid);
+        $this->assertEquals(AppointmentStatus::Paid, $a->fresh()->status);
+    }
+
+    public function test_prepaid_to_no_show(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::Prepaid);
+        $this->statusService->transition($a, AppointmentStatus::NoShow);
+        $this->assertEquals(AppointmentStatus::NoShow, $a->fresh()->status);
+    }
+
+    public function test_prepaid_to_cancelled(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::Prepaid);
+        $this->statusService->transition($a, AppointmentStatus::Cancelled);
+        $this->assertEquals(AppointmentStatus::Cancelled, $a->fresh()->status);
+    }
+
+    public function test_prepaid_to_booked_throws(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::Prepaid);
+        $this->expectException(InvalidStatusTransitionException::class);
+        $this->statusService->transition($a, AppointmentStatus::Booked);
+    }
+
+    public function test_prepaid_to_pending_payment_throws(): void
+    {
+        $a = $this->makeAppointment(AppointmentStatus::Prepaid);
+        $this->expectException(InvalidStatusTransitionException::class);
+        $this->statusService->transition($a, AppointmentStatus::PendingPayment);
     }
 }
