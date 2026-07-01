@@ -8,15 +8,11 @@ return new class extends Migration
 {
     public function up(): void
     {
-        Schema::table('appointments', function (Blueprint $table) {
-            $table->foreignId('client_id')->nullable()->change();
-        });
+        // No-op: client_id is already nullable from the original create_appointments migration.
     }
 
     public function down(): void
     {
-        Schema::table('appointments', function (Blueprint $table) {
-            $table->foreignId('client_id')->nullable(false)->change();
-        });
+        // No-op: nothing to revert.
     }
 };

@@ -11,10 +11,11 @@ return new class extends Migration
         Schema::create('appointments', function (Blueprint $table) {
             $table->id();
             $table->foreignId('master_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('client_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignId('client_id')->nullable()->constrained('clients')->nullOnDelete();
             $table->foreignId('service_id')->constrained()->restrictOnDelete();
             $table->dateTime('start_time');
             $table->string('status')->default('booked');
+            $table->string('provider')->nullable();
             $table->timestamps();
 
             $table->index('master_id');
