@@ -34,7 +34,11 @@ class TelegramBookingFlowTest extends TestCase
     public function test_happy_path_deep_link_then_contact(): void
     {
         $master = User::factory()->master()->create([
-            'soft_deposit' => false,
+            'settings' => [
+                'timezone' => 'Europe/Moscow',
+                'timezone_confirmed' => true,
+                'booking_flow_type' => 'free_verification',
+            ],
         ]);
 
         $service = Service::factory()->create([

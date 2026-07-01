@@ -139,4 +139,19 @@ class User extends Authenticatable implements PasskeyUser
         $this->settings = $settings;
         $this->save();
     }
+
+    public function getBookingFlowType(): string
+    {
+        return $this->settings['booking_flow_type'] ?? 'free_verification';
+    }
+
+    public function getCustomPrepaymentMessage(): ?string
+    {
+        return $this->settings['custom_prepayment_message'] ?? null;
+    }
+
+    public function getReminderHoursBeforeFinal(): int
+    {
+        return (int) ($this->settings['reminder_hours_before_final'] ?? 3);
+    }
 }

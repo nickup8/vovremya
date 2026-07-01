@@ -35,7 +35,7 @@ class CalendarController extends Controller
             ])
             ->get()
             ->map(function (Appointment $a) use ($master) {
-                $tz = $a->master->getTimezone();
+                $tz = $master->getTimezone();
 
                 return [
                     'id' => $a->id,

@@ -150,10 +150,10 @@ class AvailabilityService
     private function getBookedPeriods(User $master, Carbon $date, ?int $excludeAppointmentId = null): Collection
     {
         $tz = $master->getTimezone();
-        $utcStart = $date->copy()->timezone('UTC')->startOfDay();
-        $utcEnd = $date->copy()->timezone('UTC')->endOfDay();
+        $utcStart = $date->copy()->startOfDay()->timezone('UTC');
+        $utcEnd = $date->copy()->endOfDay()->timezone('UTC');
 
-        return Appointment::where('master_id', $master->id)
+        return collect(Appointment::where('master_id', $master->id)
             ->whereIn('status', [AppointmentStatus::Booked])
             ->whereBetween('start_time', [$utcStart, $utcEnd])
             ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
@@ -164,23 +164,23 @@ class AvailabilityService
                 'end' => $a->start_time->copy()->timezone($tz)->addMinutes(
                     $a->service ? $a->service->duration_minutes : 60
                 ),
-            ]);
+            ]));
     }
 
     private function getBlockedPeriods(User $master, Carbon $date): Collection
     {
         $tz = $master->getTimezone();
-        $utcStart = $date->copy()->timezone('UTC')->startOfDay();
-        $utcEnd = $date->copy()->timezone('UTC')->endOfDay();
+        $utcStart = $date->copy()->startOfDay()->timezone('UTC');
+        $utcEnd = $date->copy()->endOfDay()->timezone('UTC');
 
-        return BlockedTime::where('user_id', $master->id)
+        return collect(BlockedTime::where('user_id', $master->id)
             ->where('start_datetime', '<=', $utcEnd)
             ->where('end_datetime', '>=', $utcStart)
             ->get()
             ->map(fn (BlockedTime $b) => [
                 'start' => $b->start_datetime->copy()->timezone($tz),
                 'end' => $b->end_datetime->copy()->timezone($tz),
-            ]);
+            ]));
     }
 
     private function generateSlots(

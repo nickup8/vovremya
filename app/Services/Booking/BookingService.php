@@ -87,11 +87,12 @@ class BookingService
         string $time,
         string $provider,
         ?int $clientId = null,
+        ?AppointmentStatus $status = null,
     ): Appointment {
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
         $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
 
-        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId) {
+        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status) {
             $conflict = Appointment::with('service')
                 ->where('master_id', $master->id)
                 ->whereIn('status', [
@@ -112,12 +113,27 @@ class BookingService
                 abort(422, 'Это время уже занято, выберите другой слот.');
             }
 
+            $appointmentStatus = $status ?? (
+                $master->getBookingFlowType() === 'prepayment_custom'
+                    ? AppointmentStatus::PendingPayment
+                    : AppointmentStatus::Booked
+            );
+
+            $allowedInitialStatuses = [AppointmentStatus::Booked, AppointmentStatus::PendingPayment];
+
+            if (! in_array($appointmentStatus, $allowedInitialStatuses, true)) {
+                throw new \InvalidArgumentException(
+                    "Cannot create appointment with status [{$appointmentStatus->value}]. "
+                    ."Allowed initial statuses: booked, pending_payment."
+                );
+            }
+
             return Appointment::create([
                 'master_id' => $master->id,
                 'client_id' => $clientId,
                 'service_id' => $service->id,
                 'start_time' => $startDateTime,
-                'status' => AppointmentStatus::Booked,
+                'status' => $appointmentStatus,
                 'provider' => $provider,
             ]);
         });
@@ -166,6 +182,7 @@ class BookingService
             $time,
             'crm',
             $clientId,
+            AppointmentStatus::Booked,
         );
 
         return [
