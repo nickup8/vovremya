@@ -9,7 +9,7 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('discount_rules', function (Blueprint $table) {
-            $table->id();
+            $table->uuid('id')->primary();
             $table->unsignedInteger('period_months')->unique();
             $table->unsignedInteger('discount_percent')->default(0);
             $table->boolean('is_active')->default(true);

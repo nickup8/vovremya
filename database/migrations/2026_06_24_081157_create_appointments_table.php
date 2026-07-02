@@ -9,10 +9,10 @@ return new class extends Migration
     public function up(): void
     {
         Schema::create('appointments', function (Blueprint $table) {
-            $table->id();
-            $table->foreignId('master_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('client_id')->nullable()->constrained('clients')->nullOnDelete();
-            $table->foreignId('service_id')->constrained()->restrictOnDelete();
+            $table->uuid('id')->primary();
+            $table->foreignUuid('master_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignUuid('client_id')->nullable()->constrained('clients')->nullOnDelete();
+            $table->foreignUuid('service_id')->constrained()->restrictOnDelete();
             $table->dateTime('start_time');
             $table->string('status')->default('booked');
             $table->string('provider')->nullable();

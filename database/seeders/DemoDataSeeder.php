@@ -8,6 +8,7 @@ use App\Models\Service;
 use App\Models\User;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 
 class DemoDataSeeder extends Seeder
 {
@@ -70,7 +71,7 @@ class DemoDataSeeder extends Seeder
         $this->command->info('  Визиты: 100 шт. (распределены по времени)');
     }
 
-    private function createClients(int $masterId)
+    private function createClients(string $masterId)
     {
         $existingClients = Client::where('user_id', $masterId)->count();
 
@@ -107,7 +108,7 @@ class DemoDataSeeder extends Seeder
         return $clients;
     }
 
-    private function createAppointments(int $masterId, $clients, array $services): void
+    private function createAppointments(string $masterId, $clients, array $services): void
     {
         $statuses = ['paid', 'paid', 'paid', 'paid', 'booked', 'booked', 'booked', 'booked', 'cancelled'];
         $clientIds = $clients->pluck('id')->toArray();
@@ -169,6 +170,7 @@ class DemoDataSeeder extends Seeder
             $provider = ['telegram', 'max'][array_rand(['telegram', 'max'])];
 
             $appointments[] = [
+                'id' => Str::uuid7()->toString(),
                 'master_id' => $masterId,
                 'client_id' => $clientId,
                 'service_id' => $serviceIds[$serviceIndex],

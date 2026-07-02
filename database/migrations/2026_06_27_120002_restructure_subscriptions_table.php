@@ -20,8 +20,8 @@ return new class extends Migration
 
         Schema::create('subscriptions', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
-            $table->foreignId('tariff_plan_id')->nullable();
+            $table->foreignUuid('user_id')->constrained()->cascadeOnDelete();
+            $table->uuid('tariff_plan_id')->nullable();
             $table->unsignedInteger('period_months')->default(1);
             $table->unsignedInteger('amount_paid')->default(0);
             $table->string('status', 20)->default('pending');
@@ -42,7 +42,7 @@ return new class extends Migration
 
         Schema::create('subscriptions', function (Blueprint $table) {
             $table->uuid('id')->primary();
-            $table->foreignId('user_id')->constrained()->cascadeOnDelete();
+            $table->foreignUuid('user_id')->constrained()->cascadeOnDelete();
             $table->string('provider_transaction_id')->nullable();
             $table->decimal('amount', 10, 2);
             $table->enum('period', ['monthly', 'yearly']);

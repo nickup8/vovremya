@@ -124,7 +124,11 @@ class WebhookController extends Controller
 
     private function handleStartBook(?int $chatId, string $text, string $provider): JsonResponse
     {
-        $appointmentId = (int) str_replace('/start book_', '', $text);
+        $appointmentId = str_replace('/start book_', '', $text);
+
+        if ($appointmentId === '' || $appointmentId === $text) {
+            return response()->json(['ok' => true]);
+        }
 
         $appointment = Appointment::with(['master', 'service'])
             ->where('id', $appointmentId)
