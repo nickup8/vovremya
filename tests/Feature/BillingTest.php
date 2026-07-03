@@ -40,12 +40,10 @@ class BillingTest extends TestCase
             'is_active' => true,
         ]);
 
-        DiscountRule::insert([
-            ['period_months' => 1, 'discount_percent' => 0, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-            ['period_months' => 3, 'discount_percent' => 5, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-            ['period_months' => 6, 'discount_percent' => 10, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-            ['period_months' => 12, 'discount_percent' => 20, 'is_active' => true, 'created_at' => now(), 'updated_at' => now()],
-        ]);
+        DiscountRule::create(['period_months' => 1, 'discount_percent' => 0, 'is_active' => true]);
+        DiscountRule::create(['period_months' => 3, 'discount_percent' => 5, 'is_active' => true]);
+        DiscountRule::create(['period_months' => 6, 'discount_percent' => 10, 'is_active' => true]);
+        DiscountRule::create(['period_months' => 12, 'discount_percent' => 20, 'is_active' => true]);
     }
 
     // ═══════════════════════════════════════════
