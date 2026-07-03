@@ -117,46 +117,52 @@ class DemoDataSeeder extends Seeder
 
         $today = Carbon::today();
 
+        // Непересекающиеся интервалы для каждого дня
+        $dailySchedule = [
+            ['hour' => 9, 'minute' => 0],
+            ['hour' => 10, 'minute' => 30],
+            ['hour' => 12, 'minute' => 0],
+            ['hour' => 14, 'minute' => 0],
+            ['hour' => 16, 'minute' => 0],
+            ['hour' => 17, 'minute' => 30],
+        ];
+
         $slots = [];
 
-        // 10% today (10 записей) — по часам
-        for ($i = 0; $i < 10; $i++) {
-            $hour = 9 + $i;
-            if ($hour > 19) {
-                $hour = 9 + ($i % 11);
-            }
-
-            $slots[] = $today->copy()->setTime($hour, 0);
+        // 10 записей на сегодня — по расписанию
+        for ($i = 0; $i < min(10, count($dailySchedule)); $i++) {
+            $slot = $dailySchedule[$i];
+            $slots[] = $today->copy()->setTime($slot['hour'], $slot['minute']);
         }
 
-        // 30% this week (30 записей) — понедельник-воскресенье
+        // 30 записей на эту неделю — по дням с непересекающимися интервалами
+        $daysOfWeek = range(1, 7);
+        $todayDow = $today->dayOfWeekIso;
         for ($i = 0; $i < 30; $i++) {
-            $daysAgo = $today->dayOfWeekIso - 1;
-            $dayOffset = $i % 7;
-            $daysBack = $daysAgo - $dayOffset;
-
+            $dayIdx = $i % 7;
+            $slotIdx = intdiv($i, 7) % count($dailySchedule);
+            $slot = $dailySchedule[$slotIdx];
+            $daysBack = ($todayDow - $daysOfWeek[$dayIdx]);
             if ($daysBack < 0) {
                 $daysBack += 7;
             }
-
-            $hour = 9 + ($i % 11);
-            $slots[] = $today->copy()->subDays($daysBack)->setTime($hour, 0);
+            $slots[] = $today->copy()->subDays($daysBack)->setTime($slot['hour'], $slot['minute']);
         }
 
-        // 40% last months (40 записей) — от 8 до 60 дней назад
+        // 40 записей за прошлые месяцы
         for ($i = 0; $i < 40; $i++) {
             $daysBack = 8 + ($i * 2);
-            $hour = 9 + ($i % 11);
-
-            $slots[] = $today->copy()->subDays($daysBack)->setTime($hour, 0);
+            $slotIdx = $i % count($dailySchedule);
+            $slot = $dailySchedule[$slotIdx];
+            $slots[] = $today->copy()->subDays($daysBack)->setTime($slot['hour'], $slot['minute']);
         }
 
-        // 20% older (20 записей) — от 61 до 365 дней назад
+        // 20 старых записей
         for ($i = 0; $i < 20; $i++) {
             $daysBack = 61 + ($i * 15);
-            $hour = 9 + ($i % 11);
-
-            $slots[] = $today->copy()->subDays($daysBack)->setTime($hour, 0);
+            $slotIdx = $i % count($dailySchedule);
+            $slot = $dailySchedule[$slotIdx];
+            $slots[] = $today->copy()->subDays($daysBack)->setTime($slot['hour'], $slot['minute']);
         }
 
         $slots = collect($slots)->shuffle();

@@ -879,8 +879,8 @@ export default function CalendarPage() {
                                 <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
                                     <div className="max-h-[600px] overflow-x-auto overflow-y-auto">
                                         {/* Day Headers — sticky at top */}
-                                        <div className="grid min-w-[700px] grid-cols-8 border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/50">
-                                            <div className="border-r border-slate-200 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:text-zinc-500">
+                                        <div className="grid min-w-[980px] grid-cols-8 border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+                                            <div className="sticky left-0 z-40 border-r border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
                                                 Время
                                             </div>
                                             {weekDates.map((date, idx) => {
@@ -888,7 +888,7 @@ export default function CalendarPage() {
                                                 return (
                                                     <div
                                                         key={`h-${idx}`}
-                                                        className={`cursor-pointer border-r border-slate-200 p-3 text-center transition-colors last:border-r-0 hover:bg-slate-100 dark:border-zinc-800 dark:hover:bg-zinc-800/50 ${todayMark ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
+                                                        className={`sticky top-0 z-30 cursor-pointer border-r border-slate-200 bg-slate-50 p-3 text-center transition-colors last:border-r-0 hover:bg-slate-100 dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:bg-zinc-800/50 ${todayMark ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
                                                     >
                                                         <div className="text-xs font-medium text-slate-500 dark:text-zinc-400">
                                                             {DAY_NAMES[idx]}
@@ -902,9 +902,9 @@ export default function CalendarPage() {
                                         </div>
 
                                         {/* Grid Body — same grid-cols-8, borders align with header */}
-                                        <div className="grid min-w-[700px] grid-cols-8">
+                                        <div className="grid min-w-[980px] grid-cols-8">
                                             {/* Time Column */}
-                                            <div className="border-r border-slate-200 dark:border-zinc-800">
+                                            <div className="sticky left-0 z-20 border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                                                 {gridHours.map((hour) => (
                                                     <div
                                                         key={hour}
@@ -933,7 +933,7 @@ export default function CalendarPage() {
                                                 return (
                                                     <div
                                                         key={`col-${dayIdx}`}
-                                                        className="relative border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
+                                                        className="relative min-w-[120px] border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
                                                     >
                                                         {gridHours.map((hour) => {
                                                             const timeStr = `${String(hour).padStart(2, '0')}:00`;
