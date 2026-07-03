@@ -151,6 +151,17 @@ function isSameDay(a: Date, b: Date): boolean {
     return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
 }
 
+function hasCollision(date: string, startTime: string, durationMinutes: number, appointments: Appointment[]): boolean {
+    const start = timeToMinutes(startTime);
+    const end = start + durationMinutes;
+    return appointments.some((a) => {
+        if (a.date !== date) return false;
+        const aStart = timeToMinutes(a.time);
+        const aEnd = aStart + a.duration;
+        return start < aEnd && end > aStart;
+    });
+}
+
 function getMonthGrid(center: Date): Date[] {
     const year = center.getFullYear();
     const month = center.getMonth();
@@ -390,10 +401,14 @@ export default function CalendarPage() {
         : null;
 
     function cancelBookingMode() {
+        setBookingModeServiceId('');
+        setHoveredSlot(null);
         router.visit('/admin/calendar', { replace: true, only: [] });
     }
 
     function clearBookingMode() {
+        setBookingModeServiceId('');
+        setHoveredSlot(null);
         if (prefillClientId) {
             window.history.replaceState({}, '', '/admin/calendar');
         }
@@ -912,38 +927,59 @@ export default function CalendarPage() {
                                                 const ghostTop = hoveredSlot && isBookingDay
                                                     ? (timeToMinutes(hoveredSlot.time) - DAY_START_HOUR * 60) * MINUTE_HEIGHT
                                                     : 0;
+                                                const ghostHasCollision = isBookingDay && hoveredSlot && bookingModeService
+                                                    ? hasCollision(dateKey, hoveredSlot.time, bookingModeService.duration_minutes, appointments)
+                                                    : false;
                                                 return (
                                                     <div
                                                         key={`col-${dayIdx}`}
                                                         className="relative border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
                                                     >
-                                                        {gridHours.map((hour) => (
-                                                            <div
-                                                                key={hour}
-                                                                className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
-                                                                onMouseEnter={() => {
-                                                                    if (activeBookingClient && bookingModeServiceId) {
-                                                                        setHoveredSlot({ date: dateKey, time: `${String(hour).padStart(2, '0')}:00` });
-                                                                    }
-                                                                }}
-                                                                onMouseLeave={() => {
-                                                                    if (hoveredSlot?.date === dateKey && hoveredSlot?.time === `${String(hour).padStart(2, '0')}:00`) {
-                                                                        setHoveredSlot(null);
-                                                                    }
-                                                                }}
-                                                                onClick={() => openNewAppointmentForDate(dateKey, `${String(hour).padStart(2, '0')}:00`)}
-                                                                onTouchEnd={() => openNewAppointmentForDate(dateKey, `${String(hour).padStart(2, '0')}:00`)}
-                                                            />
-                                                        ))}
+                                                        {gridHours.map((hour) => {
+                                                            const timeStr = `${String(hour).padStart(2, '0')}:00`;
+                                                            return (
+                                                                <div
+                                                                    key={hour}
+                                                                    className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                                    onMouseEnter={() => {
+                                                                        if (activeBookingClient && bookingModeServiceId) {
+                                                                            setHoveredSlot({ date: dateKey, time: timeStr });
+                                                                        }
+                                                                    }}
+                                                                    onMouseLeave={() => {
+                                                                        if (hoveredSlot?.date === dateKey && hoveredSlot?.time === timeStr) {
+                                                                            setHoveredSlot(null);
+                                                                        }
+                                                                    }}
+                                                                    onClick={() => {
+                                                                        if (activeBookingClient && bookingModeServiceId) {
+                                                                            if (hasCollision(dateKey, timeStr, bookingModeService?.duration_minutes ?? 60, appointments)) {
+                                                                                return;
+                                                                            }
+                                                                        }
+                                                                        openNewAppointmentForDate(dateKey, timeStr);
+                                                                    }}
+                                                                />
+                                                            );
+                                                        })}
                                                         {/* Ghost Appointment */}
                                                         {isBookingDay && ghostHeight > 0 && (
                                                             <div
-                                                                className="pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed border-blue-500 bg-blue-500/20 transition-all"
+                                                                className={`pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed transition-all ${
+                                                                    ghostHasCollision
+                                                                        ? 'border-red-500 bg-red-500/20'
+                                                                        : 'border-blue-500 bg-blue-500/20'
+                                                                }`}
                                                                 style={{ top: ghostTop, height: Math.max(ghostHeight, 32) }}
                                                             >
                                                                 <div className="px-2 py-1">
-                                                                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-300">
+                                                                    <p className={`text-[10px] font-semibold ${
+                                                                        ghostHasCollision
+                                                                            ? 'text-red-700 dark:text-red-300'
+                                                                            : 'text-blue-700 dark:text-blue-300'
+                                                                    }`}>
                                                                         {hoveredSlot?.time} — {bookingModeService?.title}
+                                                                        {ghostHasCollision && ' (занято)'}
                                                                     </p>
                                                                 </div>
                                                             </div>
