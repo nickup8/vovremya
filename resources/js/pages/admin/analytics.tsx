@@ -292,20 +292,21 @@ export default function AnalyticsPage() {
                                                 style={{ height: '220px' }}
                                             >
                                                 {chartData.map((point, i) => (
-                                                    <div key={i} className="group relative flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                                                        {/* Tooltip */}
-                                                        <div className="absolute bottom-full left-1/2 z-50 mb-2 flex -translate-x-1/2 flex-col items-center opacity-0 transition-opacity duration-200 pointer-events-none group-hover:opacity-100">
-                                                            <div className="whitespace-nowrap rounded-md bg-slate-800 px-2.5 py-1.5 text-center text-xs shadow-lg dark:bg-slate-700">
-                                                                <div className="text-sm font-bold text-white">{point.value.toLocaleString('ru-RU')} ₽</div>
-                                                                <div className="mt-0.5 text-slate-300">{point.label} &middot; Записей: {point.count}</div>
-                                                            </div>
-                                                            <div className="h-2 w-2 -mt-1 rotate-45 bg-slate-800 dark:bg-slate-700" />
-                                                        </div>
-                                                        {/* Bar */}
+                                                    <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                                                        {/* Bar with tooltip */}
                                                         <div
-                                                            className="w-full max-w-10 cursor-default rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-all hover:brightness-110 dark:from-blue-500 dark:to-blue-400"
+                                                            className="group relative w-full max-w-10 cursor-default rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-all hover:brightness-110 dark:from-blue-500 dark:to-blue-400"
                                                             style={{ height: `${point.percent}%`, minHeight: point.percent > 0 ? '4px' : '0' }}
-                                                        />
+                                                        >
+                                                            {/* Tooltip */}
+                                                            <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 flex -translate-x-1/2 flex-col items-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+                                                                <div className="whitespace-nowrap rounded-md bg-slate-800 px-2.5 py-1.5 text-center text-xs shadow-lg dark:bg-slate-700">
+                                                                    <div className="text-sm font-bold text-white">{point.value.toLocaleString('ru-RU')} ₽</div>
+                                                                    <div className="mt-0.5 text-slate-300">{point.label} &middot; Записей: {point.count}</div>
+                                                                </div>
+                                                                <div className="h-2 w-2 -mt-1 rotate-45 bg-slate-800 dark:bg-slate-700" />
+                                                            </div>
+                                                        </div>
                                                         <span className="w-full truncate text-center text-[10px] font-medium text-slate-500 dark:text-zinc-400">
                                                             {point.label}
                                                         </span>
