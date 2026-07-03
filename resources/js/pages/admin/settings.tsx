@@ -994,7 +994,7 @@ export default function SettingsPage() {
         .toUpperCase()
         .slice(0, 2);
 
-    const form = useForm({
+    const profileForm = useForm({
         name: profile.name,
         phone: profile.phone || '',
         specialty: profile.specialty || '',
@@ -1002,21 +1002,17 @@ export default function SettingsPage() {
         master_slug: profile.master_slug || '',
         telegram_id: profile.telegram_id || '',
         max_id: profile.max_id || '',
-        deposit_timeout: profile.deposit_timeout?.toString() || '15',
-        deposit_percent: profile.deposit_percent?.toString() || '30',
         telegram_notifications: profile.telegram_notifications,
         max_notifications: profile.max_notifications,
+    });
+
+    const bookingFlowForm = useForm({
         booking_flow_type: profile.booking_flow_type,
         custom_prepayment_message: profile.custom_prepayment_message || '',
         reminder_hours_before_final: profile.reminder_hours_before_final,
+        deposit_timeout: profile.deposit_timeout?.toString() || '15',
+        deposit_percent: profile.deposit_percent?.toString() || '30',
     });
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        form.put('/admin/settings', {
-            preserveScroll: true,
-        });
-    };
 
     const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -1107,17 +1103,7 @@ export default function SettingsPage() {
                             confirmed={profile.timezone_confirmed}
                         />
 
-                        <form
-                            onSubmit={handleSubmit}
-                            className="max-w-4xl space-y-6"
-                        >
-                            {/* Success Message */}
-                            {form.recentlySuccessful && (
-                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                    Настройки успешно сохранены
-                                </div>
-                            )}
-
+                        <div className="max-w-4xl space-y-6">
                             {/* ═══ Tabs ═══ */}
                             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
                                 <TabsList className="mb-6 w-full justify-start gap-1 overflow-x-auto">
@@ -1130,6 +1116,15 @@ export default function SettingsPage() {
 
                             {/* ═══ Tab: Profile ═══ */}
                             <TabsContent value="profile">
+                            <form
+                                onSubmit={(e) => { e.preventDefault(); profileForm.patch('/admin/settings', { preserveScroll: true }); }}
+                                className="space-y-6"
+                            >
+                            {profileForm.recentlySuccessful && (
+                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    Профиль сохранён
+                                </div>
+                            )}
 
                             {/* ═══ Card 1: Master Profile ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1180,9 +1175,9 @@ export default function SettingsPage() {
                                             Имя / Название студии
                                         </label>
                                         <Input
-                                            value={form.data.name}
+                                            value={profileForm.data.name}
                                             onChange={(e) =>
-                                                form.setData(
+                                                profileForm.setData(
                                                     'name',
                                                     e.target.value,
                                                 )
@@ -1190,9 +1185,9 @@ export default function SettingsPage() {
                                             placeholder="ИП Климин П. А."
                                             className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                         />
-                                        {form.errors.name && (
+                                        {profileForm.errors.name && (
                                             <p className="mt-1 text-xs text-red-500">
-                                                {form.errors.name}
+                                                {profileForm.errors.name}
                                             </p>
                                         )}
                                     </div>
@@ -1201,9 +1196,9 @@ export default function SettingsPage() {
                                             Телефон
                                         </label>
                                         <Input
-                                            value={form.data.phone}
+                                            value={profileForm.data.phone}
                                             onChange={(e) =>
-                                                form.setData(
+                                                profileForm.setData(
                                                     'phone',
                                                     e.target.value,
                                                 )
@@ -1211,9 +1206,9 @@ export default function SettingsPage() {
                                             placeholder="+7 (911) 123-45-67"
                                             className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                         />
-                                        {form.errors.phone && (
+                                        {profileForm.errors.phone && (
                                             <p className="mt-1 text-xs text-red-500">
-                                                {form.errors.phone}
+                                                {profileForm.errors.phone}
                                             </p>
                                         )}
                                     </div>
@@ -1226,9 +1221,9 @@ export default function SettingsPage() {
                                                 domain.com/a/
                                             </span>
                                             <Input
-                                                value={form.data.master_slug}
+                                                value={profileForm.data.master_slug}
                                                 onChange={(e) =>
-                                                    form.setData(
+                                                    profileForm.setData(
                                                         'master_slug',
                                                         e.target.value
                                                             .toLowerCase()
@@ -1242,9 +1237,9 @@ export default function SettingsPage() {
                                                 className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                             />
                                         </div>
-                                        {form.errors.master_slug && (
+                                        {profileForm.errors.master_slug && (
                                             <p className="mt-1 text-xs text-red-500">
-                                                {form.errors.master_slug}
+                                                {profileForm.errors.master_slug}
                                             </p>
                                         )}
                                     </div>
@@ -1253,9 +1248,9 @@ export default function SettingsPage() {
                                             Telegram ID
                                         </label>
                                         <Input
-                                            value={form.data.telegram_id}
+                                            value={profileForm.data.telegram_id}
                                             onChange={(e) =>
-                                                form.setData(
+                                                profileForm.setData(
                                                     'telegram_id',
                                                     e.target.value,
                                                 )
@@ -1263,9 +1258,9 @@ export default function SettingsPage() {
                                             placeholder="555666777"
                                             className="bg-slate-50 font-mono placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                         />
-                                        {form.errors.telegram_id && (
+                                        {profileForm.errors.telegram_id && (
                                             <p className="mt-1 text-xs text-red-500">
-                                                {form.errors.telegram_id}
+                                                {profileForm.errors.telegram_id}
                                             </p>
                                         )}
                                     </div>
@@ -1274,9 +1269,9 @@ export default function SettingsPage() {
                                             ID профиля в Max
                                         </label>
                                         <Input
-                                            value={form.data.max_id}
+                                            value={profileForm.data.max_id}
                                             onChange={(e) =>
-                                                form.setData(
+                                                profileForm.setData(
                                                     'max_id',
                                                     e.target.value,
                                                 )
@@ -1284,9 +1279,9 @@ export default function SettingsPage() {
                                             placeholder="12345678"
                                             className="bg-slate-50 font-mono placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                         />
-                                        {form.errors.max_id && (
+                                        {profileForm.errors.max_id && (
                                             <p className="mt-1 text-xs text-red-500">
-                                                {form.errors.max_id}
+                                                {profileForm.errors.max_id}
                                             </p>
                                         )}
                                     </div>
@@ -1355,10 +1350,38 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
+                            <div className="flex justify-end gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="rounded-lg"
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={profileForm.processing}
+                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                                >
+                                    {profileForm.processing
+                                        ? 'Сохранение...'
+                                        : 'Сохранить профиль'}
+                                </Button>
+                            </div>
+                            </form>
                             </TabsContent>
 
                             {/* ═══ Tab: Booking & Payment ═══ */}
                             <TabsContent value="booking">
+                            <form
+                                onSubmit={(e) => { e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true }); }}
+                                className="space-y-6"
+                            >
+                            {bookingFlowForm.recentlySuccessful && (
+                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    Настройки записи сохранены
+                                </div>
+                            )}
 
                             {/* ═══ Card: Режим записи ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1370,8 +1393,8 @@ export default function SettingsPage() {
                                 </p>
 
                                 <RadioGroup
-                                    value={form.data.booking_flow_type}
-                                    onValueChange={(value) => form.setData('booking_flow_type', value)}
+                                    value={bookingFlowForm.data.booking_flow_type}
+                                    onValueChange={(value) => bookingFlowForm.setData('booking_flow_type', value)}
                                     className="space-y-3"
                                 >
                                     <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
@@ -1399,26 +1422,26 @@ export default function SettingsPage() {
                                     </label>
                                 </RadioGroup>
 
-                                {form.data.booking_flow_type === 'prepayment_custom' && (
+                                {bookingFlowForm.data.booking_flow_type === 'prepayment_custom' && (
                                     <div className="mt-4 space-y-4">
                                         <div>
                                             <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                                 Реквизиты и инструкция для клиента
                                             </label>
                                             <Textarea
-                                                value={form.data.custom_prepayment_message}
-                                                onChange={(e) => form.setData('custom_prepayment_message', e.target.value)}
+                                                value={bookingFlowForm.data.custom_prepayment_message}
+                                                onChange={(e) => bookingFlowForm.setData('custom_prepayment_message', e.target.value)}
                                                 placeholder="Например: Переведите 500 ₽ на карту 0000 0000 0000 0000 (Сбербанк) и пришлите скриншот в этот чат"
                                                 maxLength={1000}
                                                 rows={4}
                                                 className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
                                             />
                                             <p className="mt-1 text-right text-xs text-slate-400 dark:text-zinc-500">
-                                                {form.data.custom_prepayment_message.length}/1000
+                                                {bookingFlowForm.data.custom_prepayment_message.length}/1000
                                             </p>
-                                            {form.errors.custom_prepayment_message && (
+                                            {bookingFlowForm.errors.custom_prepayment_message && (
                                                 <p className="mt-1 text-xs text-red-500">
-                                                    {form.errors.custom_prepayment_message}
+                                                    {bookingFlowForm.errors.custom_prepayment_message}
                                                 </p>
                                             )}
                                         </div>
@@ -1433,8 +1456,8 @@ export default function SettingsPage() {
                                                         type="number"
                                                         min="1"
                                                         max="100"
-                                                        value={form.data.deposit_percent}
-                                                        onChange={(e) => form.setData('deposit_percent', Number(e.target.value) || 0)}
+                                                        value={bookingFlowForm.data.deposit_percent}
+                                                        onChange={(e) => bookingFlowForm.setData('deposit_percent', Number(e.target.value) || 0)}
                                                         className="bg-slate-50 pr-8 dark:bg-zinc-800"
                                                     />
                                                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-zinc-500">
@@ -1444,9 +1467,9 @@ export default function SettingsPage() {
                                                 <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
                                                     Сколько процентов от стоимости услуги клиент вносит заранее
                                                 </p>
-                                                {form.errors.deposit_percent && (
+                                                {bookingFlowForm.errors.deposit_percent && (
                                                     <p className="mt-1 text-xs text-red-500">
-                                                        {form.errors.deposit_percent}
+                                                        {bookingFlowForm.errors.deposit_percent}
                                                     </p>
                                                 )}
                                             </div>
@@ -1459,8 +1482,8 @@ export default function SettingsPage() {
                                                         type="number"
                                                         min="5"
                                                         max="1440"
-                                                        value={form.data.deposit_timeout}
-                                                        onChange={(e) => form.setData('deposit_timeout', Number(e.target.value) || 0)}
+                                                        value={bookingFlowForm.data.deposit_timeout}
+                                                        onChange={(e) => bookingFlowForm.setData('deposit_timeout', Number(e.target.value) || 0)}
                                                         className="bg-slate-50 pr-12 dark:bg-zinc-800"
                                                     />
                                                     <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-zinc-500">
@@ -1470,9 +1493,9 @@ export default function SettingsPage() {
                                                 <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
                                                     Сколько минут слот удерживается в ожидании оплаты. После — освобождается автоматически
                                                 </p>
-                                                {form.errors.deposit_timeout && (
+                                                {bookingFlowForm.errors.deposit_timeout && (
                                                     <p className="mt-1 text-xs text-red-500">
-                                                        {form.errors.deposit_timeout}
+                                                        {bookingFlowForm.errors.deposit_timeout}
                                                     </p>
                                                 )}
                                             </div>
@@ -1491,8 +1514,8 @@ export default function SettingsPage() {
                                 </p>
 
                                 <RadioGroup
-                                    value={String(form.data.reminder_hours_before_final)}
-                                    onValueChange={(value) => form.setData('reminder_hours_before_final', Number(value))}
+                                    value={String(bookingFlowForm.data.reminder_hours_before_final)}
+                                    onValueChange={(value) => bookingFlowForm.setData('reminder_hours_before_final', Number(value))}
                                     className="flex gap-4"
                                 >
                                     <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
@@ -1511,10 +1534,38 @@ export default function SettingsPage() {
                                 </RadioGroup>
                             </div>
 
+                            <div className="flex justify-end gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="rounded-lg"
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={bookingFlowForm.processing}
+                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                                >
+                                    {bookingFlowForm.processing
+                                        ? 'Сохранение...'
+                                        : 'Сохранить настройки'}
+                                </Button>
+                            </div>
+                            </form>
                             </TabsContent>
 
                             {/* ═══ Tab: Notifications ═══ */}
                             <TabsContent value="notifications">
+                            <form
+                                onSubmit={(e) => { e.preventDefault(); profileForm.patch('/admin/settings', { preserveScroll: true }); }}
+                                className="space-y-6"
+                            >
+                            {profileForm.recentlySuccessful && (
+                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
+                                    Уведомления сохранены
+                                </div>
+                            )}
 
                             {/* ═══ Card 3: Notification Channels ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1540,12 +1591,12 @@ export default function SettingsPage() {
                                         </div>
                                         <Toggle
                                             enabled={
-                                                form.data.telegram_notifications
+                                                profileForm.data.telegram_notifications
                                             }
                                             onToggle={() =>
-                                                form.setData(
+                                                profileForm.setData(
                                                     'telegram_notifications',
-                                                    !form.data
+                                                    !profileForm.data
                                                         .telegram_notifications,
                                                 )
                                             }
@@ -1569,12 +1620,12 @@ export default function SettingsPage() {
                                         </div>
                                         <Toggle
                                             enabled={
-                                                form.data.max_notifications
+                                                profileForm.data.max_notifications
                                             }
                                             onToggle={() =>
-                                                form.setData(
+                                                profileForm.setData(
                                                     'max_notifications',
-                                                    !form.data
+                                                    !profileForm.data
                                                         .max_notifications,
                                                 )
                                             }
@@ -1583,6 +1634,25 @@ export default function SettingsPage() {
                                 </div>
                             </div>
 
+                            <div className="flex justify-end gap-2">
+                                <Button
+                                    type="button"
+                                    variant="outline"
+                                    className="rounded-lg"
+                                >
+                                    Отмена
+                                </Button>
+                                <Button
+                                    type="submit"
+                                    disabled={profileForm.processing}
+                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                                >
+                                    {profileForm.processing
+                                        ? 'Сохранение...'
+                                        : 'Сохранить уведомления'}
+                                </Button>
+                            </div>
+                            </form>
                             </TabsContent>
 
                             {/* ═══ Tab: Services ═══ */}
@@ -1686,27 +1756,7 @@ export default function SettingsPage() {
 
                             </TabsContent>
                             </Tabs>
-
-                            {/* ═══ Action Buttons ═══ */}
-                            <div className="flex justify-end gap-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="rounded-lg"
-                                >
-                                    Отмена
-                                </Button>
-                                <Button
-                                    type="submit"
-                                    disabled={form.processing}
-                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
-                                >
-                                    {form.processing
-                                        ? 'Сохранение...'
-                                        : 'Сохранить изменения'}
-                                </Button>
-                            </div>
-                        </form>
+                        </div>
                     </main>
                 </div>
             </div>
