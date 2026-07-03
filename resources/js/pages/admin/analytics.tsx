@@ -58,12 +58,10 @@ const PERIOD_TABS: { key: string; label: string }[] = [
 
 /* ═══════════════ Stat Card ═══════════════ */
 
-function StatCard({ icon: Icon, label, value, change, positive, color }: {
+function StatCard({ icon: Icon, label, value, color }: {
     icon: React.ElementType;
     label: string;
     value: string;
-    change: string;
-    positive: boolean;
     color: string;
 }) {
     const colorMap: Record<string, { bg: string; text: string }> = {
@@ -76,13 +74,10 @@ function StatCard({ icon: Icon, label, value, change, positive, color }: {
 
     return (
         <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="mb-3 flex items-start justify-between">
+            <div className="mb-3">
                 <div className={`flex size-10 items-center justify-center rounded-lg ${c.bg}`}>
                     <Icon className={`size-5 ${c.text}`} />
                 </div>
-                <span className={`rounded px-2 py-0.5 text-xs font-semibold ${positive ? 'bg-emerald-50 text-emerald-600 dark:bg-emerald-950/40 dark:text-emerald-400' : 'bg-red-50 text-red-600 dark:bg-red-950/40 dark:text-red-400'}`}>
-                    {change}
-                </span>
             </div>
             <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">{label}</p>
             <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{value}</p>
@@ -144,33 +139,19 @@ export default function AnalyticsPage() {
             icon: Wallet,
             label: 'Заработано за период',
             value: metrics.revenue.toLocaleString('ru-RU') + ' ₽',
-            change: metrics.total_visits > 0 ? `${metrics.total_visits} визитов` : 'Нет данных',
-            positive: metrics.revenue > 0,
             color: 'emerald',
         },
         {
             icon: Gauge,
-            label: 'Процент посещаемости',
+            label: 'Посещаемость',
             value: metrics.attendance_rate + '%',
-            change: metrics.attendance_rate >= 80 ? 'Хорошо' : 'Ниже нормы',
-            positive: metrics.attendance_rate >= 80,
             color: 'blue',
         },
         {
             icon: TrendingDown,
             label: 'Средний чек',
             value: metrics.avg_check.toLocaleString('ru-RU') + ' ₽',
-            change: metrics.avg_check > 0 ? 'Стабильно' : 'Нет данных',
-            positive: true,
             color: 'red',
-        },
-        {
-            icon: CalendarCheck,
-            label: 'Всего визитов',
-            value: String(metrics.total_visits),
-            change: `${metrics.total_visits} за период`,
-            positive: true,
-            color: 'purple',
         },
     ];
 
@@ -268,7 +249,7 @@ export default function AnalyticsPage() {
                             </div>
 
                             {/* ─── Stat Cards ─── */}
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
+                            <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
                                 {stats.map((stat) => (
                                     <StatCard key={stat.label} {...stat} />
                                 ))}
@@ -289,26 +270,27 @@ export default function AnalyticsPage() {
                                         </p>
                                     </div>
                                     {/* Dynamic Aggregate Header */}
-                                    <div className="mb-8 flex min-h-[4rem] flex-col items-start justify-end">
-                                        <div className="tracking-tight text-3xl font-bold text-slate-900 transition-all duration-300 dark:text-white">
-                                            {activePoint
-                                                ? `${activePoint.value.toLocaleString('ru-RU')} ₽`
-                                                : `${totalValue.toLocaleString('ru-RU')} ₽`
-                                            }
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium text-slate-500 transition-all duration-300 dark:text-slate-400">
-                                            {activePoint ? (
-                                                <>{activePoint.label} <span className="mx-1.5 text-slate-300 dark:text-slate-600">&middot;</span> Записей: {activePoint.count}</>
-                                            ) : (
-                                                <>Итого за период <span className="mx-1.5 text-slate-300 dark:text-slate-600">&middot;</span> Записей: {totalCount}</>
-                                            )}
+                                    <div className="mb-6 flex min-h-[4rem] flex-col items-start justify-end">
+                                        <div className={`transition-opacity duration-300 ${activePoint ? 'opacity-100' : 'opacity-0'}`}>
+                                            <div className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
+                                                {activePoint ? `${activePoint.value.toLocaleString('ru-RU')} ₽` : '0 ₽'}
+                                            </div>
+                                            <div className="mt-1 text-sm font-medium text-slate-500 dark:text-slate-400">
+                                                {activePoint ? `${activePoint.label} • Записей: ${activePoint.count}` : '\u00A0'}
+                                            </div>
                                         </div>
                                     </div>
 
                                     {Array.isArray(chartData) && chartData.length > 0 ? (
-                                        <div className="w-full overflow-x-auto scrollbar-none">
+                                        <div className="relative w-full overflow-x-auto scrollbar-none">
+                                            {/* Background grid */}
+                                            <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+                                                {[...Array(4)].map((_, i) => (
+                                                    <div key={i} className="w-full border-t border-slate-200 dark:border-slate-700/50" />
+                                                ))}
+                                            </div>
                                             <div
-                                                className={`flex items-end gap-2 px-2 pb-8 pt-2 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
+                                                className={`relative z-10 flex items-end gap-2 px-2 pb-8 pt-2 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
                                                 style={{ height: '220px' }}
                                                 onMouseLeave={() => setActivePoint(null)}
                                             >
@@ -347,7 +329,7 @@ export default function AnalyticsPage() {
                                             <div key={s.name}>
                                                 <div className="mb-1 flex items-center justify-between">
                                                     <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">{s.name}</span>
-                                                    <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">{s.percent}%</span>
+                                                    <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">{s.percent}% <span className="text-xs font-normal text-slate-400 dark:text-zinc-500">({s.count})</span></span>
                                                 </div>
                                                 <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
                                                     <div
