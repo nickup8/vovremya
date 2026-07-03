@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import {
     ChevronLeft, ChevronRight, Plus, Menu,
@@ -70,6 +70,7 @@ interface PageProps {
     slotInterval: number;
     workingHours: WorkingHour[];
     timezoneConfirmed: boolean;
+    prefillClientId?: string;
     auth?: { user?: AuthUser };
     [key: string]: unknown;
 }
@@ -348,7 +349,7 @@ function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClick }: {
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
-    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', auth } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth } = usePage<PageProps>().props;
     const [selected, setSelected] = useState<Appointment | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
@@ -374,6 +375,14 @@ export default function CalendarPage() {
         ignore_warnings: false,
         confirm_outside_hours: false,
     });
+
+    useEffect(() => {
+        if (prefillClientId) {
+            newAppointmentForm.setData('client_id', prefillClientId);
+            setNewAppointmentOpen(true);
+            window.history.replaceState({}, '', '/admin/calendar');
+        }
+    }, [prefillClientId]);
 
     const userName = auth?.user?.name || 'Мастер';
     const initials = userName

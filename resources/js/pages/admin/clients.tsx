@@ -119,7 +119,10 @@ function ClientCard({ client, onEdit, onToggleBlock }: { client: Client; onEdit:
 
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-2">
-                    <button className="flex flex-1 items-center justify-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
+                    <button
+                        onClick={() => router.get('/admin/calendar', { client_id: client.id })}
+                        className="flex flex-1 items-center justify-center gap-1 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 transition-colors hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
                         <CalendarPlus className="size-3" />
                         Записать
                     </button>

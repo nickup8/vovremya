@@ -18,7 +18,7 @@ class CalendarController extends Controller
         private BookingService $bookingService,
     ) {}
 
-    public function index()
+    public function index(Request $request)
     {
         $master = auth()->user();
 
@@ -91,6 +91,7 @@ class CalendarController extends Controller
             'slotInterval' => $slotInterval,
             'timezone' => $timezone,
             'timezoneConfirmed' => $timezoneConfirmed,
+            'prefillClientId' => $request->query('client_id'),
         ]);
     }
 
