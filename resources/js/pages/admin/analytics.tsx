@@ -31,6 +31,7 @@ interface ServiceStat {
 
 interface AuthUser {
     name: string;
+    tariff_name?: string;
     [key: string]: unknown;
 }
 
@@ -194,7 +195,7 @@ export default function AnalyticsPage() {
                         <div className="flex items-center gap-4">
                             <div className="text-right hidden sm:block">
                                 <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
-                                <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: Профи</p>
+                                <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {auth?.user?.tariff_name || 'Free'}</p>
                             </div>
                             <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
                                 {initials}

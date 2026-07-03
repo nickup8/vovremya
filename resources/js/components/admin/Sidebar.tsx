@@ -17,7 +17,8 @@ interface SidebarProps {
 }
 
 export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
-    const { url } = usePage();
+    const { url, props } = usePage();
+    const tariffName = (props as { auth?: { user?: { tariff_name?: string } } })?.auth?.user?.tariff_name || 'Free';
 
     const sidebarContent = (
         <div className="flex h-full flex-col justify-between bg-slate-950 text-white dark:bg-zinc-950">
@@ -26,7 +27,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                     <div className="flex items-center gap-2">
                         <span className="text-lg font-bold tracking-tight">Вовремя</span>
                         <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
-                            PRO
+                            {tariffName}
                         </span>
                     </div>
                     <button
