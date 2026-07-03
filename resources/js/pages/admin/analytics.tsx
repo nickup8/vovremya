@@ -108,6 +108,8 @@ export default function AnalyticsPage() {
     });
 
     const userName = auth?.user?.name || 'Мастер';
+    const totalValue = chartData.reduce((sum, point) => sum + point.value, 0);
+    const totalCount = chartData.reduce((sum, point) => sum + point.count, 0);
     const initials = userName
         .split(' ')
         .map((w) => w[0])
@@ -286,22 +288,21 @@ export default function AnalyticsPage() {
                                             {activePeriod === 'custom' && 'Выручка за выбранный период'}
                                         </p>
                                     </div>
-                                    {/* Dynamic Info Panel */}
-                                    <div className="mb-4 flex h-14 items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 transition-all dark:border-zinc-800 dark:bg-zinc-800/50">
-                                        {activePoint ? (
-                                            <>
-                                                <div className="text-sm font-medium text-slate-500 dark:text-zinc-400">
-                                                    {activePoint.label} <span className="mx-2">&middot;</span> Записей: {activePoint.count}
-                                                </div>
-                                                <div className="text-lg font-bold text-slate-900 dark:text-white">
-                                                    {activePoint.value.toLocaleString('ru-RU')} ₽
-                                                </div>
-                                            </>
-                                        ) : (
-                                            <div className="w-full text-center text-sm text-slate-400 dark:text-zinc-500">
-                                                Наведите на столбец для просмотра подробной статистики
-                                            </div>
-                                        )}
+                                    {/* Dynamic Aggregate Header */}
+                                    <div className="mb-8 flex min-h-[4rem] flex-col items-start justify-end">
+                                        <div className="tracking-tight text-3xl font-bold text-slate-900 transition-all duration-300 dark:text-white">
+                                            {activePoint
+                                                ? `${activePoint.value.toLocaleString('ru-RU')} ₽`
+                                                : `${totalValue.toLocaleString('ru-RU')} ₽`
+                                            }
+                                        </div>
+                                        <div className="mt-1 text-sm font-medium text-slate-500 transition-all duration-300 dark:text-slate-400">
+                                            {activePoint ? (
+                                                <>{activePoint.label} <span className="mx-1.5 text-slate-300 dark:text-slate-600">&middot;</span> Записей: {activePoint.count}</>
+                                            ) : (
+                                                <>Итого за период <span className="mx-1.5 text-slate-300 dark:text-slate-600">&middot;</span> Записей: {totalCount}</>
+                                            )}
+                                        </div>
                                     </div>
 
                                     {Array.isArray(chartData) && chartData.length > 0 ? (
