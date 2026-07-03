@@ -30,6 +30,7 @@ interface Profile {
     address: string | null;
     avatar_url: string | null;
     telegram_id: string | null;
+    max_id: string | null;
     soft_deposit: boolean;
     deposit_timeout: number;
     deposit_percent: number;
@@ -946,6 +947,7 @@ export default function SettingsPage() {
         address: null,
         avatar_url: null,
         telegram_id: null,
+        max_id: null,
         deposit_timeout: 15,
         deposit_percent: 30,
         slot_interval: 30,
@@ -999,6 +1001,7 @@ export default function SettingsPage() {
         address: profile.address || '',
         master_slug: profile.master_slug || '',
         telegram_id: profile.telegram_id || '',
+        max_id: profile.max_id || '',
         deposit_timeout: profile.deposit_timeout?.toString() || '15',
         deposit_percent: profile.deposit_percent?.toString() || '30',
         telegram_notifications: profile.telegram_notifications,
@@ -1263,6 +1266,27 @@ export default function SettingsPage() {
                                         {form.errors.telegram_id && (
                                             <p className="mt-1 text-xs text-red-500">
                                                 {form.errors.telegram_id}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div>
+                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                            ID профиля в Max
+                                        </label>
+                                        <Input
+                                            value={form.data.max_id}
+                                            onChange={(e) =>
+                                                form.setData(
+                                                    'max_id',
+                                                    e.target.value,
+                                                )
+                                            }
+                                            placeholder="12345678"
+                                            className="bg-slate-50 font-mono placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
+                                        />
+                                        {form.errors.max_id && (
+                                            <p className="mt-1 text-xs text-red-500">
+                                                {form.errors.max_id}
                                             </p>
                                         )}
                                     </div>

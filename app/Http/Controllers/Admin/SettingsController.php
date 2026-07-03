@@ -27,6 +27,7 @@ class SettingsController extends Controller
                 'address' => $user->address,
                 'avatar_url' => $user->avatar_url,
                 'telegram_id' => $user->telegram_id,
+                'max_id' => $user->max_id,
                 'soft_deposit' => $user->soft_deposit,
                 'deposit_timeout' => $user->deposit_timeout,
                 'deposit_percent' => $user->deposit_percent,
@@ -62,6 +63,7 @@ class SettingsController extends Controller
                 Rule::unique('users', 'master_slug')->ignore($user->id),
             ],
             'telegram_id' => 'nullable|string|max:100',
+            'max_id' => 'nullable|string|max:100',
             'soft_deposit' => 'boolean',
             'deposit_timeout' => 'nullable|integer|min:1',
             'deposit_percent' => 'nullable|integer|min:1|max:100',
@@ -72,19 +74,14 @@ class SettingsController extends Controller
             'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([2, 3])],
         ]);
 
-        $user->update($validated);
+        $jsonFields = ['booking_flow_type', 'custom_prepayment_message', 'reminder_hours_before_final'];
+        $settingsData = array_intersect_key($validated, array_flip($jsonFields));
+        $columnData = array_diff_key($validated, array_flip($jsonFields));
 
-        $settings = $user->settings ?? [];
-        if (isset($validated['booking_flow_type'])) {
-            $settings['booking_flow_type'] = $validated['booking_flow_type'];
-        }
-        if (array_key_exists('custom_prepayment_message', $validated)) {
-            $settings['custom_prepayment_message'] = $validated['custom_prepayment_message'] ?? null;
-        }
-        if (isset($validated['reminder_hours_before_final'])) {
-            $settings['reminder_hours_before_final'] = $validated['reminder_hours_before_final'];
-        }
-        $user->update(['settings' => $settings]);
+        $user->update($columnData);
+
+        $currentSettings = $user->settings ?? [];
+        $user->update(['settings' => array_merge($currentSettings, $settingsData)]);
 
         return back()->with('success', 'Настройки успешно сохранены');
     }
