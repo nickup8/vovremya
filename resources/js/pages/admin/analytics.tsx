@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     Menu, Download, Calendar,
-    Wallet, Gauge, TrendingDown, CalendarCheck,
+    Wallet, Gauge, TrendingDown, CalendarDays, AlertTriangle,
 } from 'lucide-react';
 import Sidebar from '@/components/admin/Sidebar';
 
