@@ -6,6 +6,7 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\Service;
 use App\Models\User;
+use App\Models\WorkingHour;
 use App\Services\Booking\AvailabilityService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -35,6 +36,21 @@ class ClientBlockTest extends TestCase
         $this->masterA = User::factory()->master()->create();
         $this->masterB = User::factory()->master()->create();
 
+        foreach ([$this->masterA, $this->masterB] as $master) {
+            for ($day = 0; $day <= 6; $day++) {
+                WorkingHour::updateOrCreate(
+                    ['user_id' => $master->id, 'day_of_week' => $day],
+                    [
+                        'start_time' => '09:00',
+                        'end_time' => '19:00',
+                        'is_working' => true,
+                        'break_start_time' => null,
+                        'break_end_time' => null,
+                    ]
+                );
+            }
+        }
+
         $this->serviceA = Service::factory()->create([
             'user_id' => $this->masterA->id,
             'duration_minutes' => 60,
@@ -46,7 +62,7 @@ class ClientBlockTest extends TestCase
         ]);
     }
 
-    private function sendTelegramContact(int $chatId, string $phone, string $firstName = 'Test', ?int $pendingAppointmentId = null): void
+    private function sendTelegramContact(int $chatId, string $phone, string $firstName = 'Test', ?string $pendingAppointmentId = null): void
     {
         Http::fake();
 
