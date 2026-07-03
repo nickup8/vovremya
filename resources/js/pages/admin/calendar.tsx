@@ -877,17 +877,18 @@ export default function CalendarPage() {
                             ) : (
                                 /* ─── Week Schedule Grid ─── */
                                 <div className="relative max-h-[calc(100vh-240px)] w-full overflow-auto rounded-xl border border-slate-200 bg-white shadow-xs scrollbar-thin dark:border-zinc-800 dark:bg-zinc-900">
-                                        {/* Day Headers — sticky at top */}
-                                        <div className="grid min-w-[980px] grid-cols-8 border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/50">
-                                            <div className="sticky left-0 top-0 z-40 border-r border-b border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
-                                                Время
-                                            </div>
+                                    {/* Day Headers — sticky at top */}
+                                    <div className="sticky top-0 z-30 flex min-w-[980px] border-b border-slate-200 bg-slate-50 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50">
+                                        <div className="sticky left-0 z-40 w-[60px] min-w-[60px] border-r border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
+                                            Время
+                                        </div>
+                                        <div className="grid min-w-[920px] flex-1 grid-cols-7">
                                             {weekDates.map((date, idx) => {
                                                 const todayMark = isToday(date);
                                                 return (
                                                     <div
                                                         key={`h-${idx}`}
-                                                        className={`sticky top-0 z-30 cursor-pointer border-r border-slate-200 bg-slate-50 p-3 text-center shadow-sm transition-colors last:border-r-0 hover:bg-slate-100 dark:border-zinc-800 dark:bg-zinc-900/50 dark:hover:bg-zinc-800/50 ${todayMark ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
+                                                        className={`cursor-pointer border-r border-slate-200 p-3 text-center transition-colors last:border-r-0 hover:bg-slate-100 dark:border-zinc-800 dark:hover:bg-zinc-800/50 ${todayMark ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
                                                     >
                                                         <div className="text-xs font-medium text-slate-500 dark:text-zinc-400">
                                                             {DAY_NAMES[idx]}
@@ -899,22 +900,24 @@ export default function CalendarPage() {
                                                 );
                                             })}
                                         </div>
+                                    </div>
 
-                                        {/* Grid Body — same grid-cols-8, borders align with header */}
-                                        <div className="grid min-w-[980px] grid-cols-8">
-                                            {/* Time Column */}
-                                            <div className="sticky left-0 z-20 border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                                                {gridHours.map((hour) => (
-                                                    <div
-                                                        key={hour}
-                                                        className="flex h-20 items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
-                                                    >
-                                                        {String(hour).padStart(2, '0')}:00
-                                                    </div>
-                                                ))}
-                                            </div>
+                                    {/* Grid Body — time + slots */}
+                                    <div className="flex min-w-[980px]">
+                                        {/* Time Column — sticky left */}
+                                        <div className="sticky left-0 z-20 w-[60px] min-w-[60px] border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                                            {gridHours.map((hour) => (
+                                                <div
+                                                    key={hour}
+                                                    className="flex h-20 items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
+                                                >
+                                                    {String(hour).padStart(2, '0')}:00
+                                                </div>
+                                            ))}
+                                        </div>
 
-                                            {/* Day Columns with Appointment Cards */}
+                                        {/* Day Columns with Appointment Cards */}
+                                        <div className="grid min-w-[920px] flex-1 grid-cols-7">
                                             {weekDates.map((date, dayIdx) => {
                                                 const dayAppts = getAppointmentsForDay(dayIdx);
                                                 const dayBlocked = getBlockedTimesForDay(dayIdx);
@@ -932,7 +935,7 @@ export default function CalendarPage() {
                                                 return (
                                                     <div
                                                         key={`col-${dayIdx}`}
-                                                        className="relative min-w-[120px] border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
+                                                        className="relative border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
                                                     >
                                                         {gridHours.map((hour) => {
                                                             const timeStr = `${String(hour).padStart(2, '0')}:00`;
@@ -1010,6 +1013,7 @@ export default function CalendarPage() {
                                                 );
                                             })}
                                         </div>
+                                    </div>
                                 </div>
                             )}
 
