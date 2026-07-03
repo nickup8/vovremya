@@ -293,7 +293,11 @@ export default function AnalyticsPage() {
                                             >
                                                 {chartData.map((point, i) => (
                                                     <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                                                        <div className="w-full max-w-10 rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-all dark:from-blue-500 dark:to-blue-400" style={{ height: `${point.percent}%`, minHeight: point.percent > 0 ? '4px' : '0' }} />
+                                                        <div
+                                                            title={`Дата: ${point.label}\nВыручка: ${point.value.toLocaleString('ru-RU')} ₽\nЗаписей: ${point.count}`}
+                                                            className="w-full max-w-10 cursor-default rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-all hover:brightness-110 dark:from-blue-500 dark:to-blue-400"
+                                                            style={{ height: `${point.percent}%`, minHeight: point.percent > 0 ? '4px' : '0' }}
+                                                        />
                                                         <span className="w-full truncate text-center text-[10px] font-medium text-slate-500 dark:text-zinc-400">
                                                             {point.label}
                                                         </span>
