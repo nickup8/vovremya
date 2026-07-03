@@ -86,7 +86,7 @@ class BookingService
         string $date,
         string $time,
         string $provider,
-        ?int $clientId = null,
+        ?string $clientId = null,
         ?AppointmentStatus $status = null,
     ): Appointment {
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
@@ -146,7 +146,7 @@ class BookingService
         string $time,
         bool $ignoreWarnings = false,
         bool $confirmOutsideHours = false,
-        ?int $clientId = null,
+        ?string $clientId = null,
     ): array {
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone());
 
