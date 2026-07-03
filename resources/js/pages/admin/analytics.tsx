@@ -288,8 +288,8 @@ export default function AnalyticsPage() {
                                     {Array.isArray(chartData) && chartData.length > 0 ? (
                                         <div className="w-full overflow-x-auto scrollbar-none">
                                             <div
-                                                className={`flex items-end gap-2 px-2 pb-8 pt-2 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
-                                                style={{ height: '220px' }}
+                                                className={`flex items-end gap-2 px-2 pb-8 pt-14 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
+                                                style={{ height: '280px' }}
                                             >
                                                 {chartData.map((point, i) => (
                                                     <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
