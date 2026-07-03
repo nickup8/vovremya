@@ -9,6 +9,9 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import {
+    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
+} from '@/components/ui/select';
 import Sidebar from '@/components/admin/Sidebar';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 import { AppointmentStatus } from '@/types/appointment-status';
@@ -366,6 +369,8 @@ export default function CalendarPage() {
     const [rescheduleOpen, setRescheduleOpen] = useState(false);
     const [rescheduleDate, setRescheduleDate] = useState('');
     const [rescheduleTime, setRescheduleTime] = useState('');
+    const [bookingModeServiceId, setBookingModeServiceId] = useState<string>('');
+    const [hoveredSlot, setHoveredSlot] = useState<{ date: string; time: string } | null>(null);
 
     const newAppointmentForm = useForm({
         client_id: '',
@@ -378,6 +383,10 @@ export default function CalendarPage() {
 
     const activeBookingClient = prefillClientId
         ? clients.find((c) => c.id === prefillClientId) ?? null
+        : null;
+
+    const bookingModeService = bookingModeServiceId
+        ? services.find((s) => String(s.id) === bookingModeServiceId) ?? null
         : null;
 
     function cancelBookingMode() {
@@ -609,12 +618,18 @@ export default function CalendarPage() {
         setNewAppointmentOpen(true);
     }
 
-    function openNewAppointmentForDate(dateKey: string) {
+    function openNewAppointmentForDate(dateKey: string, time?: string) {
+        if (activeBookingClient && !bookingModeServiceId) {
+            return;
+        }
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateKey);
-        newAppointmentForm.setData('time', '09:00');
+        newAppointmentForm.setData('time', time || '09:00');
         if (activeBookingClient) {
             newAppointmentForm.setData('client_id', activeBookingClient.id);
+        }
+        if (bookingModeServiceId) {
+            newAppointmentForm.setData('service_id', bookingModeServiceId);
         }
         setNewAppointmentOpen(true);
     }
@@ -796,7 +811,7 @@ export default function CalendarPage() {
 
                             {/* ─── Booking Mode Banner ─── */}
                             {activeBookingClient && (
-                                <div className="flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40">
+                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40">
                                     <div className="flex items-center gap-3">
                                         <div className="flex size-8 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/60">
                                             <User className="size-4 text-indigo-600 dark:text-indigo-400" />
@@ -806,16 +821,33 @@ export default function CalendarPage() {
                                                 Режим записи
                                             </p>
                                             <p className="text-xs text-indigo-600 dark:text-indigo-400">
-                                                Выберите свободное окно в календаре для клиента: {activeBookingClient.name}
+                                                Клиент: {activeBookingClient.name}
+                                                {bookingModeService && (
+                                                    <> — {bookingModeService.title} ({bookingModeService.duration_minutes} мин)</>
+                                                )}
                                             </p>
                                         </div>
                                     </div>
-                                    <button
-                                        onClick={cancelBookingMode}
-                                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900/40"
-                                    >
-                                        Отменить
-                                    </button>
+                                    <div className="flex items-center gap-2">
+                                        <Select value={bookingModeServiceId} onValueChange={setBookingModeServiceId}>
+                                            <SelectTrigger className="h-8 w-[200px] border-indigo-200 bg-white text-xs dark:border-indigo-700 dark:bg-indigo-900/40">
+                                                <SelectValue placeholder="Выберите услугу" />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                {services.map((s) => (
+                                                    <SelectItem key={s.id} value={String(s.id)}>
+                                                        {s.title} — {s.duration_minutes} мин
+                                                    </SelectItem>
+                                                ))}
+                                            </SelectContent>
+                                        </Select>
+                                        <button
+                                            onClick={cancelBookingMode}
+                                            className="rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900/40"
+                                        >
+                                            Отменить
+                                        </button>
+                                    </div>
                                 </div>
                             )}
 
@@ -825,7 +857,7 @@ export default function CalendarPage() {
                                     appointments={appointments}
                                     centerDate={monthCenterDate}
                                     onDayClick={openDetail}
-                                    onEmptyDayClick={openNewAppointmentForDate}
+                                    onEmptyDayClick={(dateKey) => openNewAppointmentForDate(dateKey)}
                                 />
                             ) : (
                                 /* ─── Week Schedule Grid ─── */
@@ -875,6 +907,11 @@ export default function CalendarPage() {
                                                 const dateKey = weekDateKeys[dayIdx];
                                                 const backendDow = (dayIdx + 1) % 7;
                                                 const wh = workingHours.find((w) => w.day_of_week === backendDow);
+                                                const isBookingDay = activeBookingClient && bookingModeServiceId && hoveredSlot?.date === dateKey;
+                                                const ghostHeight = bookingModeService ? (bookingModeService.duration_minutes / 60) * HOUR_HEIGHT : 0;
+                                                const ghostTop = hoveredSlot && isBookingDay
+                                                    ? (timeToMinutes(hoveredSlot.time) - DAY_START_HOUR * 60) * MINUTE_HEIGHT
+                                                    : 0;
                                                 return (
                                                     <div
                                                         key={`col-${dayIdx}`}
@@ -884,8 +921,33 @@ export default function CalendarPage() {
                                                             <div
                                                                 key={hour}
                                                                 className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                                onMouseEnter={() => {
+                                                                    if (activeBookingClient && bookingModeServiceId) {
+                                                                        setHoveredSlot({ date: dateKey, time: `${String(hour).padStart(2, '0')}:00` });
+                                                                    }
+                                                                }}
+                                                                onMouseLeave={() => {
+                                                                    if (hoveredSlot?.date === dateKey && hoveredSlot?.time === `${String(hour).padStart(2, '0')}:00`) {
+                                                                        setHoveredSlot(null);
+                                                                    }
+                                                                }}
+                                                                onClick={() => openNewAppointmentForDate(dateKey, `${String(hour).padStart(2, '0')}:00`)}
+                                                                onTouchEnd={() => openNewAppointmentForDate(dateKey, `${String(hour).padStart(2, '0')}:00`)}
                                                             />
                                                         ))}
+                                                        {/* Ghost Appointment */}
+                                                        {isBookingDay && ghostHeight > 0 && (
+                                                            <div
+                                                                className="pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed border-blue-500 bg-blue-500/20 transition-all"
+                                                                style={{ top: ghostTop, height: Math.max(ghostHeight, 32) }}
+                                                            >
+                                                                <div className="px-2 py-1">
+                                                                    <p className="text-[10px] font-semibold text-blue-700 dark:text-blue-300">
+                                                                        {hoveredSlot?.time} — {bookingModeService?.title}
+                                                                    </p>
+                                                                </div>
+                                                            </div>
+                                                        )}
                                                         {wh?.is_working && wh.break_start_time && wh.break_end_time && (
                                                             <BreakZone
                                                                 breakStart={wh.break_start_time}
