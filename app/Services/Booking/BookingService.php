@@ -23,7 +23,7 @@ class BookingService
         int $durationMinutes,
         string $role = 'client',
         bool $confirmOutsideHours = false,
-        ?int $excludeAppointmentId = null,
+        ?string $excludeAppointmentId = null,
     ): array {
         $tz = $master->getTimezone();
         $localSlot = $startDateTime->copy()->timezone($tz);

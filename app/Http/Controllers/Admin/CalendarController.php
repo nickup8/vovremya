@@ -119,7 +119,7 @@ class CalendarController extends Controller
             $validated['time'],
             $validated['ignore_warnings'] ?? false,
             $validated['confirm_outside_hours'] ?? false,
-            (int) $validated['client_id'],
+            $validated['client_id'],
         );
 
         if (! $result['success']) {

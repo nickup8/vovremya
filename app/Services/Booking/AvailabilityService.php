@@ -55,7 +55,7 @@ class AvailabilityService
         User $master,
         Carbon $startDateTime,
         int $durationMinutes,
-        ?int $excludeAppointmentId = null,
+        ?string $excludeAppointmentId = null,
     ): bool {
         return $this->isWithinWorkingHours($master, $startDateTime, $durationMinutes)
             && $this->isSlotFree($master, $startDateTime, $durationMinutes, $excludeAppointmentId);
@@ -92,7 +92,7 @@ class AvailabilityService
         User $master,
         Carbon $startDateTime,
         int $durationMinutes,
-        ?int $excludeAppointmentId = null,
+        ?string $excludeAppointmentId = null,
     ): bool {
         $tz = $master->getTimezone();
         $localSlot = $startDateTime->copy()->timezone($tz);
@@ -117,7 +117,7 @@ class AvailabilityService
         User $master,
         Carbon $startDateTime,
         int $durationMinutes,
-        ?int $excludeAppointmentId = null,
+        ?string $excludeAppointmentId = null,
     ): bool {
         $tz = $master->getTimezone();
         $localSlot = $startDateTime->copy()->timezone($tz);
@@ -147,7 +147,7 @@ class AvailabilityService
         ]);
     }
 
-    private function getBookedPeriods(User $master, Carbon $date, ?int $excludeAppointmentId = null): Collection
+    private function getBookedPeriods(User $master, Carbon $date, ?string $excludeAppointmentId = null): Collection
     {
         $tz = $master->getTimezone();
         $utcStart = $date->copy()->startOfDay()->timezone('UTC');

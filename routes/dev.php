@@ -11,7 +11,7 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 
 Route::prefix('dev')->middleware(['web'])->group(function () {
-    Route::get('/impersonate/{userId}', function (int $userId): JsonResponse|RedirectResponse {
+    Route::get('/impersonate/{userId}', function (string $userId): JsonResponse|RedirectResponse {
         if (app()->isProduction()) {
             abort(404);
         }

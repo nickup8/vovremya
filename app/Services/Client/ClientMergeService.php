@@ -7,7 +7,7 @@ use App\Models\Client;
 class ClientMergeService
 {
     public function findOrCreateByPhone(
-        int $masterId,
+        string $masterId,
         string $phone,
         string $telegramId = '',
         string $name = 'Клиент',
