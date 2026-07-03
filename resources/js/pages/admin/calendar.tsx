@@ -142,6 +142,29 @@ function dateToKey(d: Date): string {
     return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
 
+function isSameDay(a: Date, b: Date): boolean {
+    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+}
+
+function getMonthGrid(center: Date): Date[] {
+    const year = center.getFullYear();
+    const month = center.getMonth();
+    const firstDay = new Date(year, month, 1);
+    const lastDay = new Date(year, month + 1, 0);
+
+    const startDow = firstDay.getDay();
+    const gridStart = new Date(firstDay);
+    gridStart.setDate(gridStart.getDate() - (startDow === 0 ? 6 : startDow - 1));
+
+    const totalCells = Math.ceil(((lastDay.getTime() - gridStart.getTime()) / 86400000 + 1) / 7) * 7;
+
+    return Array.from({ length: totalCells }, (_, i) => {
+        const d = new Date(gridStart);
+        d.setDate(d.getDate() + i);
+        return d;
+    });
+}
+
 /* ═══════════════ Appointment Card ═══════════════ */
 
 function AppointmentCard({ appointment, onClick, dayStartHour }: { appointment: Appointment; onClick: () => void; dayStartHour: number }) {
@@ -232,19 +255,90 @@ function BreakZone({ breakStart, breakEnd, dayStartHour }: { breakStart: string;
     );
 }
 
-/* ═══════════════ Month Grid Placeholder ═══════════════ */
+/* ═══════════════ Month View ═══════════════ */
 
-function MonthViewPlaceholder() {
+function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClick }: {
+    appointments: Appointment[];
+    centerDate: Date;
+    onDayClick: (appointment: Appointment) => void;
+    onEmptyDayClick: (date: string) => void;
+}) {
+    const today = new Date();
+    const grid = useMemo(() => getMonthGrid(centerDate), [centerDate]);
+    const currentMonth = centerDate.getMonth();
+
     return (
-        <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-32 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="text-center">
-                <CalendarDays className="mx-auto size-12 text-slate-300 dark:text-zinc-600" />
-                <p className="mt-3 text-sm font-medium text-slate-500 dark:text-zinc-400">
-                    Календарь на месяц в разработке
-                </p>
-                <p className="mt-1 text-xs text-slate-400 dark:text-zinc-500">
-                    Пока доступен недельный вид
-                </p>
+        <div className="rounded-xl border border-slate-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+            {/* Day-of-week headers */}
+            <div className="grid grid-cols-7 border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900/50">
+                {DAY_NAMES.map((name) => (
+                    <div key={name} className="p-2 text-center text-xs font-semibold text-slate-500 dark:text-zinc-400">
+                        {name}
+                    </div>
+                ))}
+            </div>
+
+            {/* Day grid */}
+            <div className="grid grid-cols-7 gap-px bg-slate-200 dark:bg-zinc-800">
+                {grid.map((day, i) => {
+                    const dateKey = dateToKey(day);
+                    const dayAppts = appointments.filter((a) => a.date === dateKey);
+                    const isCurrentMonth = day.getMonth() === currentMonth;
+                    const isToday_ = isSameDay(day, today);
+
+                    return (
+                        <button
+                            key={i}
+                            type="button"
+                            onClick={() => dayAppts.length === 0 ? onEmptyDayClick(dateKey) : undefined}
+                            className={`flex min-h-[120px] flex-col gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50 ${
+                                !isCurrentMonth ? 'bg-slate-50/50 text-slate-400 dark:bg-zinc-900/50 dark:text-zinc-600' : ''
+                            }`}
+                        >
+                            {/* Day number */}
+                            <div className="flex items-center justify-between">
+                                <span className={`inline-flex size-6 items-center justify-center rounded-full text-xs font-medium ${
+                                    isToday_
+                                        ? 'bg-blue-600 text-white'
+                                        : isCurrentMonth
+                                            ? 'text-slate-700 dark:text-zinc-300'
+                                            : 'text-slate-400 dark:text-zinc-600'
+                                }`}>
+                                    {day.getDate()}
+                                </span>
+                                {dayAppts.length > 3 && (
+                                    <span className="text-[10px] text-slate-400 dark:text-zinc-500">
+                                        +{dayAppts.length - 3}
+                                    </span>
+                                )}
+                            </div>
+
+                            {/* Appointment badges */}
+                            <div className="flex flex-1 flex-col gap-0.5 overflow-y-auto scrollbar-none">
+                                {dayAppts.slice(0, 3).map((appt) => {
+                                    const styles = STATUS_STYLES[appt.status];
+                                    return (
+                                        <div
+                                            key={appt.id}
+                                            onClick={(e) => { e.stopPropagation(); onDayClick(appt); }}
+                                            className={`cursor-pointer truncate rounded px-1 py-0.5 text-[10px] font-medium leading-tight transition-colors hover:opacity-80 ${
+                                                appt.status === AppointmentStatus.Paid
+                                                    ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
+                                                    : appt.status === AppointmentStatus.NoShow
+                                                        ? 'bg-rose-100 text-rose-700 dark:bg-rose-950/40 dark:text-rose-400'
+                                                        : appt.status === AppointmentStatus.Cancelled
+                                                            ? 'bg-zinc-100 text-zinc-500 line-through dark:bg-zinc-800 dark:text-zinc-500'
+                                                            : 'bg-blue-100 text-blue-700 dark:bg-blue-950/40 dark:text-blue-400'
+                                            }`}
+                                        >
+                                            {appt.time} — {appt.client_name}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </button>
+                    );
+                })}
             </div>
         </div>
     );
@@ -257,6 +351,7 @@ export default function CalendarPage() {
     const [selected, setSelected] = useState<Appointment | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
+    const [monthOffset, setMonthOffset] = useState(0);
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
     const [breakWarningOpen, setBreakWarningOpen] = useState(false);
@@ -295,6 +390,17 @@ export default function CalendarPage() {
     }, [weekOffset]);
     const weekDates = useMemo(() => getWeekDates(centerDate), [centerDate]);
     const dateRangeStr = useMemo(() => formatDateRange(weekDates), [weekDates]);
+
+    const monthCenterDate = useMemo(() => {
+        const d = new Date(today);
+        d.setMonth(d.getMonth() + monthOffset);
+        return d;
+    }, [monthOffset]);
+
+    const monthRangeStr = useMemo(() => {
+        const months = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
+        return `${months[monthCenterDate.getMonth()]} ${monthCenterDate.getFullYear()}`;
+    }, [monthCenterDate]);
 
     const appointments = useMemo(
         () => initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
@@ -487,6 +593,13 @@ export default function CalendarPage() {
         setNewAppointmentOpen(true);
     }
 
+    function openNewAppointmentForDate(dateKey: string) {
+        newAppointmentForm.reset();
+        newAppointmentForm.setData('date', dateKey);
+        newAppointmentForm.setData('time', '09:00');
+        setNewAppointmentOpen(true);
+    }
+
     function submitNewAppointment(e: React.FormEvent) {
         e.preventDefault();
         if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) return;
@@ -620,22 +733,22 @@ export default function CalendarPage() {
                             <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
                                 <div className="flex items-center gap-2">
                                     <button
-                                        onClick={() => setWeekOffset((w) => w - 1)}
+                                        onClick={() => viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
                                         className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
                                     >
                                         <ChevronLeft className="size-4 text-slate-600 dark:text-zinc-400" />
                                     </button>
                                     <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 md:text-base">
-                                        {dateRangeStr}
+                                        {viewMode === 'week' ? dateRangeStr : monthRangeStr}
                                     </h2>
                                     <button
-                                        onClick={() => setWeekOffset((w) => w + 1)}
+                                        onClick={() => viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
                                         className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
                                     >
                                         <ChevronRight className="size-4 text-slate-600 dark:text-zinc-400" />
                                     </button>
                                     <button
-                                        onClick={() => setWeekOffset(0)}
+                                        onClick={() => { setWeekOffset(0); setMonthOffset(0); }}
                                         className="ml-2 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
                                     >
                                         Сегодня
@@ -661,7 +774,12 @@ export default function CalendarPage() {
 
                             {/* ─── Calendar Content ─── */}
                             {viewMode === 'month' ? (
-                                <MonthViewPlaceholder />
+                                <MonthView
+                                    appointments={appointments}
+                                    centerDate={monthCenterDate}
+                                    onDayClick={openDetail}
+                                    onEmptyDayClick={openNewAppointmentForDate}
+                                />
                             ) : (
                                 /* ─── Week Schedule Grid ─── */
                                 <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
