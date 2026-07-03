@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import {
     ChevronLeft, ChevronRight, Plus, Menu,
@@ -376,13 +376,19 @@ export default function CalendarPage() {
         confirm_outside_hours: false,
     });
 
-    useEffect(() => {
+    const activeBookingClient = prefillClientId
+        ? clients.find((c) => c.id === prefillClientId) ?? null
+        : null;
+
+    function cancelBookingMode() {
+        router.visit('/admin/calendar', { replace: true, only: [] });
+    }
+
+    function clearBookingMode() {
         if (prefillClientId) {
-            newAppointmentForm.setData('client_id', prefillClientId);
-            setNewAppointmentOpen(true);
             window.history.replaceState({}, '', '/admin/calendar');
         }
-    }, [prefillClientId]);
+    }
 
     const userName = auth?.user?.name || 'Мастер';
     const initials = userName
@@ -607,6 +613,9 @@ export default function CalendarPage() {
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateKey);
         newAppointmentForm.setData('time', '09:00');
+        if (activeBookingClient) {
+            newAppointmentForm.setData('client_id', activeBookingClient.id);
+        }
         setNewAppointmentOpen(true);
     }
 
@@ -637,6 +646,7 @@ export default function CalendarPage() {
             onSuccess: () => {
                 setNewAppointmentOpen(false);
                 newAppointmentForm.reset();
+                clearBookingMode();
             },
         });
     }
@@ -659,6 +669,7 @@ export default function CalendarPage() {
                 setNewAppointmentOpen(false);
                 setBreakWarningOpen(false);
                 newAppointmentForm.reset();
+                clearBookingMode();
             },
         });
     }
@@ -681,6 +692,7 @@ export default function CalendarPage() {
                 setNewAppointmentOpen(false);
                 setOutsideHoursOpen(false);
                 newAppointmentForm.reset();
+                clearBookingMode();
             },
         });
     }
@@ -781,6 +793,31 @@ export default function CalendarPage() {
                                     </button>
                                 </div>
                             </div>
+
+                            {/* ─── Booking Mode Banner ─── */}
+                            {activeBookingClient && (
+                                <div className="flex items-center justify-between rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40">
+                                    <div className="flex items-center gap-3">
+                                        <div className="flex size-8 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/60">
+                                            <User className="size-4 text-indigo-600 dark:text-indigo-400" />
+                                        </div>
+                                        <div>
+                                            <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">
+                                                Режим записи
+                                            </p>
+                                            <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                                                Выберите свободное окно в календаре для клиента: {activeBookingClient.name}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <button
+                                        onClick={cancelBookingMode}
+                                        className="rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900/40"
+                                    >
+                                        Отменить
+                                    </button>
+                                </div>
+                            )}
 
                             {/* ─── Calendar Content ─── */}
                             {viewMode === 'month' ? (
