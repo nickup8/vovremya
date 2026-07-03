@@ -101,6 +101,7 @@ export default function AnalyticsPage() {
     const auth = props.auth;
 
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const [activePoint, setActivePoint] = useState<ChartPoint | null>(null);
     const [dates, setDates] = useState({
         from: props.dateFrom || '',
         to: props.dateTo || '',
@@ -285,28 +286,41 @@ export default function AnalyticsPage() {
                                             {activePeriod === 'custom' && 'Выручка за выбранный период'}
                                         </p>
                                     </div>
+                                    {/* Dynamic Info Panel */}
+                                    <div className="mb-4 flex h-14 items-center justify-between rounded-lg border border-slate-100 bg-slate-50 px-4 transition-all dark:border-zinc-800 dark:bg-zinc-800/50">
+                                        {activePoint ? (
+                                            <>
+                                                <div className="text-sm font-medium text-slate-500 dark:text-zinc-400">
+                                                    {activePoint.label} <span className="mx-2">&middot;</span> Записей: {activePoint.count}
+                                                </div>
+                                                <div className="text-lg font-bold text-slate-900 dark:text-white">
+                                                    {activePoint.value.toLocaleString('ru-RU')} ₽
+                                                </div>
+                                            </>
+                                        ) : (
+                                            <div className="w-full text-center text-sm text-slate-400 dark:text-zinc-500">
+                                                Наведите на столбец для просмотра подробной статистики
+                                            </div>
+                                        )}
+                                    </div>
+
                                     {Array.isArray(chartData) && chartData.length > 0 ? (
                                         <div className="w-full overflow-x-auto scrollbar-none">
                                             <div
-                                                className={`flex items-end gap-2 px-2 pb-8 pt-14 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
-                                                style={{ height: '280px' }}
+                                                className={`flex items-end gap-2 px-2 pb-8 pt-2 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
+                                                style={{ height: '220px' }}
+                                                onMouseLeave={() => setActivePoint(null)}
                                             >
                                                 {chartData.map((point, i) => (
                                                     <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                                                        {/* Bar with tooltip */}
                                                         <div
-                                                            className="group relative w-full max-w-10 cursor-default rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-all hover:brightness-110 dark:from-blue-500 dark:to-blue-400"
+                                                            className={`w-full max-w-10 cursor-default rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-opacity duration-300 dark:from-blue-500 dark:to-blue-400 ${
+                                                                activePoint && activePoint.label !== point.label ? 'opacity-30' : 'opacity-100'
+                                                            }`}
                                                             style={{ height: `${point.percent}%`, minHeight: point.percent > 0 ? '4px' : '0' }}
-                                                        >
-                                                            {/* Tooltip */}
-                                                            <div className="pointer-events-none absolute bottom-full left-1/2 z-50 mb-2 flex -translate-x-1/2 flex-col items-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
-                                                                <div className="whitespace-nowrap rounded-md bg-slate-800 px-2.5 py-1.5 text-center text-xs shadow-lg dark:bg-slate-700">
-                                                                    <div className="text-sm font-bold text-white">{point.value.toLocaleString('ru-RU')} ₽</div>
-                                                                    <div className="mt-0.5 text-slate-300">{point.label} &middot; Записей: {point.count}</div>
-                                                                </div>
-                                                                <div className="h-2 w-2 -mt-1 rotate-45 bg-slate-800 dark:bg-slate-700" />
-                                                            </div>
-                                                        </div>
+                                                            onMouseEnter={() => setActivePoint(point)}
+                                                            onClick={() => setActivePoint(point)}
+                                                        />
                                                         <span className="w-full truncate text-center text-[10px] font-medium text-slate-500 dark:text-zinc-400">
                                                             {point.label}
                                                         </span>
