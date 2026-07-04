@@ -473,11 +473,6 @@ export default function AnalyticsPage() {
                                             </div>
                                         </div>
 
-                                        {/* Итого потерь */}
-                                        <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
-                                            <div className="text-sm text-slate-500">Сумма упущенной выгоды:</div>
-                                            <div className="text-lg font-bold text-rose-600 dark:text-rose-400">3 600 ₽</div>
-                                        </div>
                                     </CardContent>
                                 </Card>
                             </div>
