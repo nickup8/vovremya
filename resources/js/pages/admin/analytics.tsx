@@ -82,13 +82,15 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
                 </div>
             </div>
             <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">{label}</p>
-            <div className="flex items-center">
+            <div className="flex flex-col gap-1">
                 <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{value}</p>
-                {badge}
+                <div className="flex items-center">
+                    {badge}
+                    {subtitle && (
+                        <span className="ml-2 text-xs text-slate-400 dark:text-zinc-500">{subtitle}</span>
+                    )}
+                </div>
             </div>
-            {subtitle && (
-                <p className="mt-1 text-xs text-slate-400 dark:text-zinc-500">{subtitle}</p>
-            )}
         </div>
     );
 }
@@ -146,7 +148,7 @@ export default function AnalyticsPage() {
         {
             icon: TrendingDown,
             label: 'Средний чек',
-            value: metrics.avg_check.toLocaleString('ru-RU') + ' ₽',
+            value: Math.round(metrics.avg_check).toLocaleString('ru-RU') + ' ₽',
             badge: <span className="ml-2 rounded bg-slate-500/10 px-1.5 py-0.5 text-xs font-medium text-slate-500">0%</span>,
             color: 'red',
         },
@@ -292,7 +294,7 @@ export default function AnalyticsPage() {
                                     <div className="mb-6 flex min-h-[4rem] flex-col items-start justify-end">
                                         <div className="flex items-center gap-3 transition-all duration-300">
                                             <div className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                                                {activePoint ? `${activePoint.value.toLocaleString('ru-RU')} ₽` : `${totalValue.toLocaleString('ru-RU')} ₽`}
+                                                {activePoint ? `${Math.round(activePoint.value).toLocaleString('ru-RU')} ₽` : `${Math.round(totalValue).toLocaleString('ru-RU')} ₽`}
                                             </div>
                                             {!activePoint && (
                                                 <span className="rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
