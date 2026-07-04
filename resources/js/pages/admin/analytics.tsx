@@ -424,6 +424,62 @@ export default function AnalyticsPage() {
                                         </div>
                                     </CardContent>
                                 </Card>
+
+                                <Card>
+                                    <CardHeader>
+                                        <CardTitle>Воронка визитов</CardTitle>
+                                        <CardDescription>Статусы записей и упущенная выгода</CardDescription>
+                                    </CardHeader>
+                                    <CardContent className="space-y-6">
+                                        {/* Успешные визиты */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                    <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+                                                    Успешно завершены
+                                                </div>
+                                                <span className="font-bold">90% <span className="ml-1 font-normal text-slate-400">(27)</span></span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                <div className="h-full rounded-full bg-emerald-500" style={{ width: '90%' }}></div>
+                                            </div>
+                                        </div>
+
+                                        {/* Отмены */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                    <div className="h-2 w-2 rounded-full bg-amber-400"></div>
+                                                    Отменены клиентом
+                                                </div>
+                                                <span className="font-bold">7% <span className="ml-1 font-normal text-slate-400">(2)</span></span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                <div className="h-full rounded-full bg-amber-400" style={{ width: '7%' }}></div>
+                                            </div>
+                                        </div>
+
+                                        {/* Неявки */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                    <div className="h-2 w-2 rounded-full bg-rose-500"></div>
+                                                    Неявки (No-show)
+                                                </div>
+                                                <span className="font-bold">3% <span className="ml-1 font-normal text-slate-400">(1)</span></span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                <div className="h-full rounded-full bg-rose-500" style={{ width: '3%' }}></div>
+                                            </div>
+                                        </div>
+
+                                        {/* Итого потерь */}
+                                        <div className="mt-6 flex items-center justify-between border-t border-slate-100 pt-4 dark:border-slate-800">
+                                            <div className="text-sm text-slate-500">Сумма упущенной выгоды:</div>
+                                            <div className="text-lg font-bold text-rose-600 dark:text-rose-400">3 600 ₽</div>
+                                        </div>
+                                    </CardContent>
+                                </Card>
                             </div>
                         </div>
                     </main>
