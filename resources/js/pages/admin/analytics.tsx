@@ -20,6 +20,7 @@ interface Metrics {
     new_clients_count: number;
     returning_clients_count: number;
     first_visit_conversion: number | null;
+    top_services: Array<{ name: string; count: number; percentage: number }>;
 }
 
 interface ChartPoint {
@@ -106,7 +107,7 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
 
 export default function AnalyticsPage() {
     const props = usePage<PageProps>().props;
-    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0, new_clients_count: 0, returning_clients_count: 0, first_visit_conversion: null };
+    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0, new_clients_count: 0, returning_clients_count: 0, first_visit_conversion: null, top_services: [] };
     const chartData = props.chartData || [];
     const serviceStats = props.serviceStats || [];
     const activePeriod = props.activePeriod || 'week';
@@ -362,22 +363,22 @@ export default function AnalyticsPage() {
                                         <p className="text-xs text-slate-500 dark:text-zinc-400">Популярность процедур</p>
                                     </div>
                                     <div className="space-y-3">
-                                        {Array.isArray(serviceStats) && serviceStats.length > 0 ? serviceStats.map((s) => (
-                                            <div key={s.name}>
-                                                <div className="mb-1 flex items-center justify-between">
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">{s.name}</span>
-                                                    <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">{s.percent}% <span className="text-xs font-normal text-slate-400 dark:text-zinc-500">({s.count})</span></span>
+                                        {metrics.top_services.length > 0 ? metrics.top_services.map((service, index) => (
+                                            <div key={index} className="space-y-2">
+                                                <div className="flex items-center justify-between text-sm">
+                                                    <span className="font-medium text-slate-700 dark:text-zinc-300">{service.name}</span>
+                                                    <span className="font-bold text-slate-900 dark:text-zinc-100">{service.percentage}% <span className="ml-1 font-normal text-slate-400 dark:text-zinc-500">({service.count})</span></span>
                                                 </div>
-                                                <div className="h-2 overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
+                                                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
                                                     <div
-                                                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all"
-                                                        style={{ width: `${Math.min(s.percent * 2.5, 100)}%` }}
+                                                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500"
+                                                        style={{ width: `${service.percentage}%` }}
                                                     />
                                                 </div>
                                             </div>
                                         )) : (
                                             <p className="py-4 text-center text-sm text-slate-400 dark:text-zinc-500">
-                                                Нет данных за период
+                                                Нет данных за выбранный период
                                             </p>
                                         )}
                                     </div>

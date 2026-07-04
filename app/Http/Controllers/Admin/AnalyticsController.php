@@ -48,7 +48,14 @@ class AnalyticsController extends Controller
 
         $periodStart = ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00';
         $clientRetention = $this->buildClientRetention($master, $appointments, $periodStart);
-        $metrics = array_merge($metrics, $clientRetention);
+
+        $topServices = array_map(fn ($s) => [
+            'name' => $s['name'],
+            'count' => $s['count'],
+            'percentage' => $s['percent'],
+        ], array_slice($serviceStats, 0, 5));
+
+        $metrics = array_merge($metrics, $clientRetention, ['top_services' => $topServices]);
 
         return Inertia::render('admin/analytics', [
             'metrics' => $metrics,
