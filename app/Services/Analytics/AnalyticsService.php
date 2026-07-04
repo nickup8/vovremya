@@ -22,11 +22,19 @@ class AnalyticsService
         ]))->count();
         $attendanceRate = $totalEnded > 0 ? round(($totalVisits / $totalEnded) * 100) : 100;
 
+        $cancelled = $appointments->filter(fn ($app) => $app->status === AppointmentStatus::Cancelled);
+        $noShows = $appointments->filter(fn ($app) => $app->status === AppointmentStatus::NoShow);
+        $lostRevenue = (float) $cancelled->sum(fn ($app) => $app->service ? $app->service->price : 0)
+            + (float) $noShows->sum(fn ($app) => $app->service ? $app->service->price : 0);
+
         return [
             'revenue' => $revenue,
             'total_visits' => $totalVisits,
             'avg_check' => $avgCheck,
             'attendance_rate' => $attendanceRate,
+            'lost_revenue' => $lostRevenue,
+            'cancelled_count' => $cancelled->count(),
+            'no_show_count' => $noShows->count(),
         ];
     }
 

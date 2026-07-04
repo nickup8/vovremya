@@ -14,6 +14,9 @@ interface Metrics {
     total_visits: number;
     avg_check: number;
     attendance_rate: number;
+    lost_revenue: number;
+    cancelled_count: number;
+    no_show_count: number;
 }
 
 interface ChartPoint {
@@ -100,7 +103,7 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
 
 export default function AnalyticsPage() {
     const props = usePage<PageProps>().props;
-    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0 };
+    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0 };
     const chartData = props.chartData || [];
     const serviceStats = props.serviceStats || [];
     const activePeriod = props.activePeriod || 'week';
@@ -170,9 +173,9 @@ export default function AnalyticsPage() {
         {
             icon: AlertTriangle,
             label: 'Упущенная выгода',
-            value: '3 600 ₽',
-            badge: <span className="ml-2 rounded bg-rose-500/10 px-1.5 py-0.5 text-xs font-medium text-rose-600">↓ Выше нормы</span>,
-            subtitle: '3 отмены / неявки',
+            value: Math.round(metrics.lost_revenue).toLocaleString('ru-RU') + ' ₽',
+            badge: null,
+            subtitle: `${metrics.cancelled_count} отмен / ${metrics.no_show_count} неявок`,
             color: 'rose',
         },
     ];
@@ -431,48 +434,57 @@ export default function AnalyticsPage() {
                                         <CardDescription>Статусы записей и упущенная выгода</CardDescription>
                                     </CardHeader>
                                     <CardContent className="space-y-6">
-                                        {/* Успешные визиты */}
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                    <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
-                                                    Успешно завершены
-                                                </div>
-                                                <span className="font-bold">90% <span className="ml-1 font-normal text-slate-400">(27)</span></span>
-                                            </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                <div className="h-full rounded-full bg-emerald-500" style={{ width: '90%' }}></div>
-                                            </div>
-                                        </div>
+                                        {(() => {
+                                            const total = metrics.total_visits + metrics.cancelled_count + metrics.no_show_count;
+                                            const paidPct = total > 0 ? Math.round((metrics.total_visits / total) * 100) : 0;
+                                            const cancelPct = total > 0 ? Math.round((metrics.cancelled_count / total) * 100) : 0;
+                                            const noShowPct = total > 0 ? Math.round((metrics.no_show_count / total) * 100) : 0;
+                                            return (
+                                                <>
+                                                    {/* Успешные визиты */}
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                                <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+                                                                Успешно завершены
+                                                            </div>
+                                                            <span className="font-bold">{paidPct}% <span className="ml-1 font-normal text-slate-400">({metrics.total_visits})</span></span>
+                                                        </div>
+                                                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${paidPct}%` }}></div>
+                                                        </div>
+                                                    </div>
 
-                                        {/* Отмены */}
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                    <div className="h-2 w-2 rounded-full bg-amber-400"></div>
-                                                    Отменены клиентом
-                                                </div>
-                                                <span className="font-bold">7% <span className="ml-1 font-normal text-slate-400">(2)</span></span>
-                                            </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                <div className="h-full rounded-full bg-amber-400" style={{ width: '7%' }}></div>
-                                            </div>
-                                        </div>
+                                                    {/* Отмены */}
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                                <div className="h-2 w-2 rounded-full bg-amber-400"></div>
+                                                                Отменены клиентом
+                                                            </div>
+                                                            <span className="font-bold">{cancelPct}% <span className="ml-1 font-normal text-slate-400">({metrics.cancelled_count})</span></span>
+                                                        </div>
+                                                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                            <div className="h-full rounded-full bg-amber-400" style={{ width: `${cancelPct}%` }}></div>
+                                                        </div>
+                                                    </div>
 
-                                        {/* Неявки */}
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                    <div className="h-2 w-2 rounded-full bg-rose-500"></div>
-                                                    Неявки (No-show)
-                                                </div>
-                                                <span className="font-bold">3% <span className="ml-1 font-normal text-slate-400">(1)</span></span>
-                                            </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                <div className="h-full rounded-full bg-rose-500" style={{ width: '3%' }}></div>
-                                            </div>
-                                        </div>
-
+                                                    {/* Неявки */}
+                                                    <div className="space-y-2">
+                                                        <div className="flex items-center justify-between text-sm">
+                                                            <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                                <div className="h-2 w-2 rounded-full bg-rose-500"></div>
+                                                                Неявки (No-show)
+                                                            </div>
+                                                            <span className="font-bold">{noShowPct}% <span className="ml-1 font-normal text-slate-400">({metrics.no_show_count})</span></span>
+                                                        </div>
+                                                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                            <div className="h-full rounded-full bg-rose-500" style={{ width: `${noShowPct}%` }}></div>
+                                                        </div>
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
                                     </CardContent>
                                 </Card>
                             </div>
