@@ -17,6 +17,9 @@ interface Metrics {
     lost_revenue: number;
     cancelled_count: number;
     no_show_count: number;
+    new_clients_count: number;
+    returning_clients_count: number;
+    first_visit_conversion: number | null;
 }
 
 interface ChartPoint {
@@ -103,7 +106,7 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
 
 export default function AnalyticsPage() {
     const props = usePage<PageProps>().props;
-    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0 };
+    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0, new_clients_count: 0, returning_clients_count: 0, first_visit_conversion: null };
     const chartData = props.chartData || [];
     const serviceStats = props.serviceStats || [];
     const activePeriod = props.activePeriod || 'week';
@@ -389,42 +392,54 @@ export default function AnalyticsPage() {
                                         <CardDescription>Новые и постоянные клиенты за период</CardDescription>
                                     </CardHeader>
                                     <CardContent className="flex flex-col items-center gap-8 sm:flex-row">
-                                        {/* Плейсхолдер графика */}
-                                        <div className="relative flex h-48 w-48 items-center justify-center rounded-full border-[16px] border-slate-50 dark:border-slate-800">
-                                            <div className="absolute inset-0 rotate-45 rounded-full border-[16px] border-indigo-500 border-b-transparent border-r-transparent"></div>
-                                            <div className="absolute inset-0 rotate-45 rounded-full border-[16px] border-blue-400 border-l-transparent border-t-transparent opacity-80"></div>
-                                            <div className="text-center">
-                                                <div className="text-2xl font-bold">32</div>
-                                                <div className="text-xs text-slate-500">Всего</div>
-                                            </div>
-                                        </div>
+                                        {(() => {
+                                            const totalClients = metrics.new_clients_count + metrics.returning_clients_count;
+                                            const returningPct = totalClients > 0 ? Math.round((metrics.returning_clients_count / totalClients) * 100) : 0;
+                                            const newPct = totalClients > 0 ? 100 - returningPct : 0;
+                                            return (
+                                                <>
+                                                    {/* Donut Chart */}
+                                                    <div className="relative flex h-48 w-48 shrink-0 items-center justify-center rounded-full"
+                                                        style={{ background: `conic-gradient(#6366f1 ${returningPct}%, #60a5fa ${returningPct}% 100%)` }}>
+                                                        <div className="flex h-32 w-32 items-center justify-center rounded-full bg-white dark:bg-zinc-900">
+                                                            <div className="text-center">
+                                                                <div className="text-2xl font-bold">{totalClients}</div>
+                                                                <div className="text-xs text-slate-500">Всего</div>
+                                                            </div>
+                                                        </div>
+                                                    </div>
 
-                                        {/* Легенда */}
-                                        <div className="w-full flex-1 space-y-4">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="h-3 w-3 rounded-full bg-indigo-500"></div>
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Постоянные</span>
-                                                </div>
-                                                <div className="text-sm font-bold">
-                                                    75% <span className="ml-1 font-normal text-slate-400">(24)</span>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="h-3 w-3 rounded-full bg-blue-400"></div>
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Новые</span>
-                                                </div>
-                                                <div className="text-sm font-bold">
-                                                    25% <span className="ml-1 font-normal text-slate-400">(8)</span>
-                                                </div>
-                                            </div>
+                                                    {/* Легенда */}
+                                                    <div className="w-full flex-1 space-y-4">
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="h-3 w-3 rounded-full bg-indigo-500"></div>
+                                                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Постоянные</span>
+                                                            </div>
+                                                            <div className="text-sm font-bold">
+                                                                {returningPct}% <span className="ml-1 font-normal text-slate-400">({metrics.returning_clients_count})</span>
+                                                            </div>
+                                                        </div>
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="flex items-center gap-2">
+                                                                <div className="h-3 w-3 rounded-full bg-blue-400"></div>
+                                                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Новые</span>
+                                                            </div>
+                                                            <div className="text-sm font-bold">
+                                                                {newPct}% <span className="ml-1 font-normal text-slate-400">({metrics.new_clients_count})</span>
+                                                            </div>
+                                                        </div>
 
-                                            <div className="mt-4 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-                                                <div className="text-xs text-slate-500">Конверсия первого визита</div>
-                                                <div className="mt-0.5 text-sm font-medium">33% новых клиентов записываются повторно</div>
-                                            </div>
-                                        </div>
+                                                        {metrics.first_visit_conversion !== null && metrics.first_visit_conversion > 0 && (
+                                                            <div className="mt-4 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                                                                <div className="text-xs text-slate-500">Конверсия первого визита</div>
+                                                                <div className="mt-0.5 text-sm font-medium">{metrics.first_visit_conversion}% новых клиентов записываются повторно</div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                </>
+                                            );
+                                        })()}
                                     </CardContent>
                                 </Card>
 

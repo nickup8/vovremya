@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Services\Analytics\AnalyticsService;
 use Illuminate\Http\Request;
@@ -44,6 +45,10 @@ class AnalyticsController extends Controller
         $metrics = $this->analyticsService->calculateMetrics($appointments);
         $chartData = $this->buildChartData($appointments, $period, $dateFrom, $dateTo);
         $serviceStats = $this->buildServiceStats($appointments);
+
+        $periodStart = ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00';
+        $clientRetention = $this->buildClientRetention($master, $appointments, $periodStart);
+        $metrics = array_merge($metrics, $clientRetention);
 
         return Inertia::render('admin/analytics', [
             'metrics' => $metrics,
@@ -212,6 +217,32 @@ class AnalyticsController extends Controller
         });
 
         return $stats->sortByDesc('count')->values()->take(10)->toArray();
+    }
+
+    private function buildClientRetention($master, Collection $appointments, string $periodStart): array
+    {
+        $completed = $this->analyticsService->getCompleted($appointments);
+        $currentClientIds = $completed->pluck('client_id')->filter()->unique()->values();
+
+        if ($currentClientIds->isEmpty()) {
+            return ['new_clients_count' => 0, 'returning_clients_count' => 0, 'first_visit_conversion' => null];
+        }
+
+        $previousClientIds = $master->masterAppointments()
+            ->where('status', AppointmentStatus::Paid)
+            ->where('start_time', '<', $periodStart)
+            ->whereIn('client_id', $currentClientIds)
+            ->distinct()
+            ->pluck('client_id');
+
+        $returningCount = $previousClientIds->count();
+        $newCount = $currentClientIds->count() - $returningCount;
+
+        return [
+            'new_clients_count' => max($newCount, 0),
+            'returning_clients_count' => $returningCount,
+            'first_visit_conversion' => null,
+        ];
     }
 
     private function getPeriodStart(string $period)
