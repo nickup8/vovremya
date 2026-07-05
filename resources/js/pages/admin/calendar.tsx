@@ -82,22 +82,22 @@ interface PageProps {
 
 const STATUS_STYLES: Record<AppointmentStatus, { card: string; label: string; dot: string }> = {
     [AppointmentStatus.Booked]: {
-        card: 'bg-blue-50/90 border-blue-500 text-blue-900 dark:bg-blue-950/40 dark:border-blue-500 dark:text-blue-200',
+        card: 'bg-blue-50 border-blue-500 text-blue-900 dark:bg-blue-950 dark:border-blue-500 dark:text-blue-200',
         label: 'Записан',
         dot: 'bg-blue-500',
     },
     [AppointmentStatus.Paid]: {
-        card: 'bg-emerald-50/90 border-emerald-500 text-emerald-900 dark:bg-emerald-950/40 dark:border-emerald-500 dark:text-emerald-200',
+        card: 'bg-emerald-50 border-emerald-500 text-emerald-900 dark:bg-emerald-950 dark:border-emerald-500 dark:text-emerald-200',
         label: 'Оплачен',
         dot: 'bg-emerald-500',
     },
     [AppointmentStatus.NoShow]: {
-        card: 'bg-rose-50/90 border-rose-500 text-rose-900 dark:bg-rose-950/40 dark:border-rose-500 dark:text-rose-200',
+        card: 'bg-rose-50 border-rose-500 text-rose-900 dark:bg-rose-950 dark:border-rose-500 dark:text-rose-200',
         label: 'Неявка',
         dot: 'bg-rose-500',
     },
     [AppointmentStatus.Cancelled]: {
-        card: 'bg-zinc-100/60 border-zinc-300 text-zinc-500 line-through dark:bg-zinc-900/30 dark:border-zinc-700 dark:text-zinc-500',
+        card: 'bg-zinc-100 border-zinc-300 text-zinc-500 line-through dark:bg-zinc-900 dark:border-zinc-700 dark:text-zinc-500',
         label: 'Отменён',
         dot: 'bg-zinc-400',
     },
@@ -287,7 +287,7 @@ function AppointmentCard({ appointment, onClick, dayStartHour }: { appointment: 
     return (
         <button
             onClick={onClick}
-            className={`absolute cursor-pointer overflow-hidden rounded-lg border-l-4 px-2 py-1 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
+            className={`absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2 py-1 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
             style={{
                 top,
                 height: Math.max(height, 32),
@@ -338,10 +338,14 @@ function BlockedTimeCard({ blockedTime, dayDate, dayStartHour }: { blockedTime: 
 
     return (
         <div
-            className="absolute mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-zinc-400 bg-zinc-100/80 px-2 py-1 dark:border-zinc-600 dark:bg-zinc-800/50"
-            style={{ top, height: Math.max(height, 24) }}
+            className="absolute z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-zinc-300 bg-zinc-50 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+            style={{
+                top,
+                height: Math.max(height, 24),
+                backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0,0,0,0.03) 8px, rgba(0,0,0,0.03) 16px)',
+            }}
         >
-            <p className="truncate text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+            <p className="truncate text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
                 {blockedTime.reason}
             </p>
         </div>
@@ -359,10 +363,14 @@ function BreakZone({ breakStart, breakEnd, dayStartHour }: { breakStart: string;
 
     return (
         <div
-            className="absolute mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-amber-300 bg-amber-50/70 px-2 py-1 dark:border-amber-700 dark:bg-amber-950/30"
-            style={{ top, height: Math.max(height, 24) }}
+            className="absolute z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-amber-200 bg-amber-50 px-2 py-1 dark:border-amber-800 dark:bg-amber-950/50"
+            style={{
+                top,
+                height: Math.max(height, 24),
+                backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0,0,0,0.03) 8px, rgba(0,0,0,0.03) 16px)',
+            }}
         >
-            <p className="truncate text-[10px] font-medium text-amber-600 dark:text-amber-400">
+            <p className="truncate text-[10px] font-medium text-amber-500 dark:text-amber-400">
                 Обед
             </p>
         </div>
