@@ -3,10 +3,11 @@ import { Head, router, usePage } from '@inertiajs/react';
 import {
     ArrowRight, ArrowLeft, Clock,
     CheckCircle2, MessageCircle, Smartphone,
-    ChevronLeft, ChevronRight, MapPin,
+    ChevronLeft, ChevronRight, MapPin, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import PublicLayout from '@/layouts/PublicLayout';
+import { getInitials } from '@/lib/utils';
 
 Widget.layout = (page: React.ReactNode) => <PublicLayout children={page} />;
 
@@ -60,10 +61,7 @@ function getMonthGrid(year: number, month: number) {
 /* ═══════════════ Master Profile ═══════════════ */
 
 function MasterProfileHeader({ master }: { master: Master }) {
-    const initials = master.name
-        .split(' ')
-        .map((w) => w[0])
-        .join('');
+    const initials = getInitials(master.name);
 
     return (
         <div className="border-b border-stone-200/50 bg-white/50 px-5 py-4 dark:border-stone-800/50 dark:bg-stone-900/30">
@@ -269,7 +267,7 @@ function StepCalendar({
                             Нет свободных слотов на эту дату
                         </p>
                     ) : (
-                        <div className="grid grid-cols-4 gap-2">
+                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                             {availableSlots.map((t) => {
                                 const active = selectedTime === t;
                                 return (
@@ -298,8 +296,10 @@ function StepCalendar({
 
 function StepProvider({
     onSubmit,
+    isSubmitting,
 }: {
     onSubmit: (provider: 'telegram' | 'max') => void;
+    isSubmitting: boolean;
 }) {
     return (
         <div className="flex-1 overflow-y-auto pb-28">
@@ -315,17 +315,27 @@ function StepProvider({
             <div className="space-y-3 px-5">
                 <button
                     onClick={() => onSubmit('telegram')}
-                    className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl"
+                    disabled={isSubmitting}
+                    className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
                 >
-                    <MessageCircle className="size-5" />
-                    Записаться через Telegram
+                    {isSubmitting ? (
+                        <Loader2 className="size-5 animate-spin" />
+                    ) : (
+                        <MessageCircle className="size-5" />
+                    )}
+                    {isSubmitting ? 'Отправка...' : 'Записаться через Telegram'}
                 </button>
                 <button
                     onClick={() => onSubmit('max')}
-                    className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-stone-200 bg-white py-5 text-base font-semibold text-stone-900 transition-all hover:scale-[1.02] hover:bg-stone-50 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-50 dark:hover:bg-stone-800"
+                    disabled={isSubmitting}
+                    className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-stone-200 bg-white py-5 text-base font-semibold text-stone-900 transition-all hover:scale-[1.02] hover:bg-stone-50 disabled:opacity-50 disabled:hover:scale-100 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-50 dark:hover:bg-stone-800"
                 >
-                    <Smartphone className="size-5" />
-                    Записаться через Max
+                    {isSubmitting ? (
+                        <Loader2 className="size-5 animate-spin" />
+                    ) : (
+                        <Smartphone className="size-5" />
+                    )}
+                    {isSubmitting ? 'Отправка...' : 'Записаться через Max'}
                 </button>
             </div>
         </div>
@@ -400,6 +410,7 @@ export default function Widget() {
         initialDate ? new Date(initialDate + 'T00:00:00') : null
     );
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
+    const [isSubmitting, setIsSubmitting] = useState(false);
 
     const canNext =
         (step === 1 && selectedService !== null) ||
@@ -438,13 +449,22 @@ export default function Widget() {
     }
 
     function handleSubmit(provider: 'telegram' | 'max') {
-        if (!selectedService || !selectedDate || !selectedTime) return;
+        if (!selectedService || !selectedDate || !selectedTime || isSubmitting) return;
+
+        setIsSubmitting(true);
 
         router.post(`/book/${master.master_slug}`, {
             service_id: selectedService.id,
             date: formatDateKey(selectedDate),
             time: selectedTime,
             provider,
+        }, {
+            onError: () => {
+                setIsSubmitting(false);
+            },
+            onFinish: () => {
+                setIsSubmitting(false);
+            },
         });
     }
 
@@ -500,6 +520,7 @@ export default function Widget() {
                 {step === 3 && (
                     <StepProvider
                         onSubmit={handleSubmit}
+                        isSubmitting={isSubmitting}
                     />
                 )}
                 {step === 4 && selectedService && selectedDate && selectedTime && (
