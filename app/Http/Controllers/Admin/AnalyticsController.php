@@ -83,9 +83,16 @@ class AnalyticsController extends Controller
             'utilization_percentage' => $utilization,
         ]);
 
+        $prevMetricsAbsolute = [
+            'revenue' => $prevMetrics['revenue'] ?? 0,
+            'avg_check' => $prevMetrics['avg_check'] ?? 0,
+            'utilization' => $prevUtilization,
+        ];
+
         return Inertia::render('admin/analytics', [
             'metrics' => $metrics,
             'trends' => $trends,
+            'prev_metrics' => $prevMetricsAbsolute,
             'chartData' => $chartData,
             'serviceStats' => $serviceStats,
             'activePeriod' => $period,

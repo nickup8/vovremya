@@ -47,6 +47,7 @@ interface AuthUser {
 interface PageProps {
     metrics: Metrics;
     trends: Record<string, number>;
+    prev_metrics: Record<string, number>;
     chartData: ChartPoint[];
     serviceStats: ServiceStat[];
     activePeriod: string;
@@ -107,9 +108,14 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
 
 /* ═══════════════ Trend Badge ═══════════════ */
 
-function TrendBadge({ value }: { value: number }) {
+function TrendBadge({ value, prevValue, format = 'percent' }: { value: number; prevValue?: number; format?: 'currency' | 'percent' | 'number' }) {
+    const suffix = format === 'currency' ? ' ₽' : format === 'percent' ? '%' : '';
+    const tooltipText = prevValue !== undefined
+        ? `\u0412 \u043F\u0440\u043E\u0448\u043B\u043E\u043C \u043F\u0435\u0440\u0438\u043E\u0434\u0435: ${prevValue.toLocaleString('ru-RU')}${suffix}`
+        : '';
+
     if (value === 0) {
-        return <span className="ml-2 rounded bg-slate-500/10 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-500/20 dark:text-slate-400">0%</span>;
+        return <span title={tooltipText} className="ml-2 rounded bg-slate-500/10 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-500/20 dark:text-slate-400">0{suffix}</span>;
     }
     const isPositive = value > 0;
     const colorClass = isPositive
@@ -117,8 +123,8 @@ function TrendBadge({ value }: { value: number }) {
         : 'bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400';
     const arrow = isPositive ? '\u2191' : '\u2193';
     return (
-        <span className={`ml-2 rounded px-1.5 py-0.5 text-xs font-medium ${colorClass}`}>
-            {arrow} {Math.abs(value)}%
+        <span title={tooltipText} className={`ml-2 rounded px-1.5 py-0.5 text-xs font-medium ${colorClass}`}>
+            {arrow} {Math.abs(value).toLocaleString('ru-RU')}{suffix}
         </span>
     );
 }
@@ -129,6 +135,7 @@ export default function AnalyticsPage() {
     const props = usePage<PageProps>().props;
     const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0, new_clients_count: 0, returning_clients_count: 0, first_visit_conversion: null, top_services: [], utilization_percentage: 0 };
     const trends = props.trends || { revenue: 0, avg_check: 0, utilization: 0 };
+    const prev_metrics = props.prev_metrics || { revenue: 0, avg_check: 0, utilization: 0 };
     const chartData = props.chartData || [];
     const serviceStats = props.serviceStats || [];
     const activePeriod = props.activePeriod || 'week';
@@ -155,7 +162,7 @@ export default function AnalyticsPage() {
         router.get('/admin/analytics', { period }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
         });
     }
 
@@ -169,7 +176,7 @@ export default function AnalyticsPage() {
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
         });
     }
 
@@ -178,7 +185,7 @@ export default function AnalyticsPage() {
             icon: TrendingDown,
             label: 'Средний чек',
             value: Math.round(metrics.avg_check).toLocaleString('ru-RU') + ' ₽',
-            badge: <TrendBadge value={trends.avg_check} />,
+            badge: <TrendBadge value={trends.avg_check} prevValue={prev_metrics.avg_check} format="currency" />,
             color: 'red',
         },
         {
@@ -192,7 +199,7 @@ export default function AnalyticsPage() {
             icon: CalendarDays,
             label: 'Заполняемость графика',
             value: `${metrics.utilization_percentage}%`,
-            badge: <TrendBadge value={trends.utilization} />,
+            badge: <TrendBadge value={trends.utilization} prevValue={prev_metrics.utilization} format="percent" />,
             color: 'emerald',
         },
         {
@@ -327,7 +334,7 @@ export default function AnalyticsPage() {
                                             </div>
                                             {!activePoint && (
                                                 <div className="flex items-center">
-                                                    <TrendBadge value={trends.revenue} />
+                                                    <TrendBadge value={trends.revenue} prevValue={prev_metrics.revenue} format="currency" />
                                                     <span className="ml-2 text-xs text-slate-500">к прошлому периоду</span>
                                                 </div>
                                             )}

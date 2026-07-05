@@ -84,7 +84,7 @@ class AnalyticsService
         return [
             'revenue' => $this->trendPercent($currentMetrics['revenue'] ?? 0, $prevMetrics['revenue'] ?? 0),
             'avg_check' => $this->trendPercent($currentMetrics['avg_check'] ?? 0, $prevMetrics['avg_check'] ?? 0),
-            'utilization' => $this->trendPercent($currentUtilization, $prevUtilization),
+            'utilization' => $currentUtilization - $prevUtilization,
         ];
     }
 
