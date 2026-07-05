@@ -78,4 +78,26 @@ class AnalyticsService
 
         return $availableMinutes > 0 ? (int) round(($bookedMinutes / $availableMinutes) * 100) : 0;
     }
+
+    public function calculateTrends(array $currentMetrics, array $prevMetrics, int $currentUtilization, int $prevUtilization): array
+    {
+        return [
+            'revenue' => $this->trendPercent($currentMetrics['revenue'] ?? 0, $prevMetrics['revenue'] ?? 0),
+            'avg_check' => $this->trendPercent($currentMetrics['avg_check'] ?? 0, $prevMetrics['avg_check'] ?? 0),
+            'utilization' => $this->trendPercent($currentUtilization, $prevUtilization),
+        ];
+    }
+
+    private function trendPercent(float $current, float $prev): int
+    {
+        if ($prev == 0 && $current == 0) {
+            return 0;
+        }
+
+        if ($prev == 0) {
+            return 100;
+        }
+
+        return (int) round((($current - $prev) / $prev) * 100);
+    }
 }

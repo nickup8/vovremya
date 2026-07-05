@@ -53,6 +53,25 @@ class AnalyticsController extends Controller
         $dateEnd = $dateTo ?? Carbon::now()->toDateString();
         $utilization = $this->analyticsService->calculateUtilization($master, $appointments, $dateStart, $dateEnd);
 
+        [$prevStart, $prevEnd] = $this->getPreviousPeriodDates($period, $dateFrom, $dateTo);
+        $prevAppointments = $master->masterAppointments()
+            ->with('service')
+            ->whereBetween('start_time', [
+                $prevStart->startOfDay()->toDateTimeString(),
+                $prevEnd->endOfDay()->toDateTimeString(),
+            ])
+            ->get();
+
+        $prevMetrics = $this->analyticsService->calculateMetrics($prevAppointments);
+        $prevUtilization = $this->analyticsService->calculateUtilization(
+            $master,
+            $prevAppointments,
+            $prevStart->toDateString(),
+            $prevEnd->toDateString(),
+        );
+
+        $trends = $this->analyticsService->calculateTrends($metrics, $prevMetrics, $utilization, $prevUtilization);
+
         $topServices = array_map(fn ($s) => [
             'name' => $s['name'],
             'count' => $s['count'],
@@ -66,6 +85,7 @@ class AnalyticsController extends Controller
 
         return Inertia::render('admin/analytics', [
             'metrics' => $metrics,
+            'trends' => $trends,
             'chartData' => $chartData,
             'serviceStats' => $serviceStats,
             'activePeriod' => $period,
@@ -267,6 +287,28 @@ class AnalyticsController extends Controller
             'month' => now()->startOfMonth(),
             'year' => now()->startOfYear(),
             default => now()->startOfMonth(),
+        };
+    }
+
+    private function getPreviousPeriodDates(string $period, ?string $dateFrom, ?string $dateTo): array
+    {
+        if ($period === 'custom' && $dateFrom && $dateTo) {
+            $start = Carbon::parse($dateFrom);
+            $end = Carbon::parse($dateTo);
+            $duration = $start->diffInDays($end);
+
+            return [
+                $start->copy()->subDays($duration + 1),
+                $start->copy()->subDay(),
+            ];
+        }
+
+        return match ($period) {
+            'day' => [now()->startOfDay()->subDay(), now()->startOfDay()->subSecond()],
+            'week' => [now()->startOfWeek()->subWeek(), now()->startOfWeek()->subDay()],
+            'month' => [now()->startOfMonth()->subMonth(), now()->startOfMonth()->subDay()],
+            'year' => [now()->startOfYear()->subYear(), now()->startOfYear()->subDay()],
+            default => [now()->startOfMonth()->subMonth(), now()->startOfMonth()->subDay()],
         };
     }
 }

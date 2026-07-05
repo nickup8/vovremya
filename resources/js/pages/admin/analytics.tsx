@@ -46,6 +46,7 @@ interface AuthUser {
 
 interface PageProps {
     metrics: Metrics;
+    trends: Record<string, number>;
     chartData: ChartPoint[];
     serviceStats: ServiceStat[];
     activePeriod: string;
@@ -104,11 +105,30 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
     );
 }
 
+/* ═══════════════ Trend Badge ═══════════════ */
+
+function TrendBadge({ value }: { value: number }) {
+    if (value === 0) {
+        return <span className="ml-2 rounded bg-slate-500/10 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-500/20 dark:text-slate-400">0%</span>;
+    }
+    const isPositive = value > 0;
+    const colorClass = isPositive
+        ? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
+        : 'bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400';
+    const arrow = isPositive ? '\u2191' : '\u2193';
+    return (
+        <span className={`ml-2 rounded px-1.5 py-0.5 text-xs font-medium ${colorClass}`}>
+            {arrow} {Math.abs(value)}%
+        </span>
+    );
+}
+
 /* ═══════════════ Main Analytics Page ═══════════════ */
 
 export default function AnalyticsPage() {
     const props = usePage<PageProps>().props;
     const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0, new_clients_count: 0, returning_clients_count: 0, first_visit_conversion: null, top_services: [], utilization_percentage: 0 };
+    const trends = props.trends || { revenue: 0, avg_check: 0, utilization: 0 };
     const chartData = props.chartData || [];
     const serviceStats = props.serviceStats || [];
     const activePeriod = props.activePeriod || 'week';
@@ -135,7 +155,7 @@ export default function AnalyticsPage() {
         router.get('/admin/analytics', { period }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: ['metrics', 'trends', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
         });
     }
 
@@ -149,7 +169,7 @@ export default function AnalyticsPage() {
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: ['metrics', 'trends', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
         });
     }
 
@@ -158,7 +178,7 @@ export default function AnalyticsPage() {
             icon: TrendingDown,
             label: 'Средний чек',
             value: Math.round(metrics.avg_check).toLocaleString('ru-RU') + ' ₽',
-            badge: <span className="ml-2 rounded bg-slate-500/10 px-1.5 py-0.5 text-xs font-medium text-slate-500">0%</span>,
+            badge: <TrendBadge value={trends.avg_check} />,
             color: 'red',
         },
         {
@@ -172,7 +192,7 @@ export default function AnalyticsPage() {
             icon: CalendarDays,
             label: 'Заполняемость графика',
             value: `${metrics.utilization_percentage}%`,
-            badge: null,
+            badge: <TrendBadge value={trends.utilization} />,
             color: 'emerald',
         },
         {
@@ -306,9 +326,10 @@ export default function AnalyticsPage() {
                                                 {activePoint ? `${Math.round(activePoint.value).toLocaleString('ru-RU')} ₽` : `${Math.round(totalValue).toLocaleString('ru-RU')} ₽`}
                                             </div>
                                             {!activePoint && (
-                                                <span className="rounded-md bg-emerald-500/15 px-2 py-1 text-xs font-medium text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400">
-                                                    ↑ +12% к прошлой неделе
-                                                </span>
+                                                <div className="flex items-center">
+                                                    <TrendBadge value={trends.revenue} />
+                                                    <span className="ml-2 text-xs text-slate-500">к прошлому периоду</span>
+                                                </div>
                                             )}
                                         </div>
                                         <div className="mt-1 text-sm font-medium text-slate-500 transition-all duration-300 dark:text-slate-400">
