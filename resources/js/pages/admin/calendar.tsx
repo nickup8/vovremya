@@ -588,9 +588,16 @@ export default function CalendarPage() {
         router.patch(`/admin/appointments/${selected.id}/status`, { status }, {
             preserveScroll: true,
             only: ['appointments'],
+            onError: (errors: Record<string, string>) => {
+                if (errors.status) {
+                    alert(errors.status);
+                }
+            },
+            onFinish: () => {
+                setSheetOpen(false);
+                setSelected(null);
+            },
         });
-        setSheetOpen(false);
-        setSelected(null);
     }
 
     function deleteAppointment() {
@@ -598,9 +605,16 @@ export default function CalendarPage() {
         router.patch(`/admin/appointments/${selected.id}/status`, { status: AppointmentStatus.Cancelled }, {
             preserveScroll: true,
             only: ['appointments'],
+            onError: (errors: Record<string, string>) => {
+                if (errors.status) {
+                    alert(errors.status);
+                }
+            },
+            onFinish: () => {
+                setSheetOpen(false);
+                setSelected(null);
+            },
         });
-        setSheetOpen(false);
-        setSelected(null);
     }
 
     function generateTimeOptions(interval: number, dateStr: string, tz: string): string[] {
