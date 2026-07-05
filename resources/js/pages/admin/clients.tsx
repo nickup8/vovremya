@@ -1,14 +1,15 @@
 import { useState, useMemo } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
-    Menu, Search, Plus,
+    Search, Plus,
     Users, Phone, Send, MessageCircle,
     CalendarPlus, Pencil, AlertTriangle, ShieldCheck,
     ShieldOff, Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import Sidebar from '@/components/admin/Sidebar';
+import AdminLayout from '@/layouts/AdminLayout';
+import { getInitials } from '@/lib/utils';
 
 /* ═══════════════ Types ═══════════════ */
 
@@ -38,15 +39,6 @@ interface PageProps {
 }
 
 /* ═══════════════ Helpers ═══════════════ */
-
-function getInitials(name: string): string {
-    return name
-        .split(' ')
-        .map((w) => w[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
-}
 
 type FilterType = 'all' | 'active' | 'blocked';
 
@@ -153,21 +145,12 @@ function ClientCard({ client, onEdit, onToggleBlock }: { client: Client; onEdit:
 
 export default function ClientsPage() {
     const { clients: initialClients = [], auth } = usePage<PageProps>().props;
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FilterType>('all');
     const [dialogOpen, setDialogOpen] = useState(false);
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [formName, setFormName] = useState('');
     const [formPhone, setFormPhone] = useState('');
-
-    const userName = auth?.user?.name || 'Мастер';
-    const initials = userName
-        .split(' ')
-        .map((w) => w[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
 
     const clients = useMemo(() => {
         let result = initialClients;
@@ -235,36 +218,7 @@ export default function ClientsPage() {
         <>
             <Head title="База клиентов — Вовремя" />
 
-            <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
-                <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
-
-                <div className="flex min-w-0 flex-1 flex-col">
-                    {/* Header */}
-                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-xs md:px-6 dark:border-zinc-800 dark:bg-zinc-900/80">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setMobileMenuOpen(true)}
-                                className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 lg:hidden"
-                            >
-                                <Menu className="size-5 text-slate-700 dark:text-zinc-300" />
-                            </button>
-                            <h1 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-100">
-                                База клиентов
-                            </h1>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <div className="hidden text-right sm:block">
-                                <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
-                                <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {auth?.user?.tariff_name || 'Free'}</p>
-                            </div>
-                            <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-                                {initials}
-                            </div>
-                        </div>
-                    </header>
-
-                    {/* Content Area */}
-                    <main className="flex-1 overflow-y-auto p-4 md:p-6">
+            <AdminLayout title="База клиентов" auth={auth}>
                         <div className="space-y-4">
                             {/* ─── Top Panel: Search + Filters + Add ─── */}
                             <div className="flex flex-wrap items-center gap-3 rounded-lg border border-slate-200 bg-white p-4 dark:border-zinc-700 dark:bg-zinc-900">
@@ -317,9 +271,7 @@ export default function ClientsPage() {
                                 </div>
                             )}
                         </div>
-                    </main>
-                </div>
-            </div>
+            </AdminLayout>
 
             {/* ─── Create / Edit Client Dialog ─── */}
             {dialogOpen && (

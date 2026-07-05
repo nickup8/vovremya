@@ -10,3 +10,8 @@ export function cn(...inputs: ClassValue[]) {
 export function toUrl(url: NonNullable<InertiaLinkProps['href']>): string {
     return typeof url === 'string' ? url : url.url;
 }
+
+export function getInitials(name?: string): string {
+    if (!name) return 'AM';
+    return name.split(' ').map(w => w[0]).join('').toUpperCase().slice(0, 2);
+}

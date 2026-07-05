@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
-    Menu, Download, Calendar,
+    Download, Calendar,
     Wallet, Gauge, TrendingDown, CalendarDays, AlertTriangle,
 } from 'lucide-react';
-import Sidebar from '@/components/admin/Sidebar';
+import AdminLayout from '@/layouts/AdminLayout';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
 /* ═══════════════ Types ═══════════════ */
@@ -141,22 +141,14 @@ export default function AnalyticsPage() {
     const activePeriod = props.activePeriod || 'week';
     const auth = props.auth;
 
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [activePoint, setActivePoint] = useState<ChartPoint | null>(null);
     const [dates, setDates] = useState({
         from: props.dateFrom || '',
         to: props.dateTo || '',
     });
 
-    const userName = auth?.user?.name || 'Мастер';
     const totalValue = chartData.reduce((sum, point) => sum + point.value, 0);
     const totalCount = chartData.reduce((sum, point) => sum + point.count, 0);
-    const initials = userName
-        .split(' ')
-        .map((w) => w[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
 
     function handlePeriodChange(period: string) {
         router.get('/admin/analytics', { period }, {
@@ -216,37 +208,8 @@ export default function AnalyticsPage() {
         <>
             <Head title="Аналитика — Вовремя" />
 
-            <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
-                <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
-
-                <div className="flex min-w-0 flex-1 flex-col">
-                    {/* Header */}
-                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/80">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setMobileMenuOpen(true)}
-                                className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 lg:hidden"
-                            >
-                                <Menu className="size-5 text-slate-700 dark:text-zinc-300" />
-                            </button>
-                            <h1 className="text-lg font-semibold text-slate-900 dark:text-zinc-100 md:text-xl">
-                                Базовая аналитика
-                            </h1>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <div className="text-right hidden sm:block">
-                                <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
-                                <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {auth?.user?.tariff_name || 'Free'}</p>
-                            </div>
-                            <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-                                {initials}
-                            </div>
-                        </div>
-                    </header>
-
-                    {/* Content Area */}
-                    <main className="flex-1 overflow-y-auto p-4 md:p-6">
-                        <div className="space-y-6">
+            <AdminLayout title="Базовая аналитика" auth={auth}>
+                <div className="space-y-6">
                             {/* ─── Period Selector + Export ─── */}
                             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
                                 <div className="flex flex-wrap items-center justify-between gap-3">
@@ -534,9 +497,7 @@ export default function AnalyticsPage() {
                                 </Card>
                             </div>
                         </div>
-                    </main>
-                </div>
-            </div>
+            </AdminLayout>
         </>
     );
 }

@@ -1,7 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import {
-    ChevronLeft, ChevronRight, Plus, Menu,
+    ChevronLeft, ChevronRight, Plus,
     CalendarDays, Clock, User, Phone,
     CheckCircle2, XCircle, Trash2, RotateCw, AlertTriangle,
 } from 'lucide-react';
@@ -12,7 +12,7 @@ import {
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
-import Sidebar from '@/components/admin/Sidebar';
+import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 import { AppointmentStatus } from '@/types/appointment-status';
 
@@ -368,7 +368,6 @@ export default function CalendarPage() {
     const [sheetOpen, setSheetOpen] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
     const [monthOffset, setMonthOffset] = useState(0);
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
     const [breakWarningOpen, setBreakWarningOpen] = useState(false);
     const [breakWarningMessage, setBreakWarningMessage] = useState('');
@@ -413,14 +412,6 @@ export default function CalendarPage() {
             window.history.replaceState({}, '', '/admin/calendar');
         }
     }
-
-    const userName = auth?.user?.name || 'Мастер';
-    const initials = userName
-        .split(' ')
-        .map((w) => w[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
 
     const today = new Date();
     const centerDate = useMemo(() => {
@@ -748,36 +739,7 @@ export default function CalendarPage() {
         <>
             <Head title="Календарь — Вовремя" />
 
-            <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
-                <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
-
-                <div className="flex min-w-0 flex-1 flex-col">
-                    {/* Header */}
-                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/80">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setMobileMenuOpen(true)}
-                                className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 lg:hidden"
-                            >
-                                <Menu className="size-5 text-slate-700 dark:text-zinc-300" />
-                            </button>
-                            <h1 className="text-lg font-semibold text-slate-900 dark:text-zinc-100 md:text-xl">
-                                Рабочий календарь (Scheduler)
-                            </h1>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <div className="text-right hidden sm:block">
-                                <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
-                                <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {auth?.user?.tariff_name || 'Free'}</p>
-                            </div>
-                            <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-                                {initials}
-                            </div>
-                        </div>
-                    </header>
-
-                    {/* Content Area */}
-                    <main className="flex-1 overflow-y-auto p-4 md:p-6">
+            <AdminLayout title="Рабочий календарь" auth={auth}>
                         <div className="space-y-4">
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 
@@ -1027,10 +989,9 @@ export default function CalendarPage() {
                                 ))}
                             </div>
                         </div>
-                    </main>
-                </div>
+            </AdminLayout>
 
-                {/* ─── Appointment Detail Dialog ─── */}
+            {/* ─── Appointment Detail Dialog ─── */}
                 <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
                     <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
                         {selected && (
@@ -1349,7 +1310,6 @@ export default function CalendarPage() {
                         </DialogFooter>
                     </DialogContent>
                 </Dialog>
-            </div>
         </>
     );
 }

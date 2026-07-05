@@ -2,7 +2,6 @@ import { useState, useEffect, useRef, useMemo } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import Cropper from 'react-easy-crop';
 import {
-    Menu,
     Send,
     MessageCircle,
     Pencil,
@@ -17,7 +16,7 @@ import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
-import Sidebar from '@/components/admin/Sidebar';
+import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 
 /* ═══════════════ Types ═══════════════ */
@@ -962,7 +961,7 @@ export default function SettingsPage() {
     };
     const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
-    const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const userName = auth?.user?.name || 'Мастер';
     const [serviceModalOpen, setServiceModalOpen] = useState(false);
     const [editingService, setEditingService] = useState<Service | null>(null);
     const [avatarImageSrc, setAvatarImageSrc] = useState('');
@@ -986,14 +985,6 @@ export default function SettingsPage() {
         url.searchParams.set('tab', value);
         window.history.replaceState({}, '', url.toString());
     };
-
-    const userName = auth?.user?.name || 'Мастер';
-    const initials = userName
-        .split(' ')
-        .map((w) => w[0])
-        .join('')
-        .toUpperCase()
-        .slice(0, 2);
 
     const profileForm = useForm({
         name: profile.name,
@@ -1063,43 +1054,7 @@ export default function SettingsPage() {
         <>
             <Head title="Настройки профиля — Вовремя" />
 
-            <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
-                <Sidebar
-                    mobileOpen={mobileMenuOpen}
-                    onMobileClose={() => setMobileMenuOpen(false)}
-                />
-
-                <div className="flex min-w-0 flex-1 flex-col">
-                    {/* Header */}
-                    <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/80">
-                        <div className="flex items-center gap-4">
-                            <button
-                                onClick={() => setMobileMenuOpen(true)}
-                                className="rounded-md p-2 hover:bg-slate-100 lg:hidden dark:hover:bg-zinc-800"
-                            >
-                                <Menu className="size-5 text-slate-700 dark:text-zinc-300" />
-                            </button>
-                            <h1 className="text-lg font-semibold text-slate-900 md:text-xl dark:text-zinc-100">
-                                Настройки профиля
-                            </h1>
-                        </div>
-                        <div className="flex items-center gap-4">
-                            <div className="hidden text-right sm:block">
-                                <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    {userName}
-                                </p>
-                                <p className="text-xs text-slate-400 dark:text-zinc-500">
-                                    Тариф: {auth?.user?.tariff_name || 'Free'}
-                                </p>
-                            </div>
-                            <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-                                {initials}
-                            </div>
-                        </div>
-                    </header>
-
-                    {/* Content Area */}
-                    <main className="flex-1 overflow-y-auto p-4 md:p-6">
+            <AdminLayout title="Настройки профиля" auth={auth}>
                         <TimezoneConfirmBanner
                             confirmed={profile.timezone_confirmed}
                         />
@@ -1758,9 +1713,7 @@ export default function SettingsPage() {
                             </TabsContent>
                             </Tabs>
                         </div>
-                    </main>
-                </div>
-            </div>
+            </AdminLayout>
 
             {/* Modals */}
             <ServiceModal
