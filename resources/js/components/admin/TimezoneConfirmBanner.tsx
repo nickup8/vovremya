@@ -1,7 +1,8 @@
 import { useState } from 'react';
 import { router } from '@inertiajs/react';
-import { Globe, Check, ChevronDown } from 'lucide-react';
+import { Globe, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 
 const RU_TIMEZONES = [
     { value: 'Europe/Kaliningrad', label: 'Kaliningrad (UTC+2)' },
@@ -53,20 +54,19 @@ export default function TimezoneConfirmBanner({ confirmed }: TimezoneConfirmBann
                     Выберите часовой пояс
                 </p>
                 <div className="flex items-center gap-3">
-                    <div className="relative flex-1">
-                        <select
-                            value={selected}
-                            onChange={(e) => setSelected(e.target.value)}
-                            className="w-full appearance-none rounded-xl border border-amber-300 bg-white px-4 py-2.5 pr-10 text-sm text-stone-900 dark:border-amber-700 dark:bg-stone-800 dark:text-stone-100"
-                        >
-                            <option value="">Выберите зону...</option>
-                            {RU_TIMEZONES.map((tz) => (
-                                <option key={tz.value} value={tz.value}>
-                                    {tz.label}
-                                </option>
-                            ))}
-                        </select>
-                        <ChevronDown className="pointer-events-none absolute right-3 top-1/2 size-4 -translate-y-1/2 text-amber-500" />
+                    <div className="flex-1">
+                        <Select value={selected} onValueChange={setSelected}>
+                            <SelectTrigger className="w-full border-amber-300 bg-white dark:border-amber-700 dark:bg-zinc-800">
+                                <SelectValue placeholder="Выберите зону..." />
+                            </SelectTrigger>
+                            <SelectContent>
+                                {RU_TIMEZONES.map((tz) => (
+                                    <SelectItem key={tz.value} value={tz.value}>
+                                        {tz.label}
+                                    </SelectItem>
+                                ))}
+                            </SelectContent>
+                        </Select>
                     </div>
                     <Button
                         size="sm"

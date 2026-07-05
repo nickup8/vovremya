@@ -1170,36 +1170,42 @@ export default function CalendarPage() {
                                     <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                         Клиент *
                                     </label>
-                                    <select
+                                    <Select
                                         value={newAppointmentForm.data.client_id}
-                                        onChange={(e) => newAppointmentForm.setData('client_id', e.target.value)}
-                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                        onValueChange={(value) => newAppointmentForm.setData('client_id', value)}
                                     >
-                                        <option value="">Выберите клиента</option>
-                                        {clients.map((c: ClientOption) => (
-                                            <option key={c.id} value={c.id}>
-                                                {c.name}{c.phone ? ` (${c.phone})` : ''}
-                                            </option>
-                                        ))}
-                                    </select>
+                                        <SelectTrigger className="w-full">
+                                            <SelectValue placeholder="Выберите клиента" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {clients.map((c: ClientOption) => (
+                                                <SelectItem key={c.id} value={String(c.id)}>
+                                                    {c.name}{c.phone ? ` (${c.phone})` : ''}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div>
                                     <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                         Услуга *
                                     </label>
-                                    <select
+                                    <Select
                                         value={newAppointmentForm.data.service_id}
-                                        onChange={(e) => newAppointmentForm.setData('service_id', e.target.value)}
-                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                        onValueChange={(value) => newAppointmentForm.setData('service_id', value)}
                                     >
-                                        <option value="">Выберите услугу</option>
-                                        {services.map((s: ServiceOption) => (
-                                            <option key={s.id} value={s.id}>
-                                                {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
-                                            </option>
-                                        ))}
-                                    </select>
+                                        <SelectTrigger className="w-full">
+                                            <SelectValue placeholder="Выберите услугу" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {services.map((s: ServiceOption) => (
+                                                <SelectItem key={s.id} value={String(s.id)}>
+                                                    {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
                                 </div>
 
                                 <div className="grid grid-cols-2 gap-4">
@@ -1280,15 +1286,16 @@ export default function CalendarPage() {
                                 <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                     Время
                                 </label>
-                                <select
-                                    value={rescheduleTime}
-                                    onChange={(e) => setRescheduleTime(e.target.value)}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                >
-                                    {timeOptions.map((t) => (
-                                        <option key={t} value={t}>{t}</option>
-                                    ))}
-                                </select>
+                                <Select value={rescheduleTime} onValueChange={setRescheduleTime}>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Выберите время" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {timeOptions.map((t) => (
+                                            <SelectItem key={t} value={t}>{t}</SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
                             </div>
                         </div>
 

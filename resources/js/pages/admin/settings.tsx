@@ -9,13 +9,15 @@ import {
     Trash2,
     X,
     Clock,
-    ChevronDown,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
+import { Switch } from '@/components/ui/switch';
 import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 
@@ -80,32 +82,6 @@ interface PageProps {
     blockedTimes: BlockedTime[];
     auth?: { user?: AuthUser };
     [key: string]: unknown;
-}
-
-/* ═══════════════ Toggle Component ═══════════════ */
-
-function Toggle({
-    enabled,
-    onToggle,
-}: {
-    enabled: boolean;
-    onToggle: () => void;
-}) {
-    return (
-        <button
-            type="button"
-            onClick={onToggle}
-            className={`relative inline-flex h-6 w-11 shrink-0 cursor-pointer items-center rounded-full transition-colors duration-200 ease-in-out focus:ring-2 focus:ring-blue-500 focus:ring-offset-2 focus:outline-none ${
-                enabled ? 'bg-blue-600' : 'bg-slate-300 dark:bg-zinc-600'
-            }`}
-        >
-            <span
-                className={`inline-block size-5 rounded-full bg-white shadow-sm transition-transform duration-200 ease-in-out ${
-                    enabled ? 'translate-x-5' : 'translate-x-0.5'
-                }`}
-            />
-        </button>
-    );
 }
 
 /* ═══════════════ Avatar Crop Modal ═══════════════ */
@@ -230,24 +206,12 @@ function AvatarCropModal({
         }
     };
 
-    if (!open) return null;
-
     return (
-        <div className="fixed inset-0 z-[60] flex items-center justify-center">
-            <div className="fixed inset-0 bg-black/60" onClick={onClose} />
-            <div className="relative z-10 mx-4 w-full max-w-lg rounded-2xl border border-slate-200 bg-white p-6 shadow-2xl dark:border-zinc-700 dark:bg-zinc-900">
-                <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
-                        Редактирование фото профиля
-                    </h3>
-                    <button
-                        onClick={onClose}
-                        disabled={uploading}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-800"
-                    >
-                        <X className="size-5" />
-                    </button>
-                </div>
+        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+            <DialogContent className="sm:max-w-lg">
+                <DialogHeader>
+                    <DialogTitle>Редактирование фото профиля</DialogTitle>
+                </DialogHeader>
 
                 {/* Crop Area */}
                 <div className="relative h-72 w-full overflow-hidden rounded-xl bg-slate-100 dark:bg-zinc-800">
@@ -285,13 +249,12 @@ function AvatarCropModal({
                 </div>
 
                 {/* Action Buttons */}
-                <div className="mt-5 flex justify-end gap-2">
+                <DialogFooter>
                     <Button
                         type="button"
                         variant="outline"
                         onClick={onClose}
                         disabled={uploading}
-                        className="rounded-lg"
                     >
                         Отмена
                     </Button>
@@ -299,13 +262,13 @@ function AvatarCropModal({
                         type="button"
                         onClick={handleApplyCrop}
                         disabled={uploading || !croppedAreaPixels}
-                        className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                        className="bg-blue-600 text-white hover:bg-blue-700"
                     >
                         {uploading ? 'Загрузка...' : 'Применить'}
                     </Button>
-                </div>
-            </div>
-        </div>
+                </DialogFooter>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -356,23 +319,14 @@ function ServiceModal({
         }
     };
 
-    if (!open) return null;
-
     return (
-        <div className="fixed inset-0 z-50 flex items-center justify-center">
-            <div className="fixed inset-0 bg-black/50" onClick={onClose} />
-            <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                <div className="mb-4 flex items-center justify-between">
-                    <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
+            <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                    <DialogTitle>
                         {service ? 'Редактировать услугу' : 'Новая услуга'}
-                    </h3>
-                    <button
-                        onClick={onClose}
-                        className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-800"
-                    >
-                        <X className="size-5" />
-                    </button>
-                </div>
+                    </DialogTitle>
+                </DialogHeader>
 
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div>
@@ -441,19 +395,18 @@ function ServiceModal({
                         </div>
                     </div>
 
-                    <div className="flex justify-end gap-2 pt-2">
+                    <DialogFooter>
                         <Button
                             type="button"
                             variant="outline"
                             onClick={onClose}
-                            className="rounded-lg"
                         >
                             Отмена
                         </Button>
                         <Button
                             type="submit"
                             disabled={form.processing}
-                            className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                            className="bg-blue-600 text-white hover:bg-blue-700"
                         >
                             {form.processing
                                 ? 'Сохранение...'
@@ -461,10 +414,10 @@ function ServiceModal({
                                   ? 'Сохранить'
                                   : 'Добавить'}
                         </Button>
-                    </div>
+                    </DialogFooter>
                 </form>
-            </div>
-        </div>
+            </DialogContent>
+        </Dialog>
     );
 }
 
@@ -838,94 +791,76 @@ function BlockedTimesCard() {
                 </div>
             )}
 
-            {dialogOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center">
-                    <div
-                        className="fixed inset-0 bg-black/50"
-                        onClick={() => setDialogOpen(false)}
-                    />
-                    <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                        <div className="mb-4 flex items-center justify-between">
-                            <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
-                                Новая блокировка
-                            </h3>
-                            <button
-                                onClick={() => setDialogOpen(false)}
-                                className="rounded-lg p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-800"
-                            >
-                                <X className="size-5" />
-                            </button>
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Новая блокировка</DialogTitle>
+                    </DialogHeader>
+
+                    <div className="space-y-4">
+                        <div>
+                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                Причина
+                            </label>
+                            <Select value={reason} onValueChange={setReason}>
+                                <SelectTrigger className="w-full">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    {BLOCKED_REASONS.map((r) => (
+                                        <SelectItem key={r} value={r}>
+                                            {r}
+                                        </SelectItem>
+                                    ))}
+                                </SelectContent>
+                            </Select>
                         </div>
 
-                        <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
                             <div>
                                 <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Причина
+                                    С
                                 </label>
-                                <select
-                                    value={reason}
-                                    onChange={(e) => setReason(e.target.value)}
+                                <input
+                                    type="datetime-local"
+                                    value={startDate}
+                                    onChange={(e) => setStartDate(e.target.value)}
                                     className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                >
-                                    {BLOCKED_REASONS.map((r) => (
-                                        <option key={r} value={r}>
-                                            {r}
-                                        </option>
-                                    ))}
-                                </select>
+                                />
                             </div>
-
-                            <div className="grid grid-cols-2 gap-4">
-                                <div>
-                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                        С
-                                    </label>
-                                    <input
-                                        type="datetime-local"
-                                        value={startDate}
-                                        onChange={(e) =>
-                                            setStartDate(e.target.value)
-                                        }
-                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                    />
-                                </div>
-                                <div>
-                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                        По
-                                    </label>
-                                    <input
-                                        type="datetime-local"
-                                        value={endDate}
-                                        onChange={(e) =>
-                                            setEndDate(e.target.value)
-                                        }
-                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                    />
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end gap-2 pt-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setDialogOpen(false)}
-                                    className="rounded-lg"
-                                >
-                                    Отмена
-                                </Button>
-                                <Button
-                                    type="button"
-                                    onClick={handleAdd}
-                                    disabled={!startDate || !endDate}
-                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
-                                >
-                                    Добавить
-                                </Button>
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    По
+                                </label>
+                                <input
+                                    type="datetime-local"
+                                    value={endDate}
+                                    onChange={(e) => setEndDate(e.target.value)}
+                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                />
                             </div>
                         </div>
+
+                        <DialogFooter>
+                            <Button
+                                type="button"
+                                variant="outline"
+                                onClick={() => setDialogOpen(false)}
+                            >
+                                Отмена
+                            </Button>
+                            <Button
+                                type="button"
+                                onClick={handleAdd}
+                                disabled={!startDate || !endDate}
+                                className="bg-blue-600 text-white hover:bg-blue-700"
+                            >
+                                Добавить
+                            </Button>
+                        </DialogFooter>
                     </div>
-                </div>
-            )}
+                </DialogContent>
+            </Dialog>
         </div>
     );
 }
@@ -1247,61 +1182,37 @@ export default function SettingsPage() {
                                         <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                             Часовой пояс
                                         </label>
-                                        <div className="relative">
-                                            <select
-                                                value={profile.timezone}
-                                                onChange={(e) => {
-                                                    router.patch(
-                                                        '/admin/settings/timezone',
-                                                        {
-                                                            timezone:
-                                                                e.target.value,
-                                                        },
-                                                        {
-                                                            preserveScroll: true,
-                                                            preserveState: false,
-                                                            only: ['profile'],
-                                                        },
-                                                    );
-                                                }}
-                                                className="w-full appearance-none rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 pr-10 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                                            >
-                                                <option value="Europe/Kaliningrad">
-                                                    Kaliningrad (UTC+2)
-                                                </option>
-                                                <option value="Europe/Moscow">
-                                                    Moscow (UTC+3)
-                                                </option>
-                                                <option value="Europe/Samara">
-                                                    Samara (UTC+4)
-                                                </option>
-                                                <option value="Asia/Yekaterinburg">
-                                                    Yekaterinburg (UTC+5)
-                                                </option>
-                                                <option value="Asia/Omsk">
-                                                    Omsk (UTC+6)
-                                                </option>
-                                                <option value="Asia/Krasnoyarsk">
-                                                    Krasnoyarsk (UTC+7)
-                                                </option>
-                                                <option value="Asia/Irkutsk">
-                                                    Irkutsk (UTC+8)
-                                                </option>
-                                                <option value="Asia/Yakutsk">
-                                                    Yakutsk (UTC+9)
-                                                </option>
-                                                <option value="Asia/Vladivostok">
-                                                    Vladivostok (UTC+10)
-                                                </option>
-                                                <option value="Asia/Magadan">
-                                                    Magadan (UTC+11)
-                                                </option>
-                                                <option value="Asia/Kamchatka">
-                                                    Kamchatka (UTC+12)
-                                                </option>
-                                            </select>
-                                            <ChevronDown className="pointer-events-none absolute top-1/2 right-3 size-4 -translate-y-1/2 text-slate-400 dark:text-zinc-500" />
-                                        </div>
+                                        <Select
+                                            value={profile.timezone}
+                                            onValueChange={(value) => {
+                                                router.patch(
+                                                    '/admin/settings/timezone',
+                                                    { timezone: value },
+                                                    {
+                                                        preserveScroll: true,
+                                                        preserveState: false,
+                                                        only: ['profile'],
+                                                    },
+                                                );
+                                            }}
+                                        >
+                                            <SelectTrigger className="w-full">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="Europe/Kaliningrad">Kaliningrad (UTC+2)</SelectItem>
+                                                <SelectItem value="Europe/Moscow">Moscow (UTC+3)</SelectItem>
+                                                <SelectItem value="Europe/Samara">Samara (UTC+4)</SelectItem>
+                                                <SelectItem value="Asia/Yekaterinburg">Yekaterinburg (UTC+5)</SelectItem>
+                                                <SelectItem value="Asia/Omsk">Omsk (UTC+6)</SelectItem>
+                                                <SelectItem value="Asia/Krasnoyarsk">Krasnoyarsk (UTC+7)</SelectItem>
+                                                <SelectItem value="Asia/Irkutsk">Irkutsk (UTC+8)</SelectItem>
+                                                <SelectItem value="Asia/Yakutsk">Yakutsk (UTC+9)</SelectItem>
+                                                <SelectItem value="Asia/Vladivostok">Vladivostok (UTC+10)</SelectItem>
+                                                <SelectItem value="Asia/Magadan">Magadan (UTC+11)</SelectItem>
+                                                <SelectItem value="Asia/Kamchatka">Kamchatka (UTC+12)</SelectItem>
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                 </div>
                             </div>
@@ -1545,15 +1456,12 @@ export default function SettingsPage() {
                                                 </p>
                                             </div>
                                         </div>
-                                        <Toggle
-                                            enabled={
-                                                profileForm.data.telegram_notifications
-                                            }
-                                            onToggle={() =>
+                                        <Switch
+                                            checked={profileForm.data.telegram_notifications}
+                                            onCheckedChange={(checked) =>
                                                 profileForm.setData(
                                                     'telegram_notifications',
-                                                    !profileForm.data
-                                                        .telegram_notifications,
+                                                    checked,
                                                 )
                                             }
                                         />
@@ -1574,15 +1482,12 @@ export default function SettingsPage() {
                                                 </p>
                                             </div>
                                         </div>
-                                        <Toggle
-                                            enabled={
-                                                profileForm.data.max_notifications
-                                            }
-                                            onToggle={() =>
+                                        <Switch
+                                            checked={profileForm.data.max_notifications}
+                                            onCheckedChange={(checked) =>
                                                 profileForm.setData(
                                                     'max_notifications',
-                                                    !profileForm.data
-                                                        .max_notifications,
+                                                    checked,
                                                 )
                                             }
                                         />

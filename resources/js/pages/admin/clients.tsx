@@ -8,6 +8,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
 
@@ -274,52 +275,51 @@ export default function ClientsPage() {
             </AdminLayout>
 
             {/* ─── Create / Edit Client Dialog ─── */}
-            {dialogOpen && (
-                <div className="fixed inset-0 z-50 flex items-center justify-center">
-                    <div className="fixed inset-0 bg-black/50" onClick={() => setDialogOpen(false)} />
-                    <div className="relative z-10 w-full max-w-md rounded-xl border border-slate-200 bg-white p-6 shadow-xl dark:border-zinc-700 dark:bg-zinc-900">
-                        <h3 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
+            <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>
                             {editingClient ? 'Редактировать клиента' : 'Новый клиент'}
-                        </h3>
-                        <div className="mt-4 space-y-4">
-                            <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Имя *
-                                </label>
-                                <Input
-                                    value={formName}
-                                    onChange={(e) => setFormName(e.target.value)}
-                                    placeholder="Иван Иванов"
-                                    className="dark:bg-zinc-800"
-                                />
-                            </div>
-                            <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Телефон *
-                                </label>
-                                <Input
-                                    value={formPhone}
-                                    onChange={(e) => setFormPhone(e.target.value)}
-                                    placeholder="+7 (911) 123-45-67"
-                                    className="dark:bg-zinc-800"
-                                />
-                            </div>
+                        </DialogTitle>
+                    </DialogHeader>
+                    <div className="space-y-4">
+                        <div>
+                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                Имя *
+                            </label>
+                            <Input
+                                value={formName}
+                                onChange={(e) => setFormName(e.target.value)}
+                                placeholder="Иван Иванов"
+                                className="dark:bg-zinc-800"
+                            />
                         </div>
-                        <div className="mt-6 flex justify-end gap-2">
-                            <Button variant="outline" onClick={() => setDialogOpen(false)} className="rounded-lg">
-                                Отмена
-                            </Button>
-                            <Button
-                                onClick={handleSubmit}
-                                disabled={!formName.trim() || !formPhone.trim()}
-                                className="rounded-lg bg-blue-600 text-white hover:bg-blue-700"
-                            >
-                                {editingClient ? 'Сохранить' : 'Добавить'}
-                            </Button>
+                        <div>
+                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                Телефон *
+                            </label>
+                            <Input
+                                value={formPhone}
+                                onChange={(e) => setFormPhone(e.target.value)}
+                                placeholder="+7 (911) 123-45-67"
+                                className="dark:bg-zinc-800"
+                            />
                         </div>
                     </div>
-                </div>
-            )}
+                    <DialogFooter>
+                        <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                            Отмена
+                        </Button>
+                        <Button
+                            onClick={handleSubmit}
+                            disabled={!formName.trim() || !formPhone.trim()}
+                            className="bg-blue-600 text-white hover:bg-blue-700"
+                        >
+                            {editingClient ? 'Сохранить' : 'Добавить'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
