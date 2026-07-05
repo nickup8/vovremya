@@ -49,6 +49,17 @@ const FILTER_TABS: { key: FilterType; label: string }[] = [
     { key: 'blocked', label: 'Блок' },
 ];
 
+function formatDate(dateStr: string | null): string {
+    if (!dateStr) return '—';
+    const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
+    const d = new Date(dateStr);
+    return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function formatCurrency(value: number): string {
+    return value.toLocaleString('ru-RU') + ' ₽';
+}
+
 /* ═══════════════ Client Card ═══════════════ */
 
 function ClientCard({ client, onEdit, onToggleBlock }: { client: Client; onEdit: (c: Client) => void; onToggleBlock: (c: Client) => void }) {
@@ -106,8 +117,20 @@ function ClientCard({ client, onEdit, onToggleBlock }: { client: Client; onEdit:
                         </span>
                     )}
                     <span className="rounded-full border border-slate-200 bg-slate-100 px-2 py-0.5 text-xs font-medium text-slate-600 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
-                        {client.total_bookings} визитов
+                        {client.completed_bookings} визитов
                     </span>
+                </div>
+
+                {/* Statistics */}
+                <div className="grid grid-cols-2 gap-2 text-xs">
+                    <div className="rounded-lg bg-slate-50 p-2 dark:bg-zinc-800/50">
+                        <p className="text-slate-500 dark:text-zinc-400">LTV</p>
+                        <p className="font-bold text-slate-900 dark:text-zinc-100">{formatCurrency(client.ltv)}</p>
+                    </div>
+                    <div className="rounded-lg bg-slate-50 p-2 dark:bg-zinc-800/50">
+                        <p className="text-slate-500 dark:text-zinc-400">Последний визит</p>
+                        <p className="font-bold text-slate-900 dark:text-zinc-100">{formatDate(client.last_visit)}</p>
+                    </div>
                 </div>
 
                 {/* Action buttons */}
