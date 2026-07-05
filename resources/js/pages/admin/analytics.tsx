@@ -150,6 +150,17 @@ export default function AnalyticsPage() {
     const totalValue = chartData.reduce((sum, point) => sum + point.value, 0);
     const totalCount = chartData.reduce((sum, point) => sum + point.count, 0);
 
+    // Вычисления для карточки «Клиентская база»
+    const totalClients = metrics.new_clients_count + metrics.returning_clients_count;
+    const returningPct = totalClients > 0 ? Math.round((metrics.returning_clients_count / totalClients) * 100) : 0;
+    const newPct = totalClients > 0 ? 100 - returningPct : 0;
+
+    // Вычисления для карточки «Воронка визитов»
+    const funnelTotal = metrics.total_visits + metrics.cancelled_count + metrics.no_show_count;
+    const paidPct = funnelTotal > 0 ? Math.round((metrics.total_visits / funnelTotal) * 100) : 0;
+    const cancelPct = funnelTotal > 0 ? Math.round((metrics.cancelled_count / funnelTotal) * 100) : 0;
+    const noShowPct = funnelTotal > 0 ? Math.round((metrics.no_show_count / funnelTotal) * 100) : 0;
+
     function handlePeriodChange(period: string) {
         router.get('/admin/analytics', { period }, {
             preserveState: true,
@@ -385,54 +396,45 @@ export default function AnalyticsPage() {
                                         <CardDescription>Новые и постоянные клиенты за период</CardDescription>
                                     </CardHeader>
                                     <CardContent className="flex flex-col items-center gap-8 sm:flex-row">
-                                        {(() => {
-                                            const totalClients = metrics.new_clients_count + metrics.returning_clients_count;
-                                            const returningPct = totalClients > 0 ? Math.round((metrics.returning_clients_count / totalClients) * 100) : 0;
-                                            const newPct = totalClients > 0 ? 100 - returningPct : 0;
-                                            return (
-                                                <>
-                                                    {/* Donut Chart */}
-                                                    <div className="relative flex h-48 w-48 shrink-0 items-center justify-center rounded-full"
-                                                        style={{ background: `conic-gradient(#6366f1 ${returningPct}%, #60a5fa ${returningPct}% 100%)` }}>
-                                                        <div className="flex h-32 w-32 items-center justify-center rounded-full bg-white dark:bg-zinc-900">
-                                                            <div className="text-center">
-                                                                <div className="text-2xl font-bold">{totalClients}</div>
-                                                                <div className="text-xs text-slate-500">Всего</div>
-                                                            </div>
-                                                        </div>
-                                                    </div>
+                                        {/* Donut Chart */}
+                                        <div className="relative flex h-48 w-48 shrink-0 items-center justify-center rounded-full"
+                                            style={{ background: `conic-gradient(#6366f1 ${returningPct}%, #60a5fa ${returningPct}% 100%)` }}>
+                                            <div className="flex h-32 w-32 items-center justify-center rounded-full bg-white dark:bg-zinc-900">
+                                                <div className="text-center">
+                                                    <div className="text-2xl font-bold">{totalClients}</div>
+                                                    <div className="text-xs text-slate-500">Всего</div>
+                                                </div>
+                                            </div>
+                                        </div>
 
-                                                    {/* Легенда */}
-                                                    <div className="w-full flex-1 space-y-4">
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="h-3 w-3 rounded-full bg-indigo-500"></div>
-                                                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Постоянные</span>
-                                                            </div>
-                                                            <div className="text-sm font-bold">
-                                                                {returningPct}% <span className="ml-1 font-normal text-slate-400">({metrics.returning_clients_count})</span>
-                                                            </div>
-                                                        </div>
-                                                        <div className="flex items-center justify-between">
-                                                            <div className="flex items-center gap-2">
-                                                                <div className="h-3 w-3 rounded-full bg-blue-400"></div>
-                                                                <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Новые</span>
-                                                            </div>
-                                                            <div className="text-sm font-bold">
-                                                                {newPct}% <span className="ml-1 font-normal text-slate-400">({metrics.new_clients_count})</span>
-                                                            </div>
-                                                        </div>
+                                        {/* Легенда */}
+                                        <div className="w-full flex-1 space-y-4">
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="h-3 w-3 rounded-full bg-indigo-500"></div>
+                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Постоянные</span>
+                                                </div>
+                                                <div className="text-sm font-bold">
+                                                    {returningPct}% <span className="ml-1 font-normal text-slate-400">({metrics.returning_clients_count})</span>
+                                                </div>
+                                            </div>
+                                            <div className="flex items-center justify-between">
+                                                <div className="flex items-center gap-2">
+                                                    <div className="h-3 w-3 rounded-full bg-blue-400"></div>
+                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Новые</span>
+                                                </div>
+                                                <div className="text-sm font-bold">
+                                                    {newPct}% <span className="ml-1 font-normal text-slate-400">({metrics.new_clients_count})</span>
+                                                </div>
+                                            </div>
 
-                                                        {metrics.first_visit_conversion !== null && metrics.first_visit_conversion > 0 && (
-                                                            <div className="mt-4 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-                                                                <div className="text-xs text-slate-500">Конверсия первого визита</div>
-                                                                <div className="mt-0.5 text-sm font-medium">{metrics.first_visit_conversion}% новых клиентов записываются повторно</div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                </>
-                                            );
-                                        })()}
+                                            {metrics.first_visit_conversion !== null && metrics.first_visit_conversion > 0 && (
+                                                <div className="mt-4 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
+                                                    <div className="text-xs text-slate-500">Конверсия первого визита</div>
+                                                    <div className="mt-0.5 text-sm font-medium">{metrics.first_visit_conversion}% новых клиентов записываются повторно</div>
+                                                </div>
+                                            )}
+                                        </div>
                                     </CardContent>
                                 </Card>
 
@@ -442,57 +444,47 @@ export default function AnalyticsPage() {
                                         <CardDescription>Статусы записей и упущенная выгода</CardDescription>
                                     </CardHeader>
                                     <CardContent className="space-y-6">
-                                        {(() => {
-                                            const total = metrics.total_visits + metrics.cancelled_count + metrics.no_show_count;
-                                            const paidPct = total > 0 ? Math.round((metrics.total_visits / total) * 100) : 0;
-                                            const cancelPct = total > 0 ? Math.round((metrics.cancelled_count / total) * 100) : 0;
-                                            const noShowPct = total > 0 ? Math.round((metrics.no_show_count / total) * 100) : 0;
-                                            return (
-                                                <>
-                                                    {/* Успешные визиты */}
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between text-sm">
-                                                            <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                                <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
-                                                                Успешно завершены
-                                                            </div>
-                                                            <span className="font-bold">{paidPct}% <span className="ml-1 font-normal text-slate-400">({metrics.total_visits})</span></span>
-                                                        </div>
-                                                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                            <div className="h-full rounded-full bg-emerald-500" style={{ width: `${paidPct}%` }}></div>
-                                                        </div>
-                                                    </div>
+                                        {/* Успешные визиты */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                    <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
+                                                    Успешно завершены
+                                                </div>
+                                                <span className="font-bold">{paidPct}% <span className="ml-1 font-normal text-slate-400">({metrics.total_visits})</span></span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${paidPct}%` }}></div>
+                                            </div>
+                                        </div>
 
-                                                    {/* Отмены */}
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between text-sm">
-                                                            <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                                <div className="h-2 w-2 rounded-full bg-amber-400"></div>
-                                                                Отменены клиентом
-                                                            </div>
-                                                            <span className="font-bold">{cancelPct}% <span className="ml-1 font-normal text-slate-400">({metrics.cancelled_count})</span></span>
-                                                        </div>
-                                                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                            <div className="h-full rounded-full bg-amber-400" style={{ width: `${cancelPct}%` }}></div>
-                                                        </div>
-                                                    </div>
+                                        {/* Отмены */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                    <div className="h-2 w-2 rounded-full bg-amber-400"></div>
+                                                    Отменены клиентом
+                                                </div>
+                                                <span className="font-bold">{cancelPct}% <span className="ml-1 font-normal text-slate-400">({metrics.cancelled_count})</span></span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                <div className="h-full rounded-full bg-amber-400" style={{ width: `${cancelPct}%` }}></div>
+                                            </div>
+                                        </div>
 
-                                                    {/* Неявки */}
-                                                    <div className="space-y-2">
-                                                        <div className="flex items-center justify-between text-sm">
-                                                            <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                                <div className="h-2 w-2 rounded-full bg-rose-500"></div>
-                                                                Неявки (No-show)
-                                                            </div>
-                                                            <span className="font-bold">{noShowPct}% <span className="ml-1 font-normal text-slate-400">({metrics.no_show_count})</span></span>
-                                                        </div>
-                                                        <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                            <div className="h-full rounded-full bg-rose-500" style={{ width: `${noShowPct}%` }}></div>
-                                                        </div>
-                                                    </div>
-                                                </>
-                                            );
-                                        })()}
+                                        {/* Неявки */}
+                                        <div className="space-y-2">
+                                            <div className="flex items-center justify-between text-sm">
+                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
+                                                    <div className="h-2 w-2 rounded-full bg-rose-500"></div>
+                                                    Неявки (No-show)
+                                                </div>
+                                                <span className="font-bold">{noShowPct}% <span className="ml-1 font-normal text-slate-400">({metrics.no_show_count})</span></span>
+                                            </div>
+                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
+                                                <div className="h-full rounded-full bg-rose-500" style={{ width: `${noShowPct}%` }}></div>
+                                            </div>
+                                        </div>
                                     </CardContent>
                                 </Card>
                             </div>

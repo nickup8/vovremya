@@ -67,7 +67,7 @@ interface WorkingHour {
 
 interface PageProps {
     appointments: Appointment[];
-    blockedTimes: BlockedTime[];
+    initialBlockedTimes: BlockedTime[];
     clients: ClientOption[];
     services: ServiceOption[];
     slotInterval: number;
@@ -307,7 +307,7 @@ function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClick }: {
                             key={i}
                             type="button"
                             onClick={() => dayAppts.length === 0 ? onEmptyDayClick(dateKey) : undefined}
-                            className={`flex min-h-[120px] flex-col gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50 ${
+                            className={`flex min-h-[80px] md:min-h-[120px] flex-col gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50 ${
                                 !isCurrentMonth ? 'bg-slate-50/50 text-slate-400 dark:bg-zinc-900/50 dark:text-zinc-600' : ''
                             }`}
                         >
@@ -363,7 +363,7 @@ function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClick }: {
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
-    const { appointments: initialAppointments = [], blockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [], initialBlockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth } = usePage<PageProps>().props;
     const [selected, setSelected] = useState<Appointment | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
     const [weekOffset, setWeekOffset] = useState(0);
@@ -438,8 +438,6 @@ export default function CalendarPage() {
         [initialAppointments],
     );
 
-    const blockedTimes = useMemo(() => initialBlockedTimes, [initialBlockedTimes]);
-
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
     const gridHours = useMemo(() => {
@@ -472,7 +470,7 @@ export default function CalendarPage() {
         const dayStart = new Date(key + 'T00:00:00');
         const dayEnd = new Date(key + 'T23:59:59');
 
-        return blockedTimes.filter((bt) => {
+        return initialBlockedTimes.filter((bt) => {
             const btStart = new Date(bt.start_datetime);
             const btEnd = new Date(bt.end_datetime);
             return btStart <= dayEnd && btEnd >= dayStart;

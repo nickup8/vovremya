@@ -999,7 +999,7 @@ export default function SettingsPage() {
                         <div className="max-w-4xl space-y-6">
                             {/* ═══ Tabs ═══ */}
                             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                                <TabsList className="mb-6 w-full justify-start gap-1 overflow-x-auto">
+                                <TabsList className="mb-6 w-full justify-start gap-1 overflow-x-auto scrollbar-none">
                                     <TabsTrigger value="profile">Профиль</TabsTrigger>
                                     <TabsTrigger value="booking">Запись и оплата</TabsTrigger>
                                     <TabsTrigger value="notifications">Уведомления</TabsTrigger>
