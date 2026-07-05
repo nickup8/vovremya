@@ -21,6 +21,7 @@ interface Metrics {
     returning_clients_count: number;
     first_visit_conversion: number | null;
     top_services: Array<{ name: string; count: number; percentage: number }>;
+    utilization_percentage: number;
 }
 
 interface ChartPoint {
@@ -107,7 +108,7 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
 
 export default function AnalyticsPage() {
     const props = usePage<PageProps>().props;
-    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0, new_clients_count: 0, returning_clients_count: 0, first_visit_conversion: null, top_services: [] };
+    const metrics = props.metrics || { revenue: 0, total_visits: 0, avg_check: 0, attendance_rate: 0, lost_revenue: 0, cancelled_count: 0, no_show_count: 0, new_clients_count: 0, returning_clients_count: 0, first_visit_conversion: null, top_services: [], utilization_percentage: 0 };
     const chartData = props.chartData || [];
     const serviceStats = props.serviceStats || [];
     const activePeriod = props.activePeriod || 'week';
@@ -170,8 +171,8 @@ export default function AnalyticsPage() {
         {
             icon: CalendarDays,
             label: 'Заполняемость графика',
-            value: '68%',
-            badge: <span className="ml-2 rounded bg-emerald-500/10 px-1.5 py-0.5 text-xs font-medium text-emerald-600">↑ 5%</span>,
+            value: `${metrics.utilization_percentage}%`,
+            badge: null,
             color: 'emerald',
         },
         {
