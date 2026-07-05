@@ -19,6 +19,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import AdminLayout from '@/layouts/AdminLayout';
+import { getInitials } from '@/lib/utils';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 
 /* ═══════════════ Types ═══════════════ */
@@ -897,6 +898,7 @@ export default function SettingsPage() {
     const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
     const userName = auth?.user?.name || 'Мастер';
+    const initials = getInitials(userName);
     const [serviceModalOpen, setServiceModalOpen] = useState(false);
     const [editingService, setEditingService] = useState<Service | null>(null);
     const [avatarImageSrc, setAvatarImageSrc] = useState('');
