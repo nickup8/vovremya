@@ -334,28 +334,19 @@ function StepProvider({
 }) {
     return (
         <div className="flex-1 overflow-y-auto pb-28">
-            <div className="px-5 pt-6 pb-4">
-                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-                    Подтверждение
-                </h2>
-                <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                    {isAutoFilled ? 'Проверьте данные и выберите мессенджер' : 'Заполните информацию и выберите мессенджер'}
-                </p>
-            </div>
+            {!isAutoFilled && (
+                <div className="px-5 pt-6 pb-4">
+                    <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                        Подтверждение
+                    </h2>
+                    <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
+                        Заполните информацию и выберите мессенджер
+                    </p>
+                </div>
+            )}
 
             <div className="space-y-4 px-5">
-                {isAutoFilled ? (
-                    <div className="space-y-3 rounded-2xl border border-stone-200/60 bg-white/70 p-4 dark:border-stone-700/40 dark:bg-stone-900/50">
-                        <div>
-                            <p className="text-xs font-medium text-stone-400 dark:text-stone-500">Имя</p>
-                            <p className="text-sm font-medium text-stone-900 dark:text-stone-50">{name || '—'}</p>
-                        </div>
-                        <div>
-                            <p className="text-xs font-medium text-stone-400 dark:text-stone-500">Телефон</p>
-                            <p className="text-sm font-medium text-stone-900 dark:text-stone-50">{phone || '—'}</p>
-                        </div>
-                    </div>
-                ) : (
+                {!isAutoFilled && (
                     <>
                         <div>
                             <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
