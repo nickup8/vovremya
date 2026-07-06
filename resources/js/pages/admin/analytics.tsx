@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     Download, Calendar,
-    Wallet, Gauge, TrendingDown, CalendarDays, AlertTriangle,
+    Wallet, Gauge, TrendingDown, TrendingUp, CalendarDays, AlertTriangle,
 } from 'lucide-react';
 import AdminLayout from '@/layouts/AdminLayout';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
@@ -186,11 +186,11 @@ export default function AnalyticsPage() {
 
     const stats = [
         {
-            icon: TrendingDown,
+            icon: trends.avg_check >= 0 ? TrendingUp : TrendingDown,
             label: 'Средний чек',
             value: Math.round(metrics.avg_check).toLocaleString('ru-RU') + ' ₽',
             badge: <TrendBadge value={trends.avg_check} prevValue={prev_metrics.avg_check} format="currency" />,
-            color: 'red',
+            color: trends.avg_check >= 0 ? 'emerald' : 'red',
         },
         {
             icon: Gauge,
