@@ -21,6 +21,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string $email
  * @property string|null $phone
  * @property string|null $telegram_id
+ * @property string|null $telegram_chat_id
  * @property string|null $max_id
  * @property string|null $avatar_url
  * @property bool $is_master
@@ -38,7 +39,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  */
 #[Fillable([
     'name', 'email', 'password', 'phone',
-    'telegram_id', 'max_id', 'avatar_url',
+    'telegram_id', 'telegram_chat_id', 'max_id', 'avatar_url',
     'is_master', 'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
