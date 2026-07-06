@@ -193,23 +193,48 @@ class AvailabilityService
         string $timezone,
     ): array {
         $slots = [];
-        $slot = $dayStart->copy();
         $now = Carbon::now($timezone);
 
-        while ($slot->copy()->addMinutes($serviceDuration)->lte($dayEnd)) {
-            $slotEnd = $slot->copy()->addMinutes($serviceDuration);
+        $periods = $unavailablePeriods->values()->all();
 
-            $isPast = $date->isToday() && $slot->lt($now);
+        $slotStart = $dayStart->copy();
 
-            $hasOverlap = $unavailablePeriods->contains(
-                fn (array $period) => $slot->lt($period['end']) && $slotEnd->gt($period['start'])
-            );
+        while (true) {
+            $slotEnd = $slotStart->copy()->addMinutes($serviceDuration);
 
-            if (! $isPast && ! $hasOverlap) {
-                $slots[] = $slot->format('H:i');
+            if ($slotEnd->gt($dayEnd)) {
+                break;
             }
 
-            $slot->addMinutes($interval);
+            if ($date->isToday() && $slotStart->lt($now)) {
+                $slotStart->addMinutes($interval);
+                continue;
+            }
+
+            $fits = true;
+            foreach ($periods as $period) {
+                if (! is_array($period) || ! isset($period['start'], $period['end'])) {
+                    continue;
+                }
+
+                $periodStart = $period['start'];
+                $periodEnd = $period['end'];
+
+                if (! $periodStart instanceof Carbon || ! $periodEnd instanceof Carbon) {
+                    continue;
+                }
+
+                if ($slotStart->lt($periodEnd) && $slotEnd->gt($periodStart)) {
+                    $fits = false;
+                    break;
+                }
+            }
+
+            if ($fits) {
+                $slots[] = $slotStart->format('H:i');
+            }
+
+            $slotStart->addMinutes($interval);
         }
 
         return $slots;
