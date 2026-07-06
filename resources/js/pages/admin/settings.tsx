@@ -35,6 +35,9 @@ interface Profile {
     address: string | null;
     avatar_url: string | null;
     telegram_id: string | null;
+    telegram_chat_id: string | null;
+    telegram_auth_token: string | null;
+    telegram_bot_name: string | null;
     max_id: string | null;
     soft_deposit: boolean;
     deposit_timeout: number;
@@ -925,6 +928,9 @@ export default function SettingsPage() {
         address: null,
         avatar_url: null,
         telegram_id: null,
+        telegram_chat_id: null,
+        telegram_auth_token: null,
+        telegram_bot_name: null,
         max_id: null,
         deposit_timeout: 15,
         deposit_percent: 30,
@@ -1563,6 +1569,61 @@ export default function SettingsPage() {
                                         />
                                     </div>
                                 </div>
+                            </div>
+
+                            {/* ═══ Card: Telegram Connection ═══ */}
+                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                <h3 className="mb-2 text-base font-semibold text-slate-900 dark:text-zinc-100">
+                                    Привязка Telegram
+                                </h3>
+                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
+                                    Получайте уведомления о новых записях прямо в Telegram
+                                </p>
+
+                                {profile.telegram_chat_id ? (
+                                    /* Состояние "Подключен" */
+                                    <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-4 dark:bg-emerald-950/30">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex size-9 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
+                                                <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
+                                                    Telegram успешно подключен
+                                                </p>
+                                                <p className="text-xs text-emerald-600 dark:text-emerald-400">
+                                                    Уведомления активны
+                                                </p>
+                                            </div>
+                                        </div>
+                                    </div>
+                                ) : (
+                                    /* Состояние "Не подключен" */
+                                    <div className="flex items-center justify-between rounded-lg bg-slate-50 p-4 dark:bg-zinc-800/50">
+                                        <div className="flex items-center gap-3">
+                                            <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                                                <Send className="size-4 text-blue-600 dark:text-blue-400" />
+                                            </div>
+                                            <div>
+                                                <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+                                                    Telegram не подключен
+                                                </p>
+                                                <p className="text-xs text-slate-500 dark:text-zinc-400">
+                                                    Нажмите кнопку для привязки
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <a
+                                            href={`https://t.me/${profile.telegram_bot_name}?start=${profile.telegram_auth_token}`}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-blue-700"
+                                        >
+                                            <Send className="size-3.5" />
+                                            Подключить Telegram
+                                        </a>
+                                    </div>
+                                )}
                             </div>
 
                             <div className="flex justify-end gap-2">
