@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     Download, Calendar,
@@ -184,6 +184,39 @@ export default function AnalyticsPage() {
         });
     }
 
+    const presetDateRange = useMemo(() => {
+        if (activePeriod === 'custom') return null;
+
+        const now = new Date();
+        const fmt = (d: Date) => d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+
+        let start: Date;
+        let end = new Date(now);
+
+        switch (activePeriod) {
+            case 'day':
+                start = new Date(now);
+                break;
+            case 'week': {
+                const day = now.getDay();
+                const diff = day === 0 ? 6 : day - 1;
+                start = new Date(now);
+                start.setDate(now.getDate() - diff);
+                break;
+            }
+            case 'month':
+                start = new Date(now.getFullYear(), now.getMonth(), 1);
+                break;
+            case 'year':
+                start = new Date(now.getFullYear(), 0, 1);
+                break;
+            default:
+                return null;
+        }
+
+        return `${fmt(start)} — ${fmt(end)}`;
+    }, [activePeriod]);
+
     const stats = [
         {
             icon: trends.avg_check >= 0 ? TrendingUp : TrendingDown,
@@ -278,6 +311,12 @@ export default function AnalyticsPage() {
                                             Применить
                                         </button>
                                     </div>
+                                )}
+
+                                {activePeriod !== 'custom' && presetDateRange && (
+                                    <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
+                                        {presetDateRange}
+                                    </p>
                                 )}
                             </div>
 
