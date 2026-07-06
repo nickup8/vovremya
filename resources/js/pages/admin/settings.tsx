@@ -490,6 +490,38 @@ function WorkingHoursCard({
         [localHours, slotInterval, initialHours, initialSlotInterval],
     );
 
+    function sanitizeTime(val: unknown): string | null {
+        if (val == null) return null;
+        const s = String(val).trim();
+        if (s === '' || s === '--:--' || s === '--' || s === ':' || s === '_' || /^[\s\-_:]+$/.test(s)) return null;
+        return s;
+    }
+
+    const { data, setData, put, transform, processing } = useForm({
+        working_hours: buildHours(workingHours),
+        slot_interval: initialSlotInterval,
+    });
+
+    transform((currentData: typeof data) => ({
+        ...currentData,
+        working_hours: currentData.working_hours.map((h: WorkingHour) => {
+            const isOff = !h.is_working;
+            return {
+                ...h,
+                day_of_week: uiToCarbon(h.day_of_week),
+                start_time: isOff ? null : sanitizeTime(h.start_time),
+                end_time: isOff ? null : sanitizeTime(h.end_time),
+                break_start_time: isOff ? null : sanitizeTime(h.break_start_time),
+                break_end_time: isOff ? null : sanitizeTime(h.break_end_time),
+            };
+        }),
+    }));
+
+    useEffect(() => {
+        setData('working_hours', localHours);
+        setData('slot_interval', slotInterval);
+    }, [localHours, slotInterval]);
+
     function toggleDay(dayOfWeek: number) {
         setLocalHours((prev) =>
             prev.map((h) => {
@@ -523,41 +555,15 @@ function WorkingHoursCard({
         );
     }
 
-    function sanitizeTime(val: unknown): string | null {
-        if (val == null) return null;
-        const s = String(val).trim();
-        if (s === '' || s === '--:--' || s === '--' || s === ':' || s === '_' || /^[\s\-_:]+$/.test(s)) return null;
-        return s;
-    }
-
     function handleSave() {
-        const cleaned = localHours.map((h) => {
-            const isOff = !h.is_working;
-            return {
-                ...h,
-                day_of_week: uiToCarbon(h.day_of_week),
-                start_time: isOff ? null : sanitizeTime(h.start_time),
-                end_time: isOff ? null : sanitizeTime(h.end_time),
-                break_start_time: isOff ? null : sanitizeTime(h.break_start_time),
-                break_end_time: isOff ? null : sanitizeTime(h.break_end_time),
-            };
+        put('/admin/working-hours', {
+            preserveScroll: true,
+            onSuccess: () => toast.success('График работы сохранён'),
+            onError: (errors) => {
+                const firstError = Object.values(errors)[0];
+                toast.error(typeof firstError === 'string' ? firstError : 'Ошибка сохранения графика');
+            },
         });
-
-        router.put(
-            '/admin/working-hours',
-            {
-                working_hours: cleaned,
-                slot_interval: slotInterval,
-            },
-            {
-                preserveScroll: true,
-                onSuccess: () => toast.success('График работы сохранён'),
-                onError: (errors) => {
-                    const firstError = Object.values(errors)[0];
-                    toast.error(typeof firstError === 'string' ? firstError : 'Ошибка сохранения графика');
-                },
-            },
-        );
     }
 
     return (
@@ -710,7 +716,7 @@ function WorkingHoursCard({
                 <Button
                     type="button"
                     onClick={handleSave}
-                    disabled={!isDirty}
+                    disabled={!isDirty || processing}
                     className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
                 >
                     <Clock className="size-3.5" />
