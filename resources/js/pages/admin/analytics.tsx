@@ -69,13 +69,14 @@ const PERIOD_TABS: { key: string; label: string }[] = [
 
 /* ═══════════════ Stat Card ═══════════════ */
 
-function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
+function StatCard({ icon: Icon, label, value, badge, subtitle, color, valueClassName }: {
     icon: React.ElementType;
     label: string;
     value: string;
     badge?: React.ReactNode;
     subtitle?: string;
     color: string;
+    valueClassName?: string;
 }) {
     const colorMap: Record<string, { bg: string; text: string }> = {
         emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950/40', text: 'text-emerald-600 dark:text-emerald-400' },
@@ -94,7 +95,7 @@ function StatCard({ icon: Icon, label, value, badge, subtitle, color }: {
             </div>
             <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">{label}</p>
             <div className="flex flex-col gap-1">
-                <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{value}</p>
+                <p className={`text-2xl font-bold text-slate-900 dark:text-zinc-100 ${valueClassName ?? ''}`}>{value}</p>
                 <div className="flex items-center">
                     {badge}
                     {subtitle && (
@@ -203,7 +204,8 @@ export default function AnalyticsPage() {
             label: 'Заполняемость графика',
             value: `${metrics.utilization_percentage}%`,
             badge: <TrendBadge value={trends.utilization} prevValue={prev_metrics.utilization} format="percent" />,
-            color: 'emerald',
+            color: metrics.utilization_percentage > 100 ? 'rose' : 'emerald',
+            valueClassName: metrics.utilization_percentage > 100 ? 'text-red-600 dark:text-red-400' : undefined,
         },
         {
             icon: AlertTriangle,
