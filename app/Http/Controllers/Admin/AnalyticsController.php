@@ -26,12 +26,12 @@ class AnalyticsController extends Controller
         }
 
         $period = $request->query('period', 'week');
-        $dateFrom = null;
-        $dateTo = null;
+        $dateFrom = $request->query('date_from');
+        $dateTo = $request->query('date_to');
 
         if ($period === 'custom') {
-            $dateFrom = $request->query('date_from', Carbon::now()->startOfMonth()->format('Y-m-d'));
-            $dateTo = $request->query('date_to', Carbon::today()->format('Y-m-d'));
+            $dateFrom = $dateFrom ?? Carbon::now()->startOfMonth()->format('Y-m-d');
+            $dateTo = $dateTo ?? Carbon::today()->format('Y-m-d');
         }
 
         $appointments = $master->masterAppointments()
@@ -299,7 +299,7 @@ class AnalyticsController extends Controller
 
     private function getPreviousPeriodDates(string $period, ?string $dateFrom, ?string $dateTo): array
     {
-        if ($period === 'custom' && $dateFrom && $dateTo) {
+        if ($dateFrom && $dateTo) {
             $start = Carbon::parse($dateFrom);
             $end = Carbon::parse($dateTo);
             $duration = $start->diffInDays($end);

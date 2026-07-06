@@ -1,10 +1,11 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useCallback } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
-    Download, Calendar,
+    Download, Calendar, ChevronLeft, ChevronRight,
     Wallet, Gauge, TrendingDown, TrendingUp, CalendarDays, AlertTriangle,
 } from 'lucide-react';
 import AdminLayout from '@/layouts/AdminLayout';
+import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 
 /* ═══════════════ Types ═══════════════ */
@@ -147,6 +148,7 @@ export default function AnalyticsPage() {
         from: props.dateFrom || '',
         to: props.dateTo || '',
     });
+    const [periodOffset, setPeriodOffset] = useState(0);
 
     const totalValue = chartData.reduce((sum, point) => sum + point.value, 0);
     const totalCount = chartData.reduce((sum, point) => sum + point.count, 0);
@@ -163,6 +165,7 @@ export default function AnalyticsPage() {
     const noShowPct = funnelTotal > 0 ? Math.round((metrics.no_show_count / funnelTotal) * 100) : 0;
 
     function handlePeriodChange(period: string) {
+        setPeriodOffset(0);
         router.get('/admin/analytics', { period }, {
             preserveState: true,
             preserveScroll: true,
@@ -184,38 +187,110 @@ export default function AnalyticsPage() {
         });
     }
 
-    const presetDateRange = useMemo(() => {
+    const computedDates = useMemo(() => {
         if (activePeriod === 'custom') return null;
 
         const now = new Date();
-        const fmt = (d: Date) => d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-
         let start: Date;
-        let end = new Date(now);
+        let end: Date;
 
         switch (activePeriod) {
-            case 'day':
+            case 'day': {
                 start = new Date(now);
+                start.setDate(now.getDate() + periodOffset);
+                end = new Date(start);
                 break;
+            }
             case 'week': {
                 const day = now.getDay();
                 const diff = day === 0 ? 6 : day - 1;
                 start = new Date(now);
-                start.setDate(now.getDate() - diff);
+                start.setDate(now.getDate() - diff + periodOffset * 7);
+                end = new Date(start);
+                end.setDate(start.getDate() + 6);
                 break;
             }
-            case 'month':
-                start = new Date(now.getFullYear(), now.getMonth(), 1);
+            case 'month': {
+                start = new Date(now.getFullYear(), now.getMonth() + periodOffset, 1);
+                end = new Date(now.getFullYear(), now.getMonth() + periodOffset + 1, 0);
                 break;
-            case 'year':
-                start = new Date(now.getFullYear(), 0, 1);
+            }
+            case 'year': {
+                start = new Date(now.getFullYear() + periodOffset, 0, 1);
+                end = new Date(now.getFullYear() + periodOffset, 11, 31);
                 break;
+            }
             default:
                 return null;
         }
 
-        return `${fmt(start)} — ${fmt(end)}`;
-    }, [activePeriod]);
+        const toStr = (d: Date) => d.toISOString().slice(0, 10);
+        return { from: toStr(start), to: toStr(end) };
+    }, [activePeriod, periodOffset]);
+
+    const presetDateRange = useMemo(() => {
+        if (!computedDates) return null;
+
+        const fmt = (d: string) => {
+            const date = new Date(d + 'T00:00:00');
+            return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+        };
+
+        return `${fmt(computedDates.from)} — ${fmt(computedDates.to)}`;
+    }, [computedDates]);
+
+    const handleOffsetChange = useCallback((delta: number) => {
+        const newOffset = periodOffset + delta;
+        setPeriodOffset(newOffset);
+
+        if (activePeriod === 'custom') return;
+
+        const now = new Date();
+        let start: Date;
+        let end: Date;
+
+        switch (activePeriod) {
+            case 'day': {
+                start = new Date(now);
+                start.setDate(now.getDate() + newOffset);
+                end = new Date(start);
+                break;
+            }
+            case 'week': {
+                const day = now.getDay();
+                const diff = day === 0 ? 6 : day - 1;
+                start = new Date(now);
+                start.setDate(now.getDate() - diff + newOffset * 7);
+                end = new Date(start);
+                end.setDate(start.getDate() + 6);
+                break;
+            }
+            case 'month': {
+                start = new Date(now.getFullYear(), now.getMonth() + newOffset, 1);
+                end = new Date(now.getFullYear(), now.getMonth() + newOffset + 1, 0);
+                break;
+            }
+            case 'year': {
+                start = new Date(now.getFullYear() + newOffset, 0, 1);
+                end = new Date(now.getFullYear() + newOffset, 11, 31);
+                break;
+            }
+            default:
+                return;
+        }
+
+        const toStr = (d: Date) => d.toISOString().slice(0, 10);
+
+        router.get('/admin/analytics', {
+            period: activePeriod,
+            date_from: toStr(start),
+            date_to: toStr(end),
+        }, {
+            preserveState: true,
+            preserveScroll: true,
+            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+        });
+    }, [periodOffset, activePeriod]);
 
     const stats = [
         {
@@ -314,9 +389,27 @@ export default function AnalyticsPage() {
                                 )}
 
                                 {activePeriod !== 'custom' && presetDateRange && (
-                                    <p className="mt-3 border-t border-slate-100 pt-3 text-sm text-slate-500 dark:border-zinc-800 dark:text-zinc-400">
-                                        {presetDateRange}
-                                    </p>
+                                    <div className="mt-3 flex items-center gap-3 border-t border-slate-100 pt-3 dark:border-zinc-800">
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-7"
+                                            onClick={() => handleOffsetChange(-1)}
+                                        >
+                                            <ChevronLeft className="size-4" />
+                                        </Button>
+                                        <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                            {presetDateRange}
+                                        </p>
+                                        <Button
+                                            variant="outline"
+                                            size="icon"
+                                            className="size-7"
+                                            onClick={() => handleOffsetChange(1)}
+                                        >
+                                            <ChevronRight className="size-4" />
+                                        </Button>
+                                    </div>
                                 )}
                             </div>
 
