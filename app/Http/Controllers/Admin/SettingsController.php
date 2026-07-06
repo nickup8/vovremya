@@ -187,10 +187,10 @@ class SettingsController extends Controller
             'working_hours' => 'required|array|min:1|max:7',
             'working_hours.*.day_of_week' => 'required|integer|min:0|max:6',
             'working_hours.*.is_working' => 'required|boolean',
-            'working_hours.*.start_time' => 'nullable|date_format:H:i',
-            'working_hours.*.end_time' => 'nullable|date_format:H:i|after:working_hours.*.start_time',
-            'working_hours.*.break_start_time' => 'nullable|date_format:H:i',
-            'working_hours.*.break_end_time' => 'nullable|date_format:H:i',
+            'working_hours.*.start_time' => 'nullable|string',
+            'working_hours.*.end_time' => 'nullable|string',
+            'working_hours.*.break_start_time' => 'nullable|string',
+            'working_hours.*.break_end_time' => 'nullable|string',
             'slot_interval' => 'required|integer|in:15,30,60',
         ]);
 
@@ -217,6 +217,19 @@ class SettingsController extends Controller
                 continue;
             }
 
+            $startTime = $hour['start_time'];
+            $endTime = $hour['end_time'];
+
+            if (! preg_match('/^\d{2}:\d{2}$/', $startTime) || ! preg_match('/^\d{2}:\d{2}$/', $endTime)) {
+                $errors["working_hours.{$index}.start_time"] = 'Неверный формат времени. Используйте ЧЧ:ММ.';
+                continue;
+            }
+
+            if ($endTime <= $startTime) {
+                $errors["working_hours.{$index}.end_time"] = 'Время окончания должно быть позже времени начала.';
+                continue;
+            }
+
             $hasBreak = ! empty($hour['break_start_time']) || ! empty($hour['break_end_time']);
 
             if ($hasBreak) {
@@ -225,17 +238,25 @@ class SettingsController extends Controller
                     continue;
                 }
 
-                if ($hour['break_start_time'] <= $hour['start_time']) {
+                $breakStart = $hour['break_start_time'];
+                $breakEnd = $hour['break_end_time'];
+
+                if (! preg_match('/^\d{2}:\d{2}$/', $breakStart) || ! preg_match('/^\d{2}:\d{2}$/', $breakEnd)) {
+                    $errors["working_hours.{$index}.break_start_time"] = 'Неверный формат времени обеда.';
+                    continue;
+                }
+
+                if ($breakStart <= $startTime) {
                     $errors["working_hours.{$index}.break_start_time"] = 'Обед должен начинаться после начала рабочего дня.';
                     continue;
                 }
 
-                if ($hour['break_end_time'] >= $hour['end_time']) {
+                if ($breakEnd >= $endTime) {
                     $errors["working_hours.{$index}.break_end_time"] = 'Обед должен заканчиваться до окончания рабочего дня.';
                     continue;
                 }
 
-                if ($hour['break_end_time'] <= $hour['break_start_time']) {
+                if ($breakEnd <= $breakStart) {
                     $errors["working_hours.{$index}.break_end_time"] = 'Время окончания обеда должно быть позже времени начала.';
                     continue;
                 }
@@ -245,8 +266,8 @@ class SettingsController extends Controller
                 ['day_of_week' => $hour['day_of_week']],
                 [
                     'is_working' => true,
-                    'start_time' => $hour['start_time'],
-                    'end_time' => $hour['end_time'],
+                    'start_time' => $startTime,
+                    'end_time' => $endTime,
                     'break_start_time' => $hasBreak ? $hour['break_start_time'] : null,
                     'break_end_time' => $hasBreak ? $hour['break_end_time'] : null,
                 ]
