@@ -47,8 +47,11 @@ class AnalyticsService
 
     public function calculateUtilization($master, Collection $appointments, string $startDate, string $endDate): int
     {
-        $completed = $this->getCompleted($appointments);
-        $bookedMinutes = (int) $completed->sum(fn ($app) => $app->service ? $app->service->duration_minutes : 0);
+        $occupied = $appointments->filter(fn ($app) => in_array($app->status, [
+            AppointmentStatus::Paid,
+            AppointmentStatus::Booked,
+        ]));
+        $bookedMinutes = (int) $occupied->sum(fn ($app) => $app->service ? $app->service->duration_minutes : 0);
 
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
