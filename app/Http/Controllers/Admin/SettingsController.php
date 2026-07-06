@@ -8,6 +8,7 @@ use App\Models\Service;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
@@ -18,6 +19,14 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
+        // Генерация токена для привязки Telegram, если он еще не создан
+        if (! $user->telegram_chat_id && ! $user->telegram_auth_token) {
+            $user->update([
+                'telegram_auth_token' => Str::random(32),
+            ]);
+            $user->refresh();
+        }
+
         return Inertia::render('admin/settings', [
             'profile' => [
                 'name' => $user->name,
@@ -27,6 +36,9 @@ class SettingsController extends Controller
                 'address' => $user->address,
                 'avatar_url' => $user->avatar_url,
                 'telegram_id' => $user->telegram_id,
+                'telegram_chat_id' => $user->telegram_chat_id,
+                'telegram_auth_token' => $user->telegram_auth_token,
+                'telegram_bot_name' => config('telegraph.bot_name') ?? env('TELEGRAM_BOT_NAME'),
                 'max_id' => $user->max_id,
                 'soft_deposit' => $user->soft_deposit,
                 'deposit_timeout' => $user->deposit_timeout,
