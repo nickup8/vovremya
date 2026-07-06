@@ -160,18 +160,22 @@ class AvailabilityService
             AppointmentStatus::Paid,
         ];
 
-        return collect(Appointment::where('master_id', $master->id)
+        $appointments = Appointment::where('master_id', $master->id)
             ->whereIn('status', $blockingStatuses)
             ->whereBetween('start_time', [$utcStart, $utcEnd])
             ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
             ->with('service')
-            ->get()
-            ->map(fn (Appointment $a) => [
-                'start' => $a->start_time->copy()->timezone($tz),
-                'end' => $a->start_time->copy()->timezone($tz)->addMinutes(
-                    $a->service->duration_minutes ?? 60
-                ),
-            ]));
+            ->get();
+
+        return $appointments->map(function (Appointment $a) use ($tz) {
+            $start = Carbon::parse($a->start_time)->timezone($tz);
+            $duration = $a->service->duration_minutes ?? 60;
+
+            return [
+                'start' => $start,
+                'end' => $start->copy()->addMinutes($duration),
+            ];
+        });
     }
 
     private function getBlockedPeriods(User $master, Carbon $date): Collection
