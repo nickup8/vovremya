@@ -187,12 +187,27 @@ class SettingsController extends Controller
             'working_hours' => 'required|array|min:1|max:7',
             'working_hours.*.day_of_week' => 'required|integer|min:0|max:6',
             'working_hours.*.is_working' => 'required|boolean',
-            'working_hours.*.start_time' => 'nullable|string',
-            'working_hours.*.end_time' => 'nullable|string',
-            'working_hours.*.break_start_time' => 'nullable|string',
-            'working_hours.*.break_end_time' => 'nullable|string',
+            'working_hours.*.start_time' => ['nullable', 'string'],
+            'working_hours.*.end_time' => ['nullable', 'string'],
+            'working_hours.*.break_start_time' => ['nullable', 'string'],
+            'working_hours.*.break_end_time' => ['nullable', 'string'],
             'slot_interval' => 'required|integer|in:15,30,60',
         ]);
+
+        // Нормализация: пустые строки и артефакты масок → null
+        foreach ($validated['working_hours'] as &$hour) {
+            $timeFields = ['start_time', 'end_time', 'break_start_time', 'break_end_time'];
+            foreach ($timeFields as $field) {
+                $val = $hour[$field] ?? null;
+                if ($val === '' || $val === '--:--' || $val === '00:00' && ! empty(str_replace(':', '', $val))) {
+                    // оставляем 00:00 как валидное время (полночь), заменяем только мусор
+                }
+                if ($val === '' || $val === '--:--' || $val === '--' || $val === ':') {
+                    $hour[$field] = null;
+                }
+            }
+        }
+        unset($hour);
 
         $errors = [];
 
@@ -212,13 +227,13 @@ class SettingsController extends Controller
                 continue;
             }
 
-            if (empty($hour['start_time']) || empty($hour['end_time'])) {
+            $startTime = ! empty($hour['start_time']) ? $hour['start_time'] : null;
+            $endTime = ! empty($hour['end_time']) ? $hour['end_time'] : null;
+
+            if ($startTime === null || $endTime === null) {
                 $errors["working_hours.{$index}.start_time"] = 'Для рабочего дня укажите время начала и окончания.';
                 continue;
             }
-
-            $startTime = $hour['start_time'];
-            $endTime = $hour['end_time'];
 
             if (! preg_match('/^\d{2}:\d{2}$/', $startTime) || ! preg_match('/^\d{2}:\d{2}$/', $endTime)) {
                 $errors["working_hours.{$index}.start_time"] = 'Неверный формат времени. Используйте ЧЧ:ММ.';
@@ -230,17 +245,11 @@ class SettingsController extends Controller
                 continue;
             }
 
-            $hasBreak = ! empty($hour['break_start_time']) || ! empty($hour['break_end_time']);
+            $breakStart = ! empty($hour['break_start_time']) ? $hour['break_start_time'] : null;
+            $breakEnd = ! empty($hour['break_end_time']) ? $hour['break_end_time'] : null;
+            $hasBreak = ($breakStart !== null) && ($breakEnd !== null);
 
             if ($hasBreak) {
-                if (empty($hour['break_start_time']) || empty($hour['break_end_time'])) {
-                    $errors["working_hours.{$index}.break_start_time"] = 'Если указано время начала обеда, необходимо указать и время окончания.';
-                    continue;
-                }
-
-                $breakStart = $hour['break_start_time'];
-                $breakEnd = $hour['break_end_time'];
-
                 if (! preg_match('/^\d{2}:\d{2}$/', $breakStart) || ! preg_match('/^\d{2}:\d{2}$/', $breakEnd)) {
                     $errors["working_hours.{$index}.break_start_time"] = 'Неверный формат времени обеда.';
                     continue;
@@ -268,8 +277,8 @@ class SettingsController extends Controller
                     'is_working' => true,
                     'start_time' => $startTime,
                     'end_time' => $endTime,
-                    'break_start_time' => $hasBreak ? $hour['break_start_time'] : null,
-                    'break_end_time' => $hasBreak ? $hour['break_end_time'] : null,
+                    'break_start_time' => $breakStart,
+                    'break_end_time' => $breakEnd,
                 ]
             );
         }
