@@ -2,12 +2,13 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\Client;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\Billing\TariffLimitService;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
-use Illuminate\Support\Carbon;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class BookingWidgetController extends Controller
@@ -25,7 +26,7 @@ class BookingWidgetController extends Controller
             ->load('services');
 
         $selectedServiceId = $request->query('service_id');
-        $selectedDate = $request->query('date', Carbon::today()->toDateString());
+        $selectedDate = $request->query('date');
 
         $availableSlots = $this->bookingService->getAvailableSlots(
             $master,
@@ -60,6 +61,8 @@ class BookingWidgetController extends Controller
             ->firstOrFail();
 
         $validated = $request->validate([
+            'client_name' => 'required|string|max:255',
+            'client_phone' => 'required|string|max:50',
             'service_id' => 'required|exists:services,id',
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
@@ -83,8 +86,27 @@ class BookingWidgetController extends Controller
 
         if (! $this->tariffLimitService->canCreateAppointment($master)) {
             return back()->withErrors([
-                'time' => __('notifications.tariff_limit_reached'),
+                'time' => 'Достигнут лимит записей для вашего тарифа.',
             ])->withInput();
+        }
+
+        // Найти или создать клиента
+        $client = Client::where('user_id', $master->id)
+            ->where('phone', $validated['client_phone'])
+            ->first();
+
+        if (! $client) {
+            $client = Client::create([
+                'user_id' => $master->id,
+                'name' => $validated['client_name'],
+                'phone' => $validated['client_phone'],
+                'auth_token' => Client::generateAuthToken(),
+            ]);
+        } else {
+            // Обновить имя, если изменилось
+            if ($client->name !== $validated['client_name']) {
+                $client->update(['name' => $validated['client_name']]);
+            }
         }
 
         $appointment = $this->bookingService->createAppointment(
@@ -93,6 +115,7 @@ class BookingWidgetController extends Controller
             $validated['date'],
             $validated['time'],
             $validated['provider'],
+            $client->id,
         );
 
         session([

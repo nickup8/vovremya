@@ -295,9 +295,19 @@ function StepCalendar({
 /* ═══════════════ Step 3 — Provider Selection ═══════════════ */
 
 function StepProvider({
+    errors,
+    name,
+    phone,
+    onNameChange,
+    onPhoneChange,
     onSubmit,
     isSubmitting,
 }: {
+    errors: Record<string, string>;
+    name: string;
+    phone: string;
+    onNameChange: (v: string) => void;
+    onPhoneChange: (v: string) => void;
     onSubmit: (provider: 'telegram' | 'max') => void;
     isSubmitting: boolean;
 }) {
@@ -305,38 +315,91 @@ function StepProvider({
         <div className="flex-1 overflow-y-auto pb-28">
             <div className="px-5 pt-6 pb-4">
                 <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-                    Выберите мессенджер
+                    Ваши данные
                 </h2>
                 <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                    Бот подтвердит запись и запросит ваш номер
+                    Заполните информацию и выберите мессенджер
                 </p>
             </div>
 
-            <div className="space-y-3 px-5">
-                <button
-                    onClick={() => onSubmit('telegram')}
-                    disabled={isSubmitting}
-                    className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
-                >
-                    {isSubmitting ? (
-                        <Loader2 className="size-5 animate-spin" />
-                    ) : (
-                        <MessageCircle className="size-5" />
+            <div className="space-y-4 px-5">
+                <div>
+                    <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
+                        Ваше имя
+                    </label>
+                    <input
+                        type="text"
+                        value={name}
+                        onChange={(e) => onNameChange(e.target.value)}
+                        placeholder="Иван"
+                        className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
+                            errors.name
+                                ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
+                                : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
+                        }`}
+                    />
+                    {errors.name && (
+                        <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.name}</p>
                     )}
-                    {isSubmitting ? 'Отправка...' : 'Записаться через Telegram'}
-                </button>
-                <button
-                    onClick={() => onSubmit('max')}
-                    disabled={isSubmitting}
-                    className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-stone-200 bg-white py-5 text-base font-semibold text-stone-900 transition-all hover:scale-[1.02] hover:bg-stone-50 disabled:opacity-50 disabled:hover:scale-100 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-50 dark:hover:bg-stone-800"
-                >
-                    {isSubmitting ? (
-                        <Loader2 className="size-5 animate-spin" />
-                    ) : (
-                        <Smartphone className="size-5" />
+                </div>
+
+                <div>
+                    <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
+                        Телефон
+                    </label>
+                    <input
+                        type="tel"
+                        value={phone}
+                        onChange={(e) => onPhoneChange(e.target.value)}
+                        placeholder="+7 (999) 123-45-67"
+                        className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
+                            errors.phone
+                                ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
+                                : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
+                        }`}
+                    />
+                    {errors.phone && (
+                        <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.phone}</p>
                     )}
-                    {isSubmitting ? 'Отправка...' : 'Записаться через Max'}
-                </button>
+                </div>
+
+                {errors.time && (
+                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800/50 dark:bg-red-900/20">
+                        <p className="text-sm text-red-600 dark:text-red-400">{errors.time}</p>
+                    </div>
+                )}
+
+                <div className="pt-2">
+                    <p className="mb-3 text-xs font-medium uppercase tracking-wider text-stone-400 dark:text-stone-500">
+                        Мессенджер
+                    </p>
+                    <div className="space-y-3">
+                        <button
+                            onClick={() => onSubmit('telegram')}
+                            disabled={isSubmitting || !name.trim() || !phone.trim()}
+                            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
+                        >
+                            {isSubmitting ? (
+                                <Loader2 className="size-5 animate-spin" />
+                            ) : (
+                                <MessageCircle className="size-5" />
+                            )}
+                            {isSubmitting ? 'Отправка...' : 'Записаться через Telegram'}
+                        </button>
+                        <button
+                            onClick={() => onSubmit('max')}
+                            disabled={isSubmitting || !name.trim() || !phone.trim()}
+                            className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-stone-200 bg-white py-5 text-base font-semibold text-stone-900 transition-all hover:scale-[1.02] hover:bg-stone-50 disabled:opacity-50 disabled:hover:scale-100 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-50 dark:hover:bg-stone-800"
+                        >
+                            {isSubmitting ? (
+                                <Loader2 className="size-5 animate-spin" />
+                            ) : (
+                                <Smartphone className="size-5" />
+                            )}
+                            {isSubmitting ? 'Отправка...' : 'Записаться через Max'}
+                        </button>
+                    </div>
+                </div>
             </div>
         </div>
     );
@@ -401,6 +464,8 @@ function formatDateKey(d: Date): string {
 
 export default function Widget() {
     const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId } = usePage<PageProps>().props;
+    const pageProps = usePage<{ errors: Record<string, string> }>().props;
+    const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
 
     const [step, setStep] = useState<Step>(1);
     const [selectedService, setSelectedService] = useState<Service | null>(() =>
@@ -410,7 +475,15 @@ export default function Widget() {
         initialDate ? new Date(initialDate + 'T00:00:00') : null
     );
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
+    const [clientName, setClientName] = useState('');
+    const [clientPhone, setClientPhone] = useState('');
     const [isSubmitting, setIsSubmitting] = useState(false);
+    const [errors, setErrors] = useState<Record<string, string>>({});
+
+    // Синхронизация серверных ошибок
+    if (serverErrors && Object.keys(serverErrors).length > 0 && JSON.stringify(serverErrors) !== JSON.stringify(errors)) {
+        setErrors(serverErrors);
+    }
 
     const canNext =
         (step === 1 && selectedService !== null) ||
@@ -452,14 +525,19 @@ export default function Widget() {
         if (!selectedService || !selectedDate || !selectedTime || isSubmitting) return;
 
         setIsSubmitting(true);
+        setErrors({});
 
         router.post(`/book/${master.master_slug}`, {
+            client_name: clientName.trim(),
+            client_phone: clientPhone.trim(),
             service_id: selectedService.id,
             date: formatDateKey(selectedDate),
             time: selectedTime,
             provider,
         }, {
-            onError: () => {
+            preserveState: true,
+            onError: (errs) => {
+                setErrors(errs);
                 setIsSubmitting(false);
             },
             onFinish: () => {
@@ -519,6 +597,11 @@ export default function Widget() {
                 )}
                 {step === 3 && (
                     <StepProvider
+                        errors={errors}
+                        name={clientName}
+                        phone={clientPhone}
+                        onNameChange={setClientName}
+                        onPhoneChange={setClientPhone}
                         onSubmit={handleSubmit}
                         isSubmitting={isSubmitting}
                     />

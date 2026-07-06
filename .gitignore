@@ -27,6 +27,7 @@ DESTRUCTION_REPORT.md
 FULL_AUDIT_REPORT.md
 SETTINGS_RECON_REPORT.md
 TIMEZONE_AUDIT_REPORT.md
+audit_report_v2.md
 /auth.json
 /.fleet
 /.idea
