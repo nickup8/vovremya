@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     ArrowRight, ArrowLeft, Clock,
@@ -8,6 +8,25 @@ import {
 import { Button } from '@/components/ui/button';
 import PublicLayout from '@/layouts/PublicLayout';
 import { getInitials } from '@/lib/utils';
+
+/* ═══════════════ Telegram WebApp Types ═══════════════ */
+
+interface TelegramUser {
+    id: number;
+    first_name: string;
+    last_name?: string;
+    phone_number?: string;
+}
+
+interface TelegramWebApp {
+    initDataUnsafe?: { user?: TelegramUser };
+}
+
+declare global {
+    interface Window {
+        Telegram?: { WebApp?: TelegramWebApp };
+    }
+}
 
 Widget.layout = (page: React.ReactNode) => <PublicLayout children={page} />;
 
@@ -298,6 +317,7 @@ function StepProvider({
     errors,
     name,
     phone,
+    isAutoFilled,
     onNameChange,
     onPhoneChange,
     onSubmit,
@@ -306,6 +326,7 @@ function StepProvider({
     errors: Record<string, string>;
     name: string;
     phone: string;
+    isAutoFilled: boolean;
     onNameChange: (v: string) => void;
     onPhoneChange: (v: string) => void;
     onSubmit: (provider: 'telegram' | 'max') => void;
@@ -315,53 +336,68 @@ function StepProvider({
         <div className="flex-1 overflow-y-auto pb-28">
             <div className="px-5 pt-6 pb-4">
                 <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-                    Ваши данные
+                    Подтверждение
                 </h2>
                 <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                    Заполните информацию и выберите мессенджер
+                    {isAutoFilled ? 'Проверьте данные и выберите мессенджер' : 'Заполните информацию и выберите мессенджер'}
                 </p>
             </div>
 
             <div className="space-y-4 px-5">
-                <div>
-                    <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
-                        Ваше имя
-                    </label>
-                    <input
-                        type="text"
-                        value={name}
-                        onChange={(e) => onNameChange(e.target.value)}
-                        placeholder="Иван"
-                        className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
-                            errors.name
-                                ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
-                                : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
-                        }`}
-                    />
-                    {errors.name && (
-                        <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.name}</p>
-                    )}
-                </div>
+                {isAutoFilled ? (
+                    <div className="space-y-3 rounded-2xl border border-stone-200/60 bg-white/70 p-4 dark:border-stone-700/40 dark:bg-stone-900/50">
+                        <div>
+                            <p className="text-xs font-medium text-stone-400 dark:text-stone-500">Имя</p>
+                            <p className="text-sm font-medium text-stone-900 dark:text-stone-50">{name || '—'}</p>
+                        </div>
+                        <div>
+                            <p className="text-xs font-medium text-stone-400 dark:text-stone-500">Телефон</p>
+                            <p className="text-sm font-medium text-stone-900 dark:text-stone-50">{phone || '—'}</p>
+                        </div>
+                    </div>
+                ) : (
+                    <>
+                        <div>
+                            <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
+                                Ваше имя
+                            </label>
+                            <input
+                                type="text"
+                                value={name}
+                                onChange={(e) => onNameChange(e.target.value)}
+                                placeholder="Иван"
+                                className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
+                                    errors.name
+                                        ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
+                                        : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
+                                }`}
+                            />
+                            {errors.name && (
+                                <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.name}</p>
+                            )}
+                        </div>
 
-                <div>
-                    <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
-                        Телефон
-                    </label>
-                    <input
-                        type="tel"
-                        value={phone}
-                        onChange={(e) => onPhoneChange(e.target.value)}
-                        placeholder="+7 (999) 123-45-67"
-                        className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
-                            errors.phone
-                                ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
-                                : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
-                        }`}
-                    />
-                    {errors.phone && (
-                        <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.phone}</p>
-                    )}
-                </div>
+                        <div>
+                            <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
+                                Телефон
+                            </label>
+                            <input
+                                type="tel"
+                                value={phone}
+                                onChange={(e) => onPhoneChange(e.target.value)}
+                                placeholder="+7 (999) 123-45-67"
+                                className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
+                                    errors.phone
+                                        ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
+                                        : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
+                                }`}
+                            />
+                            {errors.phone && (
+                                <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.phone}</p>
+                            )}
+                        </div>
+                    </>
+                )}
 
                 {errors.time && (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800/50 dark:bg-red-900/20">
@@ -477,6 +513,7 @@ export default function Widget() {
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
     const [clientName, setClientName] = useState('');
     const [clientPhone, setClientPhone] = useState('');
+    const [isAutoFilled, setIsAutoFilled] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -484,6 +521,23 @@ export default function Widget() {
     if (serverErrors && Object.keys(serverErrors).length > 0 && JSON.stringify(serverErrors) !== JSON.stringify(errors)) {
         setErrors(serverErrors);
     }
+
+    // Автозаполнение данных клиента из Telegram WebApp или mock-данные для локальной разработки
+    useEffect(() => {
+        const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
+
+        if (tgUser) {
+            const fullName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ');
+            setClientName(fullName);
+            setClientPhone(tgUser.phone_number ?? '');
+            setIsAutoFilled(true);
+        } else {
+            // Mock-данные для локальной разработки (вне Telegram)
+            setClientName('Тестовый Клиент из ТГ');
+            setClientPhone('+79990001122');
+            setIsAutoFilled(true);
+        }
+    }, []);
 
     const canNext =
         (step === 1 && selectedService !== null) ||
@@ -600,6 +654,7 @@ export default function Widget() {
                         errors={errors}
                         name={clientName}
                         phone={clientPhone}
+                        isAutoFilled={isAutoFilled}
                         onNameChange={setClientName}
                         onPhoneChange={setClientPhone}
                         onSubmit={handleSubmit}
