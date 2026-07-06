@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Billing\TariffLimitService;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
 use Inertia\Inertia;
 
@@ -26,7 +27,7 @@ class BookingWidgetController extends Controller
             ->load('services');
 
         $selectedServiceId = $request->query('service_id');
-        $selectedDate = $request->query('date');
+        $selectedDate = $request->query('date') ?? Carbon::today()->toDateString();
 
         $availableSlots = $this->bookingService->getAvailableSlots(
             $master,
