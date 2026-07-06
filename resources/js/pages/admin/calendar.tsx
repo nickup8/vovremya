@@ -986,14 +986,22 @@ export default function CalendarPage() {
                                     <div className="flex min-w-[980px]">
                                         {/* Time Column — sticky left */}
                                         <div className="sticky left-0 z-20 w-[60px] min-w-[60px] border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                                            {gridHours.map((hour) => (
-                                                <div
-                                                    key={hour}
-                                                    className="flex h-20 items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
-                                                >
-                                                    {String(hour).padStart(2, '0')}:00
-                                                </div>
-                                            ))}
+                                            {gridHours.map((hour) => {
+                                                const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
+                                                const labels: React.ReactNode[] = [];
+                                                for (let m = 0; m < 60; m += slotInterval) {
+                                                    labels.push(
+                                                        <div
+                                                            key={`${hour}-${m}`}
+                                                            style={{ height: slotHeightPx }}
+                                                            className="flex items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
+                                                        >
+                                                            {m === 0 ? `${String(hour).padStart(2, '0')}:00` : ''}
+                                                        </div>,
+                                                    );
+                                                }
+                                                return labels;
+                                            })}
                                         </div>
 
                                         {/* Day Columns with Appointment Cards */}
@@ -1012,37 +1020,43 @@ export default function CalendarPage() {
                                                 const ghostHasCollision = isBookingDay && hoveredSlot && bookingModeService
                                                     ? hasCollision(dateKey, hoveredSlot.time, bookingModeService.duration_minutes, appointments)
                                                     : false;
+                                                const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
                                                 return (
                                                     <div
                                                         key={`col-${dayIdx}`}
                                                         className="relative border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
                                                     >
                                                         {gridHours.map((hour) => {
-                                                            const timeStr = `${String(hour).padStart(2, '0')}:00`;
-                                                            return (
-                                                                <div
-                                                                    key={hour}
-                                                                    className="h-20 border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
-                                                                    onMouseEnter={() => {
-                                                                        if (activeBookingClient && bookingModeServiceId) {
-                                                                            setHoveredSlot({ date: dateKey, time: timeStr });
-                                                                        }
-                                                                    }}
-                                                                    onMouseLeave={() => {
-                                                                        if (hoveredSlot?.date === dateKey && hoveredSlot?.time === timeStr) {
-                                                                            setHoveredSlot(null);
-                                                                        }
-                                                                    }}
-                                                                    onClick={() => {
-                                                                        if (activeBookingClient && bookingModeServiceId) {
-                                                                            if (hasCollision(dateKey, timeStr, bookingModeService?.duration_minutes ?? 60, appointments)) {
-                                                                                return;
+                                                            const slots: React.ReactNode[] = [];
+                                                            for (let m = 0; m < 60; m += slotInterval) {
+                                                                const timeStr = `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                                                                slots.push(
+                                                                    <div
+                                                                        key={`${hour}-${m}`}
+                                                                        style={{ height: slotHeightPx }}
+                                                                        className="border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                                        onMouseEnter={() => {
+                                                                            if (activeBookingClient && bookingModeServiceId) {
+                                                                                setHoveredSlot({ date: dateKey, time: timeStr });
                                                                             }
-                                                                        }
-                                                                        openNewAppointmentForDate(dateKey, timeStr);
-                                                                    }}
-                                                                />
-                                                            );
+                                                                        }}
+                                                                        onMouseLeave={() => {
+                                                                            if (hoveredSlot?.date === dateKey && hoveredSlot?.time === timeStr) {
+                                                                                setHoveredSlot(null);
+                                                                            }
+                                                                        }}
+                                                                        onClick={() => {
+                                                                            if (activeBookingClient && bookingModeServiceId) {
+                                                                                if (hasCollision(dateKey, timeStr, bookingModeService?.duration_minutes ?? 60, appointments)) {
+                                                                                    return;
+                                                                                }
+                                                                            }
+                                                                            openNewAppointmentForDate(dateKey, timeStr);
+                                                                        }}
+                                                                    />,
+                                                                );
+                                                            }
+                                                            return slots;
                                                         })}
                                                         {/* Ghost Appointment */}
                                                         {isBookingDay && ghostHeight > 0 && (
