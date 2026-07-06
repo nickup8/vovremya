@@ -9,7 +9,10 @@ import {
     Trash2,
     X,
     Clock,
+    Copy,
+    Check,
 } from 'lucide-react';
+import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
@@ -1063,6 +1066,7 @@ export default function SettingsPage() {
 
                                 {/* Fields Grid */}
                                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                    {/* Row 1: Имя / Название студии | Телефон */}
                                     <div>
                                         <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                             Имя / Название студии
@@ -1105,37 +1109,8 @@ export default function SettingsPage() {
                                             </p>
                                         )}
                                     </div>
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Slug профиля
-                                        </label>
-                                        <div className="flex items-center">
-                                            <span className="shrink-0 rounded-l-lg border border-r-0 border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
-                                                domain.com/a/
-                                            </span>
-                                            <Input
-                                                value={profileForm.data.master_slug}
-                                                onChange={(e) =>
-                                                    profileForm.setData(
-                                                        'master_slug',
-                                                        e.target.value
-                                                            .toLowerCase()
-                                                            .replace(
-                                                                /[^a-z0-9_-]/g,
-                                                                '',
-                                                            ),
-                                                    )
-                                                }
-                                                placeholder="nails_studio"
-                                                className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                            />
-                                        </div>
-                                        {profileForm.errors.master_slug && (
-                                            <p className="mt-1 text-xs text-red-500">
-                                                {profileForm.errors.master_slug}
-                                            </p>
-                                        )}
-                                    </div>
+
+                                    {/* Row 2: Telegram ID | ID профиля в Max */}
                                     <div>
                                         <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                             Telegram ID
@@ -1179,8 +1154,55 @@ export default function SettingsPage() {
                                         )}
                                     </div>
 
-                                    {/* Timezone */}
-                                    <div className="mt-4">
+                                    {/* Row 3: Slug профиля | Часовой пояс */}
+                                    <div>
+                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                            Slug профиля
+                                        </label>
+                                        <div className="flex items-center">
+                                            <span className="shrink-0 rounded-l-lg border border-r-0 border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                                                {typeof window !== 'undefined' ? window.location.origin : ''}/book/
+                                            </span>
+                                            <Input
+                                                value={profileForm.data.master_slug}
+                                                onChange={(e) =>
+                                                    profileForm.setData(
+                                                        'master_slug',
+                                                        e.target.value
+                                                            .toLowerCase()
+                                                            .replace(
+                                                                /[^a-z0-9_-]/g,
+                                                                '',
+                                                            ),
+                                                    )
+                                                }
+                                                placeholder="nails_studio"
+                                                className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
+                                            />
+                                            <Button
+                                                type="button"
+                                                variant="ghost"
+                                                size="icon"
+                                                className="ml-1 shrink-0"
+                                                onClick={() => {
+                                                    const slug = profileForm.data.master_slug;
+                                                    if (!slug) return;
+                                                    const url = `${window.location.origin}/book/${slug}`;
+                                                    navigator.clipboard.writeText(url).then(() => {
+                                                        toast.success('Ссылка скопирована');
+                                                    });
+                                                }}
+                                            >
+                                                <Copy className="size-4" />
+                                            </Button>
+                                        </div>
+                                        {profileForm.errors.master_slug && (
+                                            <p className="mt-1 text-xs text-red-500">
+                                                {profileForm.errors.master_slug}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div>
                                         <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                             Часовой пояс
                                         </label>
