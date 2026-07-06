@@ -906,6 +906,7 @@ export default function SettingsPage() {
     const [editingService, setEditingService] = useState<Service | null>(null);
     const [avatarImageSrc, setAvatarImageSrc] = useState('');
     const [avatarCropOpen, setAvatarCropOpen] = useState(false);
+    const [isCopied, setIsCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
     const VALID_TABS = ['profile', 'booking', 'notifications', 'services', 'schedule'] as const;
@@ -1189,11 +1190,17 @@ export default function SettingsPage() {
                                                     if (!slug) return;
                                                     const url = `${window.location.origin}/book/${slug}`;
                                                     navigator.clipboard.writeText(url).then(() => {
+                                                        setIsCopied(true);
                                                         toast.success('Ссылка скопирована');
+                                                        setTimeout(() => setIsCopied(false), 2000);
                                                     });
                                                 }}
                                             >
-                                                <Copy className="size-4" />
+                                                {isCopied ? (
+                                                    <Check className="size-4 text-emerald-500 dark:text-green-400" />
+                                                ) : (
+                                                    <Copy className="size-4 text-muted-foreground" />
+                                                )}
                                             </Button>
                                         </div>
                                         {profileForm.errors.master_slug && (
