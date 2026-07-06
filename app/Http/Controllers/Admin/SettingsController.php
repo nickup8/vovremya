@@ -183,6 +183,8 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
+        \Log::info('Working Hours Raw Payload:', $request->all());
+
         $validated = $request->validate([
             'working_hours' => 'required|array|min:1|max:7',
             'working_hours.*.day_of_week' => 'required|integer|min:0|max:6',
