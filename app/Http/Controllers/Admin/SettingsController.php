@@ -50,7 +50,7 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
-        $validated = $request->validate([
+        $allRules = [
             'name' => 'required|string|max:255',
             'phone' => 'required|string|max:20',
             'specialty' => 'nullable|string|max:255',
@@ -72,7 +72,16 @@ class SettingsController extends Controller
             'booking_flow_type' => ['nullable', Rule::in(['free_verification', 'prepayment_custom'])],
             'custom_prepayment_message' => ['nullable', 'string', 'max:1000'],
             'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([2, 3])],
-        ]);
+        ];
+
+        $sentFields = $request->only(array_keys($allRules));
+        $activeRules = array_intersect_key($allRules, $sentFields);
+
+        if (empty($activeRules)) {
+            return back()->with('error', 'Нет данных для обновления');
+        }
+
+        $validated = $request->validate($activeRules);
 
         $jsonFields = ['booking_flow_type', 'custom_prepayment_message', 'reminder_hours_before_final'];
         $settingsData = array_intersect_key($validated, array_flip($jsonFields));
