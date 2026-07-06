@@ -183,16 +183,14 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
-        \Log::info('Working Hours Raw Payload:', $request->all());
-
         $validated = $request->validate([
             'working_hours' => 'required|array|min:1|max:7',
             'working_hours.*.day_of_week' => 'required|integer|min:0|max:6',
             'working_hours.*.is_working' => 'required|boolean',
-            'working_hours.*.start_time' => ['nullable', 'string'],
-            'working_hours.*.end_time' => ['nullable', 'string'],
-            'working_hours.*.break_start_time' => ['nullable', 'string'],
-            'working_hours.*.break_end_time' => ['nullable', 'string'],
+            'working_hours.*.start_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'working_hours.*.end_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'working_hours.*.break_start_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'working_hours.*.break_end_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'slot_interval' => 'required|integer|in:15,30,60',
         ]);
 
@@ -222,8 +220,8 @@ class SettingsController extends Controller
                 continue;
             }
 
-            if (! preg_match('/^\d{2}:\d{2}$/', $startTime) || ! preg_match('/^\d{2}:\d{2}$/', $endTime)) {
-                $errors["working_hours.{$index}.start_time"] = 'Неверный формат времени. Используйте ЧЧ:ММ.';
+            if (! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $startTime) || ! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $endTime)) {
+                $errors["working_hours.{$index}.start_time"] = 'Неверный формат времени. Используйте ЧЧ:ММ или ЧЧ:ММ:СС.';
                 continue;
             }
 
@@ -237,7 +235,7 @@ class SettingsController extends Controller
             $hasBreak = ($breakStart !== null) && ($breakEnd !== null);
 
             if ($hasBreak) {
-                if (! preg_match('/^\d{2}:\d{2}$/', $breakStart) || ! preg_match('/^\d{2}:\d{2}$/', $breakEnd)) {
+                if (! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $breakStart) || ! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $breakEnd)) {
                     $errors["working_hours.{$index}.break_start_time"] = 'Неверный формат времени обеда.';
                     continue;
                 }
