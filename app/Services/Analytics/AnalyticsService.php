@@ -3,6 +3,7 @@
 namespace App\Services\Analytics;
 
 use App\Enums\AppointmentStatus;
+use App\Models\BlockedTime;
 use App\Models\WorkingHour;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -57,11 +58,18 @@ class AnalyticsService
         $end = Carbon::parse($endDate)->endOfDay();
 
         $workingHours = WorkingHour::where('user_id', $master->id)->get()->keyBy('day_of_week');
+        $hasAnySchedule = $workingHours->isNotEmpty();
+
+        $blockedTimes = BlockedTime::where('user_id', $master->id)
+            ->where('start_datetime', '<', $end->copy()->addDay())
+            ->where('end_datetime', '>', $start)
+            ->get();
 
         $availableMinutes = 0;
         $current = $start->copy();
 
         while ($current->lte($end)) {
+            $dayMinutes = 0;
             $wh = $workingHours->get($current->dayOfWeek);
 
             if ($wh && $wh->is_working && $wh->start_time && $wh->end_time) {
@@ -71,11 +79,28 @@ class AnalyticsService
                     $dayMinutes -= Carbon::parse($wh->break_start_time)->diffInMinutes(Carbon::parse($wh->break_end_time));
                 }
 
-                $availableMinutes += max($dayMinutes, 0);
-            } else {
-                $availableMinutes += 480;
+                $dayMinutes = max($dayMinutes, 0);
+
+                $dayStart = $current->copy()->startOfDay();
+                $dayEnd = $current->copy()->endOfDay();
+
+                $overlappingBlocked = $blockedTimes->filter(fn ($bt) =>
+                    $bt->start_datetime->lt($dayEnd) && $bt->end_datetime->gt($dayStart)
+                );
+
+                foreach ($overlappingBlocked as $bt) {
+                    $blockStart = max($bt->start_datetime->timestamp, $dayStart->timestamp);
+                    $blockEnd = min($bt->end_datetime->timestamp, $dayEnd->timestamp);
+                    $blockedMinutes = (int) round(($blockEnd - $blockStart) / 60);
+                    $dayMinutes -= $blockedMinutes;
+                }
+
+                $dayMinutes = max($dayMinutes, 0);
+            } elseif (! $hasAnySchedule) {
+                $dayMinutes = in_array($current->dayOfWeek, [1, 2, 3, 4, 5]) ? 480 : 0;
             }
 
+            $availableMinutes += $dayMinutes;
             $current->addDay();
         }
 
