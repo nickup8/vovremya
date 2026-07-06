@@ -131,6 +131,23 @@ function TrendBadge({ value, prevValue, format = 'percent' }: { value: number; p
     );
 }
 
+/* ═══════════════ Helpers ═══════════════ */
+
+/** Форматирует строку 'YYYY-MM-DD' в локальную дату без сдвига часового пояса */
+function safeFormatDate(dateStr: string): string {
+    if (!dateStr) return '';
+    const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+    return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
+}
+
+/** Преобразует Date в строку 'YYYY-MM-DD' в локальном часовом поясе (без UTC-сдвига) */
+function toLocalDateString(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 /* ═══════════════ Main Analytics Page ═══════════════ */
 
 export default function AnalyticsPage() {
@@ -224,19 +241,14 @@ export default function AnalyticsPage() {
                 return null;
         }
 
-        const toStr = (d: Date) => d.toISOString().slice(0, 10);
+        const toStr = (d: Date) => toLocalDateString(d);
         return { from: toStr(start), to: toStr(end) };
     }, [activePeriod, periodOffset]);
 
     const presetDateRange = useMemo(() => {
         if (!computedDates) return null;
 
-        const fmt = (d: string) => {
-            const date = new Date(d + 'T00:00:00');
-            return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
-        };
-
-        return `${fmt(computedDates.from)} — ${fmt(computedDates.to)}`;
+        return `${safeFormatDate(computedDates.from)} — ${safeFormatDate(computedDates.to)}`;
     }, [computedDates]);
 
     const handleOffsetChange = useCallback((delta: number) => {
@@ -279,7 +291,7 @@ export default function AnalyticsPage() {
                 return;
         }
 
-        const toStr = (d: Date) => d.toISOString().slice(0, 10);
+        const toStr = (d: Date) => toLocalDateString(d);
 
         router.get('/admin/analytics', {
             period: activePeriod,
