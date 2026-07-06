@@ -153,8 +153,15 @@ class AvailabilityService
         $utcStart = $date->copy()->startOfDay()->timezone('UTC');
         $utcEnd = $date->copy()->endOfDay()->timezone('UTC');
 
+        $blockingStatuses = [
+            AppointmentStatus::Booked,
+            AppointmentStatus::PendingPayment,
+            AppointmentStatus::Prepaid,
+            AppointmentStatus::Paid,
+        ];
+
         return collect(Appointment::where('master_id', $master->id)
-            ->whereIn('status', [AppointmentStatus::Booked])
+            ->whereIn('status', $blockingStatuses)
             ->whereBetween('start_time', [$utcStart, $utcEnd])
             ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
             ->with('service')
@@ -162,7 +169,7 @@ class AvailabilityService
             ->map(fn (Appointment $a) => [
                 'start' => $a->start_time->copy()->timezone($tz),
                 'end' => $a->start_time->copy()->timezone($tz)->addMinutes(
-                    $a->service ? $a->service->duration_minutes : 60
+                    $a->service->duration_minutes ?? 60
                 ),
             ]));
     }
