@@ -523,14 +523,30 @@ function WorkingHoursCard({
         );
     }
 
+    function sanitizeTime(val: unknown): string | null {
+        if (val == null) return null;
+        const s = String(val).trim();
+        if (s === '' || s === '--:--' || s === '--' || s === ':' || s === '_' || /^[\s\-_:]+$/.test(s)) return null;
+        return s;
+    }
+
     function handleSave() {
+        const cleaned = localHours.map((h) => {
+            const isOff = !h.is_working;
+            return {
+                ...h,
+                day_of_week: uiToCarbon(h.day_of_week),
+                start_time: isOff ? null : sanitizeTime(h.start_time),
+                end_time: isOff ? null : sanitizeTime(h.end_time),
+                break_start_time: isOff ? null : sanitizeTime(h.break_start_time),
+                break_end_time: isOff ? null : sanitizeTime(h.break_end_time),
+            };
+        });
+
         router.put(
             '/admin/working-hours',
             {
-                working_hours: localHours.map((h) => ({
-                    ...h,
-                    day_of_week: uiToCarbon(h.day_of_week),
-                })),
+                working_hours: cleaned,
                 slot_interval: slotInterval,
             },
             {

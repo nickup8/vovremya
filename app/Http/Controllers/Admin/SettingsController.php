@@ -183,25 +183,6 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
-        // Шаг 1: извлекаем сырые данные
-        $workingHours = $request->input('working_hours', []);
-
-        // Шаг 2: нормализуем артефакты масок → null ДО валидации
-        $timeFields = ['start_time', 'end_time', 'break_start_time', 'break_end_time'];
-        foreach ($workingHours as &$hour) {
-            foreach ($timeFields as $field) {
-                $val = $hour[$field] ?? null;
-                if ($val === '' || $val === '--:--' || $val === '--' || $val === ':') {
-                    $hour[$field] = null;
-                }
-            }
-        }
-        unset($hour);
-
-        // Шаг 3: вливаем очищенные данные обратно в Request
-        $request->merge(['working_hours' => $workingHours]);
-
-        // Шаг 4: валидация уже на чистых данных
         $validated = $request->validate([
             'working_hours' => 'required|array|min:1|max:7',
             'working_hours.*.day_of_week' => 'required|integer|min:0|max:6',
