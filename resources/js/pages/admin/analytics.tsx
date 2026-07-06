@@ -148,6 +148,47 @@ function toLocalDateString(d: Date): string {
     return `${y}-${m}-${day}`;
 }
 
+/** Вычисляет границы периода по его типу и смещению */
+function computePeriodDates(period: string, offset: number): { from: string; to: string } | null {
+    if (period === 'custom') return null;
+
+    const now = new Date();
+    let start: Date;
+    let end: Date;
+
+    switch (period) {
+        case 'day': {
+            start = new Date(now);
+            start.setDate(now.getDate() + offset);
+            end = new Date(start);
+            break;
+        }
+        case 'week': {
+            const day = now.getDay();
+            const diff = day === 0 ? 6 : day - 1;
+            start = new Date(now);
+            start.setDate(now.getDate() - diff + offset * 7);
+            end = new Date(start);
+            end.setDate(start.getDate() + 6);
+            break;
+        }
+        case 'month': {
+            start = new Date(now.getFullYear(), now.getMonth() + offset, 1);
+            end = new Date(now.getFullYear(), now.getMonth() + offset + 1, 0);
+            break;
+        }
+        case 'year': {
+            start = new Date(now.getFullYear() + offset, 0, 1);
+            end = new Date(now.getFullYear() + offset, 11, 31);
+            break;
+        }
+        default:
+            return null;
+    }
+
+    return { from: toLocalDateString(start), to: toLocalDateString(end) };
+}
+
 /* ═══════════════ Main Analytics Page ═══════════════ */
 
 export default function AnalyticsPage() {
@@ -183,7 +224,13 @@ export default function AnalyticsPage() {
 
     function handlePeriodChange(period: string) {
         setPeriodOffset(0);
-        router.get('/admin/analytics', { period }, {
+
+        const bounds = computePeriodDates(period, 0);
+
+        router.get('/admin/analytics', {
+            period,
+            ...(bounds ? { date_from: bounds.from, date_to: bounds.to } : {}),
+        }, {
             preserveState: true,
             preserveScroll: true,
             only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
@@ -205,44 +252,7 @@ export default function AnalyticsPage() {
     }
 
     const computedDates = useMemo(() => {
-        if (activePeriod === 'custom') return null;
-
-        const now = new Date();
-        let start: Date;
-        let end: Date;
-
-        switch (activePeriod) {
-            case 'day': {
-                start = new Date(now);
-                start.setDate(now.getDate() + periodOffset);
-                end = new Date(start);
-                break;
-            }
-            case 'week': {
-                const day = now.getDay();
-                const diff = day === 0 ? 6 : day - 1;
-                start = new Date(now);
-                start.setDate(now.getDate() - diff + periodOffset * 7);
-                end = new Date(start);
-                end.setDate(start.getDate() + 6);
-                break;
-            }
-            case 'month': {
-                start = new Date(now.getFullYear(), now.getMonth() + periodOffset, 1);
-                end = new Date(now.getFullYear(), now.getMonth() + periodOffset + 1, 0);
-                break;
-            }
-            case 'year': {
-                start = new Date(now.getFullYear() + periodOffset, 0, 1);
-                end = new Date(now.getFullYear() + periodOffset, 11, 31);
-                break;
-            }
-            default:
-                return null;
-        }
-
-        const toStr = (d: Date) => toLocalDateString(d);
-        return { from: toStr(start), to: toStr(end) };
+        return computePeriodDates(activePeriod, periodOffset);
     }, [activePeriod, periodOffset]);
 
     const presetDateRange = useMemo(() => {
@@ -257,46 +267,13 @@ export default function AnalyticsPage() {
 
         if (activePeriod === 'custom') return;
 
-        const now = new Date();
-        let start: Date;
-        let end: Date;
-
-        switch (activePeriod) {
-            case 'day': {
-                start = new Date(now);
-                start.setDate(now.getDate() + newOffset);
-                end = new Date(start);
-                break;
-            }
-            case 'week': {
-                const day = now.getDay();
-                const diff = day === 0 ? 6 : day - 1;
-                start = new Date(now);
-                start.setDate(now.getDate() - diff + newOffset * 7);
-                end = new Date(start);
-                end.setDate(start.getDate() + 6);
-                break;
-            }
-            case 'month': {
-                start = new Date(now.getFullYear(), now.getMonth() + newOffset, 1);
-                end = new Date(now.getFullYear(), now.getMonth() + newOffset + 1, 0);
-                break;
-            }
-            case 'year': {
-                start = new Date(now.getFullYear() + newOffset, 0, 1);
-                end = new Date(now.getFullYear() + newOffset, 11, 31);
-                break;
-            }
-            default:
-                return;
-        }
-
-        const toStr = (d: Date) => toLocalDateString(d);
+        const bounds = computePeriodDates(activePeriod, newOffset);
+        if (!bounds) return;
 
         router.get('/admin/analytics', {
             period: activePeriod,
-            date_from: toStr(start),
-            date_to: toStr(end),
+            date_from: bounds.from,
+            date_to: bounds.to,
         }, {
             preserveState: true,
             preserveScroll: true,
