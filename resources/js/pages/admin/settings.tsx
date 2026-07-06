@@ -550,16 +550,6 @@ function WorkingHoursCard({
                         </span>
                     )}
                 </div>
-                <Button
-                    type="button"
-                    size="sm"
-                    onClick={handleSave}
-                    disabled={!isDirty}
-                    className="bg-blue-600 text-white hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                    <Clock className="size-3.5" />
-                    Сохранить график
-                </Button>
             </div>
 
             {/* Slot Interval Selector */}
@@ -683,6 +673,26 @@ function WorkingHoursCard({
                         )}
                     </div>
                 ))}
+            </div>
+
+            <div className="mt-6 flex justify-end gap-2">
+                <Button
+                    type="button"
+                    variant="outline"
+                    className="rounded-lg"
+                    disabled={!isDirty}
+                >
+                    Отмена
+                </Button>
+                <Button
+                    type="button"
+                    onClick={handleSave}
+                    disabled={!isDirty}
+                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                    <Clock className="size-3.5" />
+                    Сохранить график
+                </Button>
             </div>
         </div>
     );
@@ -1014,7 +1024,7 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Profile ═══ */}
                             <TabsContent value="profile">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); profileForm.patch('/admin/settings', { preserveScroll: true }); }}
+                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true }); }}
                                 className="space-y-6"
                             >
                             {profileForm.recentlySuccessful && (
@@ -1456,7 +1466,7 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Notifications ═══ */}
                             <TabsContent value="notifications">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); profileForm.patch('/admin/settings', { preserveScroll: true }); }}
+                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true }); }}
                                 className="space-y-6"
                             >
                             {profileForm.recentlySuccessful && (
