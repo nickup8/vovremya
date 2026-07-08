@@ -1,4 +1,4 @@
-/* ═══════════════ Telegram WebApp & Login Widget Types ═══════════════ */
+/* ═══════════════ Telegram WebApp Types ═══════════════ */
 
 interface TelegramUser {
     id: number;
@@ -11,13 +11,8 @@ interface TelegramWebApp {
     initDataUnsafe?: { user?: TelegramUser };
 }
 
-interface TelegramLogin {
-    reload(): void;
-}
-
 interface Window {
     Telegram?: {
         WebApp?: TelegramWebApp;
-        Login?: TelegramLogin;
     };
 }

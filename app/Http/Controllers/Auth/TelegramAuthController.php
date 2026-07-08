@@ -4,13 +4,17 @@ namespace App\Http\Controllers\Auth;
 
 use App\Http\Controllers\Controller;
 use App\Models\User;
-use Illuminate\Http\RedirectResponse;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class TelegramAuthController extends Controller
 {
+    private const CACHE_PREFIX = 'tg_auth:';
+    private const TOKEN_TTL = 300; // 5 минут
+
     /**
      * Страница выбора способа входа.
      */
@@ -22,138 +26,83 @@ class TelegramAuthController extends Controller
     }
 
     /**
-     * Callback-обработчик Telegram Login Widget.
+     * Генерация токена авторизации для Deep Linking.
      *
-     * Telegram перенаправляет пользователя на data-auth-url с GET-параметрами:
-     *   id, first_name, last_name, username, photo_url, auth_date, hash
-     *
-     * Проверка подлинности: HMAC-SHA256 по схеме Telegram Bot API.
-     * См. https://core.telegram.org/widgets/login#checking-authorization
+     * Фронтенд запрашивает этот эндпоинт, получает токен,
+     * формирует ссылку https://t.me/BOT?start=auth_TOKEN
+     * и запускает поллинг checkAuthStatus().
      */
-    public function callback(Request $request): RedirectResponse
+    public function generateLoginToken(): JsonResponse
     {
-        // Все параметры, переданные виджетом
-        $id         = $request->query('id');
-        $firstName  = $request->query('first_name', '');
-        $lastName   = $request->query('last_name', '');
-        $username   = $request->query('username', '');
-        $photoUrl   = $request->query('photo_url', '');
-        $authDate   = $request->query('auth_date');
-        $hash       = $request->query('hash');
+        $token = 'auth_' . Str::uuid();
 
-        // 1. Проверяем обязательные поля
-        if (! $id || ! $authDate || ! $hash) {
-            Log::warning('Telegram auth callback: отсутствуют обязательные параметры', $request->query());
+        // Сохраняем в Cache со статусом pending
+        Cache::put(
+            self::CACHE_PREFIX . $token,
+            ['status' => 'pending'],
+            self::TOKEN_TTL,
+        );
 
-            return redirect()->route('auth.choose')
-                ->with('error', 'Авторизация через Telegram не удалась. Попробуйте снова.');
-        }
+        return response()->json(['token' => $token]);
+    }
 
-        // 2. Проверяем时效ность auth_date (макс. 5 минут)
-        if (time() - (int) $authDate > 300) {
-            Log::warning('Telegram auth callback: auth_date устарел', [
-                'auth_date' => $authDate,
-                'diff' => time() - (int) $authDate,
-            ]);
+    /**
+     * Проверка статуса токена (поллинг с фронтенда).
+     *
+     * Бот обновляет статус на 'authenticated' после получения контакта.
+     * Как только статус изменён — авторизуем пользователя и возвращаем success.
+     */
+    public function checkAuthStatus(string $token): JsonResponse
+    {
+        $cacheKey = self::CACHE_PREFIX . $token;
+        $data = Cache::get($cacheKey);
 
-            return redirect()->route('auth.choose')
-                ->with('error', 'Срок действия авторизации истёк. Попробуйте снова.');
-        }
-
-        // 3. Формируем строку данных для проверки (сортировка ключей алфавитно)
-        $dataCheckString = http_build_query([
-            'auth_date'  => $authDate,
-            'first_name' => $firstName,
-            'id'         => $id,
-            'last_name'  => $lastName,
-            'photo_url'  => $photoUrl,
-            'username'   => $username,
-        ], '', "\n", PHP_QUERY_RFC3986);
-
-        // 4. Вычисляем ожидаемый HMAC-SHA256
-        $botToken = config('services.telegram.bot_token');
-        $secretKey = hash('sha256', $botToken, true);
-        $expectedHash = hash_hmac('sha256', $dataCheckString, $secretKey);
-
-        // 5. Строгая проверка подписи (timing-safe)
-        if (! hash_equals($expectedHash, $hash)) {
-            Log::warning('Telegram auth callback: невалидная подпись', [
-                'id' => $id,
-                'ip' => $request->ip(),
-            ]);
-
-            return redirect()->route('auth.choose')
-                ->with('error', 'Подпись Telegram недействительна. Попробуйте снова.');
-        }
-
-        // 6. Подпись валидна — ищем или создаём пользователя
-        $telegramId = (string) $id;
-
-        $user = User::where('telegram_id', $telegramId)->first();
-
-        if (! $user) {
-            // Генерируем slug из имени пользователя
-            $baseName = trim($firstName . ' ' . $lastName);
-            if ($baseName === '') {
-                $baseName = $username !== '' ? '@'.$username : 'Мастер '.$telegramId;
-            }
-
-            $slug = \Illuminate\Support\Str::slug($baseName);
-            $originalSlug = $slug;
-
-            $counter = 1;
-            while (User::where('master_slug', $slug)->exists()) {
-                $slug = $originalSlug . '-' . $counter;
-                $counter++;
-            }
-
-            $user = User::create([
-                'name'         => $baseName,
-                'telegram_id'  => $telegramId,
-                'is_master'    => true,
-                'master_slug'  => $slug,
-                'specialty'    => null,
-                'address'      => null,
-                'avatar_url'   => $photoUrl ?: null,
-            ]);
-
-            Log::info('Telegram auth: создан новый мастер', [
-                'user_id'     => $user->id,
-                'telegram_id' => $telegramId,
-                'name'        => $baseName,
-            ]);
-        } else {
-            // Обновляем имя/аватар, если изменились
-            $fullName = trim($firstName . ' ' . $lastName);
-            $updates = [];
-
-            if ($fullName !== '' && $user->name !== $fullName) {
-                $updates['name'] = $fullName;
-            }
-            if ($photoUrl !== '' && $user->avatar_url !== $photoUrl) {
-                $updates['avatar_url'] = $photoUrl;
-            }
-
-            if (! empty($updates)) {
-                $user->update($updates);
-            }
-
-            Log::info('Telegram auth: вход существующего мастера', [
-                'user_id'     => $user->id,
-                'telegram_id' => $telegramId,
+        if (! $data) {
+            return response()->json([
+                'status' => 'expired',
+                'message' => 'Токен авторизации истёк. Попробуйте снова.',
             ]);
         }
 
-        // 7. Авторизуем и редиректим
-        auth()->login($user);
+        if ($data['status'] === 'pending') {
+            return response()->json(['status' => 'pending']);
+        }
 
-        return redirect()->route('admin.calendar');
+        if ($data['status'] === 'authenticated') {
+            // Токен одноразовый — удаляем
+            Cache::forget($cacheKey);
+
+            $userId = $data['user_id'] ?? null;
+            if (! $userId) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Ошибка авторизации. Попробуйте снова.',
+                ]);
+            }
+
+            $user = User::find($userId);
+            if (! $user) {
+                return response()->json([
+                    'status' => 'error',
+                    'message' => 'Пользователь не найден.',
+                ]);
+            }
+
+            auth()->login($user);
+
+            return response()->json(['status' => 'success']);
+        }
+
+        return response()->json([
+            'status' => 'error',
+            'message' => 'Неизвестный статус токена.',
+        ]);
     }
 
     /**
      * Выход пользователя.
      */
-    public function logout(Request $request): RedirectResponse
+    public function logout(Request $request)
     {
         auth()->logout();
 
