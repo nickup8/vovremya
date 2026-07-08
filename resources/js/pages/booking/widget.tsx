@@ -9,25 +9,6 @@ import { Button } from '@/components/ui/button';
 import PublicLayout from '@/layouts/PublicLayout';
 import { getInitials } from '@/lib/utils';
 
-/* ═══════════════ Telegram WebApp Types ═══════════════ */
-
-interface TelegramUser {
-    id: number;
-    first_name: string;
-    last_name?: string;
-    phone_number?: string;
-}
-
-interface TelegramWebApp {
-    initDataUnsafe?: { user?: TelegramUser };
-}
-
-declare global {
-    interface Window {
-        Telegram?: { WebApp?: TelegramWebApp };
-    }
-}
-
 Widget.layout = (page: React.ReactNode) => <PublicLayout children={page} />;
 
 /* ═══════════════ Types ═══════════════ */

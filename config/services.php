@@ -38,6 +38,7 @@ return [
     'telegram' => [
         'bot_token' => env('TELEGRAM_BOT_TOKEN'),
         'secret_token' => env('TELEGRAM_SECRET_TOKEN'),
+        'bot_name' => env('TELEGRAM_BOT_NAME'),
     ],
 
     'max' => [

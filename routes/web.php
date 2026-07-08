@@ -22,7 +22,7 @@ Route::inertia('/', 'welcome')->name('home');
 
 Route::get('/login', fn () => redirect()->route('auth.choose'))->name('login');
 Route::get('/auth/login', [TelegramAuthController::class, 'showChoose'])->name('auth.choose');
-Route::get('/auth/provider/{provider}', [TelegramAuthController::class, 'loginWithProvider'])->name('auth.provider');
+Route::get('/auth/telegram/callback', [TelegramAuthController::class, 'callback'])->name('auth.telegram.callback');
 Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout');
 
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
