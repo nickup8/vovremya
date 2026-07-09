@@ -31,7 +31,24 @@ Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middle
 Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name('booking.status');
 
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->middleware('throttle:60,1')->name('webhooks.telegram');
+Route::post('/webhooks/telegram/bypass', [WebhookController::class, 'handleBypass'])->middleware('throttle:60,1')->name('webhooks.telegram.bypass');
 Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->middleware('throttle:60,1')->name('webhooks.max');
+
+// Временный роут для принудительной перерегистрации вебхука (только dev)
+if (app()->environment('local')) {
+    Route::get('/dev/set-webhook', function () {
+        $bot = \DefStudio\Telegraph\Models\TelegraphBot::first();
+
+        if (! $bot) {
+            return 'Бот не найден в базе.';
+        }
+
+        $url = config('app.url') . '/webhooks/telegram/bypass';
+        $bot->registerWebhook()->url($url)->send();
+
+        return 'Webhook forced to: ' . $url;
+    });
+}
 
 Route::get('/client/auth/{token}', [ClientAuthController::class, 'loginByToken'])->name('client.login');
 Route::post('/client/logout', [ClientAuthController::class, 'logout'])->name('client.logout');

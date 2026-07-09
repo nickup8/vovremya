@@ -12,6 +12,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use DefStudio\Telegraph\Models\TelegraphBot;
 
 class WebhookController extends Controller
 {
@@ -53,6 +54,25 @@ class WebhookController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Кастомный эндпоинт для обхода Route Model Binding пакета Telegraph.
+     * Ищет бота вручную и делегирует обработку TelegramWebhookHandler.
+     */
+    public function handleBypass(Request $request)
+    {
+        Log::info('Bypass Webhook:', $request->all());
+
+        $bot = TelegraphBot::first();
+
+        if (! $bot) {
+            return response('Bot not found', 404);
+        }
+
+        app(\App\Webhooks\TelegramWebhookHandler::class)->handle($request, $bot);
+
+        return response('OK', 200);
     }
 
     public function handleMax(Request $request): JsonResponse
