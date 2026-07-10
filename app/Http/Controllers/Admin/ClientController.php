@@ -73,6 +73,7 @@ class ClientController extends Controller
         $master->clients()->create([
             'name' => $validated['name'],
             'phone' => $validated['phone'],
+            'notes' => $validated['notes'] ?? null,
         ]);
 
         return back()->with('success', 'Клиент добавлен');

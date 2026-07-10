@@ -296,7 +296,7 @@ class SettingsController extends Controller
         $validated = $request->validate([
             'start_datetime' => 'required|date',
             'end_datetime' => 'required|date|after:start_datetime',
-            'reason' => 'required|string|max:255',
+            'reason' => ['required', Rule::in(array_column(\App\Enums\BlockedTimeReason::cases(), 'value'))],
         ]);
 
         $user->blockedTimes()->create($validated);

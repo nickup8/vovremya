@@ -21,6 +21,7 @@ class Client extends Model
         'name',
         'auth_token',
         'is_blocked',
+        'notes',
     ];
 
     protected function casts(): array

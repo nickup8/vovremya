@@ -62,8 +62,8 @@ export default function Status({ appointment }: PageProps) {
     const service = safeAppointment.service ?? { id: 0, title: '' };
     const master = safeAppointment.master ?? { id: 0, name: '', specialty: null };
 
-    const isPending = safeAppointment.status === AppointmentStatus.PendingClient;
-    const isConfirmed = safeAppointment.status === AppointmentStatus.Confirmed;
+    const isPending = safeAppointment.status === AppointmentStatus.Booked || safeAppointment.status === AppointmentStatus.PendingPayment;
+    const isConfirmed = safeAppointment.status === AppointmentStatus.Prepaid || safeAppointment.status === AppointmentStatus.Paid;
 
     return (
         <>

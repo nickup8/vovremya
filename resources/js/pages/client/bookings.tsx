@@ -33,17 +33,19 @@ interface PageProps {
 /* ═══════════════ Styles ═══════════════ */
 
 const STATUS_STYLES: Record<AppointmentStatus, string> = {
-    [AppointmentStatus.PendingClient]: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
-    [AppointmentStatus.Confirmed]: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
-    [AppointmentStatus.Completed]: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
+    [AppointmentStatus.Booked]: 'bg-amber-50 text-amber-700 dark:bg-amber-950/40 dark:text-amber-300',
+    [AppointmentStatus.PendingPayment]: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
+    [AppointmentStatus.Prepaid]: 'bg-sky-50 text-sky-700 dark:bg-sky-950/40 dark:text-sky-300',
+    [AppointmentStatus.Paid]: 'bg-emerald-50 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-300',
     [AppointmentStatus.NoShow]: 'bg-rose-50 text-rose-700 dark:bg-rose-950/40 dark:text-rose-300',
     [AppointmentStatus.Cancelled]: 'bg-stone-100 text-stone-500 dark:bg-stone-800 dark:text-stone-400',
 };
 
 const STATUS_LABELS: Record<AppointmentStatus, string> = {
-    [AppointmentStatus.PendingClient]: 'Ожидает подтверждения',
-    [AppointmentStatus.Confirmed]: 'Подтверждён',
-    [AppointmentStatus.Completed]: 'Завершён',
+    [AppointmentStatus.Booked]: 'Записан',
+    [AppointmentStatus.PendingPayment]: 'Ожидает оплаты',
+    [AppointmentStatus.Prepaid]: 'Предоплата получена',
+    [AppointmentStatus.Paid]: 'Оплачен',
     [AppointmentStatus.NoShow]: 'Не пришёл',
     [AppointmentStatus.Cancelled]: 'Отменён',
 };
@@ -64,11 +66,19 @@ export default function Bookings() {
     const [isProcessing, setIsProcessing] = useState(false);
 
     const upcoming = useMemo(
-        () => initialAppointments.filter((v) => v.status === AppointmentStatus.PendingClient || v.status === AppointmentStatus.Confirmed),
+        () => initialAppointments.filter((v) =>
+            v.status === AppointmentStatus.Booked
+            || v.status === AppointmentStatus.PendingPayment
+            || v.status === AppointmentStatus.Prepaid
+        ),
         [initialAppointments],
     );
     const archive = useMemo(
-        () => initialAppointments.filter((v) => v.status === AppointmentStatus.Completed || v.status === AppointmentStatus.Cancelled),
+        () => initialAppointments.filter((v) =>
+            v.status === AppointmentStatus.Paid
+            || v.status === AppointmentStatus.NoShow
+            || v.status === AppointmentStatus.Cancelled
+        ),
         [initialAppointments],
     );
 
