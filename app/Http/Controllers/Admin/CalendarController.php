@@ -113,6 +113,11 @@ class CalendarController extends Controller
 
         $service = Service::findOrFail($validated['service_id']);
 
+        // Проверка принадлежности услуги текущему мастеру (защита от IDOR)
+        if ($service->user_id !== $master->id) {
+            abort(403, 'У вас нет прав на использование этой услуги.');
+        }
+
         $result = $this->bookingService->createManualAppointment(
             $master,
             $service,

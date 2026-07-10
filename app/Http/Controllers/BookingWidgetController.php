@@ -72,6 +72,11 @@ class BookingWidgetController extends Controller
 
         $service = Service::findOrFail($validated['service_id']);
 
+        // Проверка принадлежности услуги мастеру (защита от IDOR)
+        if ($service->user_id !== $master->id) {
+            abort(404, 'Услуга не найдена или не принадлежит данному мастеру.');
+        }
+
         $isAvailable = $this->bookingService->validateSlot(
             $master,
             $service,
