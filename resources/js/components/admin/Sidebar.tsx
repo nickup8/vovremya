@@ -66,6 +66,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                     <RefreshCw className="size-4 shrink-0 text-slate-400 dark:text-zinc-400" />
                     <span>Режим клиента</span>
                 </button>
+                <div className="mt-3 text-center text-[10px] text-slate-600 dark:text-zinc-600">
+                    v{props.appVersion || '1.0.0'}
+                </div>
             </div>
         </div>
     );
