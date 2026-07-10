@@ -97,6 +97,9 @@ class BookingService
                 ->where('master_id', $master->id)
                 ->whereIn('status', [
                     AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                    AppointmentStatus::Prepaid,
+                    AppointmentStatus::Paid,
                 ])
                 ->whereDate('start_time', $startDateTime->toDateString())
                 ->lockForUpdate()
