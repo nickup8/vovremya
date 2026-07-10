@@ -23,7 +23,7 @@ Route::inertia('/', 'welcome')->name('home');
 Route::get('/login', fn () => redirect()->route('auth.choose'))->name('login');
 Route::get('/auth/login', [TelegramAuthController::class, 'showChoose'])->name('auth.choose');
 Route::post('/auth/telegram/token', [TelegramAuthController::class, 'generateLoginToken'])->name('auth.telegram.token');
-Route::get('/auth/telegram/check/{token}', [TelegramAuthController::class, 'checkAuthStatus'])->name('auth.telegram.check');
+Route::get('/auth/telegram/check/{token}', [TelegramAuthController::class, 'checkAuthStatus'])->middleware('throttle:30,1')->name('auth.telegram.check');
 Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout');
 
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');

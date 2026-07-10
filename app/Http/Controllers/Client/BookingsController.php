@@ -2,6 +2,8 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Enums\AppointmentStatus;
+use App\Exceptions\InvalidStatusTransitionException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Services\Booking\BookingService;
@@ -50,8 +52,18 @@ class BookingsController extends Controller
     {
         $client = Auth::guard('client')->user();
 
-        if ($client && $appointment->client_id === $client->id) {
+        if (! $client || $appointment->client_id !== $client->id) {
+            return back();
+        }
+
+        if ($appointment->status === AppointmentStatus::Cancelled) {
+            return back();
+        }
+
+        try {
             $this->bookingService->cancel($appointment);
+        } catch (InvalidStatusTransitionException) {
+            return back()->withErrors(['error' => 'Невозможно отменить данную запись']);
         }
 
         return back();

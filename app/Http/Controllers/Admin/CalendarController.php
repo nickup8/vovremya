@@ -102,7 +102,7 @@ class CalendarController extends Controller
         $validated = $request->validate([
             'client_id' => 'required|exists:clients,id',
             'service_id' => 'required|exists:services,id',
-            'date' => 'required|date_format:Y-m-d',
+            'date' => 'required|date_format:Y-m-d|after_or_equal:today',
             'time' => 'required|date_format:H:i',
             'ignore_warnings' => 'sometimes|boolean',
             'confirm_outside_hours' => 'sometimes|boolean',
