@@ -487,6 +487,7 @@ export default function CalendarPage() {
     const [rescheduleTime, setRescheduleTime] = useState('');
     const [bookingModeServiceId, setBookingModeServiceId] = useState<string>('');
     const [hoveredSlot, setHoveredSlot] = useState<{ date: string; time: string } | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const newAppointmentForm = useForm({
         client_id: '',
@@ -584,7 +585,8 @@ export default function CalendarPage() {
     }
 
     function updateStatus(status: AppointmentStatus) {
-        if (!selected) return;
+        if (!selected || isProcessing) return;
+        setIsProcessing(true);
         router.patch(`/admin/appointments/${selected.id}/status`, { status }, {
             preserveScroll: true,
             only: ['appointments'],
@@ -594,6 +596,7 @@ export default function CalendarPage() {
                 }
             },
             onFinish: () => {
+                setIsProcessing(false);
                 setSheetOpen(false);
                 setSelected(null);
             },
@@ -601,7 +604,8 @@ export default function CalendarPage() {
     }
 
     function deleteAppointment() {
-        if (!selected) return;
+        if (!selected || isProcessing) return;
+        setIsProcessing(true);
         router.patch(`/admin/appointments/${selected.id}/status`, { status: AppointmentStatus.Cancelled }, {
             preserveScroll: true,
             only: ['appointments'],
@@ -611,6 +615,7 @@ export default function CalendarPage() {
                 }
             },
             onFinish: () => {
+                setIsProcessing(false);
                 setSheetOpen(false);
                 setSelected(null);
             },
@@ -1178,6 +1183,7 @@ export default function CalendarPage() {
                                     {selected.status !== AppointmentStatus.Paid && selected.status !== AppointmentStatus.Cancelled && (
                                         <Button
                                             onClick={() => updateStatus(AppointmentStatus.Paid)}
+                                            disabled={isProcessing}
                                             className="w-full justify-start rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
                                         >
                                             <CheckCircle2 className="size-4" />
@@ -1187,6 +1193,7 @@ export default function CalendarPage() {
                                     {selected.status !== AppointmentStatus.NoShow && selected.status !== AppointmentStatus.Cancelled && (
                                         <Button
                                             onClick={() => updateStatus(AppointmentStatus.NoShow)}
+                                            disabled={isProcessing}
                                             variant="outline"
                                             className="w-full justify-start rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
                                         >
@@ -1198,6 +1205,7 @@ export default function CalendarPage() {
                                         <>
                                             <Button
                                                 onClick={openReschedule}
+                                                disabled={isProcessing}
                                                 variant="outline"
                                                 className="w-full justify-start rounded-lg"
                                             >
@@ -1206,6 +1214,7 @@ export default function CalendarPage() {
                                             </Button>
                                             <Button
                                                 onClick={deleteAppointment}
+                                                disabled={isProcessing}
                                                 variant="outline"
                                                 className="w-full justify-start rounded-lg border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
                                             >

@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
+import { toast } from 'sonner';
 import {
     Search, Plus,
     Users, Phone, Send, MessageCircle,
@@ -62,7 +63,7 @@ function formatCurrency(value: number): string {
 
 /* ═══════════════ Client Card ═══════════════ */
 
-function ClientCard({ client, onEdit, onToggleBlock }: { client: Client; onEdit: (c: Client) => void; onToggleBlock: (c: Client) => void }) {
+function ClientCard({ client, onEdit, onToggleBlock, isProcessing }: { client: Client; onEdit: (c: Client) => void; onToggleBlock: (c: Client) => void; isProcessing: boolean }) {
     const initials = getInitials(client.name);
 
     return (
@@ -151,7 +152,8 @@ function ClientCard({ client, onEdit, onToggleBlock }: { client: Client; onEdit:
                     </button>
                     <button
                         onClick={() => onToggleBlock(client)}
-                        className={`flex items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors ${
+                        disabled={isProcessing}
+                        className={`flex items-center justify-center gap-1 rounded-md px-3 py-1.5 text-xs font-semibold transition-colors disabled:opacity-50 ${
                             client.is_blocked
                                 ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200 dark:bg-emerald-900/30 dark:text-emerald-400 dark:hover:bg-emerald-900/50'
                                 : 'bg-red-100 text-red-700 hover:bg-red-200 dark:bg-red-900/30 dark:text-red-400 dark:hover:bg-red-900/50'
@@ -175,6 +177,7 @@ export default function ClientsPage() {
     const [editingClient, setEditingClient] = useState<Client | null>(null);
     const [formName, setFormName] = useState('');
     const [formPhone, setFormPhone] = useState('');
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const clients = useMemo(() => {
         let result = initialClients;
@@ -212,30 +215,60 @@ export default function ClientsPage() {
     }
 
     function handleToggleBlock(client: Client) {
+        if (isProcessing) return;
+        setIsProcessing(true);
         router.post(`/admin/clients/${client.id}/toggle-block`, {}, {
             preserveScroll: true,
+            onError: (errors) => {
+                toast.error(Object.values(errors)[0] || 'Не удалось изменить статус клиента');
+            },
+            onFinish: () => {
+                setIsProcessing(false);
+            },
         });
     }
 
     function handleSubmit() {
-        if (!formName.trim() || !formPhone.trim()) return;
+        if (!formName.trim() || !formPhone.trim() || isProcessing) return;
+        setIsProcessing(true);
 
         if (editingClient) {
             router.put(`/admin/clients/${editingClient.id}`, {
                 name: formName,
                 phone: formPhone,
-            }, { preserveScroll: true });
+            }, {
+                preserveScroll: true,
+                onError: (errors) => {
+                    toast.error(Object.values(errors)[0] || 'Не удалось обновить клиента');
+                    setIsProcessing(false);
+                },
+                onSuccess: () => {
+                    setDialogOpen(false);
+                    setEditingClient(null);
+                    setFormName('');
+                    setFormPhone('');
+                    setIsProcessing(false);
+                },
+            });
         } else {
             router.post('/admin/clients', {
                 name: formName,
                 phone: formPhone,
-            }, { preserveScroll: true });
+            }, {
+                preserveScroll: true,
+                onError: (errors) => {
+                    toast.error(Object.values(errors)[0] || 'Не удалось добавить клиента');
+                    setIsProcessing(false);
+                },
+                onSuccess: () => {
+                    setDialogOpen(false);
+                    setEditingClient(null);
+                    setFormName('');
+                    setFormPhone('');
+                    setIsProcessing(false);
+                },
+            });
         }
-
-        setDialogOpen(false);
-        setEditingClient(null);
-        setFormName('');
-        setFormPhone('');
     }
 
     return (
@@ -290,7 +323,7 @@ export default function ClientsPage() {
                             ) : (
                                 <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                                     {clients.map((client) => (
-                                        <ClientCard key={client.id} client={client} onEdit={openEdit} onToggleBlock={handleToggleBlock} />
+                                        <ClientCard key={client.id} client={client} onEdit={openEdit} onToggleBlock={handleToggleBlock} isProcessing={isProcessing} />
                                     ))}
                                 </div>
                             )}
@@ -335,7 +368,7 @@ export default function ClientsPage() {
                         </Button>
                         <Button
                             onClick={handleSubmit}
-                            disabled={!formName.trim() || !formPhone.trim()}
+                            disabled={!formName.trim() || !formPhone.trim() || isProcessing}
                             className="bg-blue-600 text-white hover:bg-blue-700"
                         >
                             {editingClient ? 'Сохранить' : 'Добавить'}

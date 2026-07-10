@@ -61,6 +61,7 @@ export default function Bookings() {
     const { appointments: initialAppointments = [] } = usePage<PageProps>().props;
     const [tab, setTab] = useState<'upcoming' | 'archive'>('upcoming');
     const [cancelId, setCancelId] = useState<number | null>(null);
+    const [isProcessing, setIsProcessing] = useState(false);
 
     const upcoming = useMemo(
         () => initialAppointments.filter((v) => v.status === AppointmentStatus.PendingClient || v.status === AppointmentStatus.Confirmed),
@@ -75,9 +76,15 @@ export default function Bookings() {
     const cancelTarget = initialAppointments.find((v) => v.id === cancelId);
 
     function confirmCancel() {
-        if (!cancelId) return;
-        router.patch(`/my-bookings/appointments/${cancelId}/cancel`, {}, { preserveScroll: true });
-        setCancelId(null);
+        if (!cancelId || isProcessing) return;
+        setIsProcessing(true);
+        router.patch(`/my-bookings/appointments/${cancelId}/cancel`, {}, {
+            preserveScroll: true,
+            onFinish: () => {
+                setIsProcessing(false);
+                setCancelId(null);
+            },
+        });
     }
 
     return (
@@ -224,6 +231,7 @@ export default function Bookings() {
                             </Button>
                             <Button
                                 onClick={confirmCancel}
+                                disabled={isProcessing}
                                 className="flex-1 rounded-xl bg-red-600 text-white hover:bg-red-700 sm:flex-none"
                             >
                                 Да, отменить
