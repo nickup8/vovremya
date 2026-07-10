@@ -43,8 +43,16 @@ if (app()->environment('local')) {
             return 'Бот не найден в базе.';
         }
 
-        $url = config('app.url') . '/webhooks/telegram/bypass';
-        $bot->registerWebhook()->url($url)->send();
+        $url = 'https://catchy-suitably-hacked.ngrok-free.dev/webhooks/telegram/bypass';
+        $secretToken = env('TELEGRAM_SECRET_TOKEN');
+
+        $registration = $bot->registerWebhook()->url($url);
+
+        if ($secretToken) {
+            $registration->secretToken($secretToken);
+        }
+
+        $registration->send();
 
         return 'Webhook forced to: ' . $url;
     });
@@ -98,6 +106,7 @@ Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function
     Route::post('/users/{user}/block', [SuperAdminController::class, 'blockUser'])->name('super_admin.block');
     Route::post('/users/{user}/extend', [SuperAdminController::class, 'extendSubscription'])->name('super_admin.extend');
     Route::post('/users/{user}/impersonate', [SuperAdminController::class, 'impersonate'])->name('super_admin.impersonate');
+    Route::post('/leave-impersonate', [SuperAdminController::class, 'leaveImpersonate'])->name('super_admin.leave_impersonate');
 });
 
 Route::middleware(['auth'])->group(function () {

@@ -133,15 +133,40 @@ class SuperAdminController extends Controller
 
     public function impersonate(User $user): RedirectResponse
     {
+        if ($user->is_super_admin) {
+            abort(403, 'Нельзя зайти под другим суперадмином.');
+        }
+
+        $originalAdminId = auth()->id();
+
         Auth::loginUsingId($user->id);
 
+        session(['original_admin_id' => $originalAdminId]);
+
         Log::info('Super admin impersonated user', [
-            'admin_id' => session('original_admin_id', auth()->id()),
+            'admin_id' => $originalAdminId,
             'impersonated_user_id' => $user->id,
         ]);
 
-        session(['original_admin_id' => auth()->id()]);
-
         return redirect()->route('admin.calendar');
+    }
+
+    public function leaveImpersonate(): RedirectResponse
+    {
+        $originalAdminId = session('original_admin_id');
+
+        if (! $originalAdminId) {
+            abort(403, 'Нет активной сессии подмены.');
+        }
+
+        Auth::loginUsingId($originalAdminId);
+
+        session()->forget('original_admin_id');
+
+        Log::info('Super admin left impersonation', [
+            'admin_id' => $originalAdminId,
+        ]);
+
+        return redirect()->route('super_admin.dashboard');
     }
 }

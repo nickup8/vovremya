@@ -62,6 +62,19 @@ class WebhookController extends Controller
      */
     public function handleBypass(Request $request)
     {
+        $secret = config('services.telegram.secret_token');
+
+        if (! empty($secret)) {
+            $provided = $request->header('X-Telegram-Bot-Api-Secret-Token');
+
+            if ($provided === null || ! hash_equals($secret, $provided)) {
+                Log::warning('Bypass webhook: invalid secret token', [
+                    'ip' => $request->ip(),
+                ]);
+                abort(403, 'Invalid secret token');
+            }
+        }
+
         Log::info('Bypass Webhook:', $request->all());
 
         $bot = TelegraphBot::first();
