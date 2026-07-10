@@ -490,9 +490,11 @@ export default function Widget() {
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     // Синхронизация серверных ошибок
-    if (serverErrors && Object.keys(serverErrors).length > 0 && JSON.stringify(serverErrors) !== JSON.stringify(errors)) {
-        setErrors(serverErrors);
-    }
+    useEffect(() => {
+        if (serverErrors && Object.keys(serverErrors).length > 0) {
+            setErrors(serverErrors);
+        }
+    }, [serverErrors]);
 
     // Автозаполнение данных клиента из Telegram WebApp или mock-данные для локальной разработки
     useEffect(() => {
@@ -503,8 +505,8 @@ export default function Widget() {
             setClientName(fullName);
             setClientPhone(tgUser.phone_number ?? '');
             setIsAutoFilled(true);
-        } else {
-            // Mock-данные для локальной разработки (вне Telegram)
+        } else if (import.meta.env.DEV) {
+            // Mock-данные только в режиме разработки (вне Telegram)
             setClientName('Тестовый Клиент из ТГ');
             setClientPhone('+79990001122');
             setIsAutoFilled(true);
