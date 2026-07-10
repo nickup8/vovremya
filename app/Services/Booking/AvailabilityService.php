@@ -36,7 +36,7 @@ class AvailabilityService
         $bookedPeriods = $this->getBookedPeriods($master, $localDate);
         $blockedPeriods = $this->getBlockedPeriods($master, $localDate);
 
-        $allUnavailable = $breakPeriods->merge($bookedPeriods)->merge($blockedPeriods);
+        $allUnavailable = $breakPeriods->concat($bookedPeriods)->concat($blockedPeriods);
 
         $slotInterval = $master->slot_interval ?? 30;
 
@@ -106,7 +106,7 @@ class AvailabilityService
         $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId);
         $blockedPeriods = $this->getBlockedPeriods($master, $localSlot);
 
-        $allUnavailable = $breakPeriods->merge($bookedPeriods)->merge($blockedPeriods);
+        $allUnavailable = $breakPeriods->concat($bookedPeriods)->concat($blockedPeriods);
 
         return ! $allUnavailable->contains(
             fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
@@ -126,7 +126,7 @@ class AvailabilityService
         $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId);
         $blockedPeriods = $this->getBlockedPeriods($master, $localSlot);
 
-        $conflicts = $bookedPeriods->merge($blockedPeriods);
+        $conflicts = $bookedPeriods->concat($blockedPeriods);
 
         return $conflicts->contains(
             fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
@@ -231,7 +231,7 @@ class AvailabilityService
                 $periodStart = $period['start'];
                 $periodEnd = $period['end'];
 
-                if (! $periodStart instanceof Carbon || ! $periodEnd instanceof Carbon) {
+                if (! $periodStart instanceof \Carbon\CarbonInterface || ! $periodEnd instanceof \Carbon\CarbonInterface) {
                     continue;
                 }
 

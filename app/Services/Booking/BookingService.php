@@ -201,6 +201,24 @@ class BookingService
 
     public function confirm(Appointment $appointment): Appointment
     {
+        $master = $appointment->master;
+        $service = $appointment->service;
+        $startDateTime = Carbon::parse($appointment->start_time);
+        $durationMinutes = $service->duration_minutes ?? 60;
+
+        $breakIntersection = $this->availabilityService->checkBreakIntersection(
+            $master,
+            $startDateTime,
+            $durationMinutes,
+        );
+
+        if ($breakIntersection) {
+            throw new \Illuminate\Validation\ValidationException(
+                \Illuminate\Support\Facades\Validator::make([], []),
+                'Невозможно подтвердить запись: пересечение с обеденным временем.',
+            );
+        }
+
         return $this->statusService->transition($appointment, AppointmentStatus::Booked);
     }
 

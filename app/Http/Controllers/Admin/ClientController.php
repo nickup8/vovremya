@@ -25,6 +25,7 @@ class ClientController extends Controller
         }
 
         $appointmentsByClient = Appointment::where('master_id', $master->id)
+            ->where('status', '!=', AppointmentStatus::Cancelled)
             ->with('service')
             ->get()
             ->groupBy('client_id');

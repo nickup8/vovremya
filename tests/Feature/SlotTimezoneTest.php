@@ -101,16 +101,16 @@ class SlotTimezoneTest extends TestCase
             'duration_minutes' => 60,
         ]);
 
-        $today = Carbon::today()->timezone('Europe/Moscow');
+        $futureDate = Carbon::tomorrow()->addDays(3)->timezone('Europe/Moscow');
 
         \App\Models\BlockedTime::create([
             'user_id' => $master->id,
-            'start_datetime' => $today->copy()->setTime(10, 0)->timezone('UTC'),
-            'end_datetime' => $today->copy()->setTime(12, 0)->timezone('UTC'),
+            'start_datetime' => $futureDate->copy()->setTime(10, 0)->timezone('UTC'),
+            'end_datetime' => $futureDate->copy()->setTime(12, 0)->timezone('UTC'),
             'reason' => \App\Enums\BlockedTimeReason::Personal,
         ]);
 
-        $slots = app(BookingService::class)->getAvailableSlots($master, $service, $today->toDateString());
+        $slots = app(BookingService::class)->getAvailableSlots($master, $service, $futureDate->toDateString());
 
         $this->assertNotContains('10:00', $slots, '10:00 MSK должно быть заблокировано');
         $this->assertNotContains('11:00', $slots, '11:00 MSK должно быть заблокировано');
@@ -126,16 +126,16 @@ class SlotTimezoneTest extends TestCase
             'duration_minutes' => 60,
         ]);
 
-        $today = Carbon::today()->timezone('Europe/Moscow');
+        $futureDate = Carbon::tomorrow()->addDays(3)->timezone('Europe/Moscow');
 
         WorkingHour::where('user_id', $master->id)
-            ->where('day_of_week', $today->dayOfWeek)
+            ->where('day_of_week', $futureDate->dayOfWeek)
             ->update([
                 'break_start_time' => '13:00',
                 'break_end_time' => '14:00',
             ]);
 
-        $slots = app(BookingService::class)->getAvailableSlots($master, $service, $today->toDateString());
+        $slots = app(BookingService::class)->getAvailableSlots($master, $service, $futureDate->toDateString());
 
         $this->assertNotContains('12:30', $slots, '12:30 MSK пересекает обед 13:00-14:00');
         $this->assertNotContains('13:00', $slots, '13:00 MSK попадает на обед');

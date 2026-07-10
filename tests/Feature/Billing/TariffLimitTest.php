@@ -52,6 +52,8 @@ class TariffLimitTest extends TestCase
         $this->assertDatabaseCount('appointments', 30);
 
         $response = $this->actingAs($this->master)->post(route('booking.reserve', $this->master->master_slug), [
+            'client_name' => 'Тестовый Клиент',
+            'client_phone' => '+79000000099',
             'service_id' => $this->service->id,
             'date' => now()->addDays(31)->format('Y-m-d'),
             'time' => '10:00',
