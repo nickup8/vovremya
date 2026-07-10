@@ -6,11 +6,15 @@ use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
 class ClientController extends Controller
 {
+    public function __construct(
+        private BookingService $bookingService,
+    ) {}
     public function index()
     {
         $master = auth()->user();
@@ -108,13 +112,23 @@ class ClientController extends Controller
 
     public function toggleBlock(Client $client)
     {
-        $master = auth()->user();
+        $this->authorize('update', $client);
 
-        if ($client->user_id !== $master->id) {
-            abort(403);
+        $wasBlocked = $client->is_blocked;
+        $client->update(['is_blocked' => ! $wasBlocked]);
+
+        // При блокировке — отменяем все активные записи клиента
+        if (! $wasBlocked && $client->is_blocked) {
+            $activeStatuses = [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+                AppointmentStatus::Prepaid,
+            ];
+
+            $client->appointments()
+                ->whereIn('status', $activeStatuses)
+                ->each(fn (Appointment $appointment) => $this->bookingService->cancel($appointment));
         }
-
-        $client->update(['is_blocked' => ! $client->is_blocked]);
 
         return back()->with('success', $client->is_blocked
             ? "Клиент {$client->name} заблокирован."

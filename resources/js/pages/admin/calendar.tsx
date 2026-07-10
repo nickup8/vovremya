@@ -1,5 +1,6 @@
 import { useState, useMemo } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { toast } from 'sonner';
 import {
     ChevronLeft, ChevronRight, Plus,
     CalendarDays, Clock, User, Phone,
@@ -592,7 +593,7 @@ export default function CalendarPage() {
             only: ['appointments'],
             onError: (errors: Record<string, string>) => {
                 if (errors.status) {
-                    alert(errors.status);
+                    toast.error(errors.status);
                 }
             },
             onFinish: () => {
@@ -611,7 +612,7 @@ export default function CalendarPage() {
             only: ['appointments'],
             onError: (errors: Record<string, string>) => {
                 if (errors.status) {
-                    alert(errors.status);
+                    toast.error(errors.status);
                 }
             },
             onFinish: () => {
@@ -672,7 +673,7 @@ export default function CalendarPage() {
                     setOutsideHoursOpen(true);
                 }
                 if (errors.time) {
-                    alert(errors.time);
+                    toast.error(errors.time);
                 }
             },
             onFinish: () => {
@@ -692,7 +693,7 @@ export default function CalendarPage() {
                 only: ['appointments'],
                 onError: (errors: Record<string, string>) => {
                     if (errors.time) {
-                        alert(errors.time);
+                        toast.error(errors.time);
                     }
                 },
             });
@@ -721,7 +722,7 @@ export default function CalendarPage() {
                 only: ['appointments'],
                 onError: (errors: Record<string, string>) => {
                     if (errors.time) {
-                        alert(errors.time);
+                        toast.error(errors.time);
                     }
                 },
             });
@@ -781,10 +782,10 @@ export default function CalendarPage() {
                     setOutsideHoursOpen(true);
                 }
                 if (errors.time) {
-                    alert(errors.time);
+                    toast.error(errors.time);
                 }
                 if (errors.client_id) {
-                    alert(errors.client_id);
+                    toast.error(errors.client_id);
                 }
             },
             onSuccess: () => {
@@ -803,10 +804,10 @@ export default function CalendarPage() {
             preserveScroll: true,
             onError: (errors: Record<string, string>) => {
                 if (errors.time) {
-                    alert(errors.time);
+                    toast.error(errors.time);
                 }
                 if (errors.client_id) {
-                    alert(errors.client_id);
+                    toast.error(errors.client_id);
                 }
             },
             onSuccess: () => {
@@ -826,10 +827,10 @@ export default function CalendarPage() {
             preserveScroll: true,
             onError: (errors: Record<string, string>) => {
                 if (errors.time) {
-                    alert(errors.time);
+                    toast.error(errors.time);
                 }
                 if (errors.client_id) {
-                    alert(errors.client_id);
+                    toast.error(errors.client_id);
                 }
             },
             onSuccess: () => {

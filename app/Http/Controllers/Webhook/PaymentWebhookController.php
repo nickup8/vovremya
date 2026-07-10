@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Webhook;
 
+use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
 use App\Services\Payment\PaymentGatewayInterface;
@@ -38,15 +39,26 @@ class PaymentWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        $status = $this->paymentGateway->parseWebhookStatus($payload);
+        $rawStatus = $this->paymentGateway->parseWebhookStatus($payload);
 
-        if (! $status) {
+        if (! $rawStatus) {
             return response()->json(['ok' => true]);
         }
 
-        $subscription->update(['status' => $status === 'paid' ? 'active' : $status]);
+        $parsedStatus = SubscriptionStatus::tryFrom($rawStatus === 'paid' ? 'active' : $rawStatus);
 
-        if ($status === 'paid') {
+        if (! $parsedStatus) {
+            Log::warning('Payment webhook: invalid status received', [
+                'payment_id' => $paymentId,
+                'raw_status' => $rawStatus,
+            ]);
+
+            return response()->json(['error' => 'Invalid subscription status'], 400);
+        }
+
+        $subscription->update(['status' => $parsedStatus]);
+
+        if ($rawStatus === 'paid') {
             $this->activateSubscription($subscription);
         }
 

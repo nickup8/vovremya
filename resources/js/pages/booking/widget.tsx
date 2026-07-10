@@ -357,7 +357,7 @@ function StepProvider({
                                 type="tel"
                                 value={phone}
                                 onChange={(e) => onPhoneChange(e.target.value)}
-                                placeholder="+7 (999) 123-45-67"
+                                placeholder="+7 (999) 000-00-00"
                                 className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
                                     errors.phone
                                         ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
