@@ -101,7 +101,7 @@ class TelegramWebhookHandler extends WebhookHandler
      */
     private function handleBookingFlow(string $parameter, string $chatId): void
     {
-        $appointmentId = (int) str_replace('book_', '', $parameter);
+        $appointmentId = str_replace('book_', '', $parameter);
 
         $appointment = Appointment::with(['master', 'service'])
             ->find($appointmentId);
@@ -220,7 +220,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $draftAppointmentId = Cache::pull(self::BOOKING_DRAFT_PREFIX . $chatId);
 
         if ($draftAppointmentId) {
-            $this->handleBookingContact($contact, $chatId, (int) $draftAppointmentId);
+            $this->handleBookingContact($contact, $chatId, $draftAppointmentId);
 
             return;
         }
@@ -240,7 +240,7 @@ class TelegramWebhookHandler extends WebhookHandler
     /**
      * Обработка контакта в флоу бронирования
      */
-    private function handleBookingContact(array $contact, string $chatId, int $appointmentId): void
+    private function handleBookingContact(array $contact, string $chatId, string $appointmentId): void
     {
         $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
