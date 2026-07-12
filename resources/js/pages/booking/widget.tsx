@@ -58,6 +58,13 @@ function getMonthGrid(year: number, month: number) {
     return cells;
 }
 
+function formatDateKey(d: Date): string {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, '0');
+    const day = String(d.getDate()).padStart(2, '0');
+    return `${y}-${m}-${day}`;
+}
+
 /* ═══════════════ Master Profile ═══════════════ */
 
 function MasterProfileHeader({ master }: { master: Master }) {
@@ -153,31 +160,49 @@ function StepServices({
     );
 }
 
-/* ═══════════════ Step 2 — Calendar & Time ═══════════════ */
+/* ═══════════════ Step 2 — Date Selection ═══════════════ */
 
-function StepCalendar({
+function StepDate({
+    masterSlug,
+    serviceId,
     selectedDate,
-    selectedTime,
-    availableSlots,
     onSelectDate,
-    onSelectTime,
 }: {
+    masterSlug: string;
+    serviceId: string;
     selectedDate: Date | null;
-    selectedTime: string | null;
-    availableSlots: string[];
     onSelectDate: (d: Date) => void;
-    onSelectTime: (t: string) => void;
 }) {
     const today = new Date();
     const [viewMonth, setViewMonth] = useState(today.getMonth());
     const [viewYear, setViewYear] = useState(today.getFullYear());
+    const [availableDates, setAvailableDates] = useState<Set<string>>(new Set());
+    const [loadingDates, setLoadingDates] = useState(false);
 
     const cells = useMemo(() => getMonthGrid(viewYear, viewMonth), [viewYear, viewMonth]);
+
+    // Загрузка доступных дат при смене месяца
+    useEffect(() => {
+        setLoadingDates(true);
+        fetch(`/book/${masterSlug}/available-dates?service_id=${serviceId}&year=${viewYear}&month=${viewMonth + 1}`)
+            .then((res) => res.json())
+            .then((data: { dates: string[] }) => {
+                setAvailableDates(new Set(data.dates ?? []));
+            })
+            .catch(() => {
+                setAvailableDates(new Set());
+            })
+            .finally(() => {
+                setLoadingDates(false);
+            });
+    }, [masterSlug, serviceId, viewYear, viewMonth]);
 
     const isPast = (d: Date) => {
         const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
         return d < t;
     };
+
+    const isAvailable = (d: Date) => availableDates.has(formatDateKey(d));
 
     const isSelected = (d: Date) =>
         selectedDate?.toDateString() === d.toDateString();
@@ -196,10 +221,10 @@ function StepCalendar({
         <div className="flex-1 overflow-y-auto pb-28">
             <div className="px-5 pt-6 pb-4">
                 <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-                    Выберите дату и время
+                    Выберите дату
                 </h2>
                 <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                    Выберите удобный день в календаре
+                    Серым отмечены дни без свободных слотов
                 </p>
             </div>
 
@@ -231,20 +256,29 @@ function StepCalendar({
                 </div>
 
                 <div className="mt-1 grid grid-cols-7 gap-1">
-                    {cells.map((d, i) => {
+                    {loadingDates && (
+                        <div className="col-span-7 flex justify-center py-8">
+                            <Loader2 className="size-5 animate-spin text-stone-400" />
+                        </div>
+                    )}
+                    {!loadingDates && cells.map((d, i) => {
                         if (!d) return <div key={`empty-${i}`} />;
 
                         const past = isPast(d);
+                        const available = isAvailable(d);
+                        const disabled = past || !available;
                         const selected = isSelected(d);
 
                         return (
                             <button
                                 key={d.toISOString()}
-                                onClick={() => !past && onSelectDate(d)}
-                                disabled={past}
+                                onClick={() => !disabled && onSelectDate(d)}
+                                disabled={disabled}
                                 className={`flex aspect-square items-center justify-center rounded-full text-sm font-medium transition-all ${
-                                    past
-                                        ? 'text-stone-300 pointer-events-none dark:text-stone-700'
+                                    disabled
+                                        ? past
+                                            ? 'text-stone-300 pointer-events-none dark:text-stone-700'
+                                            : 'text-stone-300 cursor-not-allowed dark:text-stone-700'
                                         : selected
                                             ? 'bg-stone-900 text-white shadow-md shadow-stone-900/20 dark:bg-stone-100 dark:text-stone-900'
                                             : 'text-stone-700 hover:bg-stone-200/70 dark:text-stone-300 dark:hover:bg-stone-700/60'
@@ -256,43 +290,76 @@ function StepCalendar({
                     })}
                 </div>
             </div>
-
-            {selectedDate && (
-                <div className="px-5 pt-6">
-                    <p className="mb-3 text-xs font-medium uppercase tracking-wider text-stone-400 dark:text-stone-500">
-                        Доступное время
-                    </p>
-                    {availableSlots.length === 0 ? (
-                        <p className="text-sm text-stone-400 dark:text-stone-500">
-                            Нет свободных слотов на эту дату
-                        </p>
-                    ) : (
-                        <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
-                            {availableSlots.map((t) => {
-                                const active = selectedTime === t;
-                                return (
-                                    <button
-                                        key={t}
-                                        onClick={() => onSelectTime(t)}
-                                        className={`rounded-xl py-2.5 text-sm font-medium transition-all ${
-                                            active
-                                                ? 'bg-stone-900 text-white shadow-md dark:bg-stone-100 dark:text-stone-900'
-                                                : 'bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700'
-                                        }`}
-                                    >
-                                        {t}
-                                    </button>
-                                );
-                            })}
-                        </div>
-                    )}
-                </div>
-            )}
         </div>
     );
 }
 
-/* ═══════════════ Step 3 — Provider Selection ═══════════════ */
+/* ═══════════════ Step 3 — Time Selection ═══════════════ */
+
+function StepTime({
+    selectedDate,
+    selectedTime,
+    availableSlots,
+    loadingSlots,
+    onSelectTime,
+}: {
+    selectedDate: Date | null;
+    selectedTime: string | null;
+    availableSlots: string[];
+    loadingSlots: boolean;
+    onSelectTime: (t: string) => void;
+}) {
+    const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+    const monthNames = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
+
+    return (
+        <div className="flex-1 overflow-y-auto pb-28">
+            <div className="px-5 pt-6 pb-4">
+                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                    Выберите время
+                </h2>
+                {selectedDate && (
+                    <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
+                        {dayNames[selectedDate.getDay()]}, {selectedDate.getDate()} {monthNames[selectedDate.getMonth()]}
+                    </p>
+                )}
+            </div>
+
+            <div className="px-5">
+                {loadingSlots ? (
+                    <div className="flex items-center justify-center py-12">
+                        <Loader2 className="size-5 animate-spin text-stone-400" />
+                    </div>
+                ) : availableSlots.length === 0 ? (
+                    <p className="py-8 text-center text-sm text-stone-400 dark:text-stone-500">
+                        Нет свободных слотов на эту дату
+                    </p>
+                ) : (
+                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                        {availableSlots.map((t) => {
+                            const active = selectedTime === t;
+                            return (
+                                <button
+                                    key={t}
+                                    onClick={() => onSelectTime(t)}
+                                    className={`rounded-xl py-2.5 text-sm font-medium transition-all ${
+                                        active
+                                            ? 'bg-stone-900 text-white shadow-md dark:bg-stone-100 dark:text-stone-900'
+                                            : 'bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700'
+                                    }`}
+                                >
+                                    {t}
+                                </button>
+                            );
+                        })}
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
+
+/* ═══════════════ Step 4 — Provider Selection ═══════════════ */
 
 function StepProvider({
     errors,
@@ -340,7 +407,7 @@ function StepProvider({
     );
 }
 
-/* ═══════════════ Step 4 — Confirmation ═══════════════ */
+/* ═══════════════ Step 5 — Confirmation ═══════════════ */
 
 function StepConfirmation({
     service,
@@ -388,14 +455,8 @@ function StepConfirmation({
 
 /* ═══════════════ Main Widget ═══════════════ */
 
-type Step = 1 | 2 | 3 | 4;
-
-function formatDateKey(d: Date): string {
-    const y = d.getFullYear();
-    const m = String(d.getMonth() + 1).padStart(2, '0');
-    const day = String(d.getDate()).padStart(2, '0');
-    return `${y}-${m}-${day}`;
-}
+type Step = 1 | 2 | 3 | 4 | 5;
+const TOTAL_STEPS = 4;
 
 export default function Widget() {
     const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId } = usePage<PageProps>().props;
@@ -410,10 +471,11 @@ export default function Widget() {
         initialDate ? new Date(initialDate + 'T00:00:00') : null
     );
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
+    const [slots, setSlots] = useState<string[]>(availableSlots);
+    const [loadingSlots, setLoadingSlots] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
-    // Синхронизация серверных ошибок
     useEffect(() => {
         if (serverErrors && Object.keys(serverErrors).length > 0) {
             setErrors(serverErrors);
@@ -422,34 +484,45 @@ export default function Widget() {
 
     const canNext =
         (step === 1 && selectedService !== null) ||
-        (step === 2 && selectedDate !== null && selectedTime !== null);
+        (step === 2 && selectedDate !== null) ||
+        (step === 3 && selectedTime !== null);
 
-    const reloadSlots = useCallback((serviceId: number | null, date: Date | null) => {
-        const params = new URLSearchParams();
-        if (serviceId) params.set('service_id', String(serviceId));
-        if (date) params.set('date', formatDateKey(date));
+    // Загрузка слотов при входе на шаг 3
+    useEffect(() => {
+        if (step === 3 && selectedDate && selectedService) {
+            setLoadingSlots(true);
+            const params = new URLSearchParams({
+                service_id: selectedService.id,
+                date: formatDateKey(selectedDate),
+            });
 
-        router.get(`/book/${master.master_slug}?${params.toString()}`, {}, {
-            preserveState: true,
-            preserveScroll: true,
-            only: ['availableSlots', 'selectedDate', 'selectedServiceId'],
-        });
-    }, [master.master_slug]);
+            router.get(`/book/${master.master_slug}?${params.toString()}`, {}, {
+                preserveState: true,
+                preserveScroll: true,
+                only: ['availableSlots'],
+                onSuccess: (page) => {
+                    const props = page.props as { availableSlots?: string[] };
+                    setSlots(props.availableSlots ?? []);
+                },
+                onFinish: () => {
+                    setLoadingSlots(false);
+                },
+            });
+        }
+    }, [step, selectedDate, selectedService, master.master_slug]);
 
     function handleSelectService(service: Service) {
         setSelectedService(service);
         setSelectedTime(null);
-        reloadSlots(service.id, selectedDate);
     }
 
     function handleSelectDate(date: Date) {
         setSelectedDate(date);
         setSelectedTime(null);
-        reloadSlots(selectedService?.id ?? null, date);
     }
 
     function handleNext() {
-        if (step < 3) setStep((s) => (s + 1) as Step);
+        if (step < TOTAL_STEPS) setStep((s) => (s + 1) as Step);
     }
 
     function handleBack() {
@@ -488,7 +561,6 @@ export default function Widget() {
                 return;
             }
 
-            // Редирект в Telegram
             window.location.href = data.telegram_url;
         } catch {
             setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
@@ -496,13 +568,17 @@ export default function Widget() {
         }
     }
 
+    const progress = step <= TOTAL_STEPS ? (step / TOTAL_STEPS) * 100 : 100;
+    const showNav = step >= 1 && step <= TOTAL_STEPS;
+    const showHeader = step < 5;
+
     return (
         <>
             <Head title="Запись — Вовремя" />
 
             <div className="mx-auto flex min-h-screen max-w-md flex-col bg-[#FAF8F5] dark:bg-[#121110]">
                 <div className="flex items-center justify-between border-b border-stone-200/50 px-5 py-4 dark:border-stone-800/50">
-                    {step > 1 && step < 4 ? (
+                    {step > 1 && step <= TOTAL_STEPS ? (
                         <button
                             onClick={handleBack}
                             className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
@@ -513,21 +589,21 @@ export default function Widget() {
                         <div className="size-9" />
                     )}
                     <span className="text-sm font-medium text-stone-500 dark:text-stone-400">
-                        {step < 4 ? `Шаг ${step} из 3` : 'Готово'}
+                        {step <= TOTAL_STEPS ? `Шаг ${step} из ${TOTAL_STEPS}` : 'Готово'}
                     </span>
                     <div className="size-9" />
                 </div>
 
-                {step < 4 && (
+                {showHeader && (
                     <div className="h-0.5 w-full bg-stone-200/50 dark:bg-stone-800/50">
                         <div
                             className="h-full bg-stone-900 transition-all duration-500 ease-out dark:bg-stone-100"
-                            style={{ width: `${(step / 3) * 100}%` }}
+                            style={{ width: `${progress}%` }}
                         />
                     </div>
                 )}
 
-                {step < 4 && <MasterProfileHeader master={master} />}
+                {showHeader && <MasterProfileHeader master={master} />}
 
                 {step === 1 && (
                     <StepServices
@@ -536,23 +612,31 @@ export default function Widget() {
                         onSelect={handleSelectService}
                     />
                 )}
-                {step === 2 && (
-                    <StepCalendar
+                {step === 2 && selectedService && (
+                    <StepDate
+                        masterSlug={master.master_slug}
+                        serviceId={selectedService.id}
                         selectedDate={selectedDate}
-                        selectedTime={selectedTime}
-                        availableSlots={availableSlots}
                         onSelectDate={handleSelectDate}
-                        onSelectTime={setSelectedTime}
                     />
                 )}
                 {step === 3 && (
+                    <StepTime
+                        selectedDate={selectedDate}
+                        selectedTime={selectedTime}
+                        availableSlots={slots}
+                        loadingSlots={loadingSlots}
+                        onSelectTime={setSelectedTime}
+                    />
+                )}
+                {step === 4 && (
                     <StepProvider
                         errors={errors}
                         onSubmit={handleSubmit}
                         isSubmitting={isSubmitting}
                     />
                 )}
-                {step === 4 && selectedService && selectedDate && selectedTime && (
+                {step === 5 && selectedService && selectedDate && selectedTime && (
                     <StepConfirmation
                         service={selectedService}
                         date={selectedDate}
@@ -560,7 +644,7 @@ export default function Widget() {
                     />
                 )}
 
-                {step < 3 && (
+                {showNav && step < TOTAL_STEPS && (
                     <div className="fixed bottom-0 left-0 right-0 z-40">
                         <div className="mx-auto max-w-md px-5 pb-5 pt-3">
                             <Button
@@ -568,7 +652,7 @@ export default function Widget() {
                                 disabled={!canNext}
                                 className="h-13 w-full rounded-2xl bg-stone-900 text-base font-semibold text-white shadow-xl shadow-stone-900/20 transition-all hover:scale-[1.02] hover:shadow-2xl disabled:opacity-30 disabled:hover:scale-100 dark:bg-stone-100 dark:text-stone-900 dark:shadow-stone-100/10"
                             >
-                                {step === 1 ? 'Далее' : 'Перейти к подтверждению'}
+                                Далее
                                 <ArrowRight className="size-4" />
                             </Button>
                         </div>

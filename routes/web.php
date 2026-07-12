@@ -37,6 +37,7 @@ Route::get('/auth/telegram/check/{token}', [TelegramAuthController::class, 'chec
 Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout');
 
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
+Route::get('/book/{master}/available-dates', [BookingWidgetController::class, 'availableDates'])->name('booking.available-dates');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
 Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name('booking.status');
 

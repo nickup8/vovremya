@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\Service;
 use App\Models\User;
+use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -14,6 +15,7 @@ class BookingWidgetController extends Controller
 {
     public function __construct(
         private BookingService $bookingService,
+        private AvailabilityService $availabilityService,
     ) {}
 
     public function show(string $slug, Request $request)
@@ -50,6 +52,34 @@ class BookingWidgetController extends Controller
             'selectedDate' => $selectedDate,
             'selectedServiceId' => $selectedServiceId ?: null,
         ]);
+    }
+
+    public function availableDates(Request $request, string $slug): JsonResponse
+    {
+        $master = User::where('master_slug', $slug)
+            ->where('is_master', true)
+            ->firstOrFail();
+
+        $validated = $request->validate([
+            'service_id' => 'required|string',
+            'year' => 'required|integer|min:2020|max:2030',
+            'month' => 'required|integer|min:1|max:12',
+        ]);
+
+        $service = Service::find($validated['service_id']);
+
+        if (! $service || $service->user_id !== $master->id) {
+            return response()->json(['dates' => []]);
+        }
+
+        $dates = $this->availabilityService->getAvailableDates(
+            $master,
+            $validated['year'],
+            $validated['month'],
+            $service->duration_minutes,
+        );
+
+        return response()->json(['dates' => $dates]);
     }
 
     public function store(Request $request, string $slug): JsonResponse

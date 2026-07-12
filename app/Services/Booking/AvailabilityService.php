@@ -12,6 +12,36 @@ use Illuminate\Support\Collection;
 
 class AvailabilityService
 {
+    /**
+     * Возвращает массив дат (Y-m-d), в которые есть хотя бы один свободный слот.
+     */
+    public function getAvailableDates(
+        User $master,
+        int $year,
+        int $month,
+        int $serviceDuration,
+    ): array {
+        $tz = $master->getTimezone();
+        $daysInMonth = Carbon::create($year, $month, 1, 0, 0, 0, $tz)->daysInMonth;
+        $dates = [];
+
+        for ($day = 1; $day <= $daysInMonth; $day++) {
+            $date = Carbon::create($year, $month, $day, 0, 0, 0, $tz);
+
+            if ($date->copy()->timezone($tz)->lt(Carbon::now($tz)->startOfDay())) {
+                continue;
+            }
+
+            $slots = $this->getAvailableSlots($master, $date, $serviceDuration);
+
+            if (! empty($slots)) {
+                $dates[] = $date->format('Y-m-d');
+            }
+        }
+
+        return $dates;
+    }
+
     public function getAvailableSlots(
         User $master,
         Carbon $date,
