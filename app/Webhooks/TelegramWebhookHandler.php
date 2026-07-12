@@ -198,11 +198,17 @@ class TelegramWebhookHandler extends WebhookHandler
 
         Log::info('[TG] handleAuthContact: sending confirmation');
 
-        $result = $this->chat->html(
-            '✅ Успешная авторизация! Возвращайтесь в браузер.'
-        )->removeKeyboard()->send();
+        try {
+            $result = $this->chat->html(
+                '✅ Успешная авторизация! Возвращайтесь в браузер.'
+            )->removeReplyKeyboard()->send();
 
-        Log::info('[TG] handleAuthContact: confirmation sent', ['ok' => $result !== null]);
+            Log::info('[TG] handleAuthContact: confirmation sent', ['ok' => true]);
+        } catch (Throwable $e) {
+            Log::error('[TG] handleAuthContact: confirmation FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     protected function handleChatMessage(Stringable $text): void

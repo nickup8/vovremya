@@ -12,6 +12,8 @@ import { Input } from '@/components/ui/input';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
+import { PhoneInput } from '@/components/PhoneInput';
+import { formatPhone, stripPhoneMask } from '@/lib/phone';
 
 /* ═══════════════ Types ═══════════════ */
 
@@ -84,7 +86,11 @@ function ClientCard({ client, onEdit, onToggleBlock, isProcessing }: { client: C
                         </h3>
                         <p className="flex items-center gap-1 font-mono text-xs text-slate-500 dark:text-zinc-400">
                             <Phone className="size-3" />
-                            {client.phone || '—'}
+                            {client.phone ? (
+                                <a href={`tel:+${client.phone.replace(/\D/g, '')}`} className="hover:text-blue-600 dark:hover:text-blue-400">
+                                    {formatPhone(client.phone)}
+                                </a>
+                            ) : '—'}
                         </p>
                     </div>
                 </div>
@@ -232,10 +238,12 @@ export default function ClientsPage() {
         if (!formName.trim() || !formPhone.trim() || isProcessing) return;
         setIsProcessing(true);
 
+        const phone = stripPhoneMask(formPhone);
+
         if (editingClient) {
             router.put(`/admin/clients/${editingClient.id}`, {
                 name: formName,
-                phone: formPhone,
+                phone,
             }, {
                 preserveScroll: true,
                 onError: (errors) => {
@@ -253,7 +261,7 @@ export default function ClientsPage() {
         } else {
             router.post('/admin/clients', {
                 name: formName,
-                phone: formPhone,
+                phone,
             }, {
                 preserveScroll: true,
                 onError: (errors) => {
@@ -354,9 +362,9 @@ export default function ClientsPage() {
                             <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                 Телефон *
                             </label>
-                            <Input
+                            <PhoneInput
                                 value={formPhone}
-                                onChange={(e) => setFormPhone(e.target.value)}
+                                onChange={setFormPhone}
                                 placeholder="+7 (911) 123-45-67"
                                 className="dark:bg-zinc-800"
                             />

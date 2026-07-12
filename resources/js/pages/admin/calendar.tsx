@@ -10,6 +10,7 @@ import { Button } from '@/components/ui/button';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
+import { formatPhone } from '@/lib/phone';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -1171,7 +1172,9 @@ export default function CalendarPage() {
                                     {selected.client_phone && (
                                         <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
                                             <Phone className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                            {selected.client_phone}
+                                            <a href={`tel:+${selected.client_phone.replace(/\D/g, '')}`} className="hover:text-blue-600 dark:hover:text-blue-400">
+                                                {formatPhone(selected.client_phone)}
+                                            </a>
                                         </div>
                                     )}
                                     <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">

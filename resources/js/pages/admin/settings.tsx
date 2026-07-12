@@ -15,6 +15,8 @@ import {
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { PhoneInput } from '@/components/PhoneInput';
+import { stripPhoneMask } from '@/lib/phone';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
@@ -1138,12 +1140,12 @@ export default function SettingsPage() {
                                         <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                             Телефон
                                         </label>
-                                        <Input
-                                            value={profileForm.data.phone}
-                                            onChange={(e) =>
+                                        <PhoneInput
+                                            value={profileForm.data.phone ?? ''}
+                                            onChange={(val) =>
                                                 profileForm.setData(
                                                     'phone',
-                                                    e.target.value,
+                                                    stripPhoneMask(val),
                                                 )
                                             }
                                             placeholder="+7 (911) 123-45-67"
