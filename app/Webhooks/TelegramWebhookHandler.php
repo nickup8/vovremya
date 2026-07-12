@@ -54,15 +54,15 @@ class TelegramWebhookHandler extends WebhookHandler
                 . "Нажмите кнопку ниже 👇";
 
             $keyboard = ReplyKeyboard::make()
-                ->button('📱 Поделиться номером телефона')->requestContact();
+                ->button('📱 Поделиться номером телефона')->requestContact()
+                ->resize()
+                ->oneTime();
 
             try {
                 Log::info('[TG] start(auth_) calling replyKeyboard()->send()');
 
                 $result = $this->chat->html($message)
                     ->replyKeyboard($keyboard)
-                    ->resize()
-                    ->oneTime()
                     ->send();
 
                 Log::info('[TG] start(auth_) send OK', ['ok' => true]);
