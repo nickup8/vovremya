@@ -1,15 +1,38 @@
 import { useState } from 'react';
-import { Menu } from 'lucide-react';
+import { Menu, Sun, Moon, Monitor } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import Sidebar from '@/components/admin/Sidebar';
 import { getInitials } from '@/lib/utils';
+import { useAppearance } from '@/hooks/use-appearance';
 
 interface AdminLayoutProps {
     children: ReactNode;
     title: string;
     auth?: { user?: { name?: string; tariff_name?: string; [key: string]: unknown } };
     headerActions?: ReactNode;
+}
+
+function ThemeToggle() {
+    const { appearance, updateAppearance } = useAppearance();
+
+    const cycle = () => {
+        const order: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
+        const idx = order.indexOf(appearance);
+        updateAppearance(order[(idx + 1) % order.length]);
+    };
+
+    return (
+        <button
+            onClick={cycle}
+            title={`Тема: ${appearance === 'light' ? 'Светлая' : appearance === 'dark' ? 'Тёмная' : 'Системная'}`}
+            className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
+        >
+            {appearance === 'light' && <Sun className="size-5" />}
+            {appearance === 'dark' && <Moon className="size-5" />}
+            {appearance === 'system' && <Monitor className="size-5" />}
+        </button>
+    );
 }
 
 export default function AdminLayout({ children, title, auth, headerActions }: AdminLayoutProps) {
@@ -24,7 +47,7 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
             <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
 
             <div className="flex min-w-0 flex-1 flex-col">
-                <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-xs md:px-6 dark:border-zinc-800 dark:bg-zinc-900/80">
+                <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/80 backdrop-blur-md px-4 shadow-xs md:px-6 dark:border-zinc-800 dark:bg-zinc-900/80">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={() => setMobileMenuOpen(true)}
@@ -36,8 +59,9 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                             {title}
                         </h1>
                     </div>
-                    <div className="flex items-center gap-4">
+                    <div className="flex items-center gap-2">
                         {headerActions}
+                        <ThemeToggle />
                         <div className="hidden text-right sm:block">
                             <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
                             <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {tariffName}</p>

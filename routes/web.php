@@ -18,8 +18,15 @@ use App\Http\Controllers\WebhookController;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
+use Inertia\Inertia;
 
-Route::inertia('/', 'welcome')->name('home');
+Route::get('/', function () {
+    if (Auth::check()) {
+        return redirect()->route('admin.calendar');
+    }
+
+    return Inertia::render('welcome');
+})->name('home');
 
 Route::get('/login', fn () => redirect()->route('auth.choose'))->name('login');
 Route::get('/auth/login', [TelegramAuthController::class, 'showChoose'])->name('auth.choose');
