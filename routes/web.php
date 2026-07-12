@@ -13,6 +13,7 @@ use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\ClientModeController;
 use App\Http\Controllers\Webhook\PaymentWebhookController;
+use App\Http\Controllers\Webhook\TelegraphWebhookController;
 use App\Http\Controllers\WebhookController;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
@@ -33,6 +34,13 @@ Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name(
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->middleware('throttle:60,1')->name('webhooks.telegram');
 Route::post('/webhooks/telegram/bypass', [WebhookController::class, 'handleBypass'])->middleware('throttle:60,1')->name('webhooks.telegram.bypass');
 Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->middleware('throttle:60,1')->name('webhooks.max');
+
+// Диагностический маршрут для перехвата вебхука Telegraph с логированием токена.
+// Переопределяет авто-регистрируемый маршрут пакета (/telegraph/{token}/webhook),
+// чтобы мы видели в логах, что именно приходит от Telegram.
+Route::post('/telegraph/{token}/webhook', [TelegraphWebhookController::class, 'handle'])
+    ->middleware('throttle:120,1')
+    ->name('telegraph.webhook.debug');
 
 // Временный роут для принудительной перерегистрации вебхука (только dev)
 if (app()->environment('local')) {

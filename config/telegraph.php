@@ -26,7 +26,7 @@ return [
          * Sets the webhook URL that will be exposed by the server,
          * this can be customized or entirely disabled (by setting it to NULL)
          */
-        'url' => env('TELEGRAPH_WEBHOOK_URL', '/telegraph/{token}/webhook'),
+        'url' => env('TELEGRAPH_WEBHOOK_URL', null), // Отключено: маршрут зарегистрирован в routes/web.php с логированием
 
         /*
          * Sets the handler to be used when Telegraph
