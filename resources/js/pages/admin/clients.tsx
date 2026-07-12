@@ -5,7 +5,7 @@ import {
     Search, Plus,
     Users, Phone, Send, MessageCircle,
     CalendarPlus, Pencil, AlertTriangle, ShieldCheck,
-    ShieldOff, Shield,
+    ShieldOff, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -14,33 +14,7 @@ import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
 import { PhoneInput } from '@/components/PhoneInput';
 import { formatPhone, stripPhoneMask } from '@/lib/phone';
-
-/* ═══════════════ Types ═══════════════ */
-
-interface Client {
-    id: number;
-    name: string;
-    phone: string | null;
-    telegram_id: string | null;
-    max_id: string | null;
-    is_blocked: boolean;
-    total_bookings: number;
-    completed_bookings: number;
-    ltv: number;
-    last_visit: string | null;
-}
-
-interface AuthUser {
-    name: string;
-    tariff_name?: string;
-    [key: string]: unknown;
-}
-
-interface PageProps {
-    clients: Client[];
-    auth?: { user?: AuthUser };
-    [key: string]: unknown;
-}
+import type { Client, AuthUser, Paginated, PageProps } from '@/types/app';
 
 /* ═══════════════ Helpers ═══════════════ */
 
@@ -176,7 +150,7 @@ function ClientCard({ client, onEdit, onToggleBlock, isProcessing }: { client: C
 /* ═══════════════ Main Clients Page ═══════════════ */
 
 export default function ClientsPage() {
-    const { clients: initialClients = [], auth } = usePage<PageProps>().props;
+    const { clients: paginatedClients, auth } = usePage<PageProps & { clients: Paginated<Client> }>().props;
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FilterType>('all');
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -184,6 +158,8 @@ export default function ClientsPage() {
     const [formName, setFormName] = useState('');
     const [formPhone, setFormPhone] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+
+    const initialClients = paginatedClients?.data ?? [];
 
     const clients = useMemo(() => {
         let result = initialClients;
@@ -329,11 +305,57 @@ export default function ClientsPage() {
                                     </p>
                                 </div>
                             ) : (
-                                <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                                    {clients.map((client) => (
-                                        <ClientCard key={client.id} client={client} onEdit={openEdit} onToggleBlock={handleToggleBlock} isProcessing={isProcessing} />
-                                    ))}
-                                </div>
+                                <>
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                                        {clients.map((client) => (
+                                            <ClientCard key={client.id} client={client} onEdit={openEdit} onToggleBlock={handleToggleBlock} isProcessing={isProcessing} />
+                                        ))}
+                                    </div>
+
+                                    {/* ─── Pagination ─── */}
+                                    {paginatedClients && paginatedClients.last_page > 1 && (
+                                        <div className="flex items-center justify-between rounded-lg border border-slate-200 bg-white px-4 py-3 dark:border-zinc-700 dark:bg-zinc-900">
+                                            <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                                {paginatedClients.from}–{paginatedClients.to} из {paginatedClients.total}
+                                            </p>
+                                            <div className="flex gap-1">
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={paginatedClients.current_page <= 1}
+                                                    onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page - 1}`)}
+                                                >
+                                                    <ChevronLeft className="size-4" />
+                                                </Button>
+                                                {Array.from({ length: paginatedClients.last_page }, (_, i) => i + 1)
+                                                    .filter((p) => Math.abs(p - paginatedClients.current_page) <= 2 || p === 1 || p === paginatedClients.last_page)
+                                                    .map((p, idx, arr) => (
+                                                        <span key={p} className="flex items-center">
+                                                            {idx > 0 && arr[idx - 1] !== p - 1 && (
+                                                                <span className="px-1 text-slate-400">...</span>
+                                                            )}
+                                                            <Button
+                                                                variant={p === paginatedClients.current_page ? 'default' : 'outline'}
+                                                                size="sm"
+                                                                className={p === paginatedClients.current_page ? 'bg-blue-600 text-white hover:bg-blue-700' : ''}
+                                                                onClick={() => router.get(`/admin/clients?page=${p}`)}
+                                                            >
+                                                                {p}
+                                                            </Button>
+                                                        </span>
+                                                    ))}
+                                                <Button
+                                                    variant="outline"
+                                                    size="sm"
+                                                    disabled={paginatedClients.current_page >= paginatedClients.last_page}
+                                                    onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page + 1}`)}
+                                                >
+                                                    <ChevronRight className="size-4" />
+                                                </Button>
+                                            </div>
+                                        </div>
+                                    )}
+                                </>
                             )}
                         </div>
             </AdminLayout>

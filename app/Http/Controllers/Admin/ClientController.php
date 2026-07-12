@@ -15,7 +15,8 @@ class ClientController extends Controller
     public function __construct(
         private BookingService $bookingService,
     ) {}
-    public function index()
+
+    public function index(Request $request)
     {
         $master = auth()->user();
 
@@ -24,31 +25,22 @@ class ClientController extends Controller
                 ->with('error', 'У вас нет профиля мастера.');
         }
 
-        $appointmentsByClient = Appointment::where('master_id', $master->id)
-            ->where('status', '!=', AppointmentStatus::Cancelled)
-            ->with('service')
-            ->get()
-            ->groupBy('client_id');
+        $perPage = (int) $request->query('per_page', 20);
 
         $clients = Client::where('user_id', $master->id)
-            ->get()
-            ->map(function (Client $client) use ($appointmentsByClient) {
-                $appointments = $appointmentsByClient->get($client->id, collect());
-                $completed = $appointments->where('status', AppointmentStatus::Paid);
-
-                return [
-                    'id' => $client->id,
-                    'name' => $client->name,
-                    'phone' => $client->phone,
-                    'telegram_id' => $client->telegram_id,
-                    'max_id' => $client->max_id,
-                    'is_blocked' => $client->is_blocked,
-                    'total_bookings' => $appointments->count(),
-                    'completed_bookings' => $completed->count(),
-                    'ltv' => (float) $completed->sum(fn ($app) => $app->service ? $app->service->price : 0),
-                    'last_visit' => $appointments->max('start_time'),
-                ];
-            });
+            ->select('clients.*')
+            ->withCount(['appointments as total_bookings' => function ($q) {
+                $q->where('status', '!=', AppointmentStatus::Cancelled);
+            }])
+            ->withCount(['appointments as completed_bookings' => function ($q) {
+                $q->where('status', AppointmentStatus::Paid);
+            }])
+            ->selectRaw('(SELECT COALESCE(SUM(s.price), 0) FROM appointments a JOIN services s ON a.service_id = s.id WHERE a.client_id = clients.id AND a.status = ?) as ltv', [
+                AppointmentStatus::Paid->value,
+            ])
+            ->selectRaw('(SELECT MAX(a.start_time) FROM appointments a WHERE a.client_id = clients.id) as last_visit')
+            ->orderByDesc('last_visit')
+            ->paginate($perPage);
 
         return Inertia::render('admin/clients', [
             'clients' => $clients,
@@ -118,7 +110,6 @@ class ClientController extends Controller
         $wasBlocked = $client->is_blocked;
         $client->update(['is_blocked' => ! $wasBlocked]);
 
-        // При блокировке — отменяем все активные записи клиента
         if (! $wasBlocked && $client->is_blocked) {
             $activeStatuses = [
                 AppointmentStatus::Booked,

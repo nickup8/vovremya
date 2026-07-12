@@ -51,6 +51,8 @@ class CalendarController extends Controller
             });
 
         $blockedTimes = $master->blockedTimes()
+            ->where('end_datetime', '>=', Carbon::now()->subWeeks(2)->startOfDay())
+            ->where('start_datetime', '<=', Carbon::now()->addWeeks(2)->endOfDay())
             ->get()
             ->map(fn ($bt) => [
                 'id' => $bt->id,
