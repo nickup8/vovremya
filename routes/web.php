@@ -59,7 +59,7 @@ if (app()->environment('local')) {
         }
 
         $url = 'https://catchy-suitably-hacked.ngrok-free.dev/webhooks/telegram/bypass';
-        $secretToken = env('TELEGRAM_SECRET_TOKEN');
+        $secretToken = config('services.telegram.secret_token');
 
         $registration = $bot->registerWebhook()->url($url);
 

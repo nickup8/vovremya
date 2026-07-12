@@ -38,7 +38,7 @@ class SettingsController extends Controller
                 'telegram_id' => $user->telegram_id,
                 'telegram_chat_id' => $user->telegram_chat_id,
                 'telegram_auth_token' => $user->telegram_auth_token,
-                'telegram_bot_name' => config('telegraph.bot_name') ?? env('TELEGRAM_BOT_NAME'),
+                'telegram_bot_name' => config('services.telegram.bot_name'),
                 'max_id' => $user->max_id,
                 'soft_deposit' => $user->soft_deposit,
                 'deposit_timeout' => $user->deposit_timeout,

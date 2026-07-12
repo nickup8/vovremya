@@ -21,7 +21,7 @@ class TelegramAuthController extends Controller
     public function showChoose()
     {
         return Inertia::render('auth/choose', [
-            'telegramBotName' => config('services.telegram.bot_name', env('TELEGRAM_BOT_NAME')),
+            'telegramBotName' => config('services.telegram.bot_name'),
         ]);
     }
 

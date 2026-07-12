@@ -43,7 +43,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'is_master', 'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
-    'slot_interval', 'tariff', 'expires_at', 'is_super_admin', 'is_blocked',
+    'slot_interval', 'tariff', 'expires_at',
     'settings',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
