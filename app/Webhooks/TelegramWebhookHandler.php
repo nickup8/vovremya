@@ -4,10 +4,12 @@ namespace App\Webhooks;
 
 use App\Models\User;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
+use DefStudio\Telegraph\Keyboard\ReplyKeyboard;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Support\Stringable;
+use Throwable;
 
 class TelegramWebhookHandler extends WebhookHandler
 {
@@ -23,17 +25,16 @@ class TelegramWebhookHandler extends WebhookHandler
             'chat_id' => $chatId,
             'parameter' => $parameter,
             'bot_id' => $this->bot->id,
-            'chat_exists' => $this->chat->exists,
         ]);
 
         if (empty($parameter)) {
-            Log::info('[TG] start() sending welcome (no param)');
+            Log::info('[TG] start() sending welcome');
 
             $result = $this->chat->html(
                 'Добро пожаловать! Для входа в личный кабинет нажмите кнопку «Войти через Telegram» на сайте.'
             )->send();
 
-            Log::info('[TG] start() welcome sent', ['result' => $result]);
+            Log::info('[TG] start() welcome sent', ['ok' => $result !== null]);
 
             return;
         }
@@ -47,35 +48,30 @@ class TelegramWebhookHandler extends WebhookHandler
                 self::CHAT_TOKEN_TTL,
             );
 
-            Log::info('[TG] start(auth_) cache stored', [
-                'chat_id' => $chatId,
-                'login_token' => $loginToken,
-            ]);
+            Log::info('[TG] start(auth_) cache stored', ['login_token' => $loginToken]);
 
-            $keyboard = [
-                'keyboard' => [
-                    [
-                        [
-                            'text' => '📱 Поделиться номером телефона',
-                            'request_contact' => true,
-                        ],
-                    ],
-                ],
-                'resize_keyboard' => true,
-                'one_time_keyboard' => true,
-            ];
-
-            Log::info('[TG] start(auth_) building keyboard', ['keyboard' => $keyboard]);
-
-            $chat = $this->chat;
             $message = "Для завершения авторизации, пожалуйста, поделитесь номером телефона.\n\n"
                 . "Нажмите кнопку ниже 👇";
 
-            Log::info('[TG] start(auth_) calling ->html()->keyboard()->send()');
+            $keyboard = ReplyKeyboard::make()
+                ->button('📱 Поделиться номером телефона')->requestContact();
 
-            $result = $chat->html($message)->keyboard($keyboard)->send();
+            try {
+                Log::info('[TG] start(auth_) calling replyKeyboard()->send()');
 
-            Log::info('[TG] start(auth_) send result', ['result' => $result]);
+                $result = $this->chat->html($message)
+                    ->replyKeyboard($keyboard)
+                    ->resize()
+                    ->oneTime()
+                    ->send();
+
+                Log::info('[TG] start(auth_) send OK', ['ok' => true]);
+            } catch (Throwable $e) {
+                Log::error('[TG] start(auth_) send FAILED', [
+                    'error' => $e->getMessage(),
+                    'class' => get_class($e),
+                ]);
+            }
 
             return;
         }
@@ -85,16 +81,14 @@ class TelegramWebhookHandler extends WebhookHandler
 
             $result = $this->chat->html('Запись обрабатывается...')->send();
 
-            Log::info('[TG] start(book_) sent', ['result' => $result]);
+            Log::info('[TG] start(book_) sent', ['ok' => $result !== null]);
 
             return;
         }
 
-        Log::info('[TG] start() unknown param, sending error');
+        Log::info('[TG] start() unknown param');
 
-        $result = $this->chat->html('Неизвестная команда. Используйте кнопку на сайте для входа.')->send();
-
-        Log::info('[TG] start() error sent', ['result' => $result]);
+        $this->chat->html('Неизвестная команда. Используйте кнопку на сайте для входа.')->send();
     }
 
     protected function handleMessage(): void
@@ -108,7 +102,7 @@ class TelegramWebhookHandler extends WebhookHandler
         ]);
 
         if ($contact) {
-            Log::info('[TG] handleMessage() → handleAuthContact', ['contact' => $contact]);
+            Log::info('[TG] handleMessage() → handleAuthContact');
             $this->handleAuthContact($contact);
 
             return;
@@ -174,10 +168,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'address' => null,
             ]);
 
-            Log::info('[TG] handleAuthContact: user created', [
-                'user_id' => $user->id,
-                'phone' => $phone,
-            ]);
+            Log::info('[TG] handleAuthContact: user created', ['user_id' => $user->id]);
         } else {
             $updates = [];
 
@@ -194,10 +185,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 $user->update($updates);
             }
 
-            Log::info('[TG] handleAuthContact: existing user', [
-                'user_id' => $user->id,
-                'phone' => $phone,
-            ]);
+            Log::info('[TG] handleAuthContact: existing user', ['user_id' => $user->id]);
         }
 
         $authCacheKey = self::AUTH_CACHE_PREFIX . $loginToken;
@@ -214,7 +202,7 @@ class TelegramWebhookHandler extends WebhookHandler
             '✅ Успешная авторизация! Возвращайтесь в браузер.'
         )->removeKeyboard()->send();
 
-        Log::info('[TG] handleAuthContact: confirmation sent', ['result' => $result]);
+        Log::info('[TG] handleAuthContact: confirmation sent', ['ok' => $result !== null]);
     }
 
     protected function handleChatMessage(Stringable $text): void
