@@ -43,11 +43,13 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
     const initials = getInitials(userName);
 
     return (
-        <div className="flex min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
+        <div className="min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
+            {/* Sidebar — fixed on desktop */}
             <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
 
-            <div className="flex min-w-0 flex-1 flex-col">
-                <header className="sticky top-0 z-30 flex h-16 items-center justify-between border-b border-slate-200 bg-white/80 backdrop-blur-md px-4 shadow-xs md:px-6 dark:border-zinc-800 dark:bg-zinc-900/80">
+            {/* Content area — offset by sidebar width on desktop */}
+            <div className="flex min-h-screen flex-col lg:ml-64">
+                <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-xs md:px-6 dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="flex items-center gap-4">
                         <button
                             onClick={() => setMobileMenuOpen(true)}

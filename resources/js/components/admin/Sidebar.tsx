@@ -89,9 +89,11 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
 
     return (
         <>
-            <aside className="sticky top-0 hidden h-screen w-64 shrink-0 lg:flex">
+            {/* Desktop: fixed left sidebar */}
+            <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">
                 {sidebarContent}
             </aside>
+            {/* Mobile: overlay sidebar */}
             {mobileOpen && (
                 <div className="fixed inset-0 z-50 lg:hidden">
                     <div className="fixed inset-0 bg-black/50" onClick={onMobileClose} />
