@@ -32,7 +32,7 @@ class ClientAuthController extends Controller
 
         $client->update(['auth_token' => null]);
 
-        return redirect()->route('client.bookings');
+        return redirect()->route('client.profile');
     }
 
     /**

@@ -88,7 +88,7 @@ export default function Bookings() {
     function confirmCancel() {
         if (!cancelId || isProcessing) return;
         setIsProcessing(true);
-        router.patch(`/my-bookings/appointments/${cancelId}/cancel`, {}, {
+        router.patch(`/client/my-bookings/appointments/${cancelId}/cancel`, {}, {
             preserveScroll: true,
             onFinish: () => {
                 setIsProcessing(false);
