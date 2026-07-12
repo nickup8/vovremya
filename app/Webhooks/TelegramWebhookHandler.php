@@ -2,6 +2,9 @@
 
 namespace App\Webhooks;
 
+use App\Enums\AppointmentStatus;
+use App\Models\Appointment;
+use App\Models\Client;
 use App\Models\User;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\ReplyKeyboard;
@@ -15,7 +18,9 @@ class TelegramWebhookHandler extends WebhookHandler
 {
     private const AUTH_CACHE_PREFIX = 'tg_auth:';
     private const CHAT_TOKEN_PREFIX = 'tg_chat_token:';
-    private const CHAT_TOKEN_TTL = 300;
+    private const BOOKING_DRAFT_PREFIX = 'booking_draft_';
+    private const TOKEN_TTL = 300;
+    private const DRAFT_TTL = 900;
 
     public function start(?string $parameter = null): void
     {
@@ -45,7 +50,7 @@ class TelegramWebhookHandler extends WebhookHandler
             Cache::put(
                 self::CHAT_TOKEN_PREFIX . $chatId,
                 $loginToken,
-                self::CHAT_TOKEN_TTL,
+                self::TOKEN_TTL,
             );
 
             Log::info('[TG] start(auth_) cache stored', ['login_token' => $loginToken]);
@@ -77,11 +82,7 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         if (str_starts_with($parameter, 'book_')) {
-            Log::info('[TG] start(book_) sending placeholder');
-
-            $result = $this->chat->html('Запись обрабатывается...')->send();
-
-            Log::info('[TG] start(book_) sent', ['ok' => $result !== null]);
+            $this->handleBookingFlow($parameter, $chatId);
 
             return;
         }
@@ -91,6 +92,104 @@ class TelegramWebhookHandler extends WebhookHandler
         $this->chat->html('Неизвестная команда. Используйте кнопку на сайте для входа.')->send();
     }
 
+    /**
+     * Обработка флоу бронирования: /start book_{ID}
+     *
+     * 1. Ищет Appointment по ID
+     * 2. Если клиент уже привязан (Client с telegram_id) — отправляет InlineKeyboard с подтверждением
+     * 3. Если клиент новый — запрашивает контакт через ReplyKeyboard
+     */
+    private function handleBookingFlow(string $parameter, string $chatId): void
+    {
+        $appointmentId = (int) str_replace('book_', '', $parameter);
+
+        $appointment = Appointment::with(['master', 'service'])
+            ->find($appointmentId);
+
+        if (! $appointment) {
+            Log::warning('[TG] book_ appointment not found', ['id' => $appointmentId]);
+            $this->chat->html('Запись не найдена. Возможно, она уже была отменена.')->send();
+
+            return;
+        }
+
+        $service = $appointment->service;
+        $master = $appointment->master;
+
+        $date = $appointment->start_time->format('d.m.Y');
+        $time = $appointment->start_time->format('H:i');
+        $serviceName = $service?->title ?? 'Услуга';
+        $masterName = $master->name ?? 'Мастер';
+
+        $details = "📋 **Детали записи:**\n\n"
+            . "👤 Мастер: {$masterName}\n"
+            . "💇 Услуга: {$serviceName}\n"
+            . "📅 Дата: {$date}\n"
+            . "⏰ Время: {$time}";
+
+        // Проверяем, есть ли клиент с таким chat_id
+        $client = Client::where('telegram_id', $chatId)->first();
+
+        if ($client) {
+            // Клиент уже известен — привязываем сразу
+            $this->linkAppointmentToClient($appointment, $client, $details);
+        } else {
+            // Клиент новый — запрашиваем контакт
+            Cache::put(self::BOOKING_DRAFT_PREFIX . $chatId, $appointmentId, self::DRAFT_TTL);
+
+            $contactMessage = $details . "\n\n"
+                . "Для завершения записи, пожалуйста, поделитесь номером телефона.\n\n"
+                . "Нажмите кнопку ниже 👇";
+
+            $keyboard = ReplyKeyboard::make()
+                ->button('📱 Поделиться номером телефона')->requestContact()
+                ->resize()
+                ->oneTime();
+
+            try {
+                $this->chat->html($contactMessage)
+                    ->replyKeyboard($keyboard)
+                    ->send();
+
+                Log::info('[TG] book_ contact requested', [
+                    'appointment_id' => $appointmentId,
+                    'chat_id' => $chatId,
+                ]);
+            } catch (Throwable $e) {
+                Log::error('[TG] book_ contact request FAILED', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    /**
+     * Привязка клиента к записи и отправка подтверждения через InlineKeyboard
+     */
+    private function linkAppointmentToClient(Appointment $appointment, Client $client, string $details): void
+    {
+        $appointment->update(['client_id' => $client->id]);
+
+        $confirmationText = $details . "\n\n"
+            . "✅ Запись подтверждена! Ждём вас!";
+
+        try {
+            $this->chat->html($confirmationText)->send();
+
+            Log::info('[TG] appointment linked', [
+                'appointment_id' => $appointment->id,
+                'client_id' => $client->id,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('[TG] appointment link FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Обработка контактов: определяет, это флоу авторизации или бронирования
+     */
     protected function handleMessage(): void
     {
         $contact = $this->request->input('message.contact');
@@ -102,8 +201,7 @@ class TelegramWebhookHandler extends WebhookHandler
         ]);
 
         if ($contact) {
-            Log::info('[TG] handleMessage() → handleAuthContact');
-            $this->handleAuthContact($contact);
+            $this->handleContact($contact);
 
             return;
         }
@@ -111,22 +209,129 @@ class TelegramWebhookHandler extends WebhookHandler
         parent::handleMessage();
     }
 
-    private function handleAuthContact(array $contact): void
+    /**
+     * Единый обработчик контактов — определяет флоу по кэшу
+     */
+    private function handleContact(array $contact): void
     {
         $chatId = $this->chat->chat_id;
 
-        $loginToken = Cache::get(self::CHAT_TOKEN_PREFIX . $chatId);
+        // Проверяем флоу бронирования
+        $draftAppointmentId = Cache::pull(self::BOOKING_DRAFT_PREFIX . $chatId);
 
-        Log::info('[TG] handleAuthContact()', [
-            'chat_id' => $chatId,
-            'has_login_token' => $loginToken !== null,
-        ]);
-
-        if (! $loginToken) {
-            Log::info('[TG] handleAuthContact: no active flow, skipping');
+        if ($draftAppointmentId) {
+            $this->handleBookingContact($contact, $chatId, (int) $draftAppointmentId);
 
             return;
         }
+
+        // Проверяем флоу авторизации
+        $loginToken = Cache::get(self::CHAT_TOKEN_PREFIX . $chatId);
+
+        if ($loginToken) {
+            $this->handleAuthContact($contact, $chatId, $loginToken);
+
+            return;
+        }
+
+        Log::info('[TG] handleContact: no active flow', ['chat_id' => $chatId]);
+    }
+
+    /**
+     * Обработка контакта в флоу бронирования
+     */
+    private function handleBookingContact(array $contact, string $chatId, int $appointmentId): void
+    {
+        $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
+        $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
+        $firstName = $contact['first_name'] ?? '';
+        $lastName = $contact['last_name'] ?? '';
+        $fullName = trim($firstName . ' ' . $lastName);
+
+        Log::info('[TG] handleBookingContact()', [
+            'chat_id' => $chatId,
+            'appointment_id' => $appointmentId,
+            'phone' => $phone,
+        ]);
+
+        if (empty($phone)) {
+            $this->chat->html('Не удалось определить номер телефона. Попробуйте снова.')->send();
+
+            return;
+        }
+
+        $appointment = Appointment::find($appointmentId);
+
+        if (! $appointment) {
+            $this->chat->html('Запись не найдена. Попробуйте записаться заново.')->send();
+
+            return;
+        }
+
+        $masterId = $appointment->master_id;
+
+        // Ищем или создаём клиента
+        $client = Client::where('user_id', $masterId)
+            ->where('phone', $phone)
+            ->first();
+
+        if (! $client) {
+            $client = Client::create([
+                'user_id' => $masterId,
+                'name' => $fullName ?: "Клиент {$phone}",
+                'phone' => $phone,
+                'telegram_id' => $telegramId,
+                'auth_token' => Client::generateAuthToken(),
+            ]);
+
+            Log::info('[TG] handleBookingContact: client created', ['client_id' => $client->id]);
+        } else {
+            // Обновляем telegram_id если нужно
+            if ($client->telegram_id !== $telegramId) {
+                $client->update(['telegram_id' => $telegramId]);
+            }
+
+            Log::info('[TG] handleBookingContact: existing client', ['client_id' => $client->id]);
+        }
+
+        // Привязываем запись
+        $appointment->update(['client_id' => $client->id]);
+
+        // Формируем подтверждение
+        $service = $appointment->service;
+        $date = $appointment->start_time->format('d.m.Y');
+        $time = $appointment->start_time->format('H:i');
+
+        $message = "✅ **Запись подтверждена!**\n\n"
+            . "💇 {$service->title}\n"
+            . "📅 {$date} в {$time}\n\n"
+            . "Ждём вас!}";
+
+        try {
+            $this->chat->html($message)
+                ->removeReplyKeyboard()
+                ->send();
+
+            Log::info('[TG] handleBookingContact: confirmation sent', [
+                'appointment_id' => $appointmentId,
+                'client_id' => $client->id,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('[TG] handleBookingContact: confirmation FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Обработка контакта в флоу авторизации (существующая логика)
+     */
+    private function handleAuthContact(array $contact, string $chatId, string $loginToken): void
+    {
+        Log::info('[TG] handleAuthContact()', [
+            'chat_id' => $chatId,
+            'has_login_token' => true,
+        ]);
 
         $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
@@ -192,7 +397,7 @@ class TelegramWebhookHandler extends WebhookHandler
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
-        ], self::CHAT_TOKEN_TTL);
+        ], self::TOKEN_TTL);
 
         Cache::forget(self::CHAT_TOKEN_PREFIX . $chatId);
 
