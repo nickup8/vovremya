@@ -2,21 +2,18 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Client;
 use App\Models\Service;
 use App\Models\User;
-use App\Services\Billing\TariffLimitService;
 use App\Services\Booking\BookingService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Str;
 use Inertia\Inertia;
 
 class BookingWidgetController extends Controller
 {
     public function __construct(
         private BookingService $bookingService,
-        private TariffLimitService $tariffLimitService,
     ) {}
 
     public function show(string $slug, Request $request)
@@ -55,26 +52,23 @@ class BookingWidgetController extends Controller
         ]);
     }
 
-    public function store(Request $request, string $slug)
+    public function store(Request $request, string $slug): JsonResponse
     {
         $master = User::where('master_slug', $slug)
             ->where('is_master', true)
             ->firstOrFail();
 
         $validated = $request->validate([
-            'client_name' => 'required|string|max:255',
-            'client_phone' => 'required|string|max:50',
             'service_id' => 'required|exists:services,id',
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
-            'provider' => 'required|in:telegram,max',
+            'provider' => 'required|in:telegram',
         ]);
 
         $service = Service::findOrFail($validated['service_id']);
 
-        // Проверка принадлежности услуги мастеру (защита от IDOR)
         if ($service->user_id !== $master->id) {
-            abort(404, 'Услуга не найдена или не принадлежит данному мастеру.');
+            return response()->json(['message' => 'Услуга не найдена.'], 404);
         }
 
         $isAvailable = $this->bookingService->validateSlot(
@@ -85,53 +79,28 @@ class BookingWidgetController extends Controller
         );
 
         if (! $isAvailable) {
-            return back()->withErrors([
-                'time' => 'Этот слот недоступен. Он может быть занят, попадать на обеденный перерыв или находиться за пределами рабочего времени.',
-            ])->withInput();
+            return response()->json([
+                'errors' => ['time' => 'Этот слот недоступен.'],
+            ], 422);
         }
 
-        if (! $this->tariffLimitService->canCreateAppointment($master)) {
-            return back()->withErrors([
-                'time' => 'Достигнут лимит записей для вашего тарифа.',
-            ])->withInput();
-        }
-
-        // Найти или создать клиента
-        $client = Client::where('user_id', $master->id)
-            ->where('phone', $validated['client_phone'])
-            ->first();
-
-        if (! $client) {
-            $client = Client::create([
-                'user_id' => $master->id,
-                'name' => $validated['client_name'],
-                'phone' => $validated['client_phone'],
-                'auth_token' => Client::generateAuthToken(),
-            ]);
-        } else {
-            // Обновить имя, если изменилось
-            if ($client->name !== $validated['client_name']) {
-                $client->update(['name' => $validated['client_name']]);
-            }
-        }
-
+        // Создаём запись без client_id (черновик) — клиент подтвердит номер в боте
         $appointment = $this->bookingService->createAppointment(
             $master,
             $service,
             $validated['date'],
             $validated['time'],
             $validated['provider'],
-            $client->id,
+            null, // client_id будет заполнен после подтверждения в боте
         );
 
-        session([
-            'current_appointment_id' => $appointment->id,
+        $botName = config('services.telegram.bot_name', 'vovremia_bot');
+        $telegramUrl = "https://t.me/{$botName}?start=book_{$appointment->id}";
+
+        return response()->json([
+            'success' => true,
+            'telegram_url' => $telegramUrl,
+            'appointment_id' => $appointment->id,
         ]);
-
-        $botLink = $validated['provider'] === 'telegram'
-            ? 'https://t.me/vovremia_bot?start=book_'.$appointment->id
-            : 'https://max.ru/bot/vovremia_bot?start=book_'.$appointment->id;
-
-        return redirect()->away($botLink);
     }
 }

@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     ArrowRight, ArrowLeft, Clock,
-    CheckCircle2, MessageCircle, Smartphone,
+    CheckCircle2, MessageCircle,
     ChevronLeft, ChevronRight, MapPin, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -296,81 +296,25 @@ function StepCalendar({
 
 function StepProvider({
     errors,
-    name,
-    phone,
-    isAutoFilled,
-    onNameChange,
-    onPhoneChange,
     onSubmit,
     isSubmitting,
 }: {
     errors: Record<string, string>;
-    name: string;
-    phone: string;
-    isAutoFilled: boolean;
-    onNameChange: (v: string) => void;
-    onPhoneChange: (v: string) => void;
-    onSubmit: (provider: 'telegram' | 'max') => void;
+    onSubmit: () => void;
     isSubmitting: boolean;
 }) {
     return (
         <div className="flex-1 overflow-y-auto pb-28">
-            {!isAutoFilled && (
-                <div className="px-5 pt-6 pb-4">
-                    <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-                        Подтверждение
-                    </h2>
-                    <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                        Заполните информацию и выберите мессенджер
-                    </p>
-                </div>
-            )}
+            <div className="px-5 pt-6 pb-4">
+                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                    Подтверждение
+                </h2>
+                <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
+                    Нажмите кнопку, чтобы перейти в Telegram
+                </p>
+            </div>
 
             <div className="space-y-4 px-5">
-                {!isAutoFilled && (
-                    <>
-                        <div>
-                            <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
-                                Ваше имя
-                            </label>
-                            <input
-                                type="text"
-                                value={name}
-                                onChange={(e) => onNameChange(e.target.value)}
-                                placeholder="Иван"
-                                className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
-                                    errors.name
-                                        ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
-                                        : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
-                                }`}
-                            />
-                            {errors.name && (
-                                <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.name}</p>
-                            )}
-                        </div>
-
-                        <div>
-                            <label className="mb-1.5 block text-xs font-medium text-stone-500 dark:text-stone-400">
-                                Телефон
-                            </label>
-                            <input
-                                type="tel"
-                                value={phone}
-                                onChange={(e) => onPhoneChange(e.target.value)}
-                                placeholder="+7 (999) 000-00-00"
-                                className={`w-full rounded-xl border bg-white/70 px-4 py-3 text-sm text-stone-900 placeholder-stone-400 transition-colors focus:outline-none focus:ring-2 dark:bg-stone-900/50 dark:text-stone-50 dark:placeholder-stone-600 ${
-                                    errors.phone
-                                        ? 'border-red-400 focus:ring-red-400/30 dark:border-red-500'
-                                        : 'border-stone-200/60 focus:ring-stone-900/10 dark:border-stone-700/40 dark:focus:ring-stone-100/10'
-                                }`}
-                            />
-                            {errors.phone && (
-                                <p className="mt-1 text-xs text-red-500 dark:text-red-400">{errors.phone}</p>
-                            )}
-                        </div>
-                    </>
-                )}
-
                 {errors.time && (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800/50 dark:bg-red-900/20">
                         <p className="text-sm text-red-600 dark:text-red-400">{errors.time}</p>
@@ -378,35 +322,18 @@ function StepProvider({
                 )}
 
                 <div className="pt-2">
-                    <p className="mb-3 text-xs font-medium uppercase tracking-wider text-stone-400 dark:text-stone-500">
-                        Мессенджер
-                    </p>
-                    <div className="space-y-3">
-                        <button
-                            onClick={() => onSubmit('telegram')}
-                            disabled={isSubmitting || !name.trim() || !phone.trim()}
-                            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
-                        >
-                            {isSubmitting ? (
-                                <Loader2 className="size-5 animate-spin" />
-                            ) : (
-                                <MessageCircle className="size-5" />
-                            )}
-                            {isSubmitting ? 'Отправка...' : 'Записаться через Telegram'}
-                        </button>
-                        <button
-                            onClick={() => onSubmit('max')}
-                            disabled={isSubmitting || !name.trim() || !phone.trim()}
-                            className="flex w-full items-center justify-center gap-3 rounded-2xl border-2 border-stone-200 bg-white py-5 text-base font-semibold text-stone-900 transition-all hover:scale-[1.02] hover:bg-stone-50 disabled:opacity-50 disabled:hover:scale-100 dark:border-stone-700 dark:bg-stone-900 dark:text-stone-50 dark:hover:bg-stone-800"
-                        >
-                            {isSubmitting ? (
-                                <Loader2 className="size-5 animate-spin" />
-                            ) : (
-                                <Smartphone className="size-5" />
-                            )}
-                            {isSubmitting ? 'Отправка...' : 'Записаться через Max'}
-                        </button>
-                    </div>
+                    <button
+                        onClick={onSubmit}
+                        disabled={isSubmitting}
+                        className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
+                    >
+                        {isSubmitting ? (
+                            <Loader2 className="size-5 animate-spin" />
+                        ) : (
+                            <MessageCircle className="size-5" />
+                        )}
+                        {isSubmitting ? 'Отправка...' : 'Записаться через Telegram'}
+                    </button>
                 </div>
             </div>
         </div>
@@ -483,9 +410,6 @@ export default function Widget() {
         initialDate ? new Date(initialDate + 'T00:00:00') : null
     );
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
-    const [clientName, setClientName] = useState('');
-    const [clientPhone, setClientPhone] = useState('');
-    const [isAutoFilled, setIsAutoFilled] = useState(false);
     const [isSubmitting, setIsSubmitting] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -495,23 +419,6 @@ export default function Widget() {
             setErrors(serverErrors);
         }
     }, [serverErrors]);
-
-    // Автозаполнение данных клиента из Telegram WebApp или mock-данные для локальной разработки
-    useEffect(() => {
-        const tgUser = window.Telegram?.WebApp?.initDataUnsafe?.user;
-
-        if (tgUser) {
-            const fullName = [tgUser.first_name, tgUser.last_name].filter(Boolean).join(' ');
-            setClientName(fullName);
-            setClientPhone(tgUser.phone_number ?? '');
-            setIsAutoFilled(true);
-        } else if (import.meta.env.DEV) {
-            // Mock-данные только в режиме разработки (вне Telegram)
-            setClientName('Тестовый Клиент из ТГ');
-            setClientPhone('+79990001122');
-            setIsAutoFilled(true);
-        }
-    }, []);
 
     const canNext =
         (step === 1 && selectedService !== null) ||
@@ -549,29 +456,44 @@ export default function Widget() {
         if (step > 1) setStep((s) => (s - 1) as Step);
     }
 
-    function handleSubmit(provider: 'telegram' | 'max') {
+    async function handleSubmit() {
         if (!selectedService || !selectedDate || !selectedTime || isSubmitting) return;
 
         setIsSubmitting(true);
         setErrors({});
 
-        router.post(`/book/${master.master_slug}`, {
-            client_name: clientName.trim(),
-            client_phone: clientPhone.trim(),
-            service_id: selectedService.id,
-            date: formatDateKey(selectedDate),
-            time: selectedTime,
-            provider,
-        }, {
-            preserveState: true,
-            onError: (errs) => {
-                setErrors(errs);
+        try {
+            const response = await fetch(`/book/${master.master_slug}`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-XSRF-TOKEN': decodeURIComponent(
+                        document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? ''
+                    ),
+                },
+                body: JSON.stringify({
+                    service_id: selectedService.id,
+                    date: formatDateKey(selectedDate),
+                    time: selectedTime,
+                    provider: 'telegram',
+                }),
+            });
+
+            const data = await response.json();
+
+            if (!response.ok) {
+                setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
                 setIsSubmitting(false);
-            },
-            onFinish: () => {
-                setIsSubmitting(false);
-            },
-        });
+                return;
+            }
+
+            // Редирект в Telegram
+            window.location.href = data.telegram_url;
+        } catch {
+            setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
+            setIsSubmitting(false);
+        }
     }
 
     return (
@@ -626,11 +548,6 @@ export default function Widget() {
                 {step === 3 && (
                     <StepProvider
                         errors={errors}
-                        name={clientName}
-                        phone={clientPhone}
-                        isAutoFilled={isAutoFilled}
-                        onNameChange={setClientName}
-                        onPhoneChange={setClientPhone}
                         onSubmit={handleSubmit}
                         isSubmitting={isSubmitting}
                     />
