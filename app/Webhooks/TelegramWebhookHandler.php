@@ -13,46 +13,45 @@ class TelegramWebhookHandler extends WebhookHandler
 {
     private const AUTH_CACHE_PREFIX = 'tg_auth:';
     private const CHAT_TOKEN_PREFIX = 'tg_chat_token:';
-    private const CHAT_TOKEN_TTL = 300; // 5 минут
+    private const CHAT_TOKEN_TTL = 300;
 
-    /**
-     * Обработка команды /start.
-     *
-     * Если параметр начинается с auth_ — запускаем флоу авторизации:
-     * 1. Сохраняем связь chat_id → login_token в Cache
-     * 2. Отправляем сообщение с кнопкой запроса контакта
-     *
-     * Если параметр начинается с book_ — флоу записи (существующая логика).
-     */
     public function start(?string $parameter = null): void
     {
         $chatId = $this->chat->chat_id;
 
-        Log::info('Telegram Bot /start', [
-            'param' => $parameter,
+        Log::info('[TG] start() entered', [
             'chat_id' => $chatId,
+            'parameter' => $parameter,
+            'bot_id' => $this->bot->id,
+            'chat_exists' => $this->chat->exists,
         ]);
 
         if (empty($parameter)) {
-            $this->chat->html(
+            Log::info('[TG] start() sending welcome (no param)');
+
+            $result = $this->chat->html(
                 'Добро пожаловать! Для входа в личный кабинет нажмите кнопку «Войти через Telegram» на сайте.'
             )->send();
+
+            Log::info('[TG] start() welcome sent', ['result' => $result]);
 
             return;
         }
 
-        // ─── Флоу авторизации через Deep Linking ───
         if (str_starts_with($parameter, 'auth_')) {
             $loginToken = $parameter;
 
-            // Сохраняем связь chat_id → login_token (нужно для обработки контакта)
             Cache::put(
                 self::CHAT_TOKEN_PREFIX . $chatId,
                 $loginToken,
                 self::CHAT_TOKEN_TTL,
             );
 
-            // Отправляем сообщение с ReplyKeyboard для запроса контакта
+            Log::info('[TG] start(auth_) cache stored', [
+                'chat_id' => $chatId,
+                'login_token' => $loginToken,
+            ]);
+
             $keyboard = [
                 'keyboard' => [
                     [
@@ -66,85 +65,91 @@ class TelegramWebhookHandler extends WebhookHandler
                 'one_time_keyboard' => true,
             ];
 
-            $this->chat->html(
-                "Для завершения авторизации, пожалуйста, поделитесь номером телефона.\n\n"
-                . "Нажмите кнопку ниже 👇"
-            )->keyboard($keyboard)->send();
+            Log::info('[TG] start(auth_) building keyboard', ['keyboard' => $keyboard]);
+
+            $chat = $this->chat;
+            $message = "Для завершения авторизации, пожалуйста, поделитесь номером телефона.\n\n"
+                . "Нажмите кнопку ниже 👇";
+
+            Log::info('[TG] start(auth_) calling ->html()->keyboard()->send()');
+
+            $result = $chat->html($message)->keyboard($keyboard)->send();
+
+            Log::info('[TG] start(auth_) send result', ['result' => $result]);
 
             return;
         }
 
-        // ─── Флоу записи ( book_{appointment_id} ) ───
         if (str_starts_with($parameter, 'book_')) {
-            // Передаём в WebhookController — здесь не обрабатываем
-            // (этот webhook может не получать book_ если WebhookController — отдельный endpoint)
-            $this->chat->html('Запись обрабатывается...')->send();
+            Log::info('[TG] start(book_) sending placeholder');
+
+            $result = $this->chat->html('Запись обрабатывается...')->send();
+
+            Log::info('[TG] start(book_) sent', ['result' => $result]);
 
             return;
         }
 
-        $this->chat->html('Неизвестная команда. Используйте кнопку на сайте для входа.')->send();
+        Log::info('[TG] start() unknown param, sending error');
+
+        $result = $this->chat->html('Неизвестная команда. Используйте кнопку на сайте для входа.')->send();
+
+        Log::info('[TG] start() error sent', ['result' => $result]);
     }
 
-    /**
-     * Перехват сообщений для обработки контактов.
-     *
-     * Переопределяем handleMessage() чтобы проверить наличие контакта
-     * ДО стандартной обработки текстовых команд.
-     */
     protected function handleMessage(): void
     {
-        // Проверяем, не является ли сообщение контактом
         $contact = $this->request->input('message.contact');
+
+        Log::info('[TG] handleMessage()', [
+            'has_contact' => $contact !== null,
+            'text' => $this->request->input('message.text'),
+            'chat_id' => $this->chat?->chat_id,
+        ]);
+
         if ($contact) {
+            Log::info('[TG] handleMessage() → handleAuthContact', ['contact' => $contact]);
             $this->handleAuthContact($contact);
+
             return;
         }
 
         parent::handleMessage();
     }
 
-    /**
-     * Обработка полученного контакта при флоу авторизации.
-     *
-     * 1. Достаём login_token для данного chat_id из Cache
-     * 2. Находим или создаём пользователя по телефону
-     * 3. Обновляем статус токена на authenticated
-     * 4. Отправляем подтверждение
-     */
     private function handleAuthContact(array $contact): void
     {
         $chatId = $this->chat->chat_id;
 
-        // Проверяем, есть ли активный auth-флоу для этого chat_id
         $loginToken = Cache::get(self::CHAT_TOKEN_PREFIX . $chatId);
 
+        Log::info('[TG] handleAuthContact()', [
+            'chat_id' => $chatId,
+            'has_login_token' => $loginToken !== null,
+        ]);
+
         if (! $loginToken) {
-            // Это может быть контакт из флоу записи — пропускаем
-            Log::info('Telegram auth: получен контакт без активного флоу', [
-                'chat_id' => $chatId,
-            ]);
+            Log::info('[TG] handleAuthContact: no active flow, skipping');
 
             return;
         }
 
-        // Извлекаем данные из контакта
         $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
         $firstName = $contact['first_name'] ?? '';
         $lastName = $contact['last_name'] ?? '';
 
         if (empty($phone)) {
+            Log::warning('[TG] handleAuthContact: empty phone');
+
             $this->chat->html('Не удалось определить номер телефона. Попробуйте снова.')->send();
 
             return;
         }
 
-        // Ищем существующего пользователя по телефону
         $user = User::where('phone', $phone)->first();
 
         if (! $user) {
-            // Создаём нового мастера
             $baseName = trim($firstName . ' ' . $lastName);
             if ($baseName === '') {
                 $baseName = 'Мастер ' . $phone;
@@ -169,13 +174,11 @@ class TelegramWebhookHandler extends WebhookHandler
                 'address' => null,
             ]);
 
-            Log::info('Telegram auth: создан новый мастер', [
+            Log::info('[TG] handleAuthContact: user created', [
                 'user_id' => $user->id,
                 'phone' => $phone,
-                'telegram_id' => $telegramId,
             ]);
         } else {
-            // Обновляем telegram_id и имя, если нужно
             $updates = [];
 
             if ($user->telegram_id !== $telegramId) {
@@ -191,48 +194,38 @@ class TelegramWebhookHandler extends WebhookHandler
                 $user->update($updates);
             }
 
-            Log::info('Telegram auth: вход существующего пользователя', [
+            Log::info('[TG] handleAuthContact: existing user', [
                 'user_id' => $user->id,
                 'phone' => $phone,
             ]);
         }
 
-        // Обновляем статус токена на authenticated
         $authCacheKey = self::AUTH_CACHE_PREFIX . $loginToken;
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
         ], self::CHAT_TOKEN_TTL);
 
-        // Удаляем связь chat_id → token (одноразовая)
         Cache::forget(self::CHAT_TOKEN_PREFIX . $chatId);
 
-        // Убираем ReplyKeyboard и отправляем подтверждение
-        $this->chat->html(
+        Log::info('[TG] handleAuthContact: sending confirmation');
+
+        $result = $this->chat->html(
             '✅ Успешная авторизация! Возвращайтесь в браузер.'
         )->removeKeyboard()->send();
 
-        Log::info('Telegram auth: авторизация завершена', [
-            'user_id' => $user->id,
-            'chat_id' => $chatId,
-        ]);
+        Log::info('[TG] handleAuthContact: confirmation sent', ['result' => $result]);
     }
 
-    /**
-     * Обработка обычных текстовых сообщений.
-     */
     protected function handleChatMessage(Stringable $text): void
     {
-        Log::info('Telegram Chat Message', ['text' => $text->toString()]);
+        Log::info('[TG] handleChatMessage', ['text' => $text->toString()]);
         $this->reply('Используйте кнопку на сайте для входа в личный кабинет.');
     }
 
-    /**
-     * Обработка неизвестных команд.
-     */
     protected function handleUnknownCommand(Stringable $text): void
     {
-        Log::info('Telegram Unknown Command', ['cmd' => $text->toString()]);
+        Log::info('[TG] handleUnknownCommand', ['cmd' => $text->toString()]);
         $this->reply('Неизвестная команда. Используйте кнопку на сайте для входа.');
     }
 }
