@@ -22,7 +22,7 @@ interface Master {
 }
 
 interface Service {
-    id: number;
+    id: string;
     title: string;
     duration_minutes: number;
     price: number;
@@ -33,7 +33,7 @@ interface PageProps {
     services: Service[];
     availableSlots: string[];
     selectedDate: string;
-    selectedServiceId: number | null;
+    selectedServiceId: string | null;
     [key: string]: unknown;
 }
 

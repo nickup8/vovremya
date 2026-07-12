@@ -48,7 +48,7 @@ class BookingWidgetController extends Controller
             ]),
             'availableSlots' => $availableSlots,
             'selectedDate' => $selectedDate,
-            'selectedServiceId' => $selectedServiceId ? (int) $selectedServiceId : null,
+            'selectedServiceId' => $selectedServiceId ?: null,
         ]);
     }
 
