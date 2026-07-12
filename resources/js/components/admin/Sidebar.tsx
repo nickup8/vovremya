@@ -67,7 +67,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             </div>
             <div className="border-t border-slate-800 p-3 dark:border-zinc-800">
                 <button
-                    onClick={() => { router.visit('/my-bookings'); onMobileClose(); }}
+                    onClick={() => { router.post('/switch-to-client'); onMobileClose(); }}
                     className="flex w-full items-center gap-3 rounded-lg bg-slate-800 px-3 py-2.5 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
                 >
                     <RefreshCw className="size-4 shrink-0 text-slate-400 dark:text-zinc-400" />

@@ -1,7 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import type { ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
-import { Sun, Moon, LogOut, User, CalendarDays, Home } from 'lucide-react';
+import { Sun, Moon, LogOut, User, CalendarDays, Home, RefreshCw } from 'lucide-react';
 import { useAppearance } from '@/hooks/use-appearance';
 
 interface ClientLayoutProps {
@@ -59,6 +59,13 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
                     </span>
                 </div>
                 <div className="flex items-center gap-1">
+                    <button
+                        onClick={() => router.post('/client/switch-to-master')}
+                        className="flex items-center gap-1.5 rounded-full bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-600 transition-colors hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    >
+                        <RefreshCw className="size-3.5" />
+                        <span className="hidden sm:inline">Мастер</span>
+                    </button>
                     <ThemeToggle />
                     <button
                         onClick={handleLogout}

@@ -12,6 +12,7 @@ use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\Client\ClientProfileController;
+use App\Http\Controllers\Client\RoleSwitchController;
 use App\Http\Controllers\ClientModeController;
 use App\Http\Controllers\Webhook\PaymentWebhookController;
 use App\Http\Controllers\Webhook\TelegraphWebhookController;
@@ -126,11 +127,14 @@ Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function
 });
 
 Route::middleware(['auth'])->group(function () {
+    Route::post('/switch-to-client', [RoleSwitchController::class, 'toClient'])->name('switch.to.client');
+
     Route::post('/client-mode/enable', [ClientModeController::class, 'enable'])->name('client_mode.enable');
     Route::post('/client-mode/disable', [ClientModeController::class, 'disable'])->name('client_mode.disable');
 });
 
 Route::middleware(['auth:client'])->prefix('client')->group(function () {
+    Route::post('/switch-to-master', [RoleSwitchController::class, 'toMaster'])->name('switch.to.master');
     Route::get('/my-profile', [ClientProfileController::class, 'index'])->name('client.profile');
     Route::get('/my-bookings', [BookingsController::class, 'index'])->name('client.bookings');
     Route::patch('/my-bookings/appointments/{appointment}/cancel', [BookingsController::class, 'cancel'])->name('client.appointments.cancel');
