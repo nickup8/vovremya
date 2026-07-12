@@ -11,6 +11,7 @@ use App\Http\Controllers\BookingStatusController;
 use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
+use App\Http\Controllers\Client\ClientBookingController;
 use App\Http\Controllers\Client\ClientProfileController;
 use App\Http\Controllers\Client\RoleSwitchController;
 use App\Http\Controllers\ClientModeController;
@@ -138,4 +139,8 @@ Route::middleware(['auth:client'])->prefix('client')->group(function () {
     Route::get('/my-profile', [ClientProfileController::class, 'index'])->name('client.profile');
     Route::get('/my-bookings', [BookingsController::class, 'index'])->name('client.bookings');
     Route::patch('/my-bookings/appointments/{appointment}/cancel', [BookingsController::class, 'cancel'])->name('client.appointments.cancel');
+
+    Route::get('/book', [ClientBookingController::class, 'create'])->name('client.book');
+    Route::get('/api/available-slots', [ClientBookingController::class, 'getSlots'])->name('client.api.slots');
+    Route::post('/book', [ClientBookingController::class, 'store'])->name('client.book.store');
 });

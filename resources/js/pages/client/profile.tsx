@@ -93,7 +93,7 @@ export default function Profile() {
                             У вас нет предстоящих записей
                         </p>
                         <Link
-                            href={`/book/${master.master_slug}`}
+                            href="/client/book"
                             className="mt-4 inline-flex items-center gap-2 rounded-xl bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
                         >
                             <CalendarDays className="size-4" />
@@ -156,7 +156,7 @@ export default function Profile() {
 
                 {/* CTA */}
                 <Link
-                    href={`/book/${master.master_slug}`}
+                    href="/client/book"
                     className="flex w-full items-center justify-center gap-2 rounded-2xl bg-blue-600 py-3.5 text-sm font-semibold text-white transition-colors hover:bg-blue-700"
                 >
                     <Star className="size-4" />
