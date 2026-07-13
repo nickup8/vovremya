@@ -586,7 +586,13 @@ class TelegramWebhookHandler extends WebhookHandler
                 return;
             }
 
-            $photos = $photosResponse->json('result.photos[0]');
+            $photosArray = $photosResponse->json('result.photos');
+            $photos = $photosArray[0] ?? [];
+
+            if (empty($photos)) {
+                return;
+            }
+
             $fileId = $photos[array_key_last($photos)]['file_id'];
 
             $fileResponse = Http::timeout(10)->get("https://api.telegram.org/bot{$token}/getFile", [
