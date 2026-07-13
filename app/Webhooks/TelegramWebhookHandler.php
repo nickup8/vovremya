@@ -139,6 +139,8 @@ class TelegramWebhookHandler extends WebhookHandler
             ->first();
 
         if ($client) {
+            $this->syncClientTelegramAvatar($client, $chatId);
+
             // Постоянный клиент — предлагаем подтверждение через Inline-кнопки
             $keyboard = Keyboard::make()
                 ->row([
@@ -221,6 +223,8 @@ class TelegramWebhookHandler extends WebhookHandler
 
             return;
         }
+
+        $this->syncClientTelegramAvatar($client, $this->chat->chat_id);
 
         $appointment->update([
             'client_id' => $client->id,
