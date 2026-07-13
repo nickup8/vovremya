@@ -247,6 +247,10 @@ class TelegramWebhookHandler extends WebhookHandler
             . "💇 {$service?->title}\n"
             . "📅 {$date} в {$time}";
 
+        if ($appointment->master->address) {
+            $confirmedText .= "\n📍 Адрес: {$appointment->master->address}";
+        }
+
         try {
             $this->chat->edit($this->messageId)
                 ->html($confirmedText)
@@ -378,7 +382,7 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $appointment = Appointment::find($appointmentId);
+        $appointment = Appointment::with(['master'])->find($appointmentId);
 
         if (! $appointment) {
             $this->chat->html('Запись не найдена. Попробуйте записаться заново.')->send();
@@ -434,8 +438,13 @@ class TelegramWebhookHandler extends WebhookHandler
         // Формируем подтверждение клиенту
         $message = "✅ **Запись подтверждена!**\n\n"
             . "💇 {$service->title}\n"
-            . "📅 {$date} в {$time}\n\n"
-            . "Ждём вас!}";
+            . "📅 {$date} в {$time}";
+
+        if ($appointment->master->address) {
+            $message .= "\n📍 Адрес: {$appointment->master->address}";
+        }
+
+        $message .= "\n\nЖдём вас!";
 
         try {
             $this->chat->html($message)
