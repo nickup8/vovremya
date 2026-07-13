@@ -9,6 +9,7 @@ import {
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
@@ -51,9 +52,12 @@ function ClientCard({ client, onEdit, onToggleBlock, isProcessing }: { client: C
             {/* Header */}
             <div className="flex items-start justify-between border-b border-slate-100 p-4 dark:border-zinc-800">
                 <div className="flex items-center gap-3">
-                    <div className="flex size-10 shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-slate-200 to-slate-300 text-sm font-bold text-slate-600 dark:from-zinc-700 dark:to-zinc-600 dark:text-zinc-200">
-                        {initials}
-                    </div>
+                    <Avatar className="size-10">
+                        <AvatarImage src={client.avatar_url ?? undefined} alt={client.name} className="object-cover" />
+                        <AvatarFallback className="bg-gradient-to-br from-slate-200 to-slate-300 text-sm font-bold text-slate-600 dark:from-zinc-700 dark:to-zinc-600 dark:text-zinc-200">
+                            {initials}
+                        </AvatarFallback>
+                    </Avatar>
                     <div>
                         <h3 className="text-sm font-bold text-slate-900 dark:text-zinc-100">
                             {client.name}

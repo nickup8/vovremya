@@ -39,6 +39,7 @@ export interface Client {
     phone: string | null;
     telegram_id: string | null;
     max_id: string | null;
+    avatar_url: string | null;
     is_blocked: boolean;
     notes: string | null;
     auth_token: string | null;
