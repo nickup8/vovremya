@@ -1458,25 +1458,21 @@ export default function SettingsPage() {
                                     За сколько часов до записи отправить клиенту финальное напоминание
                                 </p>
 
-                                <RadioGroup
+                                <Select
                                     value={String(bookingFlowForm.data.reminder_hours_before_final)}
                                     onValueChange={(value) => bookingFlowForm.setData('reminder_hours_before_final', Number(value))}
-                                    className="flex gap-4"
                                 >
-                                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
-                                        <RadioGroupItem value="2" id="reminder-2h" />
-                                        <span className="text-sm font-medium text-slate-900 dark:text-zinc-100">
-                                            За 2 часа
-                                        </span>
-                                    </label>
-
-                                    <label className="flex cursor-pointer items-center gap-2 rounded-lg border border-slate-200 px-4 py-3 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
-                                        <RadioGroupItem value="3" id="reminder-3h" />
-                                        <span className="text-sm font-medium text-slate-900 dark:text-zinc-100">
-                                            За 3 часа
-                                        </span>
-                                    </label>
-                                </RadioGroup>
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Выберите интервал" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="0">Не отправлять</SelectItem>
+                                        <SelectItem value="1">За 1 час</SelectItem>
+                                        <SelectItem value="2">За 2 часа</SelectItem>
+                                        <SelectItem value="3">За 3 часа</SelectItem>
+                                        <SelectItem value="12">За 12 часов</SelectItem>
+                                    </SelectContent>
+                                </Select>
                             </div>
 
                             <div className="flex justify-end gap-2">
