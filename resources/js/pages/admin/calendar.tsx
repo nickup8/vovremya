@@ -7,6 +7,7 @@ import {
     CheckCircle2, XCircle, Trash2, RotateCw, AlertTriangle,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import {
     Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
 } from '@/components/ui/dialog';
@@ -15,6 +16,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import AdminLayout from '@/layouts/AdminLayout';
+import { getInitials } from '@/lib/utils';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 import { AppointmentStatus } from '@/types/appointment-status';
 
@@ -24,6 +26,7 @@ interface Appointment {
     id: number;
     client_name: string;
     client_phone: string | null;
+    client_avatar_url: string | null;
     service: string;
     time: string;
     date: string;
@@ -302,9 +305,15 @@ function AppointmentCard({ appointment, onClick, dayStartHour }: { appointment: 
                     <p className="font-mono text-[10px] opacity-75">
                         {appointment.time} – {endTime}
                     </p>
-                    <p className="truncate text-xs font-semibold leading-tight">
-                        {appointment.client_name}
-                    </p>
+                    <div className="flex items-center gap-1">
+                        <Avatar className="size-5 shrink-0">
+                            <AvatarImage src={appointment.client_avatar_url ?? undefined} className="object-cover" />
+                            <AvatarFallback className="text-[8px]">{getInitials(appointment.client_name)}</AvatarFallback>
+                        </Avatar>
+                        <p className="truncate text-xs font-semibold leading-tight">
+                            {appointment.client_name}
+                        </p>
+                    </div>
                     <p className="truncate text-[11px] leading-tight opacity-80">
                         {appointment.service}
                     </p>

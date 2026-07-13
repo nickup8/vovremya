@@ -86,6 +86,7 @@ export interface CalendarAppointment {
     id: string;
     client_name: string;
     client_phone: string | null;
+    client_avatar_url: string | null;
     service: string;
     duration: number;
     price: number;

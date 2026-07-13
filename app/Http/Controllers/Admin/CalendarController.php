@@ -41,6 +41,7 @@ class CalendarController extends Controller
                     'id' => $a->id,
                     'client_name' => $a->client?->name ?? 'Клиент не указан',
                     'client_phone' => $a->client?->phone,
+                    'client_avatar_url' => $a->client?->avatar_url,
                     'service' => $a->service?->title ?? 'Услуга удалена',
                     'duration' => $a->service?->duration_minutes ?? 0,
                     'price' => (float) ($a->service?->price ?? 0),
