@@ -1061,14 +1061,9 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Profile ═══ */}
                             <TabsContent value="profile">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true }); }}
+                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Профиль сохранён') }); }}
                                 className="space-y-6"
                             >
-                            {profileForm.recentlySuccessful && (
-                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                    Профиль сохранён
-                                </div>
-                            )}
 
                             {/* ═══ Card 1: Master Profile ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1319,14 +1314,9 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Booking & Payment ═══ */}
                             <TabsContent value="booking">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true }); }}
+                                onSubmit={(e) => { e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); }}
                                 className="space-y-6"
                             >
-                            {bookingFlowForm.recentlySuccessful && (
-                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                    Настройки записи сохранены
-                                </div>
-                            )}
 
                             {/* ═══ Card: Режим записи ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
@@ -1499,14 +1489,9 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Notifications ═══ */}
                             <TabsContent value="notifications">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true }); }}
+                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Уведомления сохранены') }); }}
                                 className="space-y-6"
                             >
-                            {profileForm.recentlySuccessful && (
-                                <div className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-700 dark:border-emerald-800 dark:bg-emerald-950/40 dark:text-emerald-300">
-                                    Уведомления сохранены
-                                </div>
-                            )}
 
                             {/* ═══ Card 3: Notification Channels ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
