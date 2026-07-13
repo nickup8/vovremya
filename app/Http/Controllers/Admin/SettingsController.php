@@ -144,6 +144,19 @@ class SettingsController extends Controller
         return response()->json(['message' => 'Не удалось обработать файл.'], 400);
     }
 
+    public function destroyAvatar(): RedirectResponse
+    {
+        $user = auth()->user();
+
+        if ($user->avatar_url) {
+            $path = str_replace('/storage/', '', $user->avatar_url);
+            Storage::disk('public')->delete($path);
+            $user->update(['avatar_url' => null]);
+        }
+
+        return back()->with('success', 'Фото удалено');
+    }
+
     public function storeService(Request $request)
     {
         $user = auth()->user();

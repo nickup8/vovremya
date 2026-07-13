@@ -104,6 +104,7 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/admin/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
     Route::patch('/admin/settings/timezone', [SettingsController::class, 'updateTimezone'])->name('admin.settings.timezone');
     Route::post('/admin/settings/avatar', [SettingsController::class, 'updateAvatar'])->name('admin.settings.avatar');
+    Route::delete('/admin/settings/avatar', [SettingsController::class, 'destroyAvatar'])->name('admin.settings.avatar.destroy');
 
     Route::post('/admin/services', [SettingsController::class, 'storeService'])->name('admin.services.store');
     Route::put('/admin/services/{service}', [SettingsController::class, 'updateService'])->name('admin.services.update');

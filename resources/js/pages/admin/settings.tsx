@@ -23,6 +23,7 @@ import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
@@ -1073,19 +1074,12 @@ export default function SettingsPage() {
 
                                 {/* Avatar */}
                                 <div className="mb-6 flex items-center gap-4">
-                                    <div className="relative">
-                                        {profile.avatar_url ? (
-                                            <img
-                                                src={profile.avatar_url}
-                                                alt={userName}
-                                                className="size-16 rounded-full object-cover"
-                                            />
-                                        ) : (
-                                            <div className="flex size-16 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xl font-bold text-white">
-                                                {initials}
-                                            </div>
-                                        )}
-                                    </div>
+                                    <Avatar className="size-16">
+                                        <AvatarImage src={profile.avatar_url ?? undefined} alt={userName} className="object-cover" />
+                                        <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-xl font-bold text-white">
+                                            {initials}
+                                        </AvatarFallback>
+                                    </Avatar>
                                     <input
                                         ref={fileInputRef}
                                         type="file"
@@ -1093,18 +1087,37 @@ export default function SettingsPage() {
                                         className="hidden"
                                         onChange={handleAvatarChange}
                                     />
-                                    <Button
-                                        type="button"
-                                        variant="outline"
-                                        size="sm"
-                                        className="rounded-lg"
-                                        onClick={() =>
-                                            fileInputRef.current?.click()
-                                        }
-                                    >
-                                        <Pencil className="size-3.5" />
-                                        Изменить фото
-                                    </Button>
+                                    <div className="flex items-center gap-2">
+                                        <Button
+                                            type="button"
+                                            variant="outline"
+                                            size="sm"
+                                            className="rounded-lg"
+                                            onClick={() =>
+                                                fileInputRef.current?.click()
+                                            }
+                                        >
+                                            <Pencil className="size-3.5" />
+                                            Изменить фото
+                                        </Button>
+                                        {profile.avatar_url && (
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                size="sm"
+                                                className="rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40"
+                                                onClick={() =>
+                                                    router.delete('/admin/settings/avatar', {
+                                                        preserveScroll: true,
+                                                        onSuccess: () => toast.success('Фото удалено'),
+                                                    })
+                                                }
+                                            >
+                                                <Trash2 className="size-3.5" />
+                                                Удалить
+                                            </Button>
+                                        )}
+                                    </div>
                                 </div>
 
                                 {/* Fields Grid */}
@@ -1287,6 +1300,29 @@ export default function SettingsPage() {
                                             </SelectContent>
                                         </Select>
                                     </div>
+                                </div>
+
+                                {/* Address - full width */}
+                                <div className="mt-4">
+                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        Адрес студии
+                                    </label>
+                                    <Input
+                                        value={profileForm.data.address}
+                                        onChange={(e) =>
+                                            profileForm.setData(
+                                                'address',
+                                                e.target.value,
+                                            )
+                                        }
+                                        placeholder="г. Москва, ул. Примерная, д. 1"
+                                        className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
+                                    />
+                                    {profileForm.errors.address && (
+                                        <p className="mt-1 text-xs text-red-500">
+                                            {profileForm.errors.address}
+                                        </p>
+                                    )}
                                 </div>
                             </div>
 
