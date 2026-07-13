@@ -100,8 +100,8 @@ class SendAppointmentReminderJob implements ShouldQueue
 
     private function markAsSent(Appointment $appointment): void
     {
-        $field = $this->type === '24h' ? 'reminder_24h_sent' : 'reminder_final_sent';
+        $field = $this->type === '24h' ? 'reminder_24h_sent_at' : 'reminder_final_sent_at';
 
-        $appointment->update([$field => true]);
+        $appointment->update([$field => now()]);
     }
 }

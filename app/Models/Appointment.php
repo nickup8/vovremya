@@ -21,6 +21,8 @@ class Appointment extends Model
         'provider',
         'reminder_24h_sent',
         'reminder_final_sent',
+        'reminder_24h_sent_at',
+        'reminder_final_sent_at',
     ];
 
     protected function casts(): array
@@ -30,6 +32,8 @@ class Appointment extends Model
             'status' => AppointmentStatus::class,
             'reminder_24h_sent' => 'boolean',
             'reminder_final_sent' => 'boolean',
+            'reminder_24h_sent_at' => 'datetime',
+            'reminder_final_sent_at' => 'datetime',
         ];
     }
 

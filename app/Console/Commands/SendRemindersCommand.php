@@ -28,20 +28,30 @@ class SendRemindersCommand extends Command
 
         $appointments = Appointment::with(['master', 'service', 'client'])
             ->where('status', AppointmentStatus::Booked)
-            ->where('reminder_24h_sent', false)
+            ->whereNull('reminder_24h_sent_at')
             ->whereBetween('start_time', [
                 $now->copy()->addHours(23),
                 $now->copy()->addHours(25),
             ])
             ->get();
 
+        $dispatched = 0;
+
         foreach ($appointments as $appointment) {
-            if ($appointment->client && ($appointment->client->telegram_id || $appointment->client->max_id)) {
-                SendAppointmentReminderJob::dispatch($appointment, '24h');
+            if (! $appointment->client) {
+                continue;
             }
+
+            if (! $appointment->client->telegram_id && ! $appointment->client->max_id) {
+                continue;
+            }
+
+            $appointment->update(['reminder_24h_sent_at' => $now]);
+            SendAppointmentReminderJob::dispatch($appointment, '24h');
+            $dispatched++;
         }
 
-        $this->info("Dispatched {$appointments->count()} 24h reminders.");
+        $this->info("Dispatched {$dispatched} 24h reminders.");
     }
 
     private function sendFinalReminders(): void
@@ -50,19 +60,38 @@ class SendRemindersCommand extends Command
 
         $appointments = Appointment::with(['master', 'service', 'client'])
             ->where('status', AppointmentStatus::Booked)
-            ->where('reminder_final_sent', false)
-            ->whereBetween('start_time', [
-                $now->copy()->addHours(1),
-                $now->copy()->addHours(3),
-            ])
+            ->whereNull('reminder_final_sent_at')
+            ->where('start_time', '<=', $now->copy()->addHours(3))
             ->get();
 
+        $dispatched = 0;
+
         foreach ($appointments as $appointment) {
-            if ($appointment->client && ($appointment->client->telegram_id || $appointment->client->max_id)) {
-                SendAppointmentReminderJob::dispatch($appointment, 'final');
+            if (! $appointment->client) {
+                continue;
             }
+
+            if (! $appointment->client->telegram_id && ! $appointment->client->max_id) {
+                continue;
+            }
+
+            $hoursBeforeFinal = $appointment->master->getReminderHoursBeforeFinal();
+
+            if ($hoursBeforeFinal === 0) {
+                continue;
+            }
+
+            $windowStart = $appointment->start_time->copy()->subHours($hoursBeforeFinal);
+
+            if ($now->lt($windowStart)) {
+                continue;
+            }
+
+            $appointment->update(['reminder_final_sent_at' => $now]);
+            SendAppointmentReminderJob::dispatch($appointment, 'final');
+            $dispatched++;
         }
 
-        $this->info("Dispatched {$appointments->count()} final reminders.");
+        $this->info("Dispatched {$dispatched} final reminders.");
     }
 }

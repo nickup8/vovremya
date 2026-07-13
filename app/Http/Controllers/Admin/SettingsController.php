@@ -83,7 +83,7 @@ class SettingsController extends Controller
             'max_notifications' => 'boolean',
             'booking_flow_type' => ['nullable', Rule::in(['free_verification', 'prepayment_custom'])],
             'custom_prepayment_message' => ['nullable', 'string', 'max:1000'],
-            'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([2, 3])],
+            'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([0, 1, 2, 3, 12])],
         ];
 
         $sentFields = $request->only(array_keys($allRules));
