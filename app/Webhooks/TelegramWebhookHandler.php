@@ -7,6 +7,8 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
+use DefStudio\Telegraph\Keyboard\Button;
+use DefStudio\Telegraph\Keyboard\Keyboard;
 use DefStudio\Telegraph\Keyboard\ReplyKeyboard;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -127,12 +129,40 @@ class TelegramWebhookHandler extends WebhookHandler
             . "📅 Дата: {$date}\n"
             . "⏰ Время: {$time}";
 
-        // Проверяем, есть ли клиент с таким chat_id
-        $client = Client::where('telegram_id', $chatId)->first();
+        // Проверяем, является ли пользователь постоянным клиентом этого мастера
+        $client = Client::where('telegram_id', $chatId)
+            ->where('user_id', $appointment->master_id)
+            ->first();
 
         if ($client) {
-            // Клиент уже известен — привязываем сразу
-            $this->linkAppointmentToClient($appointment, $client, $details);
+            // Постоянный клиент — предлагаем подтверждение через Inline-кнопки
+            $keyboard = Keyboard::make()
+                ->row([
+                    Button::make('✅ Подтвердить запись')
+                        ->action('confirmBooking')
+                        ->param('id', $appointment->id),
+                ])
+                ->row([
+                    Button::make('❌ Отменить')
+                        ->action('cancelBooking')
+                        ->param('id', $appointment->id),
+                ]);
+
+            try {
+                $this->chat->html($details)
+                    ->keyboard($keyboard)
+                    ->send();
+
+                Log::info('[TG] book_ inline keyboard sent (returning client)', [
+                    'appointment_id' => $appointmentId,
+                    'client_id' => $client->id,
+                    'chat_id' => $chatId,
+                ]);
+            } catch (Throwable $e) {
+                Log::error('[TG] book_ inline keyboard FAILED', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
         } else {
             // Клиент новый — запрашиваем контакт
             Cache::put(self::BOOKING_DRAFT_PREFIX . $chatId, $appointmentId, self::DRAFT_TTL);
@@ -164,24 +194,96 @@ class TelegramWebhookHandler extends WebhookHandler
     }
 
     /**
-     * Привязка клиента к записи и отправка подтверждения через InlineKeyboard
+     * Обработка нажатия кнопки «✅ Подтвердить запись»
      */
-    private function linkAppointmentToClient(Appointment $appointment, Client $client, string $details): void
+    public function confirmBooking(): void
     {
-        $appointment->update(['client_id' => $client->id]);
+        $appointmentId = $this->data->get('id');
 
-        $confirmationText = $details . "\n\n"
-            . "✅ Запись подтверждена! Ждём вас!";
+        $appointment = Appointment::with(['service'])->find($appointmentId);
+
+        if (! $appointment) {
+            $this->reply('Запись не найдена. Возможно, она уже была отменена.');
+
+            return;
+        }
+
+        $client = Client::where('telegram_id', $this->chat->chat_id)
+            ->where('user_id', $appointment->master_id)
+            ->first();
+
+        if (! $client) {
+            $this->reply('Клиент не найден. Пожалуйста, поделитесь номером телефона.');
+
+            return;
+        }
+
+        $appointment->update([
+            'client_id' => $client->id,
+            'status' => AppointmentStatus::Booked,
+        ]);
+
+        $service = $appointment->service;
+        $date = $appointment->start_time->format('d.m.Y');
+        $time = $appointment->start_time->format('H:i');
+
+        $confirmedText = "✅ Запись успешно подтверждена! Ждём вас.\n\n"
+            . "💇 {$service?->title}\n"
+            . "📅 {$date} в {$time}";
 
         try {
-            $this->chat->html($confirmationText)->send();
+            $this->chat->edit($this->messageId)
+                ->html($confirmedText)
+                ->send();
 
-            Log::info('[TG] appointment linked', [
-                'appointment_id' => $appointment->id,
+            $this->chat->deleteKeyboard($this->messageId)->send();
+
+            $this->reply('Запись подтверждена!');
+
+            Log::info('[TG] confirmBooking: success', [
+                'appointment_id' => $appointmentId,
                 'client_id' => $client->id,
             ]);
         } catch (Throwable $e) {
-            Log::error('[TG] appointment link FAILED', [
+            Log::error('[TG] confirmBooking: FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Обработка нажатия кнопки «❌ Отменить»
+     */
+    public function cancelBooking(): void
+    {
+        $appointmentId = $this->data->get('id');
+
+        $appointment = Appointment::find($appointmentId);
+
+        if (! $appointment) {
+            $this->reply('Запись не найдена.');
+
+            return;
+        }
+
+        $appointment->update([
+            'status' => AppointmentStatus::Cancelled,
+        ]);
+
+        try {
+            $this->chat->edit($this->messageId)
+                ->html('❌ Вы отменили бронирование.')
+                ->send();
+
+            $this->chat->deleteKeyboard($this->messageId)->send();
+
+            $this->reply('Запись отменена.');
+
+            Log::info('[TG] cancelBooking: success', [
+                'appointment_id' => $appointmentId,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('[TG] cancelBooking: FAILED', [
                 'error' => $e->getMessage(),
             ]);
         }
