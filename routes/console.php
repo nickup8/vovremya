@@ -9,4 +9,5 @@ Artisan::command('inspire', function () {
 
 Schedule::command('appointments:reminders')->everyMinute();
 Schedule::command('appointments:cancel-unpaid')->everyMinute();
+Schedule::command('appointments:cleanup-drafts')->everyFiveMinutes();
 Schedule::command('subscriptions:check-expirations')->dailyAt('00:00');
