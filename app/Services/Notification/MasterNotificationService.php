@@ -37,7 +37,7 @@ class MasterNotificationService
         $this->sendToMaster($master, $text);
     }
 
-    private function sendToMaster(User $master, string $text): void
+    public function sendToMaster(User $master, string $text): void
     {
         if ($master->telegram_id) {
             $this->sendTelegram($master->telegram_id, $text);

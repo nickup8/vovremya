@@ -6,6 +6,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
+use App\Services\Notification\MasterNotificationService;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\Button;
 use DefStudio\Telegraph\Keyboard\Keyboard;
@@ -227,6 +228,17 @@ class TelegramWebhookHandler extends WebhookHandler
         $date = $appointment->start_time->format('d.m.Y');
         $time = $appointment->start_time->format('H:i');
 
+        $phone = $client->phone ?? 'не указан';
+        $clientName = $client->name ?? 'Клиент';
+
+        $masterNotification = "🎉 У вас новая запись!\n\n"
+            . "👤 Клиент: {$clientName} ({$phone})\n"
+            . "💇‍♂️ Услуга: {$service?->title}\n"
+            . "📅 Дата: {$date} в {$time}";
+
+        app(MasterNotificationService::class)
+            ->sendToMaster($appointment->master, $masterNotification);
+
         $confirmedText = "✅ Запись успешно подтверждена! Ждём вас.\n\n"
             . "💇 {$service?->title}\n"
             . "📅 {$date} в {$time}";
@@ -399,11 +411,22 @@ class TelegramWebhookHandler extends WebhookHandler
         // Привязываем запись
         $appointment->update(['client_id' => $client->id]);
 
-        // Формируем подтверждение
+        // Уведомляем мастера
         $service = $appointment->service;
         $date = $appointment->start_time->format('d.m.Y');
         $time = $appointment->start_time->format('H:i');
+        $phone = $client->phone ?? 'не указан';
+        $clientName = $client->name ?? 'Клиент';
 
+        $masterNotification = "🎉 У вас новая запись!\n\n"
+            . "👤 Клиент: {$clientName} ({$phone})\n"
+            . "💇‍♂️ Услуга: {$service?->title}\n"
+            . "📅 Дата: {$date} в {$time}";
+
+        app(MasterNotificationService::class)
+            ->sendToMaster($appointment->master, $masterNotification);
+
+        // Формируем подтверждение клиенту
         $message = "✅ **Запись подтверждена!**\n\n"
             . "💇 {$service->title}\n"
             . "📅 {$date} в {$time}\n\n"
