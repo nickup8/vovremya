@@ -49,6 +49,7 @@ class HandleInertiaRequests extends Middleware
                     'name' => $user->name,
                     'email' => $user->email,
                     'tariff' => $user->tariff,
+                    'avatar_url' => $user->avatar_url,
                     'tariff_name' => match ($user->tariff) {
                         'pro' => 'Профи',
                         'studio' => 'Студия',

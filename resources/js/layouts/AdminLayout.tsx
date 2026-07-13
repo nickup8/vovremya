@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { Menu, Sun, Moon, Monitor } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import Sidebar from '@/components/admin/Sidebar';
 import { getInitials } from '@/lib/utils';
 import { useAppearance } from '@/hooks/use-appearance';
@@ -9,7 +10,7 @@ import { useAppearance } from '@/hooks/use-appearance';
 interface AdminLayoutProps {
     children: ReactNode;
     title: string;
-    auth?: { user?: { name?: string; tariff_name?: string; [key: string]: unknown } };
+    auth?: { user?: { name?: string; tariff_name?: string; avatar_url?: string | null; [key: string]: unknown } };
     headerActions?: ReactNode;
 }
 
@@ -40,6 +41,7 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
 
     const userName = auth?.user?.name || 'Мастер';
     const tariffName = auth?.user?.tariff_name || 'Free';
+    const avatarUrl = auth?.user?.avatar_url ?? undefined;
     const initials = getInitials(userName);
 
     return (
@@ -68,9 +70,12 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                             <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
                             <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {tariffName}</p>
                         </div>
-                        <div className="flex size-9 items-center justify-center rounded-full bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-                            {initials}
-                        </div>
+                        <Avatar className="size-9">
+                            <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
+                                {initials}
+                            </AvatarFallback>
+                        </Avatar>
                     </div>
                 </header>
 
