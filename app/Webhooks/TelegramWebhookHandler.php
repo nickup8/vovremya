@@ -12,7 +12,9 @@ use DefStudio\Telegraph\Keyboard\Button;
 use DefStudio\Telegraph\Keyboard\Keyboard;
 use DefStudio\Telegraph\Keyboard\ReplyKeyboard;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Stringable;
 use Throwable;
@@ -521,6 +523,8 @@ class TelegramWebhookHandler extends WebhookHandler
             Log::info('[TG] handleAuthContact: existing user', ['user_id' => $user->id]);
         }
 
+        $this->syncTelegramAvatar($user, $telegramId);
+
         $authCacheKey = self::AUTH_CACHE_PREFIX . $loginToken;
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
@@ -554,5 +558,70 @@ class TelegramWebhookHandler extends WebhookHandler
     {
         Log::info('[TG] handleUnknownCommand', ['cmd' => $text->toString()]);
         $this->reply('Неизвестная команда. Используйте кнопку на сайте для входа.');
+    }
+
+    /**
+     * Скачивает профильное фото из Telegram и сохраняет как аватар мастера.
+     * Вызывается только если у мастера ещё нет фото.
+     */
+    private function syncTelegramAvatar(User $master, string $telegramId): void
+    {
+        if ($master->avatar_url) {
+            return;
+        }
+
+        try {
+            $token = config('services.telegram.bot_token');
+
+            if (empty($token)) {
+                return;
+            }
+
+            $photosResponse = Http::timeout(10)->get("https://api.telegram.org/bot{$token}/getUserProfilePhotos", [
+                'user_id' => $telegramId,
+                'limit' => 1,
+            ]);
+
+            if (! $photosResponse->ok() || $photosResponse->json('result.total_count', 0) === 0) {
+                return;
+            }
+
+            $photos = $photosResponse->json('result.photos[0]');
+            $fileId = $photos[array_key_last($photos)]['file_id'];
+
+            $fileResponse = Http::timeout(10)->get("https://api.telegram.org/bot{$token}/getFile", [
+                'file_id' => $fileId,
+            ]);
+
+            if (! $fileResponse->ok()) {
+                return;
+            }
+
+            $filePath = $fileResponse->json('result.file_path');
+
+            $content = Http::timeout(15)
+                ->withOptions(['sink' => null])
+                ->get("https://api.telegram.org/file/bot{$token}/{$filePath}")
+                ->body();
+
+            if (empty($content)) {
+                return;
+            }
+
+            $filename = "tg_avatar_{$telegramId}_" . time() . '.jpg';
+            Storage::disk('public')->put("avatars/{$filename}", $content);
+
+            $master->update(['avatar_url' => "/storage/avatars/{$filename}"]);
+
+            Log::info('[TG] syncTelegramAvatar: saved', [
+                'user_id' => $master->id,
+                'filename' => $filename,
+            ]);
+        } catch (\Exception $e) {
+            Log::warning('[TG] syncTelegramAvatar: failed', [
+                'user_id' => $master->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }
