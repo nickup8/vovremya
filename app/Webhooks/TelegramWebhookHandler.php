@@ -617,7 +617,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'user_id' => $master->id,
                 'filename' => $filename,
             ]);
-        } catch (\Exception $e) {
+        } catch (\Throwable $e) {
             Log::warning('[TG] syncTelegramAvatar: failed', [
                 'user_id' => $master->id,
                 'error' => $e->getMessage(),
