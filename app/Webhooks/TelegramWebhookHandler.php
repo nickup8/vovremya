@@ -118,9 +118,10 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $service = $appointment->service;
         $master = $appointment->master;
+        $tz = $master->getTimezone();
 
-        $date = $appointment->start_time->format('d.m.Y');
-        $time = $appointment->start_time->format('H:i');
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
         $serviceName = $service?->title ?? 'Услуга';
         $masterName = $master->name ?? 'Мастер';
 
@@ -201,7 +202,7 @@ class TelegramWebhookHandler extends WebhookHandler
     {
         $appointmentId = $this->data->get('id');
 
-        $appointment = Appointment::with(['service'])->find($appointmentId);
+        $appointment = Appointment::with(['master', 'service'])->find($appointmentId);
 
         if (! $appointment) {
             $this->reply('Запись не найдена. Возможно, она уже была отменена.');
@@ -225,8 +226,9 @@ class TelegramWebhookHandler extends WebhookHandler
         ]);
 
         $service = $appointment->service;
-        $date = $appointment->start_time->format('d.m.Y');
-        $time = $appointment->start_time->format('H:i');
+        $tz = $appointment->master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
 
         $phone = $client->phone ?? 'не указан';
         $clientName = $client->name ?? 'Клиент';
@@ -413,8 +415,9 @@ class TelegramWebhookHandler extends WebhookHandler
 
         // Уведомляем мастера
         $service = $appointment->service;
-        $date = $appointment->start_time->format('d.m.Y');
-        $time = $appointment->start_time->format('H:i');
+        $tz = $appointment->master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
         $phone = $client->phone ?? 'не указан';
         $clientName = $client->name ?? 'Клиент';
 
