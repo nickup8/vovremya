@@ -416,6 +416,8 @@ class TelegramWebhookHandler extends WebhookHandler
             Log::info('[TG] handleBookingContact: existing client', ['client_id' => $client->id]);
         }
 
+        $this->syncClientTelegramAvatar($client, $telegramId);
+
         // Привязываем запись
         $appointment->update(['client_id' => $client->id]);
 
@@ -635,6 +637,75 @@ class TelegramWebhookHandler extends WebhookHandler
         } catch (\Throwable $e) {
             Log::warning('[TG] syncTelegramAvatar: failed', [
                 'user_id' => $master->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Скачивает профильное фото клиента из Telegram.
+     */
+    private function syncClientTelegramAvatar(Client $client, string $telegramId): void
+    {
+        if ($client->avatar_url) {
+            return;
+        }
+
+        try {
+            $token = config('services.telegram.bot_token');
+
+            if (empty($token)) {
+                return;
+            }
+
+            $photosResponse = Http::timeout(10)->get("https://api.telegram.org/bot{$token}/getUserProfilePhotos", [
+                'user_id' => $telegramId,
+                'limit' => 1,
+            ]);
+
+            if (! $photosResponse->ok() || $photosResponse->json('result.total_count', 0) === 0) {
+                return;
+            }
+
+            $photosArray = $photosResponse->json('result.photos');
+            $photos = $photosArray[0] ?? [];
+
+            if (empty($photos)) {
+                return;
+            }
+
+            $fileId = $photos[array_key_last($photos)]['file_id'];
+
+            $fileResponse = Http::timeout(10)->get("https://api.telegram.org/bot{$token}/getFile", [
+                'file_id' => $fileId,
+            ]);
+
+            if (! $fileResponse->ok()) {
+                return;
+            }
+
+            $filePath = $fileResponse->json('result.file_path');
+
+            $content = Http::timeout(15)
+                ->get("https://api.telegram.org/file/bot{$token}/{$filePath}")
+                ->body();
+
+            if (empty($content)) {
+                return;
+            }
+
+            $filename = "tg_avatar_client_{$telegramId}_" . time() . '.jpg';
+            Storage::disk('public')->put("avatars/clients/{$filename}", $content);
+
+            $client->update(['avatar_url' => "/storage/avatars/clients/{$filename}"]);
+
+            Log::info('[TG] syncClientTelegramAvatar: saved', [
+                'client_id' => $client->id,
+                'filename' => $filename,
+            ]);
+        } catch (\Throwable $e) {
+            Log::warning('[TG] syncClientTelegramAvatar: failed', [
+                'client_id' => $client->id,
                 'error' => $e->getMessage(),
             ]);
         }

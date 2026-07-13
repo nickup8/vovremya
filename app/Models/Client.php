@@ -19,6 +19,7 @@ class Client extends Authenticatable
         'telegram_id',
         'max_id',
         'name',
+        'avatar_url',
         'auth_token',
         'is_blocked',
         'notes',
