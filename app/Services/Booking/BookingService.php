@@ -280,45 +280,49 @@ class BookingService
         bool $ignoreWarnings = false,
         bool $confirmOutsideHours = false,
     ): array {
-        $master = $appointment->master;
-        $service = $appointment->service;
-        $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
+        return DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours) {
+            $locked = Appointment::where('id', $appointment->id)->lockForUpdate()->first();
 
-        $check = $this->checkSlot(
-            $master,
-            $startDateTime,
-            $service->duration_minutes,
-            'master',
-            $confirmOutsideHours,
-            $appointment->id,
-        );
+            $master = $locked->master;
+            $service = $locked->service;
+            $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
 
-        if ($check['status'] === 'warning') {
+            $check = $this->checkSlot(
+                $master,
+                $startDateTime,
+                $service->duration_minutes,
+                'master',
+                $confirmOutsideHours,
+                $locked->id,
+            );
+
+            if ($check['status'] === 'warning') {
+                return [
+                    'success' => false,
+                    'error' => $check['error'],
+                    'message' => $check['message'],
+                ];
+            }
+
+            if ($check['status'] === 'error') {
+                return [
+                    'success' => false,
+                    'error' => $check['error'],
+                    'message' => $check['message'],
+                    'break_info' => $check['break_info'] ?? null,
+                ];
+            }
+
+            $locked->update(['start_time' => $startDateTime]);
+
+            if ($locked->status === AppointmentStatus::NoShow) {
+                $this->statusService->transition($locked, AppointmentStatus::Booked);
+            }
+
             return [
-                'success' => false,
-                'error' => $check['error'],
-                'message' => $check['message'],
+                'success' => true,
+                'appointment' => $locked,
             ];
-        }
-
-        if ($check['status'] === 'error') {
-            return [
-                'success' => false,
-                'error' => $check['error'],
-                'message' => $check['message'],
-                'break_info' => $check['break_info'] ?? null,
-            ];
-        }
-
-        $appointment->update(['start_time' => $startDateTime]);
-
-        if ($appointment->status === AppointmentStatus::NoShow) {
-            $this->statusService->transition($appointment, AppointmentStatus::Booked);
-        }
-
-        return [
-            'success' => true,
-            'appointment' => $appointment,
-        ];
+        });
     }
 }
