@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use Illuminate\Bus\Queueable;
@@ -23,6 +24,10 @@ class SendAppointmentReminderJob implements ShouldQueue
 
     public function handle(): void
     {
+        if ($this->appointment->fresh()->status !== AppointmentStatus::Booked) {
+            return;
+        }
+
         $appointment = $this->appointment->load(['master', 'service', 'client']);
 
         if (! $appointment->client) {
