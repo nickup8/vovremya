@@ -60,11 +60,11 @@ class StatusTransitionTest extends TestCase
         $this->assertEquals(AppointmentStatus::Cancelled, $a->fresh()->status);
     }
 
-    public function test_booked_to_booked_throws(): void
+    public function test_booked_to_booked_is_noop(): void
     {
         $a = $this->makeAppointment(AppointmentStatus::Booked);
-        $this->expectException(InvalidStatusTransitionException::class);
         $this->statusService->transition($a, AppointmentStatus::Booked);
+        $this->assertEquals(AppointmentStatus::Booked, $a->fresh()->status);
     }
 
     // ─── NoShow ───
@@ -90,11 +90,11 @@ class StatusTransitionTest extends TestCase
         $this->assertEquals(AppointmentStatus::Cancelled, $a->fresh()->status);
     }
 
-    public function test_no_show_to_no_show_throws(): void
+    public function test_no_show_to_no_show_is_noop(): void
     {
         $a = $this->makeAppointment(AppointmentStatus::NoShow);
-        $this->expectException(InvalidStatusTransitionException::class);
         $this->statusService->transition($a, AppointmentStatus::NoShow);
+        $this->assertEquals(AppointmentStatus::NoShow, $a->fresh()->status);
     }
 
     // ─── Paid ───
@@ -113,11 +113,11 @@ class StatusTransitionTest extends TestCase
         $this->statusService->transition($a, AppointmentStatus::Booked);
     }
 
-    public function test_paid_to_paid_throws(): void
+    public function test_paid_to_paid_is_noop(): void
     {
         $a = $this->makeAppointment(AppointmentStatus::Paid);
-        $this->expectException(InvalidStatusTransitionException::class);
         $this->statusService->transition($a, AppointmentStatus::Paid);
+        $this->assertEquals(AppointmentStatus::Paid, $a->fresh()->status);
     }
 
     public function test_paid_to_cancelled_throws(): void
@@ -150,11 +150,11 @@ class StatusTransitionTest extends TestCase
         $this->statusService->transition($a, AppointmentStatus::NoShow);
     }
 
-    public function test_cancelled_to_cancelled_throws(): void
+    public function test_cancelled_to_cancelled_is_noop(): void
     {
         $a = $this->makeAppointment(AppointmentStatus::Cancelled);
-        $this->expectException(InvalidStatusTransitionException::class);
         $this->statusService->transition($a, AppointmentStatus::Cancelled);
+        $this->assertEquals(AppointmentStatus::Cancelled, $a->fresh()->status);
     }
 
     // ─── NoShow + Reschedule → Booked ───

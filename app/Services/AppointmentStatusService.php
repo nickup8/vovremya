@@ -12,6 +12,10 @@ class AppointmentStatusService
     {
         $from = $appointment->status;
 
+        if ($from === $to) {
+            return $appointment;
+        }
+
         if (! $from->canTransitionTo($to)) {
             throw new InvalidStatusTransitionException($from, $to);
         }
