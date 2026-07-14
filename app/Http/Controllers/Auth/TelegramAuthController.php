@@ -13,7 +13,6 @@ use Inertia\Inertia;
 class TelegramAuthController extends Controller
 {
     private const CACHE_PREFIX = 'tg_auth:';
-    private const TOKEN_TTL = 300; // 5 минут
 
     /**
      * Страница выбора способа входа.
@@ -40,7 +39,7 @@ class TelegramAuthController extends Controller
         Cache::put(
             self::CACHE_PREFIX . $token,
             ['status' => 'pending'],
-            self::TOKEN_TTL,
+            config('booking.token_ttl'),
         );
 
         return response()->json(['token' => $token]);

@@ -125,7 +125,7 @@ class User extends Authenticatable implements PasskeyUser
 
     public function getTimezone(): string
     {
-        return $this->settings['timezone'] ?? 'Europe/Moscow';
+        return $this->settings['timezone'] ?? config('booking.default_timezone');
     }
 
     public function isTimezoneConfirmed(): bool

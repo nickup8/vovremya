@@ -24,8 +24,6 @@ class TelegramWebhookHandler extends WebhookHandler
     private const AUTH_CACHE_PREFIX = 'tg_auth:';
     private const CHAT_TOKEN_PREFIX = 'tg_chat_token:';
     private const BOOKING_DRAFT_PREFIX = 'booking_draft_';
-    private const TOKEN_TTL = 300;
-    private const DRAFT_TTL = 900;
 
     public function start(?string $parameter = null): void
     {
@@ -55,7 +53,7 @@ class TelegramWebhookHandler extends WebhookHandler
             Cache::put(
                 self::CHAT_TOKEN_PREFIX . $chatId,
                 $loginToken,
-                self::TOKEN_TTL,
+                config('booking.token_ttl'),
             );
 
             Log::info('[TG] start(auth_) cache stored', ['login_token' => $loginToken]);
@@ -171,7 +169,7 @@ class TelegramWebhookHandler extends WebhookHandler
             }
         } else {
             // Клиент новый — запрашиваем контакт
-            Cache::put(self::BOOKING_DRAFT_PREFIX . $chatId, $appointmentId, self::DRAFT_TTL);
+            Cache::put(self::BOOKING_DRAFT_PREFIX . $chatId, $appointmentId, config('booking.draft_ttl'));
 
             $contactMessage = $details . "\n\n"
                 . "Для завершения записи, пожалуйста, поделитесь номером телефона.\n\n"
@@ -544,7 +542,7 @@ class TelegramWebhookHandler extends WebhookHandler
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
-        ], self::TOKEN_TTL);
+        ], config('booking.token_ttl'));
 
         Cache::forget(self::CHAT_TOKEN_PREFIX . $chatId);
 

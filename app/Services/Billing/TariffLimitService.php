@@ -8,7 +8,6 @@ use Illuminate\Support\Carbon;
 
 class TariffLimitService
 {
-    private const FREE_MONTHLY_LIMIT = 30;
 
     public function canCreateAppointment(User $master): bool
     {
@@ -29,7 +28,7 @@ class TariffLimitService
             ->whereBetween('start_time', [$monthStart, $monthEnd])
             ->count();
 
-        return $usedCount < self::FREE_MONTHLY_LIMIT;
+        return $usedCount < config('booking.free_monthly_limit');
     }
 
     public function getRemainingCount(User $master): int
@@ -51,16 +50,16 @@ class TariffLimitService
             ->whereBetween('start_time', [$monthStart, $monthEnd])
             ->count();
 
-        return max(0, self::FREE_MONTHLY_LIMIT - $usedCount);
+        return max(0, config('booking.free_monthly_limit') - $usedCount);
     }
 
     public function getMonthlyLimit(User $master): int
     {
         return match ($master->tariff) {
-            'free' => self::FREE_MONTHLY_LIMIT,
+            'free' => config('booking.free_monthly_limit'),
             'pro' => PHP_INT_MAX,
             'studio' => PHP_INT_MAX,
-            default => self::FREE_MONTHLY_LIMIT,
+            default => config('booking.free_monthly_limit'),
         };
     }
 }

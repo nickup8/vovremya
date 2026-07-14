@@ -16,7 +16,7 @@ class CleanupDraftAppointments extends Command
 
     public function handle(AppointmentStatusService $statusService): int
     {
-        $threshold = now()->subMinutes(15);
+        $threshold = now()->subMinutes(config('booking.cleanup_draft_threshold'));
 
         $appointments = Appointment::query()
             ->whereNull('client_id')
