@@ -438,9 +438,10 @@ class WebhookController extends Controller
                 }
 
                 try {
-                    Http::withHeaders([
-                        'Authorization' => $maxToken,
-                    ])
+                    Http::withoutVerifying()
+                        ->withHeaders([
+                            'Authorization' => $maxToken,
+                        ])
                         ->timeout(10)
                         ->post("{$maxApiUrl}/messages", $payload);
                 } catch (\Exception $e) {

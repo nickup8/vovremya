@@ -85,9 +85,10 @@ class MasterNotificationService
         }
 
         try {
-            Http::withHeaders([
-                'Authorization' => $token,
-            ])
+            Http::withoutVerifying()
+                ->withHeaders([
+                    'Authorization' => $token,
+                ])
                 ->timeout(10)
                 ->post("{$apiUrl}/messages", [
                     'chat_id' => $chatId,
