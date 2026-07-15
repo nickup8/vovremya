@@ -444,14 +444,16 @@ class WebhookController extends Controller
                 }
 
                 try {
-                    Http::withoutVerifying()
+                    $response = Http::withoutVerifying()
                         ->withHeaders([
                             'Authorization' => $maxToken,
                         ])
                         ->timeout(10)
                         ->post("{$maxApiUrl}/messages", $payload);
+
+                    Log::info('[MAX OUTGOING] Status: '.$response->status().' Body: '.$response->body());
                 } catch (\Exception $e) {
-                    Log::error('Max send failed', ['error' => $e->getMessage(), 'chat_id' => $chatId]);
+                    Log::error('[MAX OUTGOING ERROR] '.$e->getMessage());
                 }
             } else {
                 Log::info('Max bot message (stub)', ['chat_id' => $chatId, 'text' => $text]);

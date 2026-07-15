@@ -85,7 +85,7 @@ class MasterNotificationService
         }
 
         try {
-            Http::withoutVerifying()
+            $response = Http::withoutVerifying()
                 ->withHeaders([
                     'Authorization' => $token,
                 ])
@@ -94,11 +94,10 @@ class MasterNotificationService
                     'chat_id' => $chatId,
                     'text' => $text,
                 ]);
+
+            Log::info('[MAX OUTGOING] Status: '.$response->status().' Body: '.$response->body());
         } catch (\Exception $e) {
-            Log::error('Max master notification failed', [
-                'chat_id' => $chatId,
-                'error' => $e->getMessage(),
-            ]);
+            Log::error('[MAX OUTGOING ERROR] '.$e->getMessage());
         }
     }
 }

@@ -489,17 +489,16 @@ class MaxWebhookHandler
         }
 
         try {
-            Http::withoutVerifying()
+            $response = Http::withoutVerifying()
                 ->withHeaders([
                     'Authorization' => $maxToken,
                 ])
                 ->timeout(10)
                 ->post("{$maxApiUrl}/messages", $payload);
+
+            Log::info('[MAX OUTGOING] Status: '.$response->status().' Body: '.$response->body());
         } catch (\Exception $e) {
-            Log::error('[MAX] send message failed', [
-                'error' => $e->getMessage(),
-                'chat_id' => $chatId,
-            ]);
+            Log::error('[MAX OUTGOING ERROR] '.$e->getMessage());
         }
     }
 }
