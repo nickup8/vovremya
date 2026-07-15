@@ -449,7 +449,7 @@ class WebhookController extends Controller
                             'Authorization' => $maxToken,
                         ])
                         ->timeout(10)
-                        ->post("{$maxApiUrl}/messages", $payload);
+                        ->post(rtrim($maxApiUrl, '/').'/messages', $payload);
 
                     Log::info('[MAX OUTGOING] Status: '.$response->status().' Body: '.$response->body());
                 } catch (\Exception $e) {

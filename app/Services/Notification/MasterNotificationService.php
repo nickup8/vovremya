@@ -90,7 +90,7 @@ class MasterNotificationService
                     'Authorization' => $token,
                 ])
                 ->timeout(10)
-                ->post("{$apiUrl}/messages", [
+                ->post(rtrim($apiUrl, '/').'/messages', [
                     'chat_id' => $chatId,
                     'text' => $text,
                 ]);
