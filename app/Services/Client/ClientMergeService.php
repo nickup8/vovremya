@@ -33,6 +33,20 @@ class ClientMergeService
         return $client;
     }
 
+    public function findByTelegramIdForMaster(string $telegramId, string $masterId): ?Client
+    {
+        return Client::byTelegramId($telegramId)
+            ->where('user_id', $masterId)
+            ->first();
+    }
+
+    public function findByMaxIdForMaster(string $maxId, string $masterId): ?Client
+    {
+        return Client::byMaxId($maxId)
+            ->where('user_id', $masterId)
+            ->first();
+    }
+
     public function linkProvider(Client $client, string $provider, string $providerId): Client
     {
         $field = match ($provider) {
@@ -58,6 +72,13 @@ class ClientMergeService
     public function updateMaxId(Client $client, string $maxId): Client
     {
         $client->update(['max_id' => $maxId]);
+
+        return $client;
+    }
+
+    public function updateMaxChatId(Client $client, string $maxChatId): Client
+    {
+        $client->update(['max_chat_id' => $maxChatId]);
 
         return $client;
     }

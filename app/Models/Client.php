@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Traits\SearchableByProvider;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -11,13 +12,14 @@ use Illuminate\Support\Str;
 
 class Client extends Authenticatable
 {
-    use HasFactory, HasUuids;
+    use HasFactory, HasUuids, SearchableByProvider;
 
     protected $fillable = [
         'user_id',
         'phone',
         'telegram_id',
         'max_id',
+        'max_chat_id',
         'name',
         'avatar_url',
         'auth_token',

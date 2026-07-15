@@ -132,7 +132,7 @@ class TelegramWebhookHandler extends WebhookHandler
             . "⏰ Время: {$time}";
 
         // Проверяем, является ли пользователь постоянным клиентом этого мастера
-        $client = Client::where('telegram_id', $chatId)
+        $client = Client::byTelegramId($chatId)
             ->where('user_id', $appointment->master_id)
             ->first();
 
@@ -212,7 +212,7 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $client = Client::where('telegram_id', $this->chat->chat_id)
+        $client = Client::byTelegramId($this->chat->chat_id)
             ->where('user_id', $appointment->master_id)
             ->first();
 
