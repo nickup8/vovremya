@@ -44,6 +44,7 @@ Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name(
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->middleware('throttle:60,1')->name('webhooks.telegram');
 Route::post('/webhooks/telegram/bypass', [WebhookController::class, 'handleBypass'])->middleware('throttle:60,1')->name('webhooks.telegram.bypass');
 Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->middleware('throttle:60,1')->name('webhooks.max');
+Route::post('/max/webhook', [WebhookController::class, 'handleMax'])->middleware('throttle:60,1')->name('max.webhook');
 
 // Диагностический маршрут для перехвата вебхука Telegraph с логированием токена.
 // Переопределяет авто-регистрируемый маршрут пакета (/telegraph/{token}/webhook),

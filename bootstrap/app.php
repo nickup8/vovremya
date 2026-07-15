@@ -29,6 +29,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->validateCsrfTokens(except: [
             'webhooks/*',
             'telegraph/*/webhook',
+            'max/webhook',
         ]);
 
         $middleware->web(append: [
