@@ -438,8 +438,11 @@ class WebhookController extends Controller
                 }
 
                 try {
-                    Http::timeout(10)
-                        ->post("{$maxApiUrl}/sendMessage", $payload);
+                    Http::withHeaders([
+                        'Authorization' => $maxToken,
+                    ])
+                        ->timeout(10)
+                        ->post("{$maxApiUrl}/messages", $payload);
                 } catch (\Exception $e) {
                     Log::error('Max send failed', ['error' => $e->getMessage(), 'chat_id' => $chatId]);
                 }

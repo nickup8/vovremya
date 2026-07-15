@@ -85,10 +85,14 @@ class MasterNotificationService
         }
 
         try {
-            Http::timeout(10)->post("{$apiUrl}/sendMessage", [
-                'chat_id' => $chatId,
-                'text' => $text,
-            ]);
+            Http::withHeaders([
+                'Authorization' => $token,
+            ])
+                ->timeout(10)
+                ->post("{$apiUrl}/messages", [
+                    'chat_id' => $chatId,
+                    'text' => $text,
+                ]);
         } catch (\Exception $e) {
             Log::error('Max master notification failed', [
                 'chat_id' => $chatId,
