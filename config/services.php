@@ -47,4 +47,10 @@ return [
         'api_url' => env('MAX_API_URL', 'https://botapi.max.ru/v1'),
     ],
 
+    'vk' => [
+        'bot_token' => env('VK_BOT_TOKEN'),
+        'secret' => env('VK_SECRET_TOKEN'),
+        'confirmation_token' => env('VK_CONFIRMATION_TOKEN'),
+    ],
+
 ];

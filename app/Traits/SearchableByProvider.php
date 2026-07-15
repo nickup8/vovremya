@@ -25,4 +25,14 @@ trait SearchableByProvider
     {
         return static::where('max_id', $maxId)->first();
     }
+
+    public function scopeByVkId(Builder $query, string $vkId): Builder
+    {
+        return $query->where('vk_id', $vkId);
+    }
+
+    public static function findByVkId(string $vkId): ?static
+    {
+        return static::where('vk_id', $vkId)->first();
+    }
 }

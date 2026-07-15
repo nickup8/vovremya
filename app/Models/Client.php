@@ -20,6 +20,8 @@ class Client extends Authenticatable
         'telegram_id',
         'max_id',
         'max_chat_id',
+        'vk_id',
+        'vk_chat_id',
         'name',
         'avatar_url',
         'auth_token',

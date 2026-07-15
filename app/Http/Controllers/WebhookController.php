@@ -105,6 +105,36 @@ class WebhookController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    public function handleVk(Request $request): mixed
+    {
+        $payload = $request->all();
+        $type = $payload['type'] ?? '';
+        $secret = $payload['secret'] ?? null;
+
+        if ($type === 'confirmation') {
+            Log::info('[VK] confirmation request received');
+
+            return response(config('services.vk.confirmation_token'), 200)
+                ->header('Content-Type', 'text/plain');
+        }
+
+        $expectedSecret = config('services.vk.secret');
+        if ($expectedSecret && $secret !== $expectedSecret) {
+            Log::warning('[VK] invalid secret', [
+                'ip' => $request->ip(),
+            ]);
+
+            return response('Forbidden', 403);
+        }
+
+        Log::info('[VK] webhook received', [
+            'type' => $type,
+            'group_id' => $payload['group_id'] ?? null,
+        ]);
+
+        return response('ok', 200);
+    }
+
     private function verifySignature(string $provider, Request $request): void
     {
         $secretKey = match ($provider) {
