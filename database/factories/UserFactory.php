@@ -27,9 +27,13 @@ class UserFactory extends Factory
             'two_factor_confirmed_at' => null,
             'phone' => null,
             'telegram_id' => null,
+            'telegram_chat_id' => null,
+            'telegram_auth_token' => null,
             'max_id' => null,
             'avatar_url' => null,
             'is_master' => false,
+            'is_super_admin' => false,
+            'is_blocked' => false,
             'master_slug' => null,
             'specialty' => null,
             'address' => null,
@@ -38,6 +42,10 @@ class UserFactory extends Factory
             'soft_deposit' => false,
             'deposit_timeout' => 15,
             'deposit_percent' => 30,
+            'slot_interval' => 30,
+            'tariff' => 'free',
+            'expires_at' => null,
+            'settings' => null,
         ];
     }
 

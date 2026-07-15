@@ -116,12 +116,12 @@ class User extends Authenticatable implements PasskeyUser
 
     public function isSuperAdmin(): bool
     {
-        return $this->is_super_admin;
+        return (bool) ($this->is_super_admin ?? false);
     }
 
     public function isBlocked(): bool
     {
-        return $this->is_blocked;
+        return (bool) ($this->is_blocked ?? false);
     }
 
     public function getTimezone(): string
