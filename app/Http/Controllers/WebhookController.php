@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\AppointmentStatusService;
 use App\Services\Client\ClientMergeService;
+use App\Webhooks\MaxWebhookHandler;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -94,27 +95,12 @@ class WebhookController extends Controller
 
         $payload = $request->all();
 
-        $event = $payload['event'] ?? null;
-        $data = $payload['data'] ?? [];
+        Log::info('[MAX] webhook payload', [
+            'update_type' => $payload['update_type'] ?? null,
+            'chat_id' => $payload['chat_id'] ?? null,
+        ]);
 
-        if ($event === 'message_created') {
-            $text = $data['body'] ?? '';
-            $chatId = $data['chat']['id'] ?? null;
-
-            if (str_starts_with($text, '/start book_')) {
-                return $this->handleStartBook($chatId, $text, 'max');
-            }
-
-            $contact = $data['contact'] ?? null;
-            if ($contact) {
-                return $this->handleContact($chatId, $contact, 'max');
-            }
-
-            $callbackData = $data['callback_data'] ?? null;
-            if ($callbackData) {
-                return $this->handleCallback($chatId, $callbackData, ['chat' => $data['chat'] ?? []]);
-            }
-        }
+        app(MaxWebhookHandler::class)->handle($payload);
 
         return response()->json(['ok' => true]);
     }
