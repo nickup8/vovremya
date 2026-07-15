@@ -145,6 +145,12 @@ class WebhookController extends Controller
         $secret = config($secretKey);
 
         if (empty($secret)) {
+            if ($provider === 'max') {
+                Log::info("[MAX] webhook secret not configured, skipping signature verification");
+
+                return;
+            }
+
             Log::critical("Webhook secret not configured for {$provider}");
             abort(500, 'Webhook secret not configured');
         }
