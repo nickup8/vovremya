@@ -53,7 +53,7 @@ class Client extends Authenticatable
 
     public function isBlocked(): bool
     {
-        return (bool) ($this->is_blocked ?? false);
+        return (bool) $this->is_blocked;
     }
 
     public static function generateAuthToken(): string

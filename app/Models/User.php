@@ -121,7 +121,7 @@ class User extends Authenticatable implements PasskeyUser
 
     public function isBlocked(): bool
     {
-        return (bool) ($this->is_blocked ?? false);
+        return (bool) $this->is_blocked;
     }
 
     public function getTimezone(): string

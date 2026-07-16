@@ -208,6 +208,18 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
+        // Идемпотентность: если запись уже подтверждена — не отправляем уведомление мастеру повторно
+        if ($appointment->status === AppointmentStatus::Booked) {
+            $this->chat->deleteKeyboard($this->messageId)->send();
+            $this->reply(__('bot.booking_confirmed.telegram', [
+                'service' => $appointment->service?->title,
+                'date' => $appointment->start_time->timezone($appointment->master->getTimezone())->format('d.m.Y'),
+                'time' => $appointment->start_time->timezone($appointment->master->getTimezone())->format('H:i'),
+            ]));
+
+            return;
+        }
+
         $client = Client::byTelegramId($this->chat->chat_id)
             ->where('user_id', $appointment->master_id)
             ->first();
@@ -230,20 +242,6 @@ class TelegramWebhookHandler extends WebhookHandler
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $phone = $client->phone ?? __('bot.fallback.phone');
-        $clientName = $client->name ?? __('bot.fallback.client_name');
-
-        $masterNotification = __('bot.master.new_booking', [
-            'client' => $clientName,
-            'phone' => $phone,
-            'service' => $service?->title,
-            'date' => $date,
-            'time' => $time,
-        ]);
-
-        app(MasterNotificationService::class)
-            ->sendToMaster($appointment->master, $masterNotification);
-
         $confirmedText = __('bot.booking_confirmed.telegram', [
             'service' => $service?->title,
             'date' => $date,
@@ -263,11 +261,20 @@ class TelegramWebhookHandler extends WebhookHandler
 
             $this->chat->deleteKeyboard($this->messageId)->send();
 
-            $this->reply(__('bot.booking_confirmed.telegram', [
-                'service' => $service?->title,
-                'date' => $date,
-                'time' => $time,
-            ]));
+            $this->reply($confirmedText);
+
+            // Уведомляем мастера ПОСЛЕ успешного ответа клиенту
+            $phone = $client->phone ?? __('bot.fallback.phone');
+            $clientName = $client->name ?? __('bot.fallback.client_name');
+
+            app(MasterNotificationService::class)
+                ->sendToMaster($appointment->master, __('bot.master.new_booking', [
+                    'client' => $clientName,
+                    'phone' => $phone,
+                    'service' => $service?->title,
+                    'date' => $date,
+                    'time' => $time,
+                ]));
 
             Log::info('[TG] confirmBooking: success', [
                 'appointment_id' => $appointmentId,
