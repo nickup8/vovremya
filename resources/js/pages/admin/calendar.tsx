@@ -374,7 +374,7 @@ function BreakZone({ breakStart, breakEnd, dayStartHour }: { breakStart: string;
 
     return (
         <div
-            className="absolute z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-amber-200 bg-amber-50 px-2 py-1 dark:border-amber-800 dark:bg-amber-950/50"
+            className="absolute inset-x-0 z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-amber-200 bg-amber-50 px-2 py-1 dark:border-amber-800 dark:bg-amber-950/50"
             style={{
                 top,
                 height: Math.max(height, 24),
