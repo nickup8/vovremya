@@ -480,12 +480,18 @@ class MaxWebhookHandler
         }
 
         $payload = [
-            'chat_id' => $chatId,
             'text' => $text,
         ];
 
         if ($keyboard) {
-            $payload['keyboard'] = $keyboard;
+            $payload['attachments'] = [
+                [
+                    'type' => 'inline_keyboard',
+                    'payload' => [
+                        'buttons' => $keyboard['inline_keyboard'] ?? $keyboard,
+                    ],
+                ],
+            ];
         }
 
         try {
@@ -493,6 +499,7 @@ class MaxWebhookHandler
                 ->withHeaders([
                     'Authorization' => $maxToken,
                 ])
+                ->withQueryParameters(['chat_id' => $chatId])
                 ->timeout(10)
                 ->post(rtrim($maxApiUrl, '/').'/messages', $payload);
 
