@@ -14,6 +14,13 @@ class SendMasterNotificationJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 3;
+
+    public function backoff(): array
+    {
+        return [30, 120, 600];
+    }
+
     public function __construct(
         private Appointment $appointment,
     ) {}

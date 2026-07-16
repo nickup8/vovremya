@@ -68,11 +68,15 @@ class MasterNotificationService
                 'chat_id' => $chatId,
                 'error' => $e->getMessage(),
             ]);
+
+            throw $e;
         }
     }
 
     private function sendMax(string $chatId, string $text): void
     {
-        app(MaxApiClient::class)->sendMessage($chatId, $text);
+        if (! app(MaxApiClient::class)->sendMessage($chatId, $text)) {
+            throw new \Exception('MAX API failed to send master notification');
+        }
     }
 }

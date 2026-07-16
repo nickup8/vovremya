@@ -18,6 +18,13 @@ class SendAppointmentReminderJob implements ShouldQueue
 {
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
+    public int $tries = 3;
+
+    public function backoff(): array
+    {
+        return [30, 120, 600];
+    }
+
     public function __construct(
         private Appointment $appointment,
         private string $type,
@@ -69,6 +76,8 @@ class SendAppointmentReminderJob implements ShouldQueue
                 'appointment_id' => $appointment->id,
                 'error' => $e->getMessage(),
             ]);
+
+            throw $e;
         }
     }
 
@@ -76,7 +85,9 @@ class SendAppointmentReminderJob implements ShouldQueue
     {
         $text = $this->buildMessage($appointment, 'max');
 
-        app(MaxApiClient::class)->sendMessage($client->max_id, $text);
+        if (! app(MaxApiClient::class)->sendMessage($client->max_id, $text)) {
+            throw new \Exception('MAX API failed to send reminder');
+        }
     }
 
     private function buildMessage(Appointment $appointment, string $provider): string
