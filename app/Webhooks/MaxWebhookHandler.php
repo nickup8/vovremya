@@ -474,12 +474,25 @@ class MaxWebhookHandler
             return false;
         }
 
-        // Convert literal \r\n to real newlines
-        $normalizedVcf = str_replace('\\r\\n', "\r\n", $vcfInfo);
+        // Normalize all newline variants to strict \r\n (CRLF)
+        $vcfInfoClean = preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo);
+        // Handle escaped literal \r\n that may come as text
+        $vcfInfoClean = str_replace('\\r\\n', "\r\n", $vcfInfoClean);
 
-        $computedHash = hash_hmac('sha256', $normalizedVcf, $botToken);
+        $computedHash = hash_hmac('sha256', $vcfInfoClean, $botToken);
 
-        return hash_equals($computedHash, $expectedHash);
+        if (! hash_equals($computedHash, $expectedHash)) {
+            Log::warning('[MAX] Hash mismatch details', [
+                'expected' => $expectedHash,
+                'actual' => $computedHash,
+                'vcf_clean' => $vcfInfoClean,
+                'bot_token_empty' => empty($botToken),
+            ]);
+
+            return false;
+        }
+
+        return true;
     }
 
     /**
