@@ -474,25 +474,16 @@ class MaxWebhookHandler
             return false;
         }
 
-        // Brute-force: try all possible line-ending variations
-        $variations = [
-            'raw' => $vcfInfo,
-            'crlf_strict' => preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo),
-            'lf_only' => preg_replace("/\r\n|\r|\n/", "\n", $vcfInfo),
-            'crlf_with_trailing' => rtrim(preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo)) . "\r\n",
-            'unescaped_literal' => str_replace('\r\n', "\r\n", $vcfInfo),
-        ];
+        // Normalize all newlines to \r\n and ensure trailing \r\n after END:VCARD
+        $vcfFormatted = rtrim(preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo)) . "\r\n";
 
-        foreach ($variations as $name => $data) {
-            if (hash_hmac('sha256', $data, $token) === $expectedHash) {
-                Log::info("[MAX] Hash cracked! Successful variation: {$name}");
+        $actualHash = hash_hmac('sha256', $vcfFormatted, $token);
 
-                return true;
-            }
+        if (! hash_equals($expectedHash, $actualHash)) {
+            Log::warning('[MAX] contact hash verification failed', ['expected' => $expectedHash, 'actual' => $actualHash]);
+
+            return false;
         }
-
-        // Bypass for now — allow user through while we debug
-        Log::warning('[MAX] Hash crack failed again', ['expected' => $expectedHash]);
 
         return true;
     }
