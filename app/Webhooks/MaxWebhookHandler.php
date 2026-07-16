@@ -466,33 +466,42 @@ class MaxWebhookHandler
      */
     private function verifyContactHash(string $vcfInfo, string $expectedHash): bool
     {
-        $botToken = config('services.max.bot_token');
+        $token = trim(config('services.max.bot_token'));
 
-        if (empty($botToken)) {
+        if (empty($token)) {
             Log::warning('[MAX] bot_token not configured for hash verification');
 
             return false;
         }
 
-        // Normalize all newline variants to strict \r\n (CRLF)
-        $vcfInfoClean = preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo);
-        // Handle escaped literal \r\n that may come as text
-        $vcfInfoClean = str_replace('\\r\\n', "\r\n", $vcfInfoClean);
+        // 1. Original string (as json_decode delivered it)
+        $hash1 = hash_hmac('sha256', $vcfInfo, $token);
 
-        $computedHash = hash_hmac('sha256', $vcfInfoClean, $botToken);
+        // 2. Convert literal \r\n (strict per MAX documentation)
+        $vcfConverted = str_replace(['\r', '\n'], ["\r", "\n"], $vcfInfo);
+        $hash2 = hash_hmac('sha256', $vcfConverted, $token);
 
-        if (! hash_equals($computedHash, $expectedHash)) {
-            Log::warning('[MAX] Hash mismatch details', [
-                'expected' => $expectedHash,
-                'actual' => $computedHash,
-                'vcf_clean' => $vcfInfoClean,
-                'bot_token_empty' => empty($botToken),
+        // 3. Hard normalization — collapse all newline variants to \r\n
+        $vcfNormalized = preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo);
+        $hash3 = hash_hmac('sha256', $vcfNormalized, $token);
+
+        if (in_array($expectedHash, [$hash1, $hash2, $hash3])) {
+            Log::info('[MAX] Hash verified', [
+                'method' => $expectedHash === $hash1 ? 'original' : ($expectedHash === $hash2 ? 'literal_convert' : 'normalized'),
             ]);
 
-            return false;
+            return true;
         }
 
-        return true;
+        Log::warning('[MAX] All hash variations failed', [
+            'expected' => $expectedHash,
+            'h1' => $hash1,
+            'h2' => $hash2,
+            'h3' => $hash3,
+            'vcf_raw' => substr($vcfInfo, 0, 200),
+        ]);
+
+        return false;
     }
 
     /**
