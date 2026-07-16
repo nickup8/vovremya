@@ -185,16 +185,14 @@ class MaxWebhookHandler
         ]);
 
         $this->sendMessage($chatId, "Для завершения авторизации, пожалуйста, поделитесь номером телефона.\n\nНажмите кнопку ниже 👇", [
-            'attachments' => [
-                [
-                    'type' => 'inline_keyboard',
-                    'payload' => [
-                        'buttons' => [
+            [
+                'type' => 'inline_keyboard',
+                'payload' => [
+                    'buttons' => [
+                        [
                             [
-                                [
-                                    'type' => 'request_contact',
-                                    'text' => '📱 Поделиться номером телефона',
-                                ],
+                                'type' => 'request_contact',
+                                'text' => '📱 Поделиться номером телефона',
                             ],
                         ],
                     ],
@@ -223,16 +221,14 @@ class MaxWebhookHandler
         ]);
 
         $this->sendMessage($chatId, "Для завершения записи, пожалуйста, поделитесь номером телефона.\n\nНажмите кнопку ниже 👇", [
-            'attachments' => [
-                [
-                    'type' => 'inline_keyboard',
-                    'payload' => [
-                        'buttons' => [
+            [
+                'type' => 'inline_keyboard',
+                'payload' => [
+                    'buttons' => [
+                        [
                             [
-                                [
-                                    'type' => 'request_contact',
-                                    'text' => '📱 Поделиться номером телефона',
-                                ],
+                                'type' => 'request_contact',
+                                'text' => '📱 Поделиться номером телефона',
                             ],
                         ],
                     ],
@@ -500,6 +496,8 @@ class MaxWebhookHandler
         if ($attachments) {
             $payload['attachments'] = $attachments;
         }
+
+        Log::info('[MAX OUTGOING PAYLOAD] '.json_encode($payload, JSON_UNESCAPED_UNICODE));
 
         try {
             $response = Http::withoutVerifying()
