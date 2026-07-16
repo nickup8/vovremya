@@ -5,8 +5,8 @@ namespace App\Webhooks;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\Client\ClientMergeService;
+use App\Services\MaxApiClient;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -18,6 +18,7 @@ class MaxWebhookHandler
 
     public function __construct(
         private ClientMergeService $clientMergeService,
+        private MaxApiClient $maxApi,
     ) {}
 
     /**
@@ -496,37 +497,11 @@ class MaxWebhookHandler
      */
     public function sendMessage(string $chatId, string $text, ?array $attachments = null): void
     {
-        $maxApiUrl = config('services.max.api_url');
-        $maxToken = config('services.max.bot_token');
-
-        if (! $maxApiUrl || ! $maxToken) {
-            Log::info('Max bot message (stub)', ['chat_id' => $chatId, 'text' => $text]);
-
-            return;
-        }
-
-        $payload = [
-            'text' => $text,
-        ];
-
+        $extra = [];
         if ($attachments) {
-            $payload['attachments'] = $attachments;
+            $extra['attachments'] = $attachments;
         }
 
-        Log::info('[MAX OUTGOING PAYLOAD] '.json_encode($payload, JSON_UNESCAPED_UNICODE));
-
-        try {
-            $response = Http::withoutVerifying()
-                ->withHeaders([
-                    'Authorization' => $maxToken,
-                ])
-                ->withQueryParameters(['chat_id' => $chatId])
-                ->timeout(10)
-                ->post(rtrim($maxApiUrl, '/').'/messages', $payload);
-
-            Log::info('[MAX OUTGOING] Status: '.$response->status().' Body: '.$response->body());
-        } catch (\Exception $e) {
-            Log::error('[MAX OUTGOING ERROR] '.$e->getMessage());
-        }
+        $this->maxApi->sendMessage($chatId, $text, $extra);
     }
 }

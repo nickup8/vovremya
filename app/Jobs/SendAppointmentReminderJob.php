@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Services\MaxApiClient;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -73,32 +74,9 @@ class SendAppointmentReminderJob implements ShouldQueue
 
     private function sendMax(Appointment $appointment, Client $client): void
     {
-        $token = config('services.max.bot_token');
-        $apiUrl = config('services.max.api_url');
-
-        if (empty($token) || empty($apiUrl)) {
-            return;
-        }
-
         $text = $this->buildMessage($appointment, 'max');
 
-        try {
-            Http::withoutVerifying()
-                ->withToken($token)
-                ->timeout(10)
-                ->post(rtrim($apiUrl, '/').'/messages', [
-                    'text' => $text,
-                    'recipient' => [
-                        'chat_id' => $client->max_id,
-                        'chat_type' => 'dialog',
-                    ],
-                ]);
-        } catch (\Exception $e) {
-            Log::error('Max reminder failed', [
-                'appointment_id' => $appointment->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
+        app(MaxApiClient::class)->sendMessage($client->max_id, $text);
     }
 
     private function buildMessage(Appointment $appointment, string $provider): string

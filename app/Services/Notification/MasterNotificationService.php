@@ -4,6 +4,7 @@ namespace App\Services\Notification;
 
 use App\Models\Appointment;
 use App\Models\User;
+use App\Services\MaxApiClient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -72,32 +73,6 @@ class MasterNotificationService
 
     private function sendMax(string $chatId, string $text): void
     {
-        $apiUrl = config('services.max.api_url');
-        $token = config('services.max.bot_token');
-
-        if (! $apiUrl || ! $token) {
-            Log::info('Max master notification (stub)', [
-                'chat_id' => $chatId,
-                'text' => $text,
-            ]);
-
-            return;
-        }
-
-        try {
-            $response = Http::withoutVerifying()
-                ->withHeaders([
-                    'Authorization' => $token,
-                ])
-                ->timeout(10)
-                ->post(rtrim($apiUrl, '/').'/messages', [
-                    'chat_id' => $chatId,
-                    'text' => $text,
-                ]);
-
-            Log::info('[MAX OUTGOING] Status: '.$response->status().' Body: '.$response->body());
-        } catch (\Exception $e) {
-            Log::error('[MAX OUTGOING ERROR] '.$e->getMessage());
-        }
+        app(MaxApiClient::class)->sendMessage($chatId, $text);
     }
 }

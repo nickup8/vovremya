@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\AppointmentStatusService;
 use App\Services\Client\ClientMergeService;
+use App\Services\MaxApiClient;
 use App\Webhooks\MaxWebhookHandler;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -22,6 +23,7 @@ class WebhookController extends Controller
     public function __construct(
         private ClientMergeService $clientMergeService,
         private AppointmentStatusService $statusService,
+        private MaxApiClient $maxApi,
     ) {
         $this->telegramBotToken = config('services.telegram.bot_token');
     }
@@ -430,34 +432,8 @@ class WebhookController extends Controller
         }
 
         if ($provider === 'max') {
-            $maxApiUrl = config('services.max.api_url');
-            $maxToken = config('services.max.bot_token');
-
-            if ($maxApiUrl && $maxToken) {
-                $payload = [
-                    'chat_id' => $chatId,
-                    'text' => $text,
-                ];
-
-                if ($extra) {
-                    $payload = array_merge($payload, $extra);
-                }
-
-                try {
-                    $response = Http::withoutVerifying()
-                        ->withHeaders([
-                            'Authorization' => $maxToken,
-                        ])
-                        ->timeout(10)
-                        ->post(rtrim($maxApiUrl, '/').'/messages', $payload);
-
-                    Log::info('[MAX OUTGOING] Status: '.$response->status().' Body: '.$response->body());
-                } catch (\Exception $e) {
-                    Log::error('[MAX OUTGOING ERROR] '.$e->getMessage());
-                }
-            } else {
-                Log::info('Max bot message (stub)', ['chat_id' => $chatId, 'text' => $text]);
-            }
+            $extra = $extra ?? [];
+            $this->maxApi->sendMessage((string) $chatId, $text, $extra);
         }
     }
 }
