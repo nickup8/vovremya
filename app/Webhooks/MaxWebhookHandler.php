@@ -84,7 +84,7 @@ class MaxWebhookHandler
         ]);
 
         if (empty($startParam)) {
-            $this->sendMessage($chatId, 'Добро пожаловать! Для входа в личный кабинет нажмите кнопку «Войти через MAX» на сайте.');
+            $this->sendMessage($chatId, __('bot.welcome.max'));
 
             return;
         }
@@ -101,7 +101,7 @@ class MaxWebhookHandler
             return;
         }
 
-        $this->sendMessage($chatId, 'Неизвестная команда. Используйте кнопку на сайте для входа.');
+        $this->sendMessage($chatId, __('bot.errors.unknown_command'));
     }
 
     /**
@@ -141,13 +141,13 @@ class MaxWebhookHandler
                 }
             }
 
-            $this->sendMessage($chatId, 'Добро пожаловать! Для входа в личный кабинет нажмите кнопку «Войти через MAX» на сайте.');
+            $this->sendMessage($chatId, __('bot.welcome.max'));
 
             return;
         }
 
         Log::info('[MAX] unhandled message', ['text' => $text, 'chat_id' => $chatId]);
-        $this->sendMessage($chatId, 'Используйте кнопку на сайте для входа в личный кабинет.');
+        $this->sendMessage($chatId, __('bot.errors.use_site_button'));
     }
 
     /**
@@ -189,7 +189,7 @@ class MaxWebhookHandler
             'login_token' => $loginToken,
         ]);
 
-        $this->sendMessage($chatId, "Для завершения авторизации, пожалуйста, поделитесь номером телефона.\n\nНажмите кнопку ниже 👇", [
+        $this->sendMessage($chatId, __('bot.contact_request.auth'), [
             [
                 'type' => 'inline_keyboard',
                 'payload' => [
@@ -197,7 +197,7 @@ class MaxWebhookHandler
                         [
                             [
                                 'type' => 'request_contact',
-                                'text' => '📱 Поделиться номером телефона',
+                                'text' => __('bot.buttons.share_phone'),
                             ],
                         ],
                     ],
@@ -225,7 +225,7 @@ class MaxWebhookHandler
             'appointment_id' => $appointmentId,
         ]);
 
-        $this->sendMessage($chatId, "Для завершения записи, пожалуйста, поделитесь номером телефона.\n\nНажмите кнопку ниже 👇", [
+        $this->sendMessage($chatId, __('bot.contact_request.booking'), [
             [
                 'type' => 'inline_keyboard',
                 'payload' => [
@@ -233,7 +233,7 @@ class MaxWebhookHandler
                         [
                             [
                                 'type' => 'request_contact',
-                                'text' => '📱 Поделиться номером телефона',
+                                'text' => __('bot.buttons.share_phone'),
                             ],
                         ],
                     ],
@@ -260,7 +260,7 @@ class MaxWebhookHandler
         $contactPayload = $attachment['payload'] ?? [];
         $maxInfo = $contactPayload['max_info'] ?? [];
         $contactUserId = (string) ($maxInfo['user_id'] ?? $userId);
-        $firstName = $maxInfo['first_name'] ?? $maxInfo['name'] ?? 'Клиент';
+        $firstName = $maxInfo['first_name'] ?? $maxInfo['name'] ?? __('bot.fallback.client_name');
         $lastName = $maxInfo['last_name'] ?? '';
 
         // Extract phone from vcf_info
@@ -272,7 +272,7 @@ class MaxWebhookHandler
                 'chat_id' => $chatId,
                 'vcf_info' => $vcfInfo,
             ]);
-            $this->sendMessage($chatId, 'Не удалось определить номер телефона. Попробуйте снова.');
+            $this->sendMessage($chatId, __('bot.errors.phone_detection_failed'));
 
             return;
         }
@@ -283,7 +283,7 @@ class MaxWebhookHandler
             $isValid = $this->verifyContactHash($vcfInfo, $hash);
             if (! $isValid) {
                 Log::warning('[MAX] contact hash verification failed', ['chat_id' => $chatId]);
-                $this->sendMessage($chatId, 'Не удалось подтвердить номер телефона. Попробуйте снова.');
+                $this->sendMessage($chatId, __('bot.errors.hash_verification_failed'));
 
                 return;
             }
@@ -299,7 +299,7 @@ class MaxWebhookHandler
             $this->handleBookingContact($chatId, $userId, $contactUserId, $phone, $firstName, $lastName, $draftAppointmentId);
         } else {
             Log::info('[MAX] contact received without active flow', ['chat_id' => $chatId]);
-            $this->sendMessage($chatId, 'Не удалось найти активную сессию. Попробуйте снова через сайт.');
+            $this->sendMessage($chatId, __('bot.errors.no_active_session'));
         }
     }
 
@@ -322,7 +322,7 @@ class MaxWebhookHandler
         if (! $user) {
             $baseName = trim($firstName . ' ' . $lastName);
             if ($baseName === '') {
-                $baseName = 'Мастер ' . $phone;
+                $baseName = __('bot.fallback.master_name') . ' ' . $phone;
             }
 
             $slug = Str::slug($baseName);
@@ -370,7 +370,7 @@ class MaxWebhookHandler
 
         Log::info('[MAX] handleAuthContact: sending confirmation');
 
-        $this->sendMessage($chatId, '✅ Успешная авторизация! Возвращайтесь в браузер.');
+        $this->sendMessage($chatId, __('bot.auth_success'));
     }
 
     /**
@@ -395,7 +395,7 @@ class MaxWebhookHandler
             ->find($appointmentId);
 
         if (! $appointment) {
-            $this->sendMessage($chatId, 'Запись не найдена. Попробуйте записаться заново.');
+            $this->sendMessage($chatId, __('bot.errors.appointment_not_found_retry'));
 
             return;
         }
@@ -407,7 +407,7 @@ class MaxWebhookHandler
             $masterId,
             $phone,
             '',
-            $fullName ?: "Клиент {$phone}",
+            $fullName ?: __('bot.fallback.client_name') . " {$phone}",
         );
 
         // Link max_id to client
@@ -417,7 +417,7 @@ class MaxWebhookHandler
 
         if ($client->isBlocked()) {
             $appointment->delete();
-            $this->sendMessage($chatId, 'К сожалению, запись к этому мастеру недоступна.');
+            $this->sendMessage($chatId, __('bot.errors.booking_unavailable'));
 
             return;
         }
@@ -430,21 +430,27 @@ class MaxWebhookHandler
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $message = "✅ Запись подтверждена!\n\n"
-            ."Услуга: {$service->title}\n"
-            ."Дата: {$date} в {$time}\n"
-            ."Стоимость: {$service->price}₽";
+        $message = __('bot.booking_confirmed.max', [
+            'service' => $service->title,
+            'date' => $date,
+            'time' => $time,
+            'price' => $service->price,
+        ]);
 
         if ($master->address) {
-            $message .= "\n📍 Адрес: {$master->address}";
+            $message .= __('bot.booking_confirmed.address', ['address' => $master->address]);
         }
 
-        $message .= "\n\nЖдём вас!";
+        $message .= __('bot.booking_confirmed.suffix');
 
         $this->sendMessage($chatId, $message);
 
         app(\App\Services\Notification\MasterNotificationService::class)
-            ->sendToMaster($master, "Новая запись: {$service->title} на {$date} в {$time}");
+            ->sendToMaster($master, __('bot.master.new_booking_simple', [
+                'service' => $service->title,
+                'date' => $date,
+                'time' => $time,
+            ]));
     }
 
     /**

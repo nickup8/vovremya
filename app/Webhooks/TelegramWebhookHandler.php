@@ -36,7 +36,7 @@ class TelegramWebhookHandler extends WebhookHandler
             Log::info('[TG] start() sending welcome');
 
             $result = $this->chat->html(
-                'Добро пожаловать! Для входа в личный кабинет нажмите кнопку «Войти через Telegram» на сайте.'
+                __('bot.welcome.telegram')
             )->send();
 
             Log::info('[TG] start() welcome sent', ['ok' => $result !== null]);
@@ -55,11 +55,10 @@ class TelegramWebhookHandler extends WebhookHandler
 
             Log::info('[TG] start(auth_) cache stored', ['login_token' => $loginToken]);
 
-            $message = "Для завершения авторизации, пожалуйста, поделитесь номером телефона.\n\n"
-                . "Нажмите кнопку ниже 👇";
+            $message = __('bot.contact_request.auth');
 
             $keyboard = ReplyKeyboard::make()
-                ->button('📱 Поделиться номером телефона')->requestContact()
+                ->button(__('bot.buttons.share_phone'))->requestContact()
                 ->resize()
                 ->oneTime();
 
@@ -89,7 +88,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         Log::info('[TG] start() unknown param');
 
-        $this->chat->html('Неизвестная команда. Используйте кнопку на сайте для входа.')->send();
+        $this->chat->html(__('bot.errors.unknown_command'))->send();
     }
 
     /**
@@ -108,7 +107,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         if (! $appointment) {
             Log::warning('[TG] book_ appointment not found', ['id' => $appointmentId]);
-            $this->chat->html('Запись не найдена. Возможно, она уже была отменена.')->send();
+            $this->chat->html(__('bot.errors.appointment_not_found'))->send();
 
             return;
         }
@@ -119,14 +118,15 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
-        $serviceName = $service?->title ?? 'Услуга';
-        $masterName = $master->name ?? 'Мастер';
+        $serviceName = $service?->title ?? __('bot.fallback.service_name');
+        $masterName = $master->name ?? __('bot.fallback.master_name');
 
-        $details = "📋 **Детали записи:**\n\n"
-            . "👤 Мастер: {$masterName}\n"
-            . "💇 Услуга: {$serviceName}\n"
-            . "📅 Дата: {$date}\n"
-            . "⏰ Время: {$time}";
+        $details = __('bot.booking_details', [
+            'master' => $masterName,
+            'service' => $serviceName,
+            'date' => $date,
+            'time' => $time,
+        ]);
 
         // Проверяем, является ли пользователь постоянным клиентом этого мастера
         $client = Client::byTelegramId($chatId)
@@ -139,12 +139,12 @@ class TelegramWebhookHandler extends WebhookHandler
             // Постоянный клиент — предлагаем подтверждение через Inline-кнопки
             $keyboard = Keyboard::make()
                 ->row([
-                    Button::make('✅ Подтвердить запись')
+                    Button::make(__('bot.buttons.confirm_booking'))
                         ->action('confirmBooking')
                         ->param('id', $appointment->id),
                 ])
                 ->row([
-                    Button::make('❌ Отменить')
+                    Button::make(__('bot.buttons.cancel'))
                         ->action('cancelBooking')
                         ->param('id', $appointment->id),
                 ]);
@@ -169,11 +169,10 @@ class TelegramWebhookHandler extends WebhookHandler
             Cache::put(CacheKeys::TG_BOOKING_DRAFT . $chatId, $appointmentId, config('booking.draft_ttl'));
 
             $contactMessage = $details . "\n\n"
-                . "Для завершения записи, пожалуйста, поделитесь номером телефона.\n\n"
-                . "Нажмите кнопку ниже 👇";
+                . __('bot.contact_request.booking');
 
             $keyboard = ReplyKeyboard::make()
-                ->button('📱 Поделиться номером телефона')->requestContact()
+                ->button(__('bot.buttons.share_phone'))->requestContact()
                 ->resize()
                 ->oneTime();
 
@@ -204,7 +203,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $appointment = Appointment::with(['master', 'service'])->find($appointmentId);
 
         if (! $appointment) {
-            $this->reply('Запись не найдена. Возможно, она уже была отменена.');
+            $this->reply(__('bot.errors.appointment_not_found'));
 
             return;
         }
@@ -214,7 +213,7 @@ class TelegramWebhookHandler extends WebhookHandler
             ->first();
 
         if (! $client) {
-            $this->reply('Клиент не найден. Пожалуйста, поделитесь номером телефона.');
+            $this->reply(__('bot.errors.client_not_found'));
 
             return;
         }
@@ -231,24 +230,31 @@ class TelegramWebhookHandler extends WebhookHandler
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $phone = $client->phone ?? 'не указан';
-        $clientName = $client->name ?? 'Клиент';
+        $phone = $client->phone ?? __('bot.fallback.phone');
+        $clientName = $client->name ?? __('bot.fallback.client_name');
 
-        $masterNotification = "🎉 У вас новая запись!\n\n"
-            . "👤 Клиент: {$clientName} ({$phone})\n"
-            . "💇‍♂️ Услуга: {$service?->title}\n"
-            . "📅 Дата: {$date} в {$time}";
+        $masterNotification = __('bot.master.new_booking', [
+            'client' => $clientName,
+            'phone' => $phone,
+            'service' => $service?->title,
+            'date' => $date,
+            'time' => $time,
+        ]);
 
         app(MasterNotificationService::class)
             ->sendToMaster($appointment->master, $masterNotification);
 
-        $confirmedText = "✅ Запись успешно подтверждена! Ждём вас.\n\n"
-            . "💇 {$service?->title}\n"
-            . "📅 {$date} в {$time}";
+        $confirmedText = __('bot.booking_confirmed.telegram', [
+            'service' => $service?->title,
+            'date' => $date,
+            'time' => $time,
+        ]);
 
         if ($appointment->master->address) {
-            $confirmedText .= "\n📍 Адрес: {$appointment->master->address}";
+            $confirmedText .= __('bot.booking_confirmed.address', ['address' => $appointment->master->address]);
         }
+
+        $confirmedText .= __('bot.booking_confirmed.suffix');
 
         try {
             $this->chat->edit($this->messageId)
@@ -257,7 +263,11 @@ class TelegramWebhookHandler extends WebhookHandler
 
             $this->chat->deleteKeyboard($this->messageId)->send();
 
-            $this->reply('Запись подтверждена!');
+            $this->reply(__('bot.booking_confirmed.telegram', [
+                'service' => $service?->title,
+                'date' => $date,
+                'time' => $time,
+            ]));
 
             Log::info('[TG] confirmBooking: success', [
                 'appointment_id' => $appointmentId,
@@ -280,7 +290,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $appointment = Appointment::find($appointmentId);
 
         if (! $appointment) {
-            $this->reply('Запись не найдена.');
+            $this->reply(__('bot.errors.appointment_not_found'));
 
             return;
         }
@@ -291,12 +301,12 @@ class TelegramWebhookHandler extends WebhookHandler
 
         try {
             $this->chat->edit($this->messageId)
-                ->html('❌ Вы отменили бронирование.')
+                ->html(__('bot.booking_cancelled.edit_message'))
                 ->send();
 
             $this->chat->deleteKeyboard($this->messageId)->send();
 
-            $this->reply('Запись отменена.');
+            $this->reply(__('bot.booking_cancelled.reply'));
 
             Log::info('[TG] cancelBooking: success', [
                 'appointment_id' => $appointmentId,
@@ -376,7 +386,7 @@ class TelegramWebhookHandler extends WebhookHandler
         ]);
 
         if (empty($phone)) {
-            $this->chat->html('Не удалось определить номер телефона. Попробуйте снова.')->send();
+            $this->chat->html(__('bot.errors.phone_detection_failed'))->send();
 
             return;
         }
@@ -384,7 +394,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $appointment = Appointment::with(['master'])->find($appointmentId);
 
         if (! $appointment) {
-            $this->chat->html('Запись не найдена. Попробуйте записаться заново.')->send();
+            $this->chat->html(__('bot.errors.appointment_not_found_retry'))->send();
 
             return;
         }
@@ -399,7 +409,7 @@ class TelegramWebhookHandler extends WebhookHandler
         if (! $client) {
             $client = Client::create([
                 'user_id' => $masterId,
-                'name' => $fullName ?: "Клиент {$phone}",
+                'name' => $fullName ?: __('bot.fallback.client_name') . " {$phone}",
                 'phone' => $phone,
                 'telegram_id' => $telegramId,
                 'auth_token' => Client::generateAuthToken(),
@@ -425,13 +435,16 @@ class TelegramWebhookHandler extends WebhookHandler
         $tz = $appointment->master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
-        $phone = $client->phone ?? 'не указан';
-        $clientName = $client->name ?? 'Клиент';
+        $phone = $client->phone ?? __('bot.fallback.phone');
+        $clientName = $client->name ?? __('bot.fallback.client_name');
 
-        $masterNotification = "🎉 У вас новая запись!\n\n"
-            . "👤 Клиент: {$clientName} ({$phone})\n"
-            . "💇‍♂️ Услуга: {$service?->title}\n"
-            . "📅 Дата: {$date} в {$time}";
+        $masterNotification = __('bot.master.new_booking', [
+            'client' => $clientName,
+            'phone' => $phone,
+            'service' => $service?->title,
+            'date' => $date,
+            'time' => $time,
+        ]);
 
         app(MasterNotificationService::class)
             ->sendToMaster($appointment->master, $masterNotification);
@@ -447,15 +460,17 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $message = "✅ **Запись подтверждена!**\n\n"
-            . "💇 {$service->title}\n"
-            . "📅 {$date} в {$time}";
+        $message = __('bot.booking_confirmed.telegram', [
+            'service' => $service->title,
+            'date' => $date,
+            'time' => $time,
+        ]);
 
         if ($appointment->master->address) {
-            $message .= "\n📍 Адрес: {$appointment->master->address}";
+            $message .= __('bot.booking_confirmed.address', ['address' => $appointment->master->address]);
         }
 
-        $message .= "\n\nЖдём вас!";
+        $message .= __('bot.booking_confirmed.suffix');
 
         try {
             $this->chat->html($message)
@@ -491,7 +506,7 @@ class TelegramWebhookHandler extends WebhookHandler
         if (empty($phone)) {
             Log::warning('[TG] handleAuthContact: empty phone');
 
-            $this->chat->html('Не удалось определить номер телефона. Попробуйте снова.')->send();
+            $this->chat->html(__('bot.errors.phone_detection_failed'))->send();
 
             return;
         }
@@ -501,7 +516,7 @@ class TelegramWebhookHandler extends WebhookHandler
         if (! $user) {
             $baseName = trim($firstName . ' ' . $lastName);
             if ($baseName === '') {
-                $baseName = 'Мастер ' . $phone;
+                $baseName = __('bot.fallback.master_name') . ' ' . $phone;
             }
 
             $slug = Str::slug($baseName);
@@ -557,7 +572,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         try {
             $result = $this->chat->html(
-                '✅ Успешная авторизация! Возвращайтесь в браузер.'
+                __('bot.auth_success')
             )->removeReplyKeyboard()->send();
 
             Log::info('[TG] handleAuthContact: confirmation sent', ['ok' => true]);
@@ -571,13 +586,13 @@ class TelegramWebhookHandler extends WebhookHandler
     protected function handleChatMessage(Stringable $text): void
     {
         Log::info('[TG] handleChatMessage', ['text' => $text->toString()]);
-        $this->reply('Используйте кнопку на сайте для входа в личный кабинет.');
+        $this->reply(__('bot.errors.use_site_button'));
     }
 
     protected function handleUnknownCommand(Stringable $text): void
     {
         Log::info('[TG] handleUnknownCommand', ['cmd' => $text->toString()]);
-        $this->reply('Неизвестная команда. Используйте кнопку на сайте для входа.');
+        $this->reply(__('bot.errors.unknown_command'));
     }
 
     /**

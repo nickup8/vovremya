@@ -16,24 +16,24 @@ class MasterNotificationService
         $client = $appointment->client;
         $service = $appointment->service;
 
-        $clientName = $client?->name ?? 'Клиент не указан';
-        $serviceName = $service?->title ?? 'Услуга';
+        $clientName = $client?->name ?? __('bot.fallback.client_name');
+        $serviceName = $service?->title ?? __('bot.fallback.service_name');
         $time = $appointment->start_time->format('d.m.Y H:i');
 
-        $text = "🔔 Новая запись!\n\n"
-            ."Клиент: {$clientName}\n"
-            ."Услуга: {$serviceName}\n"
-            ."Время: {$time}\n"
-            .'Стоимость: '.($service?->price ?? 0).'₽';
+        $text = __('bot.master.new_booking', [
+            'client' => $clientName,
+            'phone' => $client->phone ?? __('bot.fallback.phone'),
+            'service' => $serviceName,
+            'date' => $appointment->start_time->format('d.m.Y'),
+            'time' => $appointment->start_time->format('H:i'),
+        ]);
 
         $this->sendToMaster($master, $text);
     }
 
     public function sendSubscriptionExpired(User $master): void
     {
-        $text = "⚠️ Ваша подписка истекла.\n\n"
-            ."Вы переведены на бесплатный тариф.\n"
-            .'Обновите подписку для продолжения работы.';
+        $text = __('bot.master.subscription_expired');
 
         $this->sendToMaster($master, $text);
     }
