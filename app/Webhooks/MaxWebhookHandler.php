@@ -445,17 +445,22 @@ class MaxWebhookHandler
 
         $this->sendMessage($chatId, $message);
 
-        $phone = $client->phone ?? __('bot.fallback.phone');
-        $clientName = $client->name ?? __('bot.fallback.client_name');
+        // Атомарная блокировка: уведомляем мастера только один раз
+        $lockKey = 'master_notified_' . $appointment->id;
 
-        app(\App\Services\Notification\MasterNotificationService::class)
-            ->sendToMaster($master, __('bot.master.new_booking', [
-                'client' => $clientName,
-                'phone' => $phone,
-                'service' => $service->title,
-                'date' => $date,
-                'time' => $time,
-            ]));
+        if (Cache::add($lockKey, true, now()->addMinutes(10))) {
+            $phone = $client->phone ?? __('bot.fallback.phone');
+            $clientName = $client->name ?? __('bot.fallback.client_name');
+
+            app(\App\Services\Notification\MasterNotificationService::class)
+                ->sendToMaster($master, __('bot.master.new_booking', [
+                    'client' => $clientName,
+                    'phone' => $phone,
+                    'service' => $service->title,
+                    'date' => $date,
+                    'time' => $time,
+                ]));
+        }
     }
 
     /**
