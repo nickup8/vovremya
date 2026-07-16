@@ -84,7 +84,7 @@ class MaxWebhookHandler
         ]);
 
         if (empty($startParam)) {
-            $this->sendMessage($chatId, __('bot.welcome.max'));
+            $this->sendMessage($chatId, __('bot.welcome'));
 
             return;
         }
@@ -141,7 +141,7 @@ class MaxWebhookHandler
                 }
             }
 
-            $this->sendMessage($chatId, __('bot.welcome.max'));
+            $this->sendMessage($chatId, __('bot.welcome'));
 
             return;
         }
@@ -430,7 +430,7 @@ class MaxWebhookHandler
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $message = __('bot.booking_confirmed.max', [
+        $message = __('bot.booking_confirmed', [
             'service' => $service->title,
             'date' => $date,
             'time' => $time,
@@ -438,15 +438,20 @@ class MaxWebhookHandler
         ]);
 
         if ($master->address) {
-            $message .= __('bot.booking_confirmed.address', ['address' => $master->address]);
+            $message .= __('bot.booking_confirmed_address', ['address' => $master->address]);
         }
 
-        $message .= __('bot.booking_confirmed.suffix');
+        $message .= __('bot.booking_confirmed_suffix');
 
         $this->sendMessage($chatId, $message);
 
+        $phone = $client->phone ?? __('bot.fallback.phone');
+        $clientName = $client->name ?? __('bot.fallback.client_name');
+
         app(\App\Services\Notification\MasterNotificationService::class)
-            ->sendToMaster($master, __('bot.master.new_booking_simple', [
+            ->sendToMaster($master, __('bot.master.new_booking', [
+                'client' => $clientName,
+                'phone' => $phone,
                 'service' => $service->title,
                 'date' => $date,
                 'time' => $time,

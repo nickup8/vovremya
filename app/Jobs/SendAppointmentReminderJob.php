@@ -95,14 +95,14 @@ class SendAppointmentReminderJob implements ShouldQueue
         $master = $appointment->master;
         $service = $appointment->service;
         $time = $appointment->start_time->timezone($master->getTimezone())->format('H:i');
-        $address = $master->address ?? 'не указан';
+        $address = $master->address ?? __('bot.fallback.address');
         $hours = $this->type === 'final'
             ? $appointment->master->getReminderHoursBeforeFinal()
             : 24;
 
         $key = $this->type === '24h' ? 'reminder_24h' : 'reminder_final';
 
-        $template = __("notifications.{$key}.{$provider}", [
+        $template = __("notifications.{$key}", [
             'master' => $master->name,
             'service' => $service->title,
             'time' => $time,

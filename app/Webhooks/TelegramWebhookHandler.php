@@ -36,7 +36,7 @@ class TelegramWebhookHandler extends WebhookHandler
             Log::info('[TG] start() sending welcome');
 
             $result = $this->chat->html(
-                __('bot.welcome.telegram')
+                __('bot.welcome')
             )->send();
 
             Log::info('[TG] start() welcome sent', ['ok' => $result !== null]);
@@ -211,10 +211,11 @@ class TelegramWebhookHandler extends WebhookHandler
         // Идемпотентность: если запись уже подтверждена — не отправляем уведомление мастеру повторно
         if ($appointment->status === AppointmentStatus::Booked) {
             $this->chat->deleteKeyboard($this->messageId)->send();
-            $this->reply(__('bot.booking_confirmed.telegram', [
+            $this->reply(__('bot.booking_confirmed', [
                 'service' => $appointment->service?->title,
                 'date' => $appointment->start_time->timezone($appointment->master->getTimezone())->format('d.m.Y'),
                 'time' => $appointment->start_time->timezone($appointment->master->getTimezone())->format('H:i'),
+                'price' => $appointment->service?->price ?? 0,
             ]));
 
             return;
@@ -242,17 +243,18 @@ class TelegramWebhookHandler extends WebhookHandler
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $confirmedText = __('bot.booking_confirmed.telegram', [
+        $confirmedText = __('bot.booking_confirmed', [
             'service' => $service?->title,
             'date' => $date,
             'time' => $time,
+            'price' => $service?->price ?? 0,
         ]);
 
         if ($appointment->master->address) {
-            $confirmedText .= __('bot.booking_confirmed.address', ['address' => $appointment->master->address]);
+            $confirmedText .= __('bot.booking_confirmed_address', ['address' => $appointment->master->address]);
         }
 
-        $confirmedText .= __('bot.booking_confirmed.suffix');
+        $confirmedText .= __('bot.booking_confirmed_suffix');
 
         try {
             $this->chat->edit($this->messageId)
@@ -467,17 +469,18 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $message = __('bot.booking_confirmed.telegram', [
+        $message = __('bot.booking_confirmed', [
             'service' => $service->title,
             'date' => $date,
             'time' => $time,
+            'price' => $service->price ?? 0,
         ]);
 
         if ($appointment->master->address) {
-            $message .= __('bot.booking_confirmed.address', ['address' => $appointment->master->address]);
+            $message .= __('bot.booking_confirmed_address', ['address' => $appointment->master->address]);
         }
 
-        $message .= __('bot.booking_confirmed.suffix');
+        $message .= __('bot.booking_confirmed_suffix');
 
         try {
             $this->chat->html($message)
