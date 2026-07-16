@@ -43,6 +43,7 @@ return [
 
     'max' => [
         'bot_token' => env('MAX_BOT_TOKEN'),
+        'bot_name' => env('MAX_BOT_NAME'),
         'secret_token' => env('MAX_SECRET_TOKEN'),
         'api_url' => env('MAX_API_URL', 'https://platform-api2.max.ru'),
     ],
