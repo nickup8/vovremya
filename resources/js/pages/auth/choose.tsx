@@ -9,6 +9,7 @@ Choose.layout = (page: React.ReactNode) => <PublicLayout children={page} />;
 
 interface PageProps {
     telegramBotName: string | null;
+    maxBotName: string | null;
     [key: string]: unknown;
 }
 
@@ -30,7 +31,7 @@ type AsyncStatus = 'loading' | 'idle' | 'success' | 'error' | 'expired';
  * 6. Бот обновляет статус токена на authenticated
  * 7. Поллинг получает success → редирект на /admin/calendar
  */
-export default function Choose({ telegramBotName }: PageProps) {
+export default function Choose({ telegramBotName, maxBotName }: PageProps) {
     // 'loading' — запрос токена в процессе
     const [token, setToken] = useState<string | null>(null);
     const [status, setStatus] = useState<AsyncStatus>('loading');
@@ -214,6 +215,10 @@ export default function Choose({ telegramBotName }: PageProps) {
         ? `https://t.me/${telegramBotName}?start=${token}`
         : '#';
 
+    const maxBotLink = token
+        ? `https://max.ru/${maxBotName}?start=${token}`
+        : '#';
+
     return (
         <>
             <Head title="Вход — Вовремя" />
@@ -225,41 +230,71 @@ export default function Choose({ telegramBotName }: PageProps) {
                             вовремя
                         </span>
                         <h1 className="mt-8 text-2xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-                            Вход через Telegram
+                            Вход в личный кабинет
                         </h1>
                         <p className="mt-2 text-sm text-stone-400 dark:text-stone-500">
-                            Нажмите кнопку и поделитесь номером телефона в боте
+                            Выберите мессенджер и поделитесь номером телефона в боте
                         </p>
                     </div>
 
                     <div className="mt-8 space-y-4">
                         {/* Кнопка входа / Повторить */}
                         {!isError ? (
-                            <a href={botLink} target="_blank" rel="noopener noreferrer">
-                                <Button
-                                    size="lg"
-                                    disabled={!token || isTokenLoading || isPolling || isSuccess}
-                                    className="group h-14 w-full rounded-2xl bg-[#2AABEE] text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100 dark:bg-[#2AABEE] dark:text-white"
-                                >
-                                    {isSuccess ? (
-                                        <>
-                                            <span className="text-base">✅</span>
-                                            Авторизация успешна!
-                                        </>
-                                    ) : isTokenLoading ? (
-                                        <>
-                                            <Loader2 className="size-5 animate-spin" />
-                                            Подготовка...
-                                        </>
-                                    ) : (
-                                        <>
-                                            <MessageCircle className="size-5" />
-                                            Войти через Telegram
-                                            <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
-                                        </>
-                                    )}
-                                </Button>
-                            </a>
+                            <>
+                                <a href={botLink} target="_blank" rel="noopener noreferrer">
+                                    <Button
+                                        size="lg"
+                                        disabled={!token || isTokenLoading || isPolling || isSuccess}
+                                        className="group h-14 w-full rounded-2xl bg-[#2AABEE] text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100 dark:bg-[#2AABEE] dark:text-white"
+                                    >
+                                        {isSuccess ? (
+                                            <>
+                                                <span className="text-base">✅</span>
+                                                Авторизация успешна!
+                                            </>
+                                        ) : isTokenLoading ? (
+                                            <>
+                                                <Loader2 className="size-5 animate-spin" />
+                                                Подготовка...
+                                            </>
+                                        ) : (
+                                            <>
+                                                <MessageCircle className="size-5" />
+                                                Войти через Telegram
+                                                <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                                            </>
+                                        )}
+                                    </Button>
+                                </a>
+
+                                {maxBotName && (
+                                    <a href={maxBotLink} target="_blank" rel="noopener noreferrer">
+                                        <Button
+                                            size="lg"
+                                            disabled={!token || isTokenLoading || isPolling || isSuccess}
+                                            className="group h-14 w-full rounded-2xl bg-[#6366F1] text-base font-semibold text-white shadow-lg shadow-[#6366F1]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100 dark:bg-[#6366F1] dark:text-white"
+                                        >
+                                            {isSuccess ? (
+                                                <>
+                                                    <span className="text-base">✅</span>
+                                                    Авторизация успешна!
+                                                </>
+                                            ) : isTokenLoading ? (
+                                                <>
+                                                    <Loader2 className="size-5 animate-spin" />
+                                                    Подготовка...
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <MessageCircle className="size-5" />
+                                                    Войти через MAX
+                                                    <ArrowRight className="size-4 transition-transform group-hover:translate-x-0.5" />
+                                                </>
+                                            )}
+                                        </Button>
+                                    </a>
+                                )}
+                            </>
                         ) : (
                             <Button
                                 size="lg"

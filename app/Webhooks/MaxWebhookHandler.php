@@ -185,11 +185,18 @@ class MaxWebhookHandler
         ]);
 
         $this->sendMessage($chatId, "Для завершения авторизации, пожалуйста, поделитесь номером телефона.\n\nНажмите кнопку ниже 👇", [
-            'inline_keyboard' => [
+            'attachments' => [
                 [
-                    [
-                        'text' => '📱 Поделиться номером телефона',
-                        'type' => 'request_contact',
+                    'type' => 'inline_keyboard',
+                    'payload' => [
+                        'buttons' => [
+                            [
+                                [
+                                    'type' => 'request_contact',
+                                    'text' => '📱 Поделиться номером телефона',
+                                ],
+                            ],
+                        ],
                     ],
                 ],
             ],
@@ -216,11 +223,18 @@ class MaxWebhookHandler
         ]);
 
         $this->sendMessage($chatId, "Для завершения записи, пожалуйста, поделитесь номером телефона.\n\nНажмите кнопку ниже 👇", [
-            'inline_keyboard' => [
+            'attachments' => [
                 [
-                    [
-                        'text' => '📱 Поделиться номером телефона',
-                        'type' => 'request_contact',
+                    'type' => 'inline_keyboard',
+                    'payload' => [
+                        'buttons' => [
+                            [
+                                [
+                                    'type' => 'request_contact',
+                                    'text' => '📱 Поделиться номером телефона',
+                                ],
+                            ],
+                        ],
                     ],
                 ],
             ],
@@ -468,7 +482,7 @@ class MaxWebhookHandler
     /**
      * Send message via MAX Bot API.
      */
-    public function sendMessage(string $chatId, string $text, ?array $keyboard = null): void
+    public function sendMessage(string $chatId, string $text, ?array $attachments = null): void
     {
         $maxApiUrl = config('services.max.api_url');
         $maxToken = config('services.max.bot_token');
@@ -483,15 +497,8 @@ class MaxWebhookHandler
             'text' => $text,
         ];
 
-        if ($keyboard) {
-            $payload['attachments'] = [
-                [
-                    'type' => 'inline_keyboard',
-                    'payload' => [
-                        'buttons' => $keyboard['inline_keyboard'] ?? $keyboard,
-                    ],
-                ],
-            ];
+        if ($attachments) {
+            $payload['attachments'] = $attachments;
         }
 
         try {
