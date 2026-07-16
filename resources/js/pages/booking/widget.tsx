@@ -365,12 +365,12 @@ function StepTime({
 function StepProvider({
     errors,
     onSubmit,
-    isSubmitting,
+    loadingProvider,
     maxBotName,
 }: {
     errors: Record<string, string>;
     onSubmit: (provider: 'telegram' | 'max') => void;
-    isSubmitting: boolean;
+    loadingProvider: 'telegram' | 'max' | null;
     maxBotName: string | null;
 }) {
     return (
@@ -394,29 +394,29 @@ function StepProvider({
                 <div className="space-y-3 pt-2">
                     <button
                         onClick={() => onSubmit('telegram')}
-                        disabled={isSubmitting}
+                        disabled={loadingProvider !== null}
                         className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
                     >
-                        {isSubmitting ? (
+                        {loadingProvider === 'telegram' ? (
                             <Loader2 className="size-5 animate-spin" />
                         ) : (
                             <MessageCircle className="size-5" />
                         )}
-                        {isSubmitting ? 'Отправка...' : 'Записаться через Telegram'}
+                        {loadingProvider === 'telegram' ? 'Отправка...' : 'Записаться через Telegram'}
                     </button>
 
                     {maxBotName && (
                         <button
                             onClick={() => onSubmit('max')}
-                            disabled={isSubmitting}
+                            disabled={loadingProvider !== null}
                             className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#6366F1] py-5 text-base font-semibold text-white shadow-lg shadow-[#6366F1]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
                         >
-                            {isSubmitting ? (
+                            {loadingProvider === 'max' ? (
                                 <Loader2 className="size-5 animate-spin" />
                             ) : (
                                 <MessageCircle className="size-5" />
                             )}
-                            {isSubmitting ? 'Отправка...' : 'Записаться через MAX'}
+                            {loadingProvider === 'max' ? 'Отправка...' : 'Записаться через MAX'}
                         </button>
                     )}
                 </div>
@@ -491,7 +491,7 @@ export default function Widget() {
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
     const [slots, setSlots] = useState<string[]>(availableSlots);
     const [loadingSlots, setLoadingSlots] = useState(false);
-    const [isSubmitting, setIsSubmitting] = useState(false);
+    const [loadingProvider, setLoadingProvider] = useState<'telegram' | 'max' | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     useEffect(() => {
@@ -548,9 +548,9 @@ export default function Widget() {
     }
 
     async function handleSubmit(provider: 'telegram' | 'max') {
-        if (!selectedService || !selectedDate || !selectedTime || isSubmitting) return;
+        if (!selectedService || !selectedDate || !selectedTime || loadingProvider) return;
 
-        setIsSubmitting(true);
+        setLoadingProvider(provider);
         setErrors({});
 
         try {
@@ -575,14 +575,14 @@ export default function Widget() {
 
             if (!response.ok) {
                 setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
-                setIsSubmitting(false);
+                setLoadingProvider(null);
                 return;
             }
 
             window.location.href = provider === 'max' ? data.max_url : data.telegram_url;
         } catch {
             setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
-            setIsSubmitting(false);
+            setLoadingProvider(null);
         }
     }
 
@@ -651,7 +651,7 @@ export default function Widget() {
                     <StepProvider
                         errors={errors}
                         onSubmit={handleSubmit}
-                        isSubmitting={isSubmitting}
+                        loadingProvider={loadingProvider}
                         maxBotName={maxBotName}
                     />
                 )}
