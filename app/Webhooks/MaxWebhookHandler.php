@@ -290,8 +290,8 @@ class MaxWebhookHandler
         }
 
         // Determine flow: auth or booking
-        $loginToken = Cache::pull(CacheKeys::MAX_CHAT_TOKEN . $chatId);
-        $draftAppointmentId = Cache::pull(CacheKeys::MAX_BOOKING_DRAFT . $chatId);
+        $loginToken = Cache::get(CacheKeys::MAX_CHAT_TOKEN . $chatId);
+        $draftAppointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT . $chatId);
 
         if ($loginToken) {
             $this->handleAuthContact($chatId, $userId, $contactUserId, $phone, $firstName, $lastName, $loginToken);
@@ -371,6 +371,8 @@ class MaxWebhookHandler
         Log::info('[MAX] handleAuthContact: sending confirmation');
 
         $this->sendMessage($chatId, __('bot.auth_success'));
+
+        Cache::forget(CacheKeys::MAX_CHAT_TOKEN . $chatId);
     }
 
     /**
@@ -461,6 +463,8 @@ class MaxWebhookHandler
                     'time' => $time,
                 ]));
         }
+
+        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT . $chatId);
     }
 
     /**
