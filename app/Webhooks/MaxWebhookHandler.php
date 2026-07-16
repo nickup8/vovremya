@@ -12,7 +12,7 @@ use Illuminate\Support\Str;
 
 class MaxWebhookHandler
 {
-    private const AUTH_CACHE_PREFIX = 'max_auth:';
+    private const AUTH_CACHE_PREFIX = 'tg_auth:';
     private const CHAT_TOKEN_PREFIX = 'max_chat_token:';
     private const BOOKING_DRAFT_PREFIX = 'max_booking_draft_';
 
@@ -23,21 +23,28 @@ class MaxWebhookHandler
     /**
      * Process incoming MAX webhook event.
      *
-     * MAX webhook payload structure:
+     * MAX webhook payload structure for message_created:
      * {
-     *   "update_type": "bot_started|message_created|message_callback|...",
+     *   "update_type": "message_created",
      *   "timestamp": 1771409719000,
-     *   "chat_id": 12345,
-     *   "user": { "user_id": 67890, "first_name": "...", ... },
-     *   "message": { "body": { "mid": "...", "text": "...", "attachments": [...] } }
+     *   "message": {
+     *     "sender": { "user_id": 67890, "name": "..." },
+     *     "recipient": { "chat_id": 12345 },
+     *     "body": { "mid": "...", "text": "...", "attachments": [...] }
+     *   }
      * }
      */
     public function handle(array $payload): void
     {
         $updateType = $payload['update_type'] ?? null;
-        $chatId = (string) ($payload['chat_id'] ?? '');
-        $user = $payload['user'] ?? [];
-        $userId = (string) ($user['user_id'] ?? '');
+
+        if ($updateType === 'message_created') {
+            $chatId = (string) ($payload['message']['recipient']['chat_id'] ?? $payload['chat_id'] ?? '');
+            $userId = (string) ($payload['message']['sender']['user_id'] ?? $payload['user']['user_id'] ?? '');
+        } else {
+            $chatId = (string) ($payload['chat_id'] ?? '');
+            $userId = (string) ($payload['user']['user_id'] ?? '');
+        }
 
         Log::info('[MAX] webhook received', [
             'update_type' => $updateType,
