@@ -440,6 +440,16 @@ class TelegramWebhookHandler extends WebhookHandler
             ->sendToMaster($appointment->master, $masterNotification);
 
         // Формируем подтверждение клиенту
+        // Если запись была создана через MAX — не отправляем подтверждение в Telegram
+        $maxBookingKey = 'max_booking_draft_' . $chatId;
+        if (Cache::has($maxBookingKey)) {
+            Log::info('[TG] handleBookingContact: skipped — booking originated from MAX', [
+                'appointment_id' => $appointmentId,
+            ]);
+
+            return;
+        }
+
         $message = "✅ **Запись подтверждена!**\n\n"
             . "💇 {$service->title}\n"
             . "📅 {$date} в {$time}";

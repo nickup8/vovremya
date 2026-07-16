@@ -438,12 +438,6 @@ class MaxWebhookHandler
             .'Ждём вас!';
 
         $this->sendMessage($chatId, $message);
-
-        // Send client profile link
-        $authToken = Client::generateAuthToken();
-        $client->update(['auth_token' => $authToken]);
-        $loginUrl = config('app.url')."/client/auth/{$authToken}";
-        $this->sendMessage($chatId, "👤 Ваш профиль создан. Откройте ссылку для входа в личный кабинет:\n{$loginUrl}");
     }
 
     /**
