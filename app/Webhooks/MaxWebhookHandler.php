@@ -70,7 +70,7 @@ class MaxWebhookHandler
      */
     private function handleBotStarted(array $payload, string $chatId, string $userId): void
     {
-        $startParam = $payload['start_param'] ?? $payload['data']['start_param'] ?? '';
+        $startParam = $payload['payload'] ?? $payload['start_param'] ?? $payload['data']['start_param'] ?? '';
 
         Log::info('[MAX] bot_started', [
             'chat_id' => $chatId,
