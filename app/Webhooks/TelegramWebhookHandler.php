@@ -2,6 +2,7 @@
 
 namespace App\Webhooks;
 
+use App\Constants\CacheKeys;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -21,10 +22,6 @@ use Throwable;
 
 class TelegramWebhookHandler extends WebhookHandler
 {
-    private const AUTH_CACHE_PREFIX = 'tg_auth:';
-    private const CHAT_TOKEN_PREFIX = 'tg_chat_token:';
-    private const BOOKING_DRAFT_PREFIX = 'booking_draft_';
-
     public function start(?string $parameter = null): void
     {
         $chatId = $this->chat->chat_id;
@@ -51,7 +48,7 @@ class TelegramWebhookHandler extends WebhookHandler
             $loginToken = $parameter;
 
             Cache::put(
-                self::CHAT_TOKEN_PREFIX . $chatId,
+                CacheKeys::TG_CHAT_TOKEN . $chatId,
                 $loginToken,
                 config('booking.token_ttl'),
             );
@@ -169,7 +166,7 @@ class TelegramWebhookHandler extends WebhookHandler
             }
         } else {
             // Клиент новый — запрашиваем контакт
-            Cache::put(self::BOOKING_DRAFT_PREFIX . $chatId, $appointmentId, config('booking.draft_ttl'));
+            Cache::put(CacheKeys::TG_BOOKING_DRAFT . $chatId, $appointmentId, config('booking.draft_ttl'));
 
             $contactMessage = $details . "\n\n"
                 . "Для завершения записи, пожалуйста, поделитесь номером телефона.\n\n"
@@ -341,7 +338,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $chatId = $this->chat->chat_id;
 
         // Проверяем флоу бронирования
-        $draftAppointmentId = Cache::pull(self::BOOKING_DRAFT_PREFIX . $chatId);
+        $draftAppointmentId = Cache::pull(CacheKeys::TG_BOOKING_DRAFT . $chatId);
 
         if ($draftAppointmentId) {
             $this->handleBookingContact($contact, $chatId, $draftAppointmentId);
@@ -350,7 +347,7 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         // Проверяем флоу авторизации
-        $loginToken = Cache::get(self::CHAT_TOKEN_PREFIX . $chatId);
+        $loginToken = Cache::get(CacheKeys::TG_CHAT_TOKEN . $chatId);
 
         if ($loginToken) {
             $this->handleAuthContact($contact, $chatId, $loginToken);
@@ -441,7 +438,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         // Формируем подтверждение клиенту
         // Если запись была создана через MAX — не отправляем подтверждение в Telegram
-        $maxBookingKey = 'max_booking_draft_' . $chatId;
+        $maxBookingKey = CacheKeys::MAX_BOOKING_DRAFT . $chatId;
         if (Cache::has($maxBookingKey)) {
             Log::info('[TG] handleBookingContact: skipped — booking originated from MAX', [
                 'appointment_id' => $appointmentId,
@@ -548,13 +545,13 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $this->syncTelegramAvatar($user, $telegramId);
 
-        $authCacheKey = self::AUTH_CACHE_PREFIX . $loginToken;
+        $authCacheKey = CacheKeys::TG_AUTH . $loginToken;
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
         ], config('booking.token_ttl'));
 
-        Cache::forget(self::CHAT_TOKEN_PREFIX . $chatId);
+        Cache::forget(CacheKeys::TG_CHAT_TOKEN . $chatId);
 
         Log::info('[TG] handleAuthContact: sending confirmation');
 

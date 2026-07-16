@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Constants\CacheKeys;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -196,7 +197,7 @@ class WebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        $cacheKey = "bot_pending:{$provider}:{$chatId}";
+        $cacheKey = CacheKeys::BOT_PENDING . "{$provider}:{$chatId}";
         Cache::put($cacheKey, $appointment->id, now()->addMinutes(15));
 
         $keyboard = [
@@ -229,7 +230,7 @@ class WebhookController extends Controller
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
         $firstName = $contact['first_name'] ?? 'Клиент';
 
-        $cacheKey = "bot_pending:{$provider}:{$chatId}";
+        $cacheKey = CacheKeys::BOT_PENDING . "{$provider}:{$chatId}";
         $pendingId = Cache::get($cacheKey);
         if (! $pendingId) {
             $this->sendMessage($chatId, 'Не удалось найти активную запись. Попробуйте записаться заново.', $provider);

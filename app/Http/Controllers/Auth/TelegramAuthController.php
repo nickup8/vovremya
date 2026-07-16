@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Auth;
 
+use App\Constants\CacheKeys;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Illuminate\Http\JsonResponse;
@@ -12,8 +13,6 @@ use Inertia\Inertia;
 
 class TelegramAuthController extends Controller
 {
-    private const CACHE_PREFIX = 'tg_auth:';
-
     /**
      * Страница выбора способа входа.
      */
@@ -38,7 +37,7 @@ class TelegramAuthController extends Controller
 
         // Сохраняем в Cache со статусом pending
         Cache::put(
-            self::CACHE_PREFIX . $token,
+            CacheKeys::TG_AUTH . $token,
             ['status' => 'pending'],
             config('booking.token_ttl'),
         );
@@ -54,7 +53,7 @@ class TelegramAuthController extends Controller
      */
     public function checkAuthStatus(string $token): JsonResponse
     {
-        $cacheKey = self::CACHE_PREFIX . $token;
+        $cacheKey = CacheKeys::TG_AUTH . $token;
         $data = Cache::get($cacheKey);
 
         if (! $data) {

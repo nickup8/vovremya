@@ -2,6 +2,7 @@
 
 namespace App\Webhooks;
 
+use App\Constants\CacheKeys;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\Client\ClientMergeService;
@@ -12,10 +13,6 @@ use Illuminate\Support\Str;
 
 class MaxWebhookHandler
 {
-    private const AUTH_CACHE_PREFIX = 'tg_auth:';
-    private const CHAT_TOKEN_PREFIX = 'max_chat_token:';
-    private const BOOKING_DRAFT_PREFIX = 'max_booking_draft_';
-
     public function __construct(
         private ClientMergeService $clientMergeService,
         private MaxApiClient $maxApi,
@@ -182,7 +179,7 @@ class MaxWebhookHandler
     private function handleAuthStart(string $chatId, string $userId, string $loginToken): void
     {
         Cache::put(
-            self::CHAT_TOKEN_PREFIX . $chatId,
+            CacheKeys::MAX_CHAT_TOKEN . $chatId,
             $loginToken,
             config('booking.token_ttl'),
         );
@@ -218,7 +215,7 @@ class MaxWebhookHandler
 
         // Store pending booking in cache
         Cache::put(
-            self::BOOKING_DRAFT_PREFIX . $chatId,
+            CacheKeys::MAX_BOOKING_DRAFT . $chatId,
             $appointmentId,
             config('booking.draft_ttl'),
         );
@@ -293,8 +290,8 @@ class MaxWebhookHandler
         }
 
         // Determine flow: auth or booking
-        $loginToken = Cache::pull(self::CHAT_TOKEN_PREFIX . $chatId);
-        $draftAppointmentId = Cache::pull(self::BOOKING_DRAFT_PREFIX . $chatId);
+        $loginToken = Cache::pull(CacheKeys::MAX_CHAT_TOKEN . $chatId);
+        $draftAppointmentId = Cache::pull(CacheKeys::MAX_BOOKING_DRAFT . $chatId);
 
         if ($loginToken) {
             $this->handleAuthContact($chatId, $userId, $contactUserId, $phone, $firstName, $lastName, $loginToken);
@@ -365,7 +362,7 @@ class MaxWebhookHandler
             Log::info('[MAX] handleAuthContact: existing user', ['user_id' => $user->id]);
         }
 
-        $authCacheKey = self::AUTH_CACHE_PREFIX . $loginToken;
+        $authCacheKey = CacheKeys::TG_AUTH . $loginToken;
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
