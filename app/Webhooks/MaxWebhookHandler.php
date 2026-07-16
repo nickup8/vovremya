@@ -469,26 +469,14 @@ class MaxWebhookHandler
         $token = trim(config('services.max.bot_token'));
 
         if (empty($token)) {
-            Log::warning('[MAX] bot_token not configured for hash verification');
+            Log::error('[MAX] Bot token is empty');
 
             return false;
         }
 
-        // 1. Standard HMAC: hash('sha256', $vcfInfo, $token)
         $actualHash = hash_hmac('sha256', $vcfInfo, $token);
 
-        // 2. Reversed HMAC: hash('sha256', $token, $vcfInfo) — in case MAX swaps arguments
-        $reversedHash = hash_hmac('sha256', $token, $vcfInfo);
-
-        Log::warning('[MAX] Hash debug', [
-            'expected' => $expectedHash,
-            'actual' => $actualHash,
-            'reversed' => $reversedHash,
-            'token_length' => strlen($token),
-        ]);
-
-        // TEMPORARY BYPASS: allow login while we debug hash mismatch
-        return true;
+        return hash_equals($actualHash, $expectedHash);
     }
 
     /**
