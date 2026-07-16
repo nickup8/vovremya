@@ -208,6 +208,15 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
+        // Атомарная блокировка: если уже обработано — просто закрываем клавиатуру
+        $lockKey = 'master_notified_' . $appointment->id;
+
+        if (! Cache::add($lockKey, true, now()->addMinutes(10))) {
+            $this->chat->deleteKeyboard($this->messageId)->send();
+
+            return;
+        }
+
         $client = Client::byTelegramId($this->chat->chat_id)
             ->where('user_id', $appointment->master_id)
             ->first();
@@ -252,22 +261,18 @@ class TelegramWebhookHandler extends WebhookHandler
 
             $this->reply($confirmedText);
 
-            // Атомарная блокировка: уведомляем мастера только один раз
-            $lockKey = 'master_notified_' . $appointment->id;
+            // Уведомляем мастера
+            $phone = $client->phone ?? __('bot.fallback.phone');
+            $clientName = $client->name ?? __('bot.fallback.client_name');
 
-            if (Cache::add($lockKey, true, now()->addMinutes(10))) {
-                $phone = $client->phone ?? __('bot.fallback.phone');
-                $clientName = $client->name ?? __('bot.fallback.client_name');
-
-                app(MasterNotificationService::class)
-                    ->sendToMaster($appointment->master, __('bot.master.new_booking', [
-                        'client' => $clientName,
-                        'phone' => $phone,
-                        'service' => $service?->title,
-                        'date' => $date,
-                        'time' => $time,
-                    ]));
-            }
+            app(MasterNotificationService::class)
+                ->sendToMaster($appointment->master, __('bot.master.new_booking', [
+                    'client' => $clientName,
+                    'phone' => $phone,
+                    'service' => $service?->title,
+                    'date' => $date,
+                    'time' => $time,
+                ]));
 
             Log::info('[TG] confirmBooking: success', [
                 'appointment_id' => $appointmentId,
@@ -430,24 +435,27 @@ class TelegramWebhookHandler extends WebhookHandler
         // Привязываем запись
         $appointment->update(['client_id' => $client->id]);
 
-        // Атомарная блокировка: уведомляем мастера только один раз
+        // Атомарная блокировка: если уже обработано — выходим
         $lockKey = 'master_notified_' . $appointment->id;
 
-        if (Cache::add($lockKey, true, now()->addMinutes(10))) {
-            $phone = $client->phone ?? __('bot.fallback.phone');
-            $clientName = $client->name ?? __('bot.fallback.client_name');
-
-            $masterNotification = __('bot.master.new_booking', [
-                'client' => $clientName,
-                'phone' => $phone,
-                'service' => $service?->title,
-                'date' => $date,
-                'time' => $time,
-            ]);
-
-            app(MasterNotificationService::class)
-                ->sendToMaster($appointment->master, $masterNotification);
+        if (! Cache::add($lockKey, true, now()->addMinutes(10))) {
+            return;
         }
+
+        // Уведомляем мастера
+        $phone = $client->phone ?? __('bot.fallback.phone');
+        $clientName = $client->name ?? __('bot.fallback.client_name');
+
+        $masterNotification = __('bot.master.new_booking', [
+            'client' => $clientName,
+            'phone' => $phone,
+            'service' => $service?->title,
+            'date' => $date,
+            'time' => $time,
+        ]);
+
+        app(MasterNotificationService::class)
+            ->sendToMaster($appointment->master, $masterNotification);
 
         // Формируем подтверждение клиенту
         // Если запись была создана через MAX — не отправляем подтверждение в Telegram
