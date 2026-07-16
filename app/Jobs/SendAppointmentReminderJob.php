@@ -73,13 +73,32 @@ class SendAppointmentReminderJob implements ShouldQueue
 
     private function sendMax(Appointment $appointment, Client $client): void
     {
+        $token = config('services.max.bot_token');
+        $apiUrl = config('services.max.api_url');
+
+        if (empty($token) || empty($apiUrl)) {
+            return;
+        }
+
         $text = $this->buildMessage($appointment, 'max');
 
-        Log::info('Max reminder (stub)', [
-            'max_id' => $client->max_id,
-            'text' => $text,
-            'appointment_id' => $appointment->id,
-        ]);
+        try {
+            Http::withoutVerifying()
+                ->withToken($token)
+                ->timeout(10)
+                ->post(rtrim($apiUrl, '/').'/messages', [
+                    'text' => $text,
+                    'recipient' => [
+                        'chat_id' => $client->max_id,
+                        'chat_type' => 'dialog',
+                    ],
+                ]);
+        } catch (\Exception $e) {
+            Log::error('Max reminder failed', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function buildMessage(Appointment $appointment, string $provider): string
