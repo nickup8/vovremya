@@ -51,6 +51,7 @@ class BookingWidgetController extends Controller
             'availableSlots' => $availableSlots,
             'selectedDate' => $selectedDate,
             'selectedServiceId' => $selectedServiceId ?: null,
+            'maxBotName' => config('services.max.bot_name'),
         ]);
     }
 
@@ -92,7 +93,7 @@ class BookingWidgetController extends Controller
             'service_id' => 'required|exists:services,id',
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
-            'provider' => 'required|in:telegram',
+            'provider' => 'required|in:telegram,max',
         ]);
 
         $service = Service::findOrFail($validated['service_id']);
@@ -124,13 +125,14 @@ class BookingWidgetController extends Controller
             null, // client_id будет заполнен после подтверждения в боте
         );
 
-        $botName = config('services.telegram.bot_name', 'vovremia_bot');
-        $telegramUrl = "https://t.me/{$botName}?start=book_{$appointment->id}";
+        $telegramBotName = config('services.telegram.bot_name', 'vovremia_bot');
+        $maxBotName = config('services.max.bot_name');
 
         return response()->json([
             'success' => true,
-            'telegram_url' => $telegramUrl,
             'appointment_id' => $appointment->id,
+            'telegram_url' => "https://t.me/{$telegramBotName}?start=book_{$appointment->id}",
+            'max_url' => $maxBotName ? "https://max.ru/{$maxBotName}?start=book_{$appointment->id}" : null,
         ]);
     }
 }

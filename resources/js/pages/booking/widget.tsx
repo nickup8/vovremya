@@ -34,6 +34,7 @@ interface PageProps {
     availableSlots: string[];
     selectedDate: string;
     selectedServiceId: string | null;
+    maxBotName: string | null;
     [key: string]: unknown;
 }
 
@@ -365,10 +366,12 @@ function StepProvider({
     errors,
     onSubmit,
     isSubmitting,
+    maxBotName,
 }: {
     errors: Record<string, string>;
-    onSubmit: () => void;
+    onSubmit: (provider: 'telegram' | 'max') => void;
     isSubmitting: boolean;
+    maxBotName: string | null;
 }) {
     return (
         <div className="flex-1 overflow-y-auto pb-28">
@@ -377,7 +380,7 @@ function StepProvider({
                     Подтверждение
                 </h2>
                 <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                    Нажмите кнопку, чтобы перейти в Telegram
+                    Выберите мессенджер для подтверждения записи
                 </p>
             </div>
 
@@ -388,9 +391,9 @@ function StepProvider({
                     </div>
                 )}
 
-                <div className="pt-2">
+                <div className="space-y-3 pt-2">
                     <button
-                        onClick={onSubmit}
+                        onClick={() => onSubmit('telegram')}
                         disabled={isSubmitting}
                         className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
                     >
@@ -401,6 +404,21 @@ function StepProvider({
                         )}
                         {isSubmitting ? 'Отправка...' : 'Записаться через Telegram'}
                     </button>
+
+                    {maxBotName && (
+                        <button
+                            onClick={() => onSubmit('max')}
+                            disabled={isSubmitting}
+                            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#6366F1] py-5 text-base font-semibold text-white shadow-lg shadow-[#6366F1]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
+                        >
+                            {isSubmitting ? (
+                                <Loader2 className="size-5 animate-spin" />
+                            ) : (
+                                <MessageCircle className="size-5" />
+                            )}
+                            {isSubmitting ? 'Отправка...' : 'Записаться через MAX'}
+                        </button>
+                    )}
                 </div>
             </div>
         </div>
@@ -459,7 +477,7 @@ type Step = 1 | 2 | 3 | 4 | 5;
 const TOTAL_STEPS = 4;
 
 export default function Widget() {
-    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId } = usePage<PageProps>().props;
+    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName } = usePage<PageProps>().props;
     const pageProps = usePage<{ errors: Record<string, string> }>().props;
     const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
 
@@ -529,7 +547,7 @@ export default function Widget() {
         if (step > 1) setStep((s) => (s - 1) as Step);
     }
 
-    async function handleSubmit() {
+    async function handleSubmit(provider: 'telegram' | 'max') {
         if (!selectedService || !selectedDate || !selectedTime || isSubmitting) return;
 
         setIsSubmitting(true);
@@ -549,7 +567,7 @@ export default function Widget() {
                     service_id: selectedService.id,
                     date: formatDateKey(selectedDate),
                     time: selectedTime,
-                    provider: 'telegram',
+                    provider,
                 }),
             });
 
@@ -561,7 +579,7 @@ export default function Widget() {
                 return;
             }
 
-            window.location.href = data.telegram_url;
+            window.location.href = provider === 'max' ? data.max_url : data.telegram_url;
         } catch {
             setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
             setIsSubmitting(false);
@@ -634,6 +652,7 @@ export default function Widget() {
                         errors={errors}
                         onSubmit={handleSubmit}
                         isSubmitting={isSubmitting}
+                        maxBotName={maxBotName}
                     />
                 )}
                 {step === 5 && selectedService && selectedDate && selectedTime && (
