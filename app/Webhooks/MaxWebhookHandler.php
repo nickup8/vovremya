@@ -428,16 +428,25 @@ class MaxWebhookHandler
 
         $service = $appointment->service;
         $master = $appointment->master;
-        $date = $appointment->start_time->format('d.m.Y');
-        $time = $appointment->start_time->format('H:i');
+        $tz = $master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
 
         $message = "✅ Запись подтверждена!\n\n"
             ."Услуга: {$service->title}\n"
             ."Дата: {$date} в {$time}\n"
-            ."Стоимость: {$service->price}₽\n\n"
-            .'Ждём вас!';
+            ."Стоимость: {$service->price}₽";
+
+        if ($master->address) {
+            $message .= "\n📍 Адрес: {$master->address}";
+        }
+
+        $message .= "\n\nЖдём вас!";
 
         $this->sendMessage($chatId, $message);
+
+        app(\App\Services\Notification\MasterNotificationService::class)
+            ->sendToMaster($master, "Новая запись: {$service->title} на {$date} в {$time}");
     }
 
     /**
