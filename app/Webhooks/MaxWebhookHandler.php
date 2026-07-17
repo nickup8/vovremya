@@ -445,24 +445,28 @@ class MaxWebhookHandler
 
         $message .= __('bot.booking_confirmed_suffix');
 
-        $this->sendMessage($chatId, $message);
-
-        // Атомарная блокировка: уведомляем мастера только один раз
+        // Атомарная блокировка: защищаем и клиента, и мастера от дублей (retry вебхука)
         $lockKey = 'master_notified_' . $appointment->id;
 
-        if (Cache::add($lockKey, true, now()->addMinutes(10))) {
-            $phone = $client->phone ?? __('bot.fallback.phone');
-            $clientName = $client->name ?? __('bot.fallback.client_name');
+        if (! Cache::add($lockKey, true, now()->addMinutes(10))) {
+            Log::info('[MAX] Повторный вебхук пойман в handleBookingContact, глушим отправку.');
 
-            app(\App\Services\Notification\MasterNotificationService::class)
-                ->sendToMaster($master, __('bot.master.new_booking', [
-                    'client' => $clientName,
-                    'phone' => $phone,
-                    'service' => $service->title,
-                    'date' => $date,
-                    'time' => $time,
-                ]));
+            return;
         }
+
+        $this->sendMessage($chatId, $message);
+
+        $phone = $client->phone ?? __('bot.fallback.phone');
+        $clientName = $client->name ?? __('bot.fallback.client_name');
+
+        app(\App\Services\Notification\MasterNotificationService::class)
+            ->sendToMaster($master, __('bot.master.new_booking', [
+                'client' => $clientName,
+                'phone' => $phone,
+                'service' => $service->title,
+                'date' => $date,
+                'time' => $time,
+            ]));
 
         Cache::forget(CacheKeys::MAX_BOOKING_DRAFT . $chatId);
     }
