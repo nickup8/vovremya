@@ -7,6 +7,7 @@ use App\Models\BlockedTime;
 use App\Models\Service;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -27,6 +28,21 @@ class SettingsController extends Controller
             $user->refresh();
         }
 
+        // Deep link для привязки Telegram
+        $tgBotName = config('services.telegram.bot_name');
+        $telegramLinkUrl = $user->telegram_chat_id
+            ? null
+            : "https://t.me/{$tgBotName}?start={$user->telegram_auth_token}";
+
+        // Deep link для привязки MAX
+        $maxBotName = config('services.max.bot_name');
+        $maxLinkUrl = null;
+        if (! $user->max_id && $maxBotName) {
+            $linkToken = 'link_' . Str::uuid();
+            Cache::put("max_link:{$linkToken}", $user->id, now()->addMinutes(60));
+            $maxLinkUrl = "https://max.ru/{$maxBotName}?start={$linkToken}";
+        }
+
         return Inertia::render('admin/settings', [
             'profile' => [
                 'name' => $user->name,
@@ -38,8 +54,10 @@ class SettingsController extends Controller
                 'telegram_id' => $user->telegram_id,
                 'telegram_chat_id' => $user->telegram_chat_id,
                 'telegram_auth_token' => $user->telegram_auth_token,
-                'telegram_bot_name' => config('services.telegram.bot_name'),
+                'telegram_bot_name' => $tgBotName,
+                'telegram_link_url' => $telegramLinkUrl,
                 'max_id' => $user->max_id,
+                'max_link_url' => $maxLinkUrl,
                 'soft_deposit' => $user->soft_deposit,
                 'deposit_timeout' => $user->deposit_timeout,
                 'deposit_percent' => $user->deposit_percent,

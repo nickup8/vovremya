@@ -101,6 +101,32 @@ class MaxWebhookHandler
             return;
         }
 
+        if (str_starts_with($startParam, 'link_')) {
+            $linkToken = $startParam;
+            $masterUserId = Cache::pull("max_link:{$linkToken}");
+
+            if ($masterUserId) {
+                $user = \App\Models\User::find($masterUserId);
+                if ($user) {
+                    $user->update([
+                        'max_id' => $userId,
+                        'max_notifications' => true,
+                    ]);
+
+                    $this->sendMessage($userId, __('bot.notifications.linked_success'));
+
+                    Log::info('[MAX] link_ binding completed', [
+                        'user_id' => $user->id,
+                        'max_id' => $userId,
+                    ]);
+                }
+            } else {
+                $this->sendMessage($userId, __('bot.notifications.link_expired'));
+            }
+
+            return;
+        }
+
         $this->sendMessage($userId, __('bot.errors.unknown_command'));
     }
 

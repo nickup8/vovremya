@@ -81,6 +81,51 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
+        if (str_starts_with($parameter, 'link_')) {
+            $linkToken = $parameter;
+            $userId = Cache::pull("tg_link:{$linkToken}");
+
+            if ($userId) {
+                $user = User::find($userId);
+                if ($user) {
+                    $user->update([
+                        'telegram_id' => $chatId,
+                        'telegram_notifications' => true,
+                    ]);
+
+                    $this->chat->html(__('bot.notifications.linked_success'))->send();
+
+                    Log::info('[TG] link_ binding completed', [
+                        'user_id' => $user->id,
+                        'chat_id' => $chatId,
+                    ]);
+                }
+            } else {
+                $this->chat->html(__('bot.notifications.link_expired'))->send();
+            }
+
+            return;
+        }
+
+        // Handle bare telegram_auth_token (no prefix) for legacy binding
+        $user = User::where('telegram_auth_token', $parameter)->first();
+        if ($user) {
+            $user->update([
+                'telegram_id' => $chatId,
+                'telegram_chat_id' => $chatId,
+                'telegram_notifications' => true,
+            ]);
+
+            $this->chat->html(__('bot.notifications.linked_success'))->send();
+
+            Log::info('[TG] auth_token binding completed', [
+                'user_id' => $user->id,
+                'chat_id' => $chatId,
+            ]);
+
+            return;
+        }
+
         if (str_starts_with($parameter, 'book_')) {
             $this->handleBookingFlow($parameter, $chatId);
 

@@ -40,11 +40,11 @@ class MasterNotificationService
 
     public function sendToMaster(User $master, string $text): void
     {
-        if ($master->telegram_id) {
+        if (! empty($master->telegram_id) && $master->telegram_notifications === true) {
             $this->sendTelegram($master->telegram_id, $text);
         }
 
-        if ($master->max_id) {
+        if (! empty($master->max_id) && $master->max_notifications === true) {
             $this->sendMax($master->max_id, $text);
         }
     }
