@@ -66,9 +66,19 @@ class SyncClientAvatarsCommand extends Command
 
                 $filePath = $fileResponse->json('result.file_path');
 
-                $content = Http::timeout(15)
-                    ->get("https://api.telegram.org/file/bot{$token}/{$filePath}")
-                    ->body();
+                $downloadResponse = Http::timeout(15)
+                    ->get("https://api.telegram.org/file/bot{$token}/{$filePath}");
+
+                if ($downloadResponse->failed()) {
+                    Log::warning('clients:sync-avatars: file download failed', [
+                        'client_id' => $client->id,
+                        'status' => $downloadResponse->status(),
+                    ]);
+                    $skipped++;
+                    continue;
+                }
+
+                $content = $downloadResponse->body();
 
                 if (empty($content)) {
                     $skipped++;

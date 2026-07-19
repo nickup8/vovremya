@@ -186,7 +186,7 @@ class BookingService
             $service,
             $date,
             $time,
-            'crm',
+            'admin',
             $clientId,
             AppointmentStatus::Booked,
             AppointmentSource::Admin,

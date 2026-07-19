@@ -163,6 +163,7 @@ class TelegramWebhookHandler extends WebhookHandler
             } catch (Throwable $e) {
                 Log::error('[TG] book_ inline keyboard FAILED', [
                     'error' => $e->getMessage(),
+                    'exception' => $e,
                 ]);
             }
         } else {
@@ -283,6 +284,7 @@ class TelegramWebhookHandler extends WebhookHandler
         } catch (Throwable $e) {
             Log::error('[TG] confirmBooking: FAILED', [
                 'error' => $e->getMessage(),
+                'exception' => $e,
             ]);
         }
     }
@@ -321,6 +323,7 @@ class TelegramWebhookHandler extends WebhookHandler
         } catch (Throwable $e) {
             Log::error('[TG] cancelBooking: FAILED', [
                 'error' => $e->getMessage(),
+                'exception' => $e,
             ]);
         }
     }
@@ -498,6 +501,8 @@ class TelegramWebhookHandler extends WebhookHandler
         } catch (Throwable $e) {
             Log::error('[TG] handleBookingContact: confirmation FAILED', [
                 'error' => $e->getMessage(),
+                'exception' => $e,
+            ]);
             ]);
         }
     }
@@ -593,6 +598,7 @@ class TelegramWebhookHandler extends WebhookHandler
         } catch (Throwable $e) {
             Log::error('[TG] handleAuthContact: confirmation FAILED', [
                 'error' => $e->getMessage(),
+                'exception' => $e,
             ]);
         }
     }
@@ -655,16 +661,24 @@ class TelegramWebhookHandler extends WebhookHandler
             $filePath = $fileResponse->json('result.file_path');
 
             $content = Http::timeout(15)
-                ->withOptions(['sink' => null])
-                ->get("https://api.telegram.org/file/bot{$token}/{$filePath}")
-                ->body();
+                ->get("https://api.telegram.org/file/bot{$token}/{$filePath}");
 
-            if (empty($content)) {
+            if ($content->failed()) {
+                Log::warning('[TG] syncTelegramAvatar: file download failed', [
+                    'user_id' => $master->id,
+                    'status' => $content->status(),
+                ]);
+                return;
+            }
+
+            $body = $content->body();
+
+            if (empty($body)) {
                 return;
             }
 
             $filename = "tg_avatar_{$telegramId}_" . time() . '.jpg';
-            Storage::disk('public')->put("avatars/{$filename}", $content);
+            Storage::disk('public')->put("avatars/{$filename}", $body);
 
             $master->update(['avatar_url' => "/storage/avatars/{$filename}"]);
 
@@ -725,15 +739,24 @@ class TelegramWebhookHandler extends WebhookHandler
             $filePath = $fileResponse->json('result.file_path');
 
             $content = Http::timeout(15)
-                ->get("https://api.telegram.org/file/bot{$token}/{$filePath}")
-                ->body();
+                ->get("https://api.telegram.org/file/bot{$token}/{$filePath}");
 
-            if (empty($content)) {
+            if ($content->failed()) {
+                Log::warning('[TG] syncClientTelegramAvatar: file download failed', [
+                    'client_id' => $client->id,
+                    'status' => $content->status(),
+                ]);
+                return;
+            }
+
+            $body = $content->body();
+
+            if (empty($body)) {
                 return;
             }
 
             $filename = "tg_avatar_client_{$telegramId}_" . time() . '.jpg';
-            Storage::disk('public')->put("avatars/clients/{$filename}", $content);
+            Storage::disk('public')->put("avatars/clients/{$filename}", $body);
 
             $client->update(['avatar_url' => "/storage/avatars/clients/{$filename}"]);
 

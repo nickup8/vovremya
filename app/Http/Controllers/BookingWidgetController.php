@@ -93,7 +93,7 @@ class BookingWidgetController extends Controller
             'service_id' => 'required|exists:services,id',
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
-            'provider' => 'required|in:telegram,max',
+            'provider' => 'required|in:telegram,max,admin',
         ]);
 
         $service = Service::findOrFail($validated['service_id']);

@@ -104,13 +104,6 @@ class AnalyticsService
             $current->addDay();
         }
 
-        \Log::info('Utilization Debug:', [
-            'start_date' => $start->toDateString(),
-            'end_date' => $end->toDateString(),
-            'booked_minutes' => $bookedMinutes,
-            'available_minutes' => $availableMinutes,
-        ]);
-
         return $availableMinutes > 0 ? (int) round(($bookedMinutes / $availableMinutes) * 100) : 0;
     }
 

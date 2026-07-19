@@ -59,6 +59,7 @@ class MaxApiClient
             Log::error('[MAX] sendMessage exception', [
                 'chat_id' => $chatId,
                 'error' => $e->getMessage(),
+                'exception' => $e,
             ]);
 
             return false;

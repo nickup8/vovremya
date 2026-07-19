@@ -9,6 +9,7 @@ use Illuminate\Contracts\Auth\MustVerifyEmail;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -51,6 +52,8 @@ class ProfileController extends Controller
         $user = $request->user();
 
         Auth::logout();
+
+        Log::warning('User account deleted', ['user_id' => $user->id, 'name' => $user->name, 'phone' => $user->phone]);
 
         $user->delete();
 

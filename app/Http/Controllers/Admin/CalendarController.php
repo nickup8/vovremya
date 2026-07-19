@@ -159,7 +159,7 @@ class CalendarController extends Controller
         $this->authorize('update', $appointment);
 
         $validated = $request->validate([
-            'status' => 'sometimes|in:booked,no_show,paid,cancelled',
+            'status' => 'sometimes|in:booked,pending_payment,prepaid,no_show,paid,cancelled',
             'start_time' => 'sometimes|date',
             'ignore_warnings' => 'sometimes|boolean',
             'confirm_outside_hours' => 'sometimes|boolean',

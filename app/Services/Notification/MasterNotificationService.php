@@ -71,6 +71,7 @@ class MasterNotificationService
             Log::error('Telegram master notification failed', [
                 'chat_id' => $chatId,
                 'error' => $e->getMessage(),
+                'exception' => $e,
             ]);
 
             throw $e;

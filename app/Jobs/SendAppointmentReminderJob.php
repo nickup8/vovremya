@@ -20,6 +20,7 @@ class SendAppointmentReminderJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+    public int $timeout = 60;
 
     public function backoff(): array
     {
@@ -98,6 +99,7 @@ class SendAppointmentReminderJob implements ShouldQueue
             Log::error('Telegram reminder failed', [
                 'appointment_id' => $appointment->id,
                 'error' => $e->getMessage(),
+                'exception' => $e,
             ]);
 
             throw $e;
