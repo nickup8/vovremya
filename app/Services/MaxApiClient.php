@@ -42,6 +42,8 @@ class MaxApiClient
                 ->timeout(10)
                 ->post(rtrim($this->apiUrl, '/').'/messages', $payload);
 
+            Log::info('[MAX] Raw Response', ['chat_id' => $chatId, 'status' => $response->status(), 'body' => $response->body()]);
+
             if ($response->failed()) {
                 Log::error('[MAX] sendMessage failed', [
                     'chat_id' => $chatId,
