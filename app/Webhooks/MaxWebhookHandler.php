@@ -51,16 +51,16 @@ class MaxWebhookHandler
             'user_id' => $userId,
         ]);
 
-        if (empty($chatId) || empty($userId)) {
-            Log::warning('[MAX] missing chat_id or user_id', ['payload' => $payload]);
+        if (empty($userId)) {
+            Log::warning('[MAX] missing user_id', ['payload' => $payload]);
 
             return;
         }
 
         match ($updateType) {
-            'bot_started' => $this->handleBotStarted($payload, $chatId, $userId),
-            'message_created' => $this->handleMessageCreated($payload, $chatId, $userId),
-            'message_callback' => $this->handleCallback($payload, $chatId, $userId),
+            'bot_started' => $this->handleBotStarted($payload, $userId),
+            'message_created' => $this->handleMessageCreated($payload, $userId),
+            'message_callback' => $this->handleCallback($payload, $userId),
             default => Log::info('[MAX] unhandled update_type', ['type' => $updateType]),
         };
     }
@@ -74,41 +74,40 @@ class MaxWebhookHandler
      *
      * The start parameter is in payload.start_param (if provided via deep link).
      */
-    private function handleBotStarted(array $payload, string $chatId, string $userId): void
+    private function handleBotStarted(array $payload, string $userId): void
     {
         $startParam = $payload['payload'] ?? $payload['start_param'] ?? $payload['data']['start_param'] ?? '';
 
         Log::info('[MAX] bot_started', [
-            'chat_id' => $chatId,
             'user_id' => $userId,
             'start_param' => $startParam,
         ]);
 
         if (empty($startParam)) {
-            $this->sendMessage($chatId, __('bot.welcome'));
+            $this->sendMessage($userId, __('bot.welcome'));
 
             return;
         }
 
         if (str_starts_with($startParam, 'auth_')) {
-            $this->handleAuthStart($chatId, $userId, $startParam);
+            $this->handleAuthStart($userId, $startParam);
 
             return;
         }
 
         if (str_starts_with($startParam, 'book_')) {
-            $this->handleBookingStart($chatId, $userId, $startParam);
+            $this->handleBookingStart($userId, $startParam);
 
             return;
         }
 
-        $this->sendMessage($chatId, __('bot.errors.unknown_command'));
+        $this->sendMessage($userId, __('bot.errors.unknown_command'));
     }
 
     /**
      * Handle message_created event — user sent a message or command.
      */
-    private function handleMessageCreated(array $payload, string $chatId, string $userId): void
+    private function handleMessageCreated(array $payload, string $userId): void
     {
         $message = $payload['message'] ?? [];
         $body = $message['body'] ?? [];
@@ -118,7 +117,7 @@ class MaxWebhookHandler
         $attachments = $body['attachments'] ?? [];
         foreach ($attachments as $attachment) {
             if (($attachment['type'] ?? '') === 'contact') {
-                $this->handleContact($payload, $chatId, $userId, $attachment);
+                $this->handleContact($userId, $attachment);
 
                 return;
             }
@@ -130,36 +129,36 @@ class MaxWebhookHandler
 
             if (! empty($param)) {
                 if (str_starts_with($param, 'auth_')) {
-                    $this->handleAuthStart($chatId, $userId, $param);
+                    $this->handleAuthStart($userId, $param);
 
                     return;
                 }
 
                 if (str_starts_with($param, 'book_')) {
-                    $this->handleBookingStart($chatId, $userId, $param);
+                    $this->handleBookingStart($userId, $param);
 
                     return;
                 }
             }
 
-            $this->sendMessage($chatId, __('bot.welcome'));
+            $this->sendMessage($userId, __('bot.welcome'));
 
             return;
         }
 
-        Log::info('[MAX] unhandled message', ['text' => $text, 'chat_id' => $chatId]);
-        $this->sendMessage($chatId, __('bot.errors.use_site_button'));
+        Log::info('[MAX] unhandled message', ['text' => $text, 'user_id' => $userId]);
+        $this->sendMessage($userId, __('bot.errors.use_site_button'));
     }
 
     /**
      * Handle callback query (inline button press).
      */
-    private function handleCallback(array $payload, string $chatId, string $userId): void
+    private function handleCallback(array $payload, string $userId): void
     {
         $callbackData = $payload['callback_data'] ?? $payload['data']['callback_data'] ?? '';
 
         Log::info('[MAX] callback received', [
-            'chat_id' => $chatId,
+            'user_id' => $userId,
             'data' => $callbackData,
         ]);
 
@@ -171,26 +170,26 @@ class MaxWebhookHandler
      * Handle auth start: /start auth_TOKEN
      *
      * Flow:
-     * 1. Store login token in cache keyed by chat_id
+     * 1. Store login token in cache keyed by user_id
      * 2. Send message asking user to share phone number
      * 3. When phone received, find/create User by phone, update max_id
      * 4. Update cache with 'authenticated' status
      * 5. Frontend polls checkAuthStatus and logs user in
      */
-    private function handleAuthStart(string $chatId, string $userId, string $loginToken): void
+    private function handleAuthStart(string $userId, string $loginToken): void
     {
         Cache::put(
-            CacheKeys::MAX_CHAT_TOKEN . $chatId,
+            CacheKeys::MAX_CHAT_TOKEN . $userId,
             $loginToken,
             config('booking.token_ttl'),
         );
 
         Log::info('[MAX] auth_start cache stored', [
-            'chat_id' => $chatId,
+            'user_id' => $userId,
             'login_token' => $loginToken,
         ]);
 
-        $this->sendMessage($chatId, __('bot.contact_request.auth'), [
+        $this->sendMessage($userId, __('bot.contact_request.auth'), [
             [
                 'type' => 'inline_keyboard',
                 'payload' => [
@@ -210,23 +209,23 @@ class MaxWebhookHandler
     /**
      * Handle booking start: /start book_APPOINTMENT_ID
      */
-    private function handleBookingStart(string $chatId, string $userId, string $startParam): void
+    private function handleBookingStart(string $userId, string $startParam): void
     {
         $appointmentId = str_replace('book_', '', $startParam);
 
         // Store pending booking in cache
         Cache::put(
-            CacheKeys::MAX_BOOKING_DRAFT . $chatId,
+            CacheKeys::MAX_BOOKING_DRAFT . $userId,
             $appointmentId,
             config('booking.draft_ttl'),
         );
 
         Log::info('[MAX] booking_start', [
-            'chat_id' => $chatId,
+            'user_id' => $userId,
             'appointment_id' => $appointmentId,
         ]);
 
-        $this->sendMessage($chatId, __('bot.contact_request.booking'), [
+        $this->sendMessage($userId, __('bot.contact_request.booking'), [
             [
                 'type' => 'inline_keyboard',
                 'payload' => [
@@ -256,7 +255,7 @@ class MaxWebhookHandler
      *   }
      * }
      */
-    private function handleContact(array $payload, string $chatId, string $userId, array $attachment): void
+    private function handleContact(string $userId, array $attachment): void
     {
         $contactPayload = $attachment['payload'] ?? [];
         $maxInfo = $contactPayload['max_info'] ?? [];
@@ -270,10 +269,10 @@ class MaxWebhookHandler
 
         if (empty($phone)) {
             Log::warning('[MAX] could not extract phone from contact', [
-                'chat_id' => $chatId,
+                'user_id' => $userId,
                 'vcf_info' => $vcfInfo,
             ]);
-            $this->sendMessage($chatId, __('bot.errors.phone_detection_failed'));
+            $this->sendMessage($userId, __('bot.errors.phone_detection_failed'));
 
             return;
         }
@@ -283,24 +282,24 @@ class MaxWebhookHandler
         if ($hash) {
             $isValid = $this->verifyContactHash($vcfInfo, $hash);
             if (! $isValid) {
-                Log::warning('[MAX] contact hash verification failed', ['chat_id' => $chatId]);
-                $this->sendMessage($chatId, __('bot.errors.hash_verification_failed'));
+                Log::warning('[MAX] contact hash verification failed', ['user_id' => $userId]);
+                $this->sendMessage($userId, __('bot.errors.hash_verification_failed'));
 
                 return;
             }
         }
 
         // Determine flow: auth or booking
-        $loginToken = Cache::get(CacheKeys::MAX_CHAT_TOKEN . $chatId);
-        $draftAppointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT . $chatId);
+        $loginToken = Cache::get(CacheKeys::MAX_CHAT_TOKEN . $userId);
+        $draftAppointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT . $userId);
 
         if ($loginToken) {
-            $this->handleAuthContact($chatId, $userId, $contactUserId, $phone, $firstName, $lastName, $loginToken);
+            $this->handleAuthContact($userId, $contactUserId, $phone, $firstName, $lastName, $loginToken);
         } elseif ($draftAppointmentId) {
-            $this->handleBookingContact($chatId, $userId, $contactUserId, $phone, $firstName, $lastName, $draftAppointmentId);
+            $this->handleBookingContact($userId, $contactUserId, $phone, $firstName, $lastName, $draftAppointmentId);
         } else {
-            Log::info('[MAX] contact received without active flow', ['chat_id' => $chatId]);
-            $this->sendMessage($chatId, __('bot.errors.no_active_session'));
+            Log::info('[MAX] contact received without active flow', ['user_id' => $userId]);
+            $this->sendMessage($userId, __('bot.errors.no_active_session'));
         }
     }
 
@@ -308,15 +307,14 @@ class MaxWebhookHandler
      * Handle contact in auth flow.
      */
     private function handleAuthContact(
-        string $chatId,
-        string $maxUserId,
+        string $userId,
         string $contactUserId,
         string $phone,
         string $firstName,
         string $lastName,
         string $loginToken,
     ): void {
-        Log::info('[MAX] handleAuthContact', ['chat_id' => $chatId, 'phone' => $phone]);
+        Log::info('[MAX] handleAuthContact', ['user_id' => $userId, 'phone' => $phone]);
 
         $user = User::where('phone', $phone)->first();
 
@@ -338,7 +336,7 @@ class MaxWebhookHandler
             $user = User::create([
                 'name' => $baseName,
                 'phone' => $phone,
-                'max_id' => $maxUserId,
+                'max_id' => $userId,
                 'is_master' => true,
                 'master_slug' => $slug,
             ]);
@@ -347,8 +345,8 @@ class MaxWebhookHandler
         } else {
             $updates = [];
 
-            if ($user->max_id !== $maxUserId) {
-                $updates['max_id'] = $maxUserId;
+            if ($user->max_id !== $userId) {
+                $updates['max_id'] = $userId;
             }
 
             $fullName = trim($firstName . ' ' . $lastName);
@@ -371,17 +369,16 @@ class MaxWebhookHandler
 
         Log::info('[MAX] handleAuthContact: sending confirmation');
 
-        $this->sendMessage($chatId, __('bot.auth_success'));
+        $this->sendMessage($userId, __('bot.auth_success'));
 
-        Cache::forget(CacheKeys::MAX_CHAT_TOKEN . $chatId);
+        Cache::forget(CacheKeys::MAX_CHAT_TOKEN . $userId);
     }
 
     /**
      * Handle contact in booking flow.
      */
     private function handleBookingContact(
-        string $chatId,
-        string $maxUserId,
+        string $userId,
         string $contactUserId,
         string $phone,
         string $firstName,
@@ -389,7 +386,7 @@ class MaxWebhookHandler
         string $appointmentId,
     ): void {
         Log::info('[MAX] handleBookingContact', [
-            'chat_id' => $chatId,
+            'user_id' => $userId,
             'appointment_id' => $appointmentId,
             'phone' => $phone,
         ]);
@@ -398,7 +395,7 @@ class MaxWebhookHandler
             ->find($appointmentId);
 
         if (! $appointment) {
-            $this->sendMessage($chatId, __('bot.errors.appointment_not_found_retry'));
+            $this->sendMessage($userId, __('bot.errors.appointment_not_found_retry'));
 
             return;
         }
@@ -415,12 +412,12 @@ class MaxWebhookHandler
 
         // Link max_id to client
         if (empty($client->max_id)) {
-            $this->clientMergeService->linkProvider($client, 'max', $maxUserId);
+            $this->clientMergeService->linkProvider($client, 'max', $userId);
         }
 
         if ($client->isBlocked()) {
             $appointment->delete();
-            $this->sendMessage($chatId, __('bot.errors.booking_unavailable'));
+            $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
 
             return;
         }
@@ -455,7 +452,7 @@ class MaxWebhookHandler
             return;
         }
 
-        $this->sendMessage($chatId, $message);
+        $this->sendMessage($userId, $message);
 
         $phone = $client->phone ?? __('bot.fallback.phone');
         $clientName = $client->name ?? __('bot.fallback.client_name');
@@ -469,7 +466,7 @@ class MaxWebhookHandler
                 'time' => $time,
             ]));
 
-        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT . $chatId);
+        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT . $userId);
     }
 
     /**
@@ -517,13 +514,13 @@ class MaxWebhookHandler
     /**
      * Send message via MAX Bot API.
      */
-    public function sendMessage(string $chatId, string $text, ?array $attachments = null): void
+    public function sendMessage(string $userId, string $text, ?array $attachments = null): void
     {
         $extra = [];
         if ($attachments) {
             $extra['attachments'] = $attachments;
         }
 
-        $this->maxApi->sendMessage($chatId, $text, $extra);
+        $this->maxApi->sendMessage($userId, $text, $extra);
     }
 }
