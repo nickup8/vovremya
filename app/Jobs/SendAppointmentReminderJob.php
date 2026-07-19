@@ -45,8 +45,9 @@ class SendAppointmentReminderJob implements ShouldQueue
 
         $client = $appointment->client;
         $source = $appointment->source;
+        $sourceValue = $source instanceof \App\Enums\AppointmentSource ? $source->value : $source;
 
-        if ($client->telegram_id && ($source === AppointmentSource::Telegram || ! $source)) {
+        if ($client->telegram_id && ($sourceValue === 'telegram' || ! $source)) {
             $lockTg = "reminder_{$this->type}_tg_{$appointment->id}";
             if (\Illuminate\Support\Facades\Cache::add($lockTg, true, now()->addHours(12))) {
                 try {
@@ -58,7 +59,7 @@ class SendAppointmentReminderJob implements ShouldQueue
             }
         }
 
-        if ($client->max_id && ($source === AppointmentSource::Max || (! $source && ! $client->telegram_id))) {
+        if ($client->max_id && ($sourceValue === 'max' || (! $source && ! $client->telegram_id))) {
             $lockMax = "reminder_{$this->type}_max_{$appointment->id}";
             if (\Illuminate\Support\Facades\Cache::add($lockMax, true, now()->addHours(12))) {
                 try {
