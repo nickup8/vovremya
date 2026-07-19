@@ -548,7 +548,6 @@ class TelegramWebhookHandler extends WebhookHandler
                 'error' => $e->getMessage(),
                 'exception' => $e,
             ]);
-            ]);
         }
     }
 

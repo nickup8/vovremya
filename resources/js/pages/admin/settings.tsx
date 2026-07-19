@@ -1560,12 +1560,10 @@ export default function SettingsPage() {
                                             <Switch
                                                 checked={profileForm.data.telegram_notifications}
                                                 disabled={!profile.telegram_chat_id}
-                                                onCheckedChange={(checked) =>
-                                                    profileForm.setData(
-                                                        'telegram_notifications',
-                                                        checked,
-                                                    )
-                                                }
+                                                onCheckedChange={(checked) => {
+                                                    if (!profile.telegram_chat_id) return;
+                                                    profileForm.setData('telegram_notifications', checked);
+                                                }}
                                             />
                                         </div>
                                         {!profile.telegram_chat_id && (
@@ -1607,12 +1605,10 @@ export default function SettingsPage() {
                                             <Switch
                                                 checked={profileForm.data.max_notifications}
                                                 disabled={!profile.max_id}
-                                                onCheckedChange={(checked) =>
-                                                    profileForm.setData(
-                                                        'max_notifications',
-                                                        checked,
-                                                    )
-                                                }
+                                                onCheckedChange={(checked) => {
+                                                    if (!profile.max_id) return;
+                                                    profileForm.setData('max_notifications', checked);
+                                                }}
                                             />
                                         </div>
                                         {!profile.max_id && profile.max_link_url && (
