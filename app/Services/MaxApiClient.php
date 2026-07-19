@@ -38,7 +38,7 @@ class MaxApiClient
                 ->withHeaders([
                     'Authorization' => $this->token,
                 ])
-                ->withQueryParameters(['chat_id' => $chatId])
+                ->withQueryParameters(['user_id' => $chatId])
                 ->timeout(10)
                 ->post(rtrim($this->apiUrl, '/').'/messages', $payload);
 
