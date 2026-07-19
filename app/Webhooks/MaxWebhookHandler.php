@@ -3,6 +3,7 @@
 namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
+use App\Enums\AppointmentSource;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\Client\ClientMergeService;
@@ -424,7 +425,7 @@ class MaxWebhookHandler
             return;
         }
 
-        $appointment->update(['client_id' => $client->id]);
+        $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
 
         $service = $appointment->service;
         $master = $appointment->master;

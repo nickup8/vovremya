@@ -2,6 +2,7 @@
 
 namespace App\Services\Booking;
 
+use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Service;
@@ -88,6 +89,7 @@ class BookingService
         string $provider,
         ?string $clientId = null,
         ?AppointmentStatus $status = null,
+        ?\App\Enums\AppointmentSource $source = null,
     ): Appointment {
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
         $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
@@ -138,6 +140,7 @@ class BookingService
                 'start_time' => $startDateTime,
                 'status' => $appointmentStatus,
                 'provider' => $provider,
+                'source' => $source,
             ]);
         });
     }
@@ -186,6 +189,7 @@ class BookingService
             'crm',
             $clientId,
             AppointmentStatus::Booked,
+            AppointmentSource::Admin,
         );
 
         return [

@@ -3,6 +3,7 @@
 namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
+use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -232,6 +233,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $appointment->update([
             'client_id' => $client->id,
             'status' => AppointmentStatus::Booked,
+            'source' => AppointmentSource::Telegram,
         ]);
 
         $service = $appointment->service;
@@ -433,7 +435,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $this->syncClientTelegramAvatar($client, $telegramId);
 
         // Привязываем запись
-        $appointment->update(['client_id' => $client->id]);
+        $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Telegram]);
 
         // Атомарная блокировка: если уже обработано — выходим
         $lockKey = 'master_notified_' . $appointment->id;
