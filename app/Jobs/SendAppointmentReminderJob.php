@@ -45,11 +45,27 @@ class SendAppointmentReminderJob implements ShouldQueue
         $client = $appointment->client;
 
         if ($client->telegram_id) {
-            $this->sendTelegram($appointment, $client);
+            $lockTg = "reminder_{$this->type}_tg_{$appointment->id}";
+            if (\Illuminate\Support\Facades\Cache::add($lockTg, true, now()->addHours(12))) {
+                try {
+                    $this->sendTelegram($appointment, $client);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Cache::forget($lockTg);
+                    throw $e;
+                }
+            }
         }
 
         if ($client->max_id) {
-            $this->sendMax($appointment, $client);
+            $lockMax = "reminder_{$this->type}_max_{$appointment->id}";
+            if (\Illuminate\Support\Facades\Cache::add($lockMax, true, now()->addHours(12))) {
+                try {
+                    $this->sendMax($appointment, $client);
+                } catch (\Throwable $e) {
+                    \Illuminate\Support\Facades\Cache::forget($lockMax);
+                    throw $e;
+                }
+            }
         }
 
         $this->markAsSent($appointment);
