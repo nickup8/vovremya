@@ -113,6 +113,8 @@ class MaxWebhookHandler
                         'max_notifications' => true,
                     ]);
 
+                    broadcast(new \App\Events\UserChannelsUpdated($user));
+
                     $this->sendMessage($userId, __('bot.notifications.linked_success'));
 
                     Log::info('[MAX] link_ binding completed', [

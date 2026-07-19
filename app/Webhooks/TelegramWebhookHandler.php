@@ -93,6 +93,8 @@ class TelegramWebhookHandler extends WebhookHandler
                         'telegram_notifications' => true,
                     ]);
 
+                    broadcast(new \App\Events\UserChannelsUpdated($user));
+
                     $this->chat->html(__('bot.notifications.linked_success'))->send();
 
                     Log::info('[TG] link_ binding completed', [
@@ -115,6 +117,8 @@ class TelegramWebhookHandler extends WebhookHandler
                 'telegram_chat_id' => $chatId,
                 'telegram_notifications' => true,
             ]);
+
+            broadcast(new \App\Events\UserChannelsUpdated($user));
 
             $this->chat->html(__('bot.notifications.linked_success'))->send();
 

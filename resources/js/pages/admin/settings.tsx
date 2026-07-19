@@ -1,5 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { echo } from '@laravel/echo-react';
 import Cropper from 'react-easy-crop';
 import {
     Send,
@@ -31,6 +32,7 @@ import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 /* ═══════════════ Types ═══════════════ */
 
 interface Profile {
+    id: string;
     name: string;
     phone: string | null;
     master_slug: string | null;
@@ -926,6 +928,7 @@ export default function SettingsPage() {
         auth,
     } = usePage<PageProps>().props;
     const profile = rawProfile || {
+        id: '',
         name: '',
         phone: null,
         master_slug: null,
@@ -990,6 +993,23 @@ export default function SettingsPage() {
         telegram_notifications: profile.telegram_notifications,
         max_notifications: profile.max_notifications,
     });
+
+    useEffect(() => {
+        if (!profile?.id) return;
+
+        const channel = echo< 'reverb' >().private(`App.Models.User.${profile.id}`)
+            .listen('.UserChannelsUpdated', () => {
+                router.reload({
+                    only: ['profile'],
+                    preserveScroll: true,
+                    preserveState: true,
+                });
+            });
+
+        return () => {
+            channel.stopListening('.UserChannelsUpdated');
+        };
+    }, [profile?.id]);
 
     const bookingFlowForm = useForm({
         booking_flow_type: profile.booking_flow_type,

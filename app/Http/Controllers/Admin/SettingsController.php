@@ -45,6 +45,7 @@ class SettingsController extends Controller
 
         return Inertia::render('admin/settings', [
             'profile' => [
+                'id' => $user->id,
                 'name' => $user->name,
                 'phone' => $user->phone,
                 'master_slug' => $user->master_slug,
