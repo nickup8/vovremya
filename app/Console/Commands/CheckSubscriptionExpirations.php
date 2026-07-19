@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Models\User;
 use App\Services\Notification\MasterNotificationService;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\Log;
 
 class CheckSubscriptionExpirations extends Command
 {
@@ -26,16 +27,23 @@ class CheckSubscriptionExpirations extends Command
             ->get();
 
         foreach ($expiredUsers as $user) {
-            $user->update([
-                'tariff' => 'free',
-                'expires_at' => null,
-            ]);
+            try {
+                $user->update([
+                    'tariff' => 'free',
+                    'expires_at' => null,
+                ]);
 
-            if ($user->telegram_id || $user->max_id) {
-                $this->notificationService->sendSubscriptionExpired($user);
+                if ($user->telegram_id || $user->max_id) {
+                    $this->notificationService->sendSubscriptionExpired($user);
+                }
+
+                $this->info("Downgraded user {$user->id} ({$user->email}) to free tariff.");
+            } catch (\Exception $e) {
+                Log::error('Sub expiration failed', [
+                    'user_id' => $user->id,
+                    'error' => $e->getMessage(),
+                ]);
             }
-
-            $this->info("Downgraded user {$user->id} ({$user->email}) to free tariff.");
         }
 
         $this->info("Processed {$expiredUsers->count()} expired subscriptions.");

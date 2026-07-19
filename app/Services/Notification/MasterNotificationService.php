@@ -58,11 +58,15 @@ class MasterNotificationService
         }
 
         try {
-            Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+            $response = Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
                 'chat_id' => $chatId,
                 'text' => $text,
                 'parse_mode' => 'HTML',
             ]);
+
+            if ($response->failed()) {
+                throw new \Exception('TG API failed: ' . $response->body());
+            }
         } catch (\Exception $e) {
             Log::error('Telegram master notification failed', [
                 'chat_id' => $chatId,

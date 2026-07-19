@@ -398,7 +398,7 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $appointment = Appointment::with(['master'])->find($appointmentId);
+        $appointment = Appointment::with(['master', 'service'])->find($appointmentId);
 
         if (! $appointment) {
             $this->chat->html(__('bot.errors.appointment_not_found_retry'))->send();
@@ -447,6 +447,10 @@ class TelegramWebhookHandler extends WebhookHandler
         // Уведомляем мастера
         $phone = $client->phone ?? __('bot.fallback.phone');
         $clientName = $client->name ?? __('bot.fallback.client_name');
+        $service = $appointment->service;
+        $tz = $appointment->master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
 
         $masterNotification = __('bot.master.new_booking', [
             'client' => $clientName,

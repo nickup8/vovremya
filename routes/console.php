@@ -8,6 +8,6 @@ Artisan::command('inspire', function () {
 })->purpose('Display an inspiring quote');
 
 Schedule::command('appointments:reminders')->everyMinute()->withoutOverlapping();
-Schedule::command('appointments:cancel-unpaid')->everyMinute();
-Schedule::command('appointments:cleanup-drafts')->everyFiveMinutes();
+Schedule::command('appointments:cancel-unpaid')->everyMinute()->withoutOverlapping();
+Schedule::command('appointments:cleanup-drafts')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('subscriptions:check-expirations')->dailyAt('00:00');
