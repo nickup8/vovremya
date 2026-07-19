@@ -41,7 +41,9 @@ interface Profile {
     telegram_chat_id: string | null;
     telegram_auth_token: string | null;
     telegram_bot_name: string | null;
+    telegram_link_url: string | null;
     max_id: string | null;
+    max_link_url: string | null;
     soft_deposit: boolean;
     deposit_timeout: number;
     deposit_percent: number;
@@ -934,7 +936,9 @@ export default function SettingsPage() {
         telegram_chat_id: null,
         telegram_auth_token: null,
         telegram_bot_name: null,
+        telegram_link_url: null,
         max_id: null,
+        max_link_url: null,
         deposit_timeout: 15,
         deposit_percent: 30,
         slot_interval: 30,
@@ -1536,113 +1540,99 @@ export default function SettingsPage() {
                                 </h3>
                                 <div className="space-y-3">
                                     {/* Telegram */}
-                                    <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                                                <Send className="size-4 text-blue-600 dark:text-blue-400" />
+                                    <div className="rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
+                                                    <Send className="size-4 text-blue-600 dark:text-blue-400" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                                                        Telegram Bot
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-zinc-400">
+                                                        {profile.telegram_chat_id
+                                                            ? 'PUSH-уведомления о новых записях'
+                                                            : 'Сначала подключите Telegram'}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                                                    Telegram Bot
-                                                </p>
-                                                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                    PUSH-уведомления о новых
-                                                    записях
-                                                </p>
-                                            </div>
+                                            <Switch
+                                                checked={profileForm.data.telegram_notifications}
+                                                disabled={!profile.telegram_chat_id}
+                                                onCheckedChange={(checked) =>
+                                                    profileForm.setData(
+                                                        'telegram_notifications',
+                                                        checked,
+                                                    )
+                                                }
+                                            />
                                         </div>
-                                        <Switch
-                                            checked={profileForm.data.telegram_notifications}
-                                            onCheckedChange={(checked) =>
-                                                profileForm.setData(
-                                                    'telegram_notifications',
-                                                    checked,
-                                                )
-                                            }
-                                        />
+                                        {!profile.telegram_chat_id && (
+                                            <div className="mt-3 flex items-center gap-3 rounded-md border border-dashed border-slate-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+                                                <span className="text-xs text-slate-500 dark:text-zinc-400">
+                                                    Telegram не подключен
+                                                </span>
+                                                <a
+                                                    href={profile.telegram_link_url || `https://t.me/${profile.telegram_bot_name}?start=${profile.telegram_auth_token}`}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+                                                >
+                                                    <Send className="size-3" />
+                                                    Подключить
+                                                </a>
+                                            </div>
+                                        )}
                                     </div>
 
                                     {/* Max */}
-                                    <div className="flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex size-9 items-center justify-center rounded-lg bg-slate-200 dark:bg-zinc-700">
-                                                <MessageCircle className="size-4 text-slate-600 dark:text-zinc-300" />
+                                    <div className="rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50">
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex items-center gap-3">
+                                                <div className="flex size-9 items-center justify-center rounded-lg bg-slate-200 dark:bg-zinc-700">
+                                                    <MessageCircle className="size-4 text-slate-600 dark:text-zinc-300" />
+                                                </div>
+                                                <div>
+                                                    <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                                                        Max Messenger
+                                                    </p>
+                                                    <p className="text-xs text-slate-500 dark:text-zinc-400">
+                                                        {profile.max_id
+                                                            ? 'Уведомления в экосистеме Max'
+                                                            : 'Сначала подключите MAX'}
+                                                    </p>
+                                                </div>
                                             </div>
-                                            <div>
-                                                <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                                                    Max Messenger
-                                                </p>
-                                                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                    Уведомления в экосистеме Max
-                                                </p>
-                                            </div>
+                                            <Switch
+                                                checked={profileForm.data.max_notifications}
+                                                disabled={!profile.max_id}
+                                                onCheckedChange={(checked) =>
+                                                    profileForm.setData(
+                                                        'max_notifications',
+                                                        checked,
+                                                    )
+                                                }
+                                            />
                                         </div>
-                                        <Switch
-                                            checked={profileForm.data.max_notifications}
-                                            onCheckedChange={(checked) =>
-                                                profileForm.setData(
-                                                    'max_notifications',
-                                                    checked,
-                                                )
-                                            }
-                                        />
+                                        {!profile.max_id && profile.max_link_url && (
+                                            <div className="mt-3 flex items-center gap-3 rounded-md border border-dashed border-slate-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
+                                                <span className="text-xs text-slate-500 dark:text-zinc-400">
+                                                    MAX не подключен
+                                                </span>
+                                                <a
+                                                    href={profile.max_link_url}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-slate-700 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-slate-800"
+                                                >
+                                                    <MessageCircle className="size-3" />
+                                                    Подключить
+                                                </a>
+                                            </div>
+                                        )}
                                     </div>
                                 </div>
-                            </div>
-
-                            {/* ═══ Card: Telegram Connection ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <h3 className="mb-2 text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                    Привязка Telegram
-                                </h3>
-                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
-                                    Получайте уведомления о новых записях прямо в Telegram
-                                </p>
-
-                                {profile.telegram_chat_id ? (
-                                    /* Состояние "Подключен" */
-                                    <div className="flex items-center justify-between rounded-lg bg-emerald-50 p-4 dark:bg-emerald-950/30">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex size-9 items-center justify-center rounded-lg bg-emerald-100 dark:bg-emerald-900/40">
-                                                <Check className="size-4 text-emerald-600 dark:text-emerald-400" />
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-semibold text-emerald-700 dark:text-emerald-300">
-                                                    Telegram успешно подключен
-                                                </p>
-                                                <p className="text-xs text-emerald-600 dark:text-emerald-400">
-                                                    Уведомления активны
-                                                </p>
-                                            </div>
-                                        </div>
-                                    </div>
-                                ) : (
-                                    /* Состояние "Не подключен" */
-                                    <div className="flex items-center justify-between rounded-lg bg-slate-50 p-4 dark:bg-zinc-800/50">
-                                        <div className="flex items-center gap-3">
-                                            <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                                                <Send className="size-4 text-blue-600 dark:text-blue-400" />
-                                            </div>
-                                            <div>
-                                                <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
-                                                    Telegram не подключен
-                                                </p>
-                                                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                    Нажмите кнопку для привязки
-                                                </p>
-                                            </div>
-                                        </div>
-                                        <a
-                                            href={`https://t.me/${profile.telegram_bot_name}?start=${profile.telegram_auth_token}`}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="inline-flex items-center gap-2 rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white shadow-xs transition-colors hover:bg-blue-700"
-                                        >
-                                            <Send className="size-3.5" />
-                                            Подключить Telegram
-                                        </a>
-                                    </div>
-                                )}
                             </div>
 
                             <div className="flex justify-end gap-2">
