@@ -94,7 +94,7 @@ class BookingService
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
         $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
 
-        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status) {
+        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source) {
             $conflict = Appointment::with('service')
                 ->where('master_id', $master->id)
                 ->whereIn('status', [
