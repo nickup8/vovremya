@@ -14,8 +14,15 @@ class WebhookController extends Controller
     {
         $this->verifySignature('telegram', $request);
 
-        app(\App\Webhooks\TelegramWebhookHandler::class)
-            ->handle($request, TelegraphBot::firstOrFail());
+        try {
+            app(\App\Webhooks\TelegramWebhookHandler::class)
+                ->handle($request, TelegraphBot::firstOrFail());
+        } catch (\Throwable $e) {
+            Log::error('[TG] webhook processing failed', [
+                'error' => $e->getMessage(),
+                'exception' => $e,
+            ]);
+        }
 
         return response()->json(['ok' => true]);
     }
@@ -61,7 +68,14 @@ class WebhookController extends Controller
             'chat_id' => $payload['chat_id'] ?? null,
         ]);
 
-        app(MaxWebhookHandler::class)->handle($payload);
+        try {
+            app(MaxWebhookHandler::class)->handle($payload);
+        } catch (\Throwable $e) {
+            Log::error('[MAX] webhook processing failed', [
+                'error' => $e->getMessage(),
+                'exception' => $e,
+            ]);
+        }
 
         return response()->json(['ok' => true]);
     }

@@ -599,6 +599,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'name' => $baseName,
                 'phone' => $phone,
                 'telegram_id' => $telegramId,
+                'telegram_notifications' => true,
                 'is_master' => true,
                 'master_slug' => $slug,
                 'specialty' => null,
@@ -611,6 +612,10 @@ class TelegramWebhookHandler extends WebhookHandler
 
             if ($user->telegram_id !== $telegramId) {
                 $updates['telegram_id'] = $telegramId;
+            }
+
+            if (! $user->telegram_notifications) {
+                $updates['telegram_notifications'] = true;
             }
 
             $fullName = trim($firstName . ' ' . $lastName);
@@ -626,6 +631,8 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         $this->syncTelegramAvatar($user, $telegramId);
+
+        broadcast(new \App\Events\UserChannelsUpdated($user));
 
         $authCacheKey = CacheKeys::TG_AUTH . $loginToken;
         Cache::put($authCacheKey, [

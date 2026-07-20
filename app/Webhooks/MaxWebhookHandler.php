@@ -57,12 +57,21 @@ class MaxWebhookHandler
             return;
         }
 
-        match ($updateType) {
-            'bot_started' => $this->handleBotStarted($payload, $userId),
-            'message_created' => $this->handleMessageCreated($payload, $userId),
-            'message_callback' => $this->handleCallback($payload, $userId),
-            default => Log::info('[MAX] unhandled update_type', ['type' => $updateType]),
-        };
+        try {
+            match ($updateType) {
+                'bot_started' => $this->handleBotStarted($payload, $userId),
+                'message_created' => $this->handleMessageCreated($payload, $userId),
+                'message_callback' => $this->handleCallback($payload, $userId),
+                default => Log::info('[MAX] unhandled update_type', ['type' => $updateType]),
+            };
+        } catch (\Throwable $e) {
+            Log::error('[MAX] webhook handler failed', [
+                'update_type' => $updateType,
+                'user_id' => $userId,
+                'error' => $e->getMessage(),
+                'exception' => $e,
+            ]);
+        }
     }
 
     /**
@@ -365,6 +374,7 @@ class MaxWebhookHandler
                 'name' => $baseName,
                 'phone' => $phone,
                 'max_id' => $userId,
+                'max_notifications' => true,
                 'is_master' => true,
                 'master_slug' => $slug,
             ]);
@@ -375,6 +385,10 @@ class MaxWebhookHandler
 
             if ($user->max_id !== $userId) {
                 $updates['max_id'] = $userId;
+            }
+
+            if (! $user->max_notifications) {
+                $updates['max_notifications'] = true;
             }
 
             $fullName = trim($firstName . ' ' . $lastName);
@@ -388,6 +402,8 @@ class MaxWebhookHandler
 
             Log::info('[MAX] handleAuthContact: existing user', ['user_id' => $user->id]);
         }
+
+        broadcast(new \App\Events\UserChannelsUpdated($user));
 
         $authCacheKey = CacheKeys::TG_AUTH . $loginToken;
         Cache::put($authCacheKey, [
