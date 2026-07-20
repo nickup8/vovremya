@@ -4,6 +4,9 @@ import { initializeTheme } from '@/hooks/use-appearance';
 import { configureEcho } from '@laravel/echo-react';
 import axios from 'axios';
 
+// Ensure cookies are sent with every request (session, XSRF-TOKEN)
+axios.defaults.withCredentials = true;
+
 configureEcho({
     broadcaster: 'reverb',
     key: import.meta.env.VITE_REVERB_APP_KEY,
@@ -13,13 +16,17 @@ configureEcho({
     forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
     enabledTransports: ['ws', 'wss'],
     authorizer: (channel, _options) => ({
-        authorize: (socketId: string, callback: (error: Error | null, authData?: Record<string, string>) => void) => {
+        authorize: (socketId: string, callback: any) => {
             axios.post('/broadcasting/auth', {
                 socket_id: socketId,
                 channel_name: channel.name,
             })
-                .then((response) => callback(null, response.data))
-                .catch((error) => callback(error));
+                .then((response) => {
+                    callback(false, response.data);
+                })
+                .catch((error) => {
+                    callback(error);
+                });
         },
     }),
 });
