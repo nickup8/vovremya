@@ -2,6 +2,7 @@ import { createInertiaApp } from '@inertiajs/react';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import { initializeTheme } from '@/hooks/use-appearance';
 import { configureEcho } from '@laravel/echo-react';
+import axios from 'axios';
 
 configureEcho({
     broadcaster: 'reverb',
@@ -11,6 +12,16 @@ configureEcho({
     wssPort: Number(import.meta.env.VITE_REVERB_PORT) || 8080,
     forceTLS: (import.meta.env.VITE_REVERB_SCHEME ?? 'https') === 'https',
     enabledTransports: ['ws', 'wss'],
+    authorizer: (channel, _options) => ({
+        authorize: (socketId: string, callback: (error: Error | null, authData?: Record<string, string>) => void) => {
+            axios.post('/broadcasting/auth', {
+                socket_id: socketId,
+                channel_name: channel.name,
+            })
+                .then((response) => callback(null, response.data))
+                .catch((error) => callback(error));
+        },
+    }),
 });
 
 const appName = import.meta.env.VITE_APP_NAME || 'Вовремя';
