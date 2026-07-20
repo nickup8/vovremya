@@ -997,7 +997,8 @@ export default function SettingsPage() {
     useEffect(() => {
         if (!profile?.id) return;
 
-        const channel = echo< 'reverb' >().private(`App.Models.User.${profile.id}`)
+        const channelName = `App.Models.User.${profile.id}`;
+        const channel = echo< 'reverb' >().private(channelName)
             .listen('.UserChannelsUpdated', () => {
                 router.reload({
                     only: ['profile'],
@@ -1008,6 +1009,7 @@ export default function SettingsPage() {
 
         return () => {
             channel.stopListening('.UserChannelsUpdated');
+            echo< 'reverb' >().leave(channelName);
         };
     }, [profile?.id]);
 

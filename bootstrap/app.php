@@ -31,6 +31,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'webhooks/*',
             'telegraph/*/webhook',
             'max/webhook',
+            'broadcasting/*',
         ]);
 
         $middleware->web(append: [
