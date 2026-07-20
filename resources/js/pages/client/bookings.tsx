@@ -198,7 +198,7 @@ export default function Bookings() {
                                         </div>
                                     </div>
 
-                                    {(visit.status === AppointmentStatus.PendingClient || visit.status === AppointmentStatus.Confirmed) && (
+                                    {(visit.status === AppointmentStatus.Booked || visit.status === AppointmentStatus.PendingPayment || visit.status === AppointmentStatus.Prepaid) && (
                                         <div className="mt-3 border-t border-stone-100 pt-3 dark:border-stone-800">
                                             <Button
                                                 variant="outline"

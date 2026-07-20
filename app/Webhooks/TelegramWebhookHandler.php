@@ -496,6 +496,14 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $this->syncClientTelegramAvatar($client, $telegramId);
 
+        // Проверяем блокировку клиента
+        if ($client->isBlocked()) {
+            $appointment->delete();
+            $this->chat->html(__('bot.errors.booking_unavailable'))->send();
+
+            return;
+        }
+
         // Привязываем запись
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Telegram]);
 

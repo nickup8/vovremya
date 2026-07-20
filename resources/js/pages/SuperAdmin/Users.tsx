@@ -35,26 +35,26 @@ export default function Users() {
     const [tariffFilter, setTariffFilter] = useState(filters.tariff || '');
 
     const handleSearch = () => {
-        router.get(route('super_admin.users'), {
+        router.get('/admin-root/users', {
             search,
             tariff: tariffFilter,
         }, { preserveState: true });
     };
 
     const handleBlock = (userId: number) => {
-        router.post(route('super_admin.block', userId), {}, { preserveState: true });
+        router.post(`/admin-root/users/${userId}/block`, {}, { preserveState: true });
     };
 
     const handleExtend = (userId: number) => {
         const days = prompt('Количество дней для продления:', '30');
         if (days) {
-            router.post(route('super_admin.extend', userId), { days: parseInt(days) }, { preserveState: true });
+            router.post(`/admin-root/users/${userId}/extend`, { days: parseInt(days) }, { preserveState: true });
         }
     };
 
     const handleImpersonate = (userId: number) => {
         if (confirm('Войти как этот пользователь?')) {
-            router.post(route('super_admin.impersonate', userId));
+            router.post(`/admin-root/users/${userId}/impersonate`);
         }
     };
 
@@ -165,7 +165,7 @@ export default function Users() {
                             {Array.from({ length: users.last_page }, (_, i) => i + 1).map((page) => (
                                 <button
                                     key={page}
-                                    onClick={() => router.get(route('super_admin.users'), { ...filters, page }, { preserveState: true })}
+                                    onClick={() => router.get('/admin-root/users', { ...filters, page }, { preserveState: true })}
                                     className={`rounded px-3 py-1 text-sm ${
                                         page === users.current_page
                                             ? 'bg-blue-600 text-white'

@@ -28,9 +28,11 @@ class BookingWidgetController extends Controller
         $selectedServiceId = $request->query('service_id');
         $selectedDate = $request->query('date') ?? Carbon::today()->toDateString();
 
+        $service = $selectedServiceId ? $master->services()->find($selectedServiceId) : null;
+
         $availableSlots = $this->bookingService->getAvailableSlots(
             $master,
-            $selectedServiceId ? Service::find($selectedServiceId) : null,
+            $service,
             $selectedDate
         );
 
@@ -50,7 +52,7 @@ class BookingWidgetController extends Controller
             ]),
             'availableSlots' => $availableSlots,
             'selectedDate' => $selectedDate,
-            'selectedServiceId' => $selectedServiceId ?: null,
+            'selectedServiceId' => $service ? $selectedServiceId : null,
             'maxBotName' => config('services.max.bot_name'),
         ]);
     }

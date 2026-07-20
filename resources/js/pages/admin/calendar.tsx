@@ -93,6 +93,16 @@ const STATUS_STYLES: Record<AppointmentStatus, { card: string; label: string; do
         label: 'Записан',
         dot: 'bg-blue-500',
     },
+    [AppointmentStatus.PendingPayment]: {
+        card: 'bg-amber-50 border-amber-500 text-amber-900 dark:bg-amber-950 dark:border-amber-500 dark:text-amber-200',
+        label: 'Ожидает оплаты',
+        dot: 'bg-amber-500',
+    },
+    [AppointmentStatus.Prepaid]: {
+        card: 'bg-violet-50 border-violet-500 text-violet-900 dark:bg-violet-950 dark:border-violet-500 dark:text-violet-200',
+        label: 'Предоплата',
+        dot: 'bg-violet-500',
+    },
     [AppointmentStatus.Paid]: {
         card: 'bg-emerald-50 border-emerald-500 text-emerald-900 dark:bg-emerald-950 dark:border-emerald-500 dark:text-emerald-200',
         label: 'Оплачен',
