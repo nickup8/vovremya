@@ -999,11 +999,16 @@ export default function SettingsPage() {
 
         const channelName = `App.Models.User.${profile.id}`;
         const channel = echo< 'reverb' >().private(channelName)
-            .listen('.UserChannelsUpdated', () => {
+            .listen('.UserChannelsUpdated', (e: { user: Profile }) => {
+                profileForm.setData({
+                    telegram_notifications: e.user.telegram_notifications,
+                    max_notifications: e.user.max_notifications,
+                    telegram_id: e.user.telegram_id || '',
+                    max_id: e.user.max_id || '',
+                });
                 router.reload({
                     only: ['profile'],
                     preserveScroll: true,
-                    preserveState: true,
                 });
             });
 
