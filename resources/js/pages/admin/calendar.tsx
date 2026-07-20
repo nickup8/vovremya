@@ -2,10 +2,8 @@ import { useState, useMemo, useEffect } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { echo } from '@laravel/echo-react';
 import { toast } from 'sonner';
-import {
-    ChevronLeft, ChevronRight, Plus,
-    CalendarDays, User,
-} from 'lucide-react';
+import { User } from 'lucide-react';
+import DateControlPanel from '@/components/calendar/DateControlPanel';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -499,47 +497,15 @@ export default function CalendarPage() {
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 
                             {/* ─── Date Control Panel ─── */}
-                            <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={() => viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
-                                        className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
-                                    >
-                                        <ChevronLeft className="size-4 text-slate-600 dark:text-zinc-400" />
-                                    </button>
-                                    <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 md:text-base">
-                                        {viewMode === 'week' ? dateRangeStr : monthRangeStr}
-                                    </h2>
-                                    <button
-                                        onClick={() => viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
-                                        className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
-                                    >
-                                        <ChevronRight className="size-4 text-slate-600 dark:text-zinc-400" />
-                                    </button>
-                                    <button
-                                        onClick={() => { setWeekOffset(0); setMonthOffset(0); }}
-                                        className="ml-2 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                                    >
-                                        Сегодня
-                                    </button>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                    <button
-                                        onClick={toggleViewMode}
-                                        className="flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
-                                    >
-                                        <CalendarDays className="size-3.5" />
-                                        {viewMode === 'week' ? 'Месяц' : 'Неделя'}
-                                    </button>
-                                    <button
-                                        onClick={openNewAppointment}
-                                        className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
-                                    >
-                                        <Plus className="size-3.5" />
-                                        Новая запись
-                                    </button>
-                                </div>
-                            </div>
+                            <DateControlPanel
+                                viewMode={viewMode}
+                                dateLabel={viewMode === 'week' ? dateRangeStr : monthRangeStr}
+                                onPrev={() => viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
+                                onNext={() => viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
+                                onToday={() => { setWeekOffset(0); setMonthOffset(0); }}
+                                onToggleView={toggleViewMode}
+                                onNewAppointment={openNewAppointment}
+                            />
 
                             {/* ─── Booking Mode Banner ─── */}
                             {activeBookingClient && (
