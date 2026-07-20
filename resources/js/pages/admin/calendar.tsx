@@ -4,14 +4,8 @@ import { echo } from '@laravel/echo-react';
 import { toast } from 'sonner';
 import {
     ChevronLeft, ChevronRight, Plus,
-    CalendarDays, Clock, User, Phone,
-    CheckCircle2, XCircle, Trash2, RotateCw, AlertTriangle,
+    CalendarDays, User,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
-import { formatPhone } from '@/lib/phone';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -33,6 +27,10 @@ import { BlockedTimeCard } from './components/calendar/BlockedTimeCard';
 import { BreakZone } from './components/calendar/BreakZone';
 import { MonthView } from './components/calendar/MonthView';
 import { CalendarLegend } from './components/calendar/CalendarLegend';
+import { AppointmentDetailDialog } from './components/calendar/AppointmentDetailDialog';
+import { RescheduleDialog } from './components/calendar/RescheduleDialog';
+import { NewAppointmentDialog } from './components/calendar/NewAppointmentDialog';
+import { WarningDialog } from './components/calendar/WarningDialog';
 
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
@@ -756,349 +754,60 @@ export default function CalendarPage() {
             </AdminLayout>
 
             {/* ─── Appointment Detail Dialog ─── */}
-                <Dialog open={sheetOpen} onOpenChange={setSheetOpen}>
-                    <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
-                        {selected && (
-                            <>
-                                <DialogHeader className="pb-2">
-                                    <DialogTitle className="text-lg text-slate-900 dark:text-zinc-100">
-                                        Детали записи
-                                    </DialogTitle>
-                                    <DialogDescription className="text-slate-500 dark:text-zinc-400">
-                                        {STATUS_STYLES[selected.status].label}
-                                    </DialogDescription>
-                                </DialogHeader>
+            <AppointmentDetailDialog
+                open={sheetOpen}
+                onOpenChange={setSheetOpen}
+                selected={selected}
+                isProcessing={isProcessing}
+                onUpdateStatus={updateStatus}
+                onReschedule={openReschedule}
+                onDelete={deleteAppointment}
+            />
 
-                                <div className="space-y-3">
-                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                        <CalendarDays className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                        {(() => {
-                                            const d = new Date(selected.date + 'T00:00:00');
-                                            const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-                                            const monthNames = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-                                            return `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
-                                        })()}
-                                    </div>
-                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                        <Clock className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                        {selected.time} — {(() => {
-                                            const [h, m] = selected.time.split(':').map(Number);
-                                            const total = h * 60 + m + selected.duration;
-                                            const eh = Math.floor(total / 60);
-                                            const em = total % 60;
-                                            return `${String(eh).padStart(2, '0')}:${String(em).padStart(2, '0')}`;
-                                        })()}
-                                        <span className="text-xs text-slate-400 dark:text-zinc-500">({selected.duration} мин)</span>
-                                    </div>
-                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                        <User className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                        {selected.client_name}
-                                    </div>
-                                    {selected.client_phone && (
-                                        <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                            <Phone className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                            <a href={`tel:+${selected.client_phone.replace(/\D/g, '')}`} className="hover:text-blue-600 dark:hover:text-blue-400">
-                                                {formatPhone(selected.client_phone)}
-                                            </a>
-                                        </div>
-                                    )}
-                                    <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                        <span className="size-4 shrink-0 text-center text-sm font-bold text-slate-400 dark:text-zinc-500">₽</span>
-                                        {selected.service} — {selected.price.toLocaleString('ru-RU')} ₽
-                                    </div>
-                                </div>
+            {/* ─── Break Intersection Warning Dialog ─── */}
+            <WarningDialog
+                open={breakWarningOpen}
+                onOpenChange={setBreakWarningOpen}
+                title="Пересечение с обедом"
+                message={breakWarningMessage}
+                confirmLabel="Всё равно перенести"
+                onConfirm={confirmRescheduleWithBreak}
+                onCancel={cancelReschedule}
+            />
 
-                                <div className="flex flex-col gap-2 pt-2">
-                                    {selected.status !== AppointmentStatus.Paid && selected.status !== AppointmentStatus.Cancelled && (
-                                        <Button
-                                            onClick={() => updateStatus(AppointmentStatus.Paid)}
-                                            disabled={isProcessing}
-                                            className="w-full justify-start rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
-                                        >
-                                            <CheckCircle2 className="size-4" />
-                                            Оплата получена
-                                        </Button>
-                                    )}
-                                    {selected.status !== AppointmentStatus.NoShow && selected.status !== AppointmentStatus.Cancelled && (
-                                        <Button
-                                            onClick={() => updateStatus(AppointmentStatus.NoShow)}
-                                            disabled={isProcessing}
-                                            variant="outline"
-                                            className="w-full justify-start rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
-                                        >
-                                            <XCircle className="size-4" />
-                                            Не пришёл
-                                        </Button>
-                                    )}
-                                    {selected.status !== AppointmentStatus.Cancelled && (
-                                        <>
-                                            <Button
-                                                onClick={openReschedule}
-                                                disabled={isProcessing}
-                                                variant="outline"
-                                                className="w-full justify-start rounded-lg"
-                                            >
-                                                <RotateCw className="size-4" />
-                                                Перенести запись
-                                            </Button>
-                                            <Button
-                                                onClick={deleteAppointment}
-                                                disabled={isProcessing}
-                                                variant="outline"
-                                                className="w-full justify-start rounded-lg border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
-                                            >
-                                                <Trash2 className="size-4" />
-                                                Удалить бронь
-                                            </Button>
-                                        </>
-                                    )}
-                                </div>
-                            </>
-                        )}
-                    </DialogContent>
-                </Dialog>
+            {/* ─── Outside Working Hours Warning Dialog ─── */}
+            <WarningDialog
+                open={outsideHoursOpen}
+                onOpenChange={setOutsideHoursOpen}
+                title="Вне рабочего графика"
+                message={outsideHoursMessage}
+                confirmLabel="Всё равно создать"
+                onConfirm={confirmOutsideHours}
+                onCancel={cancelOutsideHours}
+            />
 
-                {/* ─── Break Intersection Warning Dialog ─── */}
-                <Dialog open={breakWarningOpen} onOpenChange={setBreakWarningOpen}>
-                    <DialogContent className="rounded-2xl border-amber-200 bg-white dark:border-amber-800 dark:bg-zinc-900 sm:max-w-md">
-                        <DialogHeader>
-                            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40">
-                                <AlertTriangle className="size-6 text-amber-600 dark:text-amber-400" />
-                            </div>
-                            <DialogTitle className="text-center text-slate-900 dark:text-zinc-100">
-                                Пересечение с обедом
-                            </DialogTitle>
-                            <DialogDescription className="text-center text-slate-500 dark:text-zinc-400">
-                                {breakWarningMessage}
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                            <Button
-                                variant="outline"
-                                onClick={cancelReschedule}
-                                className="flex-1 rounded-xl sm:flex-none"
-                            >
-                                Отмена
-                            </Button>
-                            <Button
-                                onClick={confirmRescheduleWithBreak}
-                                className="flex-1 rounded-xl bg-amber-600 text-white hover:bg-amber-700 sm:flex-none"
-                            >
-                                Всё равно перенести
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+            {/* ─── New Appointment Dialog ─── */}
+            <NewAppointmentDialog
+                open={newAppointmentOpen}
+                onOpenChange={setNewAppointmentOpen}
+                form={newAppointmentForm}
+                clients={clients}
+                services={services}
+                onSubmit={submitNewAppointment}
+                slotInterval={slotInterval}
+            />
 
-                {/* ─── Outside Working Hours Warning Dialog ─── */}
-                <Dialog open={outsideHoursOpen} onOpenChange={setOutsideHoursOpen}>
-                    <DialogContent className="rounded-2xl border-amber-200 bg-white dark:border-amber-800 dark:bg-zinc-900 sm:max-w-md">
-                        <DialogHeader>
-                            <div className="mx-auto flex size-12 items-center justify-center rounded-full bg-amber-100 dark:bg-amber-950/40">
-                                <AlertTriangle className="size-6 text-amber-600 dark:text-amber-400" />
-                            </div>
-                            <DialogTitle className="text-center text-slate-900 dark:text-zinc-100">
-                                Вне рабочего графика
-                            </DialogTitle>
-                            <DialogDescription className="text-center text-slate-500 dark:text-zinc-400">
-                                {outsideHoursMessage}
-                            </DialogDescription>
-                        </DialogHeader>
-                        <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                            <Button
-                                variant="outline"
-                                onClick={cancelOutsideHours}
-                                className="flex-1 rounded-xl sm:flex-none"
-                            >
-                                Отмена
-                            </Button>
-                            <Button
-                                onClick={confirmOutsideHours}
-                                className="flex-1 rounded-xl bg-amber-600 text-white hover:bg-amber-700 sm:flex-none"
-                            >
-                                Всё равно создать
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
-
-                {/* ─── New Appointment Dialog ─── */}
-                <Dialog open={newAppointmentOpen} onOpenChange={setNewAppointmentOpen}>
-                    <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
-                        <form onSubmit={submitNewAppointment}>
-                            <DialogHeader>
-                                <DialogTitle className="text-slate-900 dark:text-zinc-100">
-                                    Новая запись
-                                </DialogTitle>
-                                <DialogDescription className="text-slate-500 dark:text-zinc-400">
-                                    Выберите клиента, услугу и время
-                                </DialogDescription>
-                            </DialogHeader>
-
-                            <div className="space-y-4">
-                                <div>
-                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                        Клиент *
-                                    </label>
-                                    <Select
-                                        value={newAppointmentForm.data.client_id}
-                                        onValueChange={(value) => newAppointmentForm.setData('client_id', value)}
-                                    >
-                                        <SelectTrigger className="w-full">
-                                            <SelectValue placeholder="Выберите клиента" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {clients.map((c: ClientOption) => (
-                                                <SelectItem key={c.id} value={String(c.id)}>
-                                                    {c.name}{c.phone ? ` (${c.phone})` : ''}
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    {newAppointmentForm.errors.client_id && (
-                                        <p className="mt-1 text-xs text-red-500">{newAppointmentForm.errors.client_id}</p>
-                                    )}
-                                </div>
-
-                                <div>
-                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                        Услуга *
-                                    </label>
-                                    <Select
-                                        value={newAppointmentForm.data.service_id}
-                                        onValueChange={(value) => newAppointmentForm.setData('service_id', value)}
-                                    >
-                                        <SelectTrigger className="w-full">
-                                            <SelectValue placeholder="Выберите услугу" />
-                                        </SelectTrigger>
-                                        <SelectContent>
-                                            {services.map((s: ServiceOption) => (
-                                                <SelectItem key={s.id} value={String(s.id)}>
-                                                    {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
-                                                </SelectItem>
-                                            ))}
-                                        </SelectContent>
-                                    </Select>
-                                    {newAppointmentForm.errors.service_id && (
-                                        <p className="mt-1 text-xs text-red-500">{newAppointmentForm.errors.service_id}</p>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Дата *
-                                        </label>
-                                        <input
-                                            type="date"
-                                            value={newAppointmentForm.data.date}
-                                            min={dateToKey(new Date())}
-                                            onChange={(e) => newAppointmentForm.setData('date', e.target.value)}
-                                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                        />
-                                        {newAppointmentForm.errors.date && (
-                                            <p className="mt-1 text-xs text-red-500">{newAppointmentForm.errors.date}</p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Время *
-                                        </label>
-                                        <input
-                                            type="time"
-                                            value={newAppointmentForm.data.time}
-                                            onChange={(e) => newAppointmentForm.setData('time', e.target.value)}
-                                            step={slotInterval * 60}
-                                            className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                        />
-                                        {newAppointmentForm.errors.time && (
-                                            <p className="mt-1 text-xs text-red-500">{newAppointmentForm.errors.time}</p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    onClick={() => setNewAppointmentOpen(false)}
-                                    className="flex-1 rounded-xl sm:flex-none"
-                                >
-                                    Отмена
-                                </Button>
-                                <Button
-                                    type="submit"
-                                    disabled={newAppointmentForm.processing || !newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time}
-                                    className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 sm:flex-none"
-                                >
-                                    {newAppointmentForm.processing ? 'Создание...' : 'Создать запись'}
-                                </Button>
-                            </DialogFooter>
-                        </form>
-                    </DialogContent>
-                </Dialog>
-
-                {/* ─── Reschedule Dialog ─── */}
-                <Dialog open={rescheduleOpen} onOpenChange={setRescheduleOpen}>
-                    <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
-                        <DialogHeader>
-                            <DialogTitle className="text-slate-900 dark:text-zinc-100">
-                                Перенос записи
-                            </DialogTitle>
-                            <DialogDescription className="text-slate-500 dark:text-zinc-400">
-                                Выберите новую дату и время
-                            </DialogDescription>
-                        </DialogHeader>
-
-                        <div className="space-y-4">
-                            <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Дата
-                                </label>
-                                <input
-                                    type="date"
-                                    value={rescheduleDate}
-                                    min={dateToKey(new Date())}
-                                    onChange={(e) => setRescheduleDate(e.target.value)}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                />
-                            </div>
-                            <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Время
-                                </label>
-                                <Select value={rescheduleTime} onValueChange={setRescheduleTime}>
-                                    <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Выберите время" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {timeOptions.map((t) => (
-                                            <SelectItem key={t} value={t}>{t}</SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        </div>
-
-                        <DialogFooter className="flex flex-col gap-2 sm:flex-row">
-                            <Button
-                                variant="outline"
-                                onClick={() => setRescheduleOpen(false)}
-                                className="flex-1 rounded-xl sm:flex-none"
-                            >
-                                Отмена
-                            </Button>
-                            <Button
-                                onClick={submitReschedule}
-                                disabled={!rescheduleDate || !rescheduleTime}
-                                className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 sm:flex-none"
-                            >
-                                Сохранить перенос
-                            </Button>
-                        </DialogFooter>
-                    </DialogContent>
-                </Dialog>
+            {/* ─── Reschedule Dialog ─── */}
+            <RescheduleDialog
+                open={rescheduleOpen}
+                onOpenChange={setRescheduleOpen}
+                date={rescheduleDate}
+                time={rescheduleTime}
+                onDateChange={setRescheduleDate}
+                onTimeChange={setRescheduleTime}
+                onSubmit={submitReschedule}
+                timeOptions={timeOptions}
+            />
         </>
     );
 }
