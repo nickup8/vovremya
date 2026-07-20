@@ -1,5 +1,6 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
+import { echo } from '@laravel/echo-react';
 import { toast } from 'sonner';
 import {
     ChevronLeft, ChevronRight, Plus,
@@ -56,6 +57,7 @@ interface ServiceOption {
 }
 
 interface AuthUser {
+    id: number;
     name: string;
     tariff_name?: string;
     [key: string]: unknown;
@@ -551,10 +553,76 @@ export default function CalendarPage() {
         return `${months[monthCenterDate.getMonth()]} ${monthCenterDate.getFullYear()}`;
     }, [monthCenterDate]);
 
-    const appointments = useMemo(
-        () => initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
-        [initialAppointments],
+    const [localAppointments, setLocalAppointments] = useState<Appointment[]>(
+        initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
     );
+
+    // Синхронизация с Inertia-пропсами (при навигации по неделям/месяцам)
+    useEffect(() => {
+        setLocalAppointments(
+            initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
+        );
+    }, [initialAppointments]);
+
+    // WebSocket: подписка на broadcast-события записей
+    useEffect(() => {
+        if (!auth?.user?.id) return;
+
+        const channelName = `App.Models.User.${auth.user.id}`;
+        const channel = echo<'reverb'>().private(channelName)
+            .listen('.AppointmentCreated', (appointment: Appointment) => {
+                setLocalAppointments((prev) => {
+                    if (prev.some((a) => a.id === appointment.id)) return prev;
+                    if (appointment.status === AppointmentStatus.Cancelled) return prev;
+                    return [...prev, appointment];
+                });
+            })
+            .listen('.AppointmentStatusChanged', (appointment: Appointment) => {
+                setLocalAppointments((prev) => {
+                    if (appointment.status === AppointmentStatus.Cancelled) {
+                        return prev.filter((a) => a.id !== appointment.id);
+                    }
+                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
+                });
+            })
+            .listen('.AppointmentRescheduled', (appointment: Appointment) => {
+                setLocalAppointments((prev) => {
+                    if (appointment.status === AppointmentStatus.Cancelled) {
+                        return prev.filter((a) => a.id !== appointment.id);
+                    }
+                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
+                });
+            })
+            .listen('.AppointmentUpdated', (appointment: Appointment) => {
+                setLocalAppointments((prev) => {
+                    if (appointment.status === AppointmentStatus.Cancelled) {
+                        return prev.filter((a) => a.id !== appointment.id);
+                    }
+                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
+                });
+            });
+
+        return () => {
+            channel.stopListening('.AppointmentCreated');
+            channel.stopListening('.AppointmentStatusChanged');
+            channel.stopListening('.AppointmentRescheduled');
+            channel.stopListening('.AppointmentUpdated');
+            echo<'reverb'>().leave(channelName);
+        };
+    }, [auth?.user?.id]);
+
+    // Синхронизация selected с обновлениями через WebSocket
+    useEffect(() => {
+        if (!selected) return;
+        const updated = localAppointments.find((a) => a.id === selected.id);
+        if (updated) {
+            setSelected(updated);
+        } else if (selected.status !== AppointmentStatus.Cancelled) {
+            // Записи нет в localAppointments (отменена или вне окна) — закрываем диалог
+            setSheetOpen(false);
+            setSelected(null);
+        }
+    }, [localAppointments]);
 
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
@@ -580,7 +648,7 @@ export default function CalendarPage() {
 
     function getAppointmentsForDay(dayIndex: number): Appointment[] {
         const key = weekDateKeys[dayIndex];
-        return appointments.filter((a) => a.date === key);
+        return localAppointments.filter((a) => a.date === key);
     }
 
     function getBlockedTimesForDay(dayIndex: number): BlockedTime[] {
@@ -965,7 +1033,7 @@ export default function CalendarPage() {
                             {/* ─── Calendar Content ─── */}
                             {viewMode === 'month' ? (
                                 <MonthView
-                                    appointments={appointments}
+                                    appointments={localAppointments}
                                     centerDate={monthCenterDate}
                                     onDayClick={openDetail}
                                     onEmptyDayClick={(dateKey) => openNewAppointmentForDate(dateKey)}
@@ -1034,7 +1102,7 @@ export default function CalendarPage() {
                                                     ? (timeToMinutes(hoveredSlot.time) - DAY_START_HOUR * 60) * MINUTE_HEIGHT
                                                     : 0;
                                                 const ghostHasCollision = isBookingDay && hoveredSlot && bookingModeService
-                                                    ? hasCollision(dateKey, hoveredSlot.time, bookingModeService.duration_minutes, appointments)
+                                                    ? hasCollision(dateKey, hoveredSlot.time, bookingModeService.duration_minutes, localAppointments)
                                                     : false;
                                                 const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
                                                 return (
@@ -1063,7 +1131,7 @@ export default function CalendarPage() {
                                                                         }}
                                                                         onClick={() => {
                                                                             if (activeBookingClient && bookingModeServiceId) {
-                                                                                if (hasCollision(dateKey, timeStr, bookingModeService?.duration_minutes ?? 60, appointments)) {
+                                                                                if (hasCollision(dateKey, timeStr, bookingModeService?.duration_minutes ?? 60, localAppointments)) {
                                                                                     return;
                                                                                 }
                                                                             }
