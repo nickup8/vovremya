@@ -294,6 +294,10 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $this->statusService->transition($appointment, AppointmentStatus::Booked);
 
+        broadcast(new \App\Events\AppointmentCreated(
+            $appointment->load(['client', 'service'])
+        ));
+
         $service = $appointment->service;
         $tz = $appointment->master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
@@ -494,6 +498,10 @@ class TelegramWebhookHandler extends WebhookHandler
 
         // Привязываем запись
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Telegram]);
+
+        broadcast(new \App\Events\AppointmentCreated(
+            $appointment->load(['client', 'service'])
+        ));
 
         // Атомарная блокировка: если уже обработано — выходим
         $lockKey = 'master_notified_' . $appointment->id;

@@ -145,9 +145,12 @@ class BookingService
                 'source' => $source,
             ]);
 
-            broadcast(new AppointmentCreated(
-                $appointment->load(['client', 'service'])
-            ));
+            // Черновики (clientId=null) не бродкастятся — мастер увидит только после подтверждения
+            if ($clientId !== null) {
+                broadcast(new AppointmentCreated(
+                    $appointment->load(['client', 'service'])
+                ));
+            }
 
             return $appointment;
         });

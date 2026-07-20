@@ -468,7 +468,7 @@ class MaxWebhookHandler
 
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
 
-        broadcast(new \App\Events\AppointmentUpdated(
+        broadcast(new \App\Events\AppointmentCreated(
             $appointment->load(['client', 'service'])
         ));
 

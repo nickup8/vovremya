@@ -33,6 +33,7 @@ class CalendarController extends Controller
                 Carbon::now()->subWeeks(2)->startOfDay(),
                 Carbon::now()->addWeeks(2)->endOfDay(),
             ])
+            ->whereNotNull('client_id')
             ->get()
             ->map(function (Appointment $a) use ($master) {
                 $tz = $master->getTimezone();
