@@ -4,6 +4,8 @@ namespace App\Services\Booking;
 
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Events\AppointmentCreated;
+use App\Events\AppointmentRescheduled;
 use App\Models\Appointment;
 use App\Models\Service;
 use App\Models\User;
@@ -133,7 +135,7 @@ class BookingService
                 );
             }
 
-            return Appointment::create([
+            $appointment = Appointment::create([
                 'master_id' => $master->id,
                 'client_id' => $clientId,
                 'service_id' => $service->id,
@@ -142,6 +144,12 @@ class BookingService
                 'provider' => $provider,
                 'source' => $source,
             ]);
+
+            broadcast(new AppointmentCreated(
+                $appointment->load(['client', 'service'])
+            ));
+
+            return $appointment;
         });
     }
 
@@ -317,11 +325,16 @@ class BookingService
                 ];
             }
 
+            $oldStartTime = $locked->start_time->toIso8601String();
+
             $locked->update(['start_time' => $startDateTime]);
 
             if ($locked->status === AppointmentStatus::NoShow) {
                 $this->statusService->transition($locked, AppointmentStatus::Booked);
             }
+
+            $locked->load(['client', 'service']);
+            broadcast(new AppointmentRescheduled($locked, $oldStartTime));
 
             return [
                 'success' => true,

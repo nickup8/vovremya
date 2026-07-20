@@ -8,6 +8,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
+use App\Services\AppointmentStatusService;
 use App\Services\Notification\MasterNotificationService;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\Button;
@@ -23,6 +24,12 @@ use Throwable;
 
 class TelegramWebhookHandler extends WebhookHandler
 {
+    public function __construct(
+        private AppointmentStatusService $statusService,
+    ) {
+        parent::__construct();
+    }
+
     public function start(?string $parameter = null): void
     {
         $chatId = $this->chat->chat_id;
@@ -282,9 +289,10 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $appointment->update([
             'client_id' => $client->id,
-            'status' => AppointmentStatus::Booked,
             'source' => AppointmentSource::Telegram,
         ]);
+
+        $this->statusService->transition($appointment, AppointmentStatus::Booked);
 
         $service = $appointment->service;
         $tz = $appointment->master->getTimezone();
@@ -353,9 +361,7 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $appointment->update([
-            'status' => AppointmentStatus::Cancelled,
-        ]);
+        $this->statusService->transition($appointment, AppointmentStatus::Cancelled);
 
         try {
             $this->chat->edit($this->messageId)

@@ -468,6 +468,10 @@ class MaxWebhookHandler
 
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
 
+        broadcast(new \App\Events\AppointmentUpdated(
+            $appointment->load(['client', 'service'])
+        ));
+
         $service = $appointment->service;
         $master = $appointment->master;
         $tz = $master->getTimezone();

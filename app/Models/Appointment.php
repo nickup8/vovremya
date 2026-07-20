@@ -54,4 +54,23 @@ class Appointment extends Model
     {
         return $this->belongsTo(Service::class, 'service_id');
     }
+
+    public function toCalendarArray(): array
+    {
+        $master = $this->master;
+        $tz = $master?->getTimezone() ?? 'UTC';
+
+        return [
+            'id' => $this->id,
+            'client_name' => $this->client?->name ?? 'Клиент не указан',
+            'client_phone' => $this->client?->phone,
+            'client_avatar_url' => $this->client?->avatar_url,
+            'service' => $this->service?->title ?? 'Услуга удалена',
+            'duration' => $this->service?->duration_minutes ?? 0,
+            'price' => (float) ($this->service?->price ?? 0),
+            'time' => $this->start_time->timezone($tz)->format('H:i'),
+            'date' => $this->start_time->timezone($tz)->format('Y-m-d'),
+            'status' => $this->status,
+        ];
+    }
 }

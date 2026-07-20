@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\AppointmentStatus;
+use App\Events\AppointmentStatusChanged;
 use App\Exceptions\InvalidStatusTransitionException;
 use App\Models\Appointment;
 use Illuminate\Support\Facades\Log;
@@ -22,6 +23,12 @@ class AppointmentStatusService
         }
 
         $appointment->update(['status' => $to]);
+
+        broadcast(new AppointmentStatusChanged(
+            $appointment->load(['client', 'service']),
+            $from,
+            $to,
+        ));
 
         Log::info('Appointment status transitioned', [
             'appointment_id' => $appointment->id,
