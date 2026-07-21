@@ -145,7 +145,6 @@ return Chisel::script(__DIR__)
                 $paths['auth_types'],
                 'config/fortify.php',
                 'app/Providers/FortifyServiceProvider.php',
-                'app/Http/Controllers/Settings/SecurityController.php',
             )->removeSectionMarkers('2fa');
         },
         else: function (Chisel $c) use ($paths) {
@@ -158,7 +157,6 @@ return Chisel::script(__DIR__)
                 'database/factories/UserFactory.php',
                 'config/fortify.php',
                 'app/Providers/FortifyServiceProvider.php',
-                'app/Http/Controllers/Settings/SecurityController.php',
                 $paths['security'],
                 $paths['auth_types'],
             )->removeSection('2fa');
@@ -182,7 +180,6 @@ return Chisel::script(__DIR__)
             $c->files(
                 'config/fortify.php',
                 'app/Providers/FortifyServiceProvider.php',
-                'app/Http/Controllers/Settings/SecurityController.php',
                 'routes/settings.php',
                 'tests/Feature/Auth/AuthenticationTest.php',
                 'tests/Feature/Settings/SecurityTest.php',
@@ -201,7 +198,6 @@ return Chisel::script(__DIR__)
             $c->files(
                 'config/fortify.php',
                 'app/Providers/FortifyServiceProvider.php',
-                'app/Http/Controllers/Settings/SecurityController.php',
                 'routes/settings.php',
                 'tests/Feature/Auth/AuthenticationTest.php',
                 'tests/Feature/Settings/SecurityTest.php',
