@@ -385,6 +385,11 @@ function StepProvider({
             </div>
 
             <div className="space-y-4 px-5">
+                {errors.limit && (
+                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/50 dark:bg-amber-900/20">
+                        <p className="text-sm text-amber-700 dark:text-amber-400">{errors.limit}</p>
+                    </div>
+                )}
                 {errors.time && (
                     <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800/50 dark:bg-red-900/20">
                         <p className="text-sm text-red-600 dark:text-red-400">{errors.time}</p>
@@ -574,7 +579,11 @@ export default function Widget() {
             const data = await response.json();
 
             if (!response.ok) {
-                setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
+                if (data.errors?.limit) {
+                    setErrors({ limit: 'Онлайн-запись к данному специалисту временно приостановлена. Пожалуйста, свяжитесь с мастером напрямую для уточнения свободного времени.' });
+                } else {
+                    setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
+                }
                 setLoadingProvider(null);
                 return;
             }

@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Log;
 use Inertia\Middleware;
+use App\Services\Billing\TariffLimitService;
 
 class HandleInertiaRequests extends Middleware
 {
@@ -43,11 +44,21 @@ class HandleInertiaRequests extends Middleware
 
         $tariffCode = null;
         $tariffName = 'Free';
+        $tariffLimits = null;
 
         if ($user) {
             $activeSubscription = $user->workspace?->activeSubscription();
             $tariffCode = $activeSubscription?->tariffPlan?->code ?? 'start';
             $tariffName = $activeSubscription?->tariffPlan?->name ?? 'Старт';
+
+            if ($user->workspace) {
+                $limitService = app(TariffLimitService::class);
+                $total = $limitService->getMonthlyLimit($user->workspace);
+                $tariffLimits = [
+                    'total' => $total === PHP_INT_MAX ? null : $total,
+                    'used' => $limitService->getUsedCount($user->workspace),
+                ];
+            }
         }
 
         return [
@@ -64,6 +75,7 @@ class HandleInertiaRequests extends Middleware
                     'tariff_name' => $tariffName,
                 ] : null,
             ],
+            'tariff_limits' => $tariffLimits,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }

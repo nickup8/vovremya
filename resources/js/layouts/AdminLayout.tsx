@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { usePage } from '@inertiajs/react';
 import { Menu, Sun, Moon, Monitor } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
@@ -38,11 +39,18 @@ function ThemeToggle() {
 
 export default function AdminLayout({ children, title, auth, headerActions }: AdminLayoutProps) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+    const { props } = usePage<{ tariff_limits?: { total: number | null; used: number } | null }>();
+    const tariff_limits = props.tariff_limits;
 
     const userName = auth?.user?.name || 'Мастер';
     const tariffName = auth?.user?.tariff_name || 'Free';
     const avatarUrl = auth?.user?.avatar_url ?? undefined;
     const initials = getInitials(userName);
+
+    const limitTotal = tariff_limits?.total;
+    const limitUsed = tariff_limits?.used ?? 0;
+    const limitPercent = limitTotal ? Math.min(100, (limitUsed / limitTotal) * 100) : 0;
+    const limitExceeded = limitTotal !== null && limitTotal !== undefined && limitUsed >= limitTotal;
 
     return (
         <div className="min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
@@ -66,6 +74,23 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                     <div className="flex items-center gap-2">
                         {headerActions}
                         <ThemeToggle />
+                        {limitTotal !== null && limitTotal !== undefined && (
+                            <div className={`hidden items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium sm:flex ${
+                                limitExceeded
+                                    ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400'
+                                    : 'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400'
+                            }`}>
+                                <span>Записей: {limitUsed}/{limitTotal}</span>
+                                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
+                                    <div
+                                        className={`h-full rounded-full transition-all ${
+                                            limitExceeded ? 'bg-red-500' : 'bg-blue-500'
+                                        }`}
+                                        style={{ width: `${limitPercent}%` }}
+                                    />
+                                </div>
+                            </div>
+                        )}
                         <div className="hidden text-right sm:block">
                             <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
                             <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {tariffName}</p>
