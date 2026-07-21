@@ -14,6 +14,8 @@ class TariffPlan extends Model
         'code',
         'name',
         'price_monthly',
+        'max_appointments_per_month',
+        'max_masters',
         'features',
         'is_active',
     ];
@@ -24,6 +26,8 @@ class TariffPlan extends Model
             'features' => 'array',
             'is_active' => 'boolean',
             'price_monthly' => 'integer',
+            'max_appointments_per_month' => 'integer',
+            'max_masters' => 'integer',
         ];
     }
 

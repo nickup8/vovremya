@@ -8,6 +8,7 @@ use Illuminate\Database\Eloquent\Attributes\Fillable;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
+use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
@@ -29,6 +30,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $master_slug
  * @property string|null $specialty
  * @property string|null $address
+ * @property string|null $workspace_id
+ * @property string $role
  * @property Carbon|null $email_verified_at
  * @property string $password
  * @property string|null $two_factor_secret
@@ -44,7 +47,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'is_master', 'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
-    'slot_interval', 'tariff', 'expires_at',
+    'slot_interval', 'workspace_id', 'role',
     'settings',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
@@ -64,14 +67,17 @@ class User extends Authenticatable implements PasskeyUser
             'deposit_timeout' => 'integer',
             'deposit_percent' => 'integer',
             'slot_interval' => 'integer',
-            'tariff' => 'string',
-            'expires_at' => 'datetime',
             'is_super_admin' => 'boolean',
             'is_blocked' => 'boolean',
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
             'settings' => 'array',
         ];
+    }
+
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
     }
 
     public function services(): HasMany
@@ -99,19 +105,16 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasMany(BlockedTime::class);
     }
 
-    public function subscriptions(): HasMany
-    {
-        return $this->hasMany(Subscription::class);
-    }
-
+    // TODO: deprecated — remove after TariffLimitService is refactored for Workspace
     public function hasTariff(string $tariff): bool
     {
-        return $this->tariff === $tariff;
+        return $this->workspace?->activeSubscription()?->tariffPlan?->code === $tariff;
     }
 
+    // TODO: deprecated — remove after TariffLimitService is refactored for Workspace
     public function isFreeTariff(): bool
     {
-        return $this->tariff === 'free';
+        return $this->hasTariff('free');
     }
 
     public function isSuperAdmin(): bool

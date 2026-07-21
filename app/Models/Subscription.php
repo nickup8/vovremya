@@ -11,7 +11,7 @@ class Subscription extends Model
     use HasUuids;
 
     protected $fillable = [
-        'user_id',
+        'workspace_id',
         'tariff_plan_id',
         'period_months',
         'amount_paid',
@@ -31,9 +31,9 @@ class Subscription extends Model
         ];
     }
 
-    public function user(): BelongsTo
+    public function workspace(): BelongsTo
     {
-        return $this->belongsTo(User::class);
+        return $this->belongsTo(Workspace::class);
     }
 
     public function tariffPlan(): BelongsTo
