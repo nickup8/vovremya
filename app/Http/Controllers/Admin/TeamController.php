@@ -52,14 +52,35 @@ class TeamController extends Controller
 
         $token = Str::random(12);
 
-        $invite = WorkspaceInvite::create([
+        WorkspaceInvite::create([
             'workspace_id' => $workspace->id,
             'token' => $token,
             'expires_at' => now()->addHours(24),
         ]);
 
-        $link = "https://t.me/se13570350_bot?start=inv_{$token}";
+        $link = route('team.invite.page', ['token' => $token]);
 
         return response()->json(['link' => $link]);
+    }
+
+    public function showInvitePage(Request $request): Response
+    {
+        $token = $request->query('token');
+
+        $invite = WorkspaceInvite::with('workspace')
+            ->where('token', $token)
+            ->where('expires_at', '>', now())
+            ->first();
+
+        if (! $invite) {
+            return Inertia::render('invite/invalid');
+        }
+
+        return Inertia::render('invite/show', [
+            'token' => $token,
+            'workspaceName' => $invite->workspace->name,
+            'tgBot' => config('services.telegram.bot_name', 'se13570350_bot'),
+            'maxBot' => config('services.max.bot_name', 'max_bot_name'),
+        ]);
     }
 }
