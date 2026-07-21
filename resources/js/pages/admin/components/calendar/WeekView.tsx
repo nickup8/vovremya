@@ -152,7 +152,7 @@ export function WeekView({
                                             <div
                                                 key={`${hour}-${m}`}
                                                 style={{ height: slotHeightPx }}
-                                                className="border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                className="group relative border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
                                                 onMouseEnter={() => {
                                                     if (activeBookingClient && bookingModeServiceId) {
                                                         onSlotHover({ date: dateKey, time: timeStr });
@@ -171,7 +171,11 @@ export function WeekView({
                                                     }
                                                     onSlotClick(dateKey, timeStr);
                                                 }}
-                                            />,
+                                            >
+                                                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 select-none text-[10px] font-medium text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-zinc-500">
+                                                    {timeStr}
+                                                </span>
+                                            </div>,
                                         );
                                     }
                                     return slots;
