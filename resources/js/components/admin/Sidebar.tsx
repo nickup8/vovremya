@@ -22,7 +22,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     const maxMasters = (props as { auth?: { user?: { max_masters?: number } } })?.auth?.user?.max_masters ?? 0;
 
     const visibleMenuItems = MENU_ITEMS.filter(
-        (item) => item.label !== 'Команда' || maxMasters > 0,
+        (item) => item.label !== 'Команда' || maxMasters > 1,
     );
 
     function handleLogout() {
