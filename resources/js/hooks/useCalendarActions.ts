@@ -183,6 +183,9 @@ export function useCalendarActions({
         newAppointmentForm.post('/admin/calendar/appointments', {
             preserveScroll: true,
             onError: (errors: Record<string, string>) => {
+                if (errors.limit) {
+                    toast.error(errors.limit, { duration: 5000 });
+                }
                 if (errors.time) {
                     toast.error(errors.time);
                 }
@@ -206,6 +209,9 @@ export function useCalendarActions({
         newAppointmentForm.post('/admin/calendar/appointments', {
             preserveScroll: true,
             onError: (errors: Record<string, string>) => {
+                if (errors.limit) {
+                    toast.error(errors.limit, { duration: 5000 });
+                }
                 if (errors.time) {
                     toast.error(errors.time);
                 }
@@ -311,6 +317,9 @@ export function useCalendarActions({
         newAppointmentForm.post('/admin/calendar/appointments', {
             preserveScroll: true,
             onError: (errors: Record<string, string>) => {
+                if (errors.limit) {
+                    toast.error(errors.limit, { duration: 5000 });
+                }
                 if (errors.lunch_intersection) {
                     setBreakWarningMessage(errors.lunch_intersection);
                     setPendingReschedule(null);
