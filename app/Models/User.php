@@ -105,18 +105,6 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasMany(BlockedTime::class);
     }
 
-    // TODO: deprecated — remove after TariffLimitService is refactored for Workspace
-    public function hasTariff(string $tariff): bool
-    {
-        return $this->workspace?->activeSubscription()?->tariffPlan?->code === $tariff;
-    }
-
-    // TODO: deprecated — remove after TariffLimitService is refactored for Workspace
-    public function isFreeTariff(): bool
-    {
-        return $this->hasTariff('free');
-    }
-
     public function isSuperAdmin(): bool
     {
         return (bool) ($this->is_super_admin ?? false);

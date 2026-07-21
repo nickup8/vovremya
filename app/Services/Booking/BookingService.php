@@ -10,6 +10,7 @@ use App\Models\Appointment;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
+use App\Services\Billing\TariffLimitService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -18,6 +19,7 @@ class BookingService
     public function __construct(
         private AvailabilityService $availabilityService,
         private AppointmentStatusService $statusService,
+        private TariffLimitService $tariffLimitService,
     ) {}
 
     public function checkSlot(
@@ -93,6 +95,14 @@ class BookingService
         ?AppointmentStatus $status = null,
         ?\App\Enums\AppointmentSource $source = null,
     ): Appointment {
+        $workspace = $master->workspace;
+
+        if ($workspace && ! $this->tariffLimitService->canCreateAppointment($workspace)) {
+            throw \Illuminate\Validation\ValidationException::withMessages([
+                'limit' => 'Лимит записей исчерпан. Для продолжения работы перейдите на тариф «Профи».',
+            ]);
+        }
+
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
         $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
 
