@@ -8,6 +8,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
+use App\Models\WorkspaceInvite;
 use App\Services\AppointmentStatusService;
 use App\Services\Notification\MasterNotificationService;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
@@ -39,6 +40,32 @@ class TelegramWebhookHandler extends WebhookHandler
             'parameter' => $parameter,
             'bot_id' => $this->bot->id,
         ]);
+
+        if ($parameter && str_starts_with($parameter, 'inv_')) {
+            $token = str_replace('inv_', '', $parameter);
+            $invite = WorkspaceInvite::where('token', $token)
+                ->where('expires_at', '>', now())
+                ->first();
+
+            if ($invite) {
+                $user = User::firstOrCreate(
+                    ['telegram_id' => $chatId],
+                    ['name' => 'Новый мастер']
+                );
+
+                $user->update([
+                    'workspace_id' => $invite->workspace_id,
+                    'role' => 'master',
+                ]);
+
+                $invite->delete();
+                $this->chat->html('✅ Вы успешно присоединены к команде! Откройте приложение, чтобы настроить свой график.')->send();
+            } else {
+                $this->chat->html('❌ Ссылка-приглашение недействительна или просрочена.')->send();
+            }
+
+            return;
+        }
 
         if (empty($parameter)) {
             Log::info('[TG] start() sending welcome');

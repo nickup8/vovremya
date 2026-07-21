@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SuperAdminController;
+use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingStatusController;
 use App\Http\Controllers\BookingWidgetController;
@@ -116,6 +117,8 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
 
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
+
+    Route::post('/admin/team/invite', [TeamController::class, 'generateInvite'])->name('admin.team.invite');
 });
 
 Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');

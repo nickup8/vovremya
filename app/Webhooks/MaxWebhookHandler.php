@@ -6,6 +6,7 @@ use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Models\Client;
 use App\Models\User;
+use App\Models\WorkspaceInvite;
 use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
 use Illuminate\Support\Facades\Cache;
@@ -104,6 +105,32 @@ class MaxWebhookHandler
             return;
         }
 
+        if (str_starts_with($startParam, 'inv_')) {
+            $token = str_replace('inv_', '', $startParam);
+            $invite = WorkspaceInvite::where('token', $token)
+                ->where('expires_at', '>', now())
+                ->first();
+
+            if ($invite) {
+                $user = User::firstOrCreate(
+                    ['max_id' => $userId],
+                    ['name' => 'Новый мастер']
+                );
+
+                $user->update([
+                    'workspace_id' => $invite->workspace_id,
+                    'role' => 'master',
+                ]);
+
+                $invite->delete();
+                $this->sendMessage($userId, '✅ Вы успешно присоединены к команде! Откройте приложение, чтобы настроить свой график.');
+            } else {
+                $this->sendMessage($userId, '❌ Ссылка-приглашение недействительна или просрочена.');
+            }
+
+            return;
+        }
+
         if (str_starts_with($startParam, 'book_')) {
             $this->handleBookingStart($userId, $startParam);
 
@@ -167,6 +194,32 @@ class MaxWebhookHandler
             if (! empty($param)) {
                 if (str_starts_with($param, 'auth_')) {
                     $this->handleAuthStart($userId, $param);
+
+                    return;
+                }
+
+                if (str_starts_with($param, 'inv_')) {
+                    $token = str_replace('inv_', '', $param);
+                    $invite = WorkspaceInvite::where('token', $token)
+                        ->where('expires_at', '>', now())
+                        ->first();
+
+                    if ($invite) {
+                        $user = User::firstOrCreate(
+                            ['max_id' => $userId],
+                            ['name' => 'Новый мастер']
+                        );
+
+                        $user->update([
+                            'workspace_id' => $invite->workspace_id,
+                            'role' => 'master',
+                        ]);
+
+                        $invite->delete();
+                        $this->sendMessage($userId, '✅ Вы успешно присоединены к команде! Откройте приложение, чтобы настроить свой график.');
+                    } else {
+                        $this->sendMessage($userId, '❌ Ссылка-приглашение недействительна или просрочена.');
+                    }
 
                     return;
                 }
