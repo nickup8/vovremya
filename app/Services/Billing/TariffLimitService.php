@@ -4,7 +4,7 @@ namespace App\Services\Billing;
 
 use App\Enums\AppointmentStatus;
 use App\Models\Workspace;
-use Illuminate\Support\Carbon;
+use Carbon\CarbonInterface;
 
 class TariffLimitService
 {
@@ -50,7 +50,7 @@ class TariffLimitService
         return $activeSubscription->tariffPlan->max_appointments_per_month ?? PHP_INT_MAX;
     }
 
-    private function getCycleStart(Workspace $workspace): Carbon
+    private function getCycleStart(Workspace $workspace): CarbonInterface
     {
         $registrationDay = $workspace->created_at->day;
 
@@ -61,7 +61,7 @@ class TariffLimitService
         return $cycleStart->startOfDay();
     }
 
-    private function countAppointmentsInCycle(Workspace $workspace, Carbon $cycleStart): int
+    private function countAppointmentsInCycle(Workspace $workspace, CarbonInterface $cycleStart): int
     {
         $masterIds = $workspace->users()->pluck('id');
 
