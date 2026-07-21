@@ -10,7 +10,7 @@ return new class extends Migration
     {
         Schema::table('tariff_plans', function (Blueprint $table) {
             $table->unsignedInteger('max_appointments_per_month')->nullable()->after('price_monthly');
-            $table->unsignedInteger('max_masters')->default(1)->after('max_appointments_per_month');
+            $table->unsignedInteger('max_masters')->nullable()->default(1)->after('max_appointments_per_month');
         });
     }
 

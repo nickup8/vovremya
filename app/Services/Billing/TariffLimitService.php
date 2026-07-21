@@ -11,7 +11,9 @@ class TariffLimitService
 
     public function canCreateAppointment(User $master): bool
     {
-        if (! $master->isFreeTariff()) {
+        $limit = $this->getMonthlyLimit($master);
+
+        if ($limit === PHP_INT_MAX) {
             return true;
         }
 
@@ -28,12 +30,14 @@ class TariffLimitService
             ->whereBetween('start_time', [$monthStart, $monthEnd])
             ->count();
 
-        return $usedCount < config('booking.free_monthly_limit');
+        return $usedCount < $limit;
     }
 
     public function getRemainingCount(User $master): int
     {
-        if (! $master->isFreeTariff()) {
+        $limit = $this->getMonthlyLimit($master);
+
+        if ($limit === PHP_INT_MAX) {
             return PHP_INT_MAX;
         }
 
@@ -50,16 +54,18 @@ class TariffLimitService
             ->whereBetween('start_time', [$monthStart, $monthEnd])
             ->count();
 
-        return max(0, config('booking.free_monthly_limit') - $usedCount);
+        return max(0, $limit - $usedCount);
     }
 
     public function getMonthlyLimit(User $master): int
     {
-        return match ($master->tariff) {
-            'free' => config('booking.free_monthly_limit'),
-            'pro' => PHP_INT_MAX,
-            'studio' => PHP_INT_MAX,
-            default => config('booking.free_monthly_limit'),
-        };
+        $activeSubscription = $master->workspace?->activeSubscription();
+
+        if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
+            // Fallback to 'start' plan limits
+            return 30;
+        }
+
+        return $activeSubscription->tariffPlan->max_appointments_per_month ?? PHP_INT_MAX;
     }
 }

@@ -41,6 +41,15 @@ class HandleInertiaRequests extends Middleware
     {
         $user = $request->user();
 
+        $tariffCode = null;
+        $tariffName = 'Free';
+
+        if ($user) {
+            $activeSubscription = $user->workspace?->activeSubscription();
+            $tariffCode = $activeSubscription?->tariffPlan?->code ?? 'start';
+            $tariffName = $activeSubscription?->tariffPlan?->name ?? 'Старт';
+        }
+
         return [
             ...parent::share($request),
             'name' => config('app.name'),
@@ -50,13 +59,9 @@ class HandleInertiaRequests extends Middleware
                     'id' => $user->id,
                     'name' => $user->name,
                     'email' => $user->email,
-                    'tariff' => $user->tariff,
+                    'tariff' => $tariffCode,
                     'avatar_url' => $user->avatar_url,
-                    'tariff_name' => match ($user->tariff) {
-                        'pro' => 'Профи',
-                        'studio' => 'Студия',
-                        default => 'Free',
-                    },
+                    'tariff_name' => $tariffName,
                 ] : null,
             ],
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',

@@ -30,17 +30,31 @@ class SuperAdminController extends Controller
 
         $totalRevenue = (float) Subscription::where('status', SubscriptionStatus::Active)
             ->sum('amount_paid');
-        // TODO: учесть refunded в revenue
 
         $uniquePayers = Subscription::where('status', SubscriptionStatus::Active)
-            ->distinct('user_id')
-            ->count('user_id');
+            ->distinct('workspace_id')
+            ->count('workspace_id');
         $ltv = $uniquePayers > 0 ? round($totalRevenue / $uniquePayers, 2) : 0;
 
-        $usersByTariff = User::select('tariff', DB::raw('count(*) as count'))
-            ->groupBy('tariff')
+        $usersByTariff = User::join('workspaces', 'users.workspace_id', '=', 'workspaces.id')
+            ->join('subscriptions', 'workspaces.id', '=', 'subscriptions.workspace_id')
+            ->join('tariff_plans', 'subscriptions.tariff_plan_id', '=', 'tariff_plans.id')
+            ->where('subscriptions.status', SubscriptionStatus::Active)
+            ->where('subscriptions.expires_at', '>', now())
+            ->select('tariff_plans.code as tariff', DB::raw('count(distinct users.id) as count'))
+            ->groupBy('tariff_plans.code')
             ->pluck('count', 'tariff')
             ->toArray();
+
+        // Users without active subscription are "start" tier
+        $startCount = User::whereDoesntHave('workspace.subscriptions', function ($q) {
+            $q->where('status', SubscriptionStatus::Active)
+                ->where('expires_at', '>', now());
+        })->count();
+
+        if ($startCount > 0) {
+            $usersByTariff['start'] = ($usersByTariff['start'] ?? 0) + $startCount;
+        }
 
         $totalUsers = User::count();
 
@@ -58,7 +72,8 @@ class SuperAdminController extends Controller
 
     public function users(Request $request): Response
     {
-        $query = User::query();
+        $query = User::query()
+            ->with(['workspace.subscriptions.tariffPlan']);
 
         if ($search = $request->query('search')) {
             $query->where(function ($q) use ($search) {
@@ -69,7 +84,13 @@ class SuperAdminController extends Controller
         }
 
         if ($tariff = $request->query('tariff')) {
-            $query->where('tariff', $tariff);
+            $query->whereHas('workspace.subscriptions', function ($q) use ($tariff) {
+                $q->where('status', SubscriptionStatus::Active)
+                    ->where('expires_at', '>', now())
+                    ->whereHas('tariffPlan', function ($q2) use ($tariff) {
+                        $q2->where('code', $tariff);
+                    });
+            });
         }
 
         if ($request->has('is_blocked')) {
@@ -79,6 +100,12 @@ class SuperAdminController extends Controller
         $users = $query->orderByDesc('created_at')
             ->paginate(15)
             ->withQueryString();
+
+        // Append virtual 'tariff' attribute for frontend compatibility
+        $users->getCollection()->transform(function ($user) {
+            $user->tariff = $user->workspace?->activeSubscription()?->tariffPlan?->code ?? 'start';
+            return $user;
+        });
 
         return Inertia::render('SuperAdmin/Users', [
             'users' => $users,
@@ -110,20 +137,44 @@ class SuperAdminController extends Controller
 
         $days = $validated['days'];
 
-        if ($user->expires_at && $user->expires_at->isFuture()) {
-            $newExpiry = $user->expires_at->addDays($days);
-        } else {
-            $newExpiry = now()->addDays($days);
+        $workspace = $user->workspace;
+
+        if (! $workspace) {
+            abort(422, 'У пользователя нет рабочего пространства.');
         }
 
-        $user->update([
-            'expires_at' => $newExpiry,
-            'tariff' => $user->tariff === 'free' ? 'pro' : $user->tariff,
-        ]);
+        $activeSubscription = $workspace->activeSubscription();
+
+        if ($activeSubscription && $activeSubscription->expires_at && $activeSubscription->expires_at->isFuture()) {
+            $newExpiry = $activeSubscription->expires_at->addDays($days);
+        } else {
+            $newExpiry = now()->addDays($days);
+
+            // Create a new subscription if none exists
+            if (! $activeSubscription) {
+                $startPlan = \App\Models\TariffPlan::where('code', 'pro')->first();
+
+                if ($startPlan) {
+                    $workspace->subscriptions()->create([
+                        'tariff_plan_id' => $startPlan->id,
+                        'period_months' => 1,
+                        'amount_paid' => 0,
+                        'status' => SubscriptionStatus::Active->value,
+                        'starts_at' => now(),
+                        'expires_at' => $newExpiry,
+                    ]);
+                }
+            }
+        }
+
+        if ($activeSubscription) {
+            $activeSubscription->update(['expires_at' => $newExpiry]);
+        }
 
         Log::info('Super admin extended subscription', [
             'admin_id' => auth()->id(),
             'user_id' => $user->id,
+            'workspace_id' => $workspace->id,
             'days_added' => $days,
             'new_expires_at' => $newExpiry->toDateTimeString(),
         ]);
