@@ -1,11 +1,12 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import {
-    CalendarDays, Users, BarChart3, Settings, RefreshCw, X, LogOut,
+    CalendarDays, Users, BarChart3, Settings, RefreshCw, X, LogOut, UserPlus,
 } from 'lucide-react';
 
 const MENU_ITEMS = [
     { icon: CalendarDays, label: 'Календарь', href: '/admin/calendar' },
     { icon: Users, label: 'База клиентов', href: '/admin/clients' },
+    { icon: UserPlus, label: 'Команда', href: '/admin/team' },
     { icon: BarChart3, label: 'Аналитика', href: '/admin/analytics' },
     { icon: Settings, label: 'Настройки профиля', href: '/admin/settings' },
 ];

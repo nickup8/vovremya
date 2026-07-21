@@ -118,6 +118,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
 
+    Route::get('/admin/team', [TeamController::class, 'index'])->name('admin.team');
     Route::post('/admin/team/invite', [TeamController::class, 'generateInvite'])->name('admin.team.invite');
 });
 

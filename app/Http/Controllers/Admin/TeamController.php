@@ -7,9 +7,29 @@ use App\Models\WorkspaceInvite;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Inertia\Inertia;
+use Inertia\Response;
 
 class TeamController extends Controller
 {
+    public function index(Request $request): Response
+    {
+        $user = $request->user();
+        $workspace = $user->workspace;
+
+        if (! $workspace) {
+            abort(404);
+        }
+
+        $maxMasters = $workspace->activeSubscription()?->tariffPlan?->max_masters;
+        $masters = $workspace->users()->where('role', 'master')->get();
+
+        return Inertia::render('admin/team', [
+            'masters' => $masters,
+            'max_masters' => $maxMasters,
+        ]);
+    }
+
     public function generateInvite(Request $request): JsonResponse
     {
         $user = $request->user();
