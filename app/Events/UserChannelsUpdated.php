@@ -24,4 +24,11 @@ class UserChannelsUpdated implements ShouldBroadcastNow
     {
         return 'UserChannelsUpdated';
     }
+
+    public function broadcastWith(): array
+    {
+        return [
+            'id' => $this->user->id,
+        ];
+    }
 }
