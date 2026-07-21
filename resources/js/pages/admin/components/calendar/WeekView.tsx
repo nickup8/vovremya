@@ -27,30 +27,6 @@ interface WeekViewProps {
     isToday: (date: Date) => boolean;
 }
 
-function getAppointmentsForDayFromProps(
-    dayIndex: number,
-    weekDateKeys: string[],
-    localAppointments: Appointment[],
-): Appointment[] {
-    const key = weekDateKeys[dayIndex];
-    return localAppointments.filter((a) => a.date === key);
-}
-
-function getBlockedTimesForDayFromProps(
-    dayIndex: number,
-    weekDateKeys: string[],
-    initialBlockedTimes: BlockedTime[],
-): BlockedTime[] {
-    const key = weekDateKeys[dayIndex];
-    const dayStart = new Date(key + 'T00:00:00');
-    const dayEnd = new Date(key + 'T23:59:59');
-    return initialBlockedTimes.filter((bt) => {
-        const btStart = new Date(bt.start_datetime);
-        const btEnd = new Date(bt.end_datetime);
-        return btStart <= dayEnd && btEnd >= dayStart;
-    });
-}
-
 export function WeekView({
     weekDates,
     weekDateKeys,
@@ -172,7 +148,7 @@ export function WeekView({
                                                     onSlotClick(dateKey, timeStr);
                                                 }}
                                             >
-                                                <span className="pointer-events-none absolute left-2 top-1/2 -translate-y-1/2 select-none text-[10px] font-medium text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-zinc-500">
+                                                <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-[10px] font-medium text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-zinc-500">
                                                     {timeStr}
                                                 </span>
                                             </div>,

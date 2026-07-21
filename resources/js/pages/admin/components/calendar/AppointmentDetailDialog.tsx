@@ -10,6 +10,7 @@ import { formatPhone } from '@/lib/phone';
 import { AppointmentStatus } from '@/types/appointment-status';
 import { Appointment } from './types';
 import { STATUS_STYLES } from './constants';
+import { DAYS_RU_FULL, MONTHS_RU_GENITIVE } from '@/lib/locale';
 import { getEndTime } from './helpers';
 
 interface Props {
@@ -24,9 +25,7 @@ interface Props {
 
 function formatDateLong(dateStr: string): string {
     const d = new Date(dateStr + 'T00:00:00');
-    const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-    const monthNames = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-    return `${dayNames[d.getDay()]}, ${d.getDate()} ${monthNames[d.getMonth()]} ${d.getFullYear()}`;
+    return `${DAYS_RU_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS_RU_GENITIVE[d.getMonth()]} ${d.getFullYear()}`;
 }
 
 export function AppointmentDetailDialog({ open, onOpenChange, selected, isProcessing, onUpdateStatus, onReschedule, onDelete }: Props) {

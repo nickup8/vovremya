@@ -1,3 +1,4 @@
+import { MONTHS_RU_GENITIVE } from '@/lib/locale';
 import { Appointment } from './types';
 
 export function timeToMinutes(t: string): number {
@@ -25,13 +26,12 @@ export function getWeekDates(center: Date): Date[] {
 }
 
 export function formatDateRange(dates: Date[]): string {
-    const months = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
     const first = dates[0];
     const last = dates[6];
     if (first.getMonth() === last.getMonth()) {
-        return `${first.getDate()} – ${last.getDate()} ${months[first.getMonth()]} ${first.getFullYear()}`;
+        return `${first.getDate()} – ${last.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]} ${first.getFullYear()}`;
     }
-    return `${first.getDate()} ${months[first.getMonth()]} – ${last.getDate()} ${months[last.getMonth()]} ${first.getFullYear()}`;
+    return `${first.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]} – ${last.getDate()} ${MONTHS_RU_GENITIVE[last.getMonth()]} ${first.getFullYear()}`;
 }
 
 export function dateToKey(d: Date): string {

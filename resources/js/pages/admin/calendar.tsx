@@ -1,6 +1,7 @@
 import { useState, useMemo } from 'react';
 import { Head, usePage } from '@inertiajs/react';
 import { User } from 'lucide-react';
+import { MONTHS_RU } from '@/lib/locale';
 import DateControlPanel from '@/components/calendar/DateControlPanel';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
@@ -86,8 +87,7 @@ export default function CalendarPage() {
     }, [monthOffset]);
 
     const monthRangeStr = useMemo(() => {
-        const months = ['январь', 'февраль', 'март', 'апрель', 'май', 'июнь', 'июль', 'август', 'сентябрь', 'октябрь', 'ноябрь', 'декабрь'];
-        return `${months[monthCenterDate.getMonth()]} ${monthCenterDate.getFullYear()}`;
+        return `${MONTHS_RU[monthCenterDate.getMonth()]} ${monthCenterDate.getFullYear()}`;
     }, [monthCenterDate]);
 
     // ═══════════════ Appointments Data ═══════════════
