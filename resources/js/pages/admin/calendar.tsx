@@ -1,6 +1,5 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo } from 'react';
 import { Head, usePage } from '@inertiajs/react';
-import { echo } from '@laravel/echo-react';
 import { User } from 'lucide-react';
 import DateControlPanel from '@/components/calendar/DateControlPanel';
 import {
@@ -8,10 +7,7 @@ import {
 } from '@/components/ui/select';
 import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
-import { AppointmentStatus } from '@/types/appointment-status';
-import {
-    Appointment, BlockedTime, PageProps,
-} from './components/calendar/types';
+import { PageProps } from './components/calendar/types';
 import {
     getWeekDates, formatDateRange, dateToKey,
 } from './components/calendar/helpers';
@@ -23,6 +19,7 @@ import { RescheduleDialog } from './components/calendar/RescheduleDialog';
 import { NewAppointmentDialog } from './components/calendar/NewAppointmentDialog';
 import { WarningDialog } from './components/calendar/WarningDialog';
 import { useCalendarActions } from '@/hooks/useCalendarActions';
+import { useCalendarData } from '@/hooks/useCalendarData';
 
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
@@ -94,77 +91,22 @@ export default function CalendarPage() {
     }, [monthCenterDate]);
 
     // ═══════════════ Appointments Data ═══════════════
-    const [localAppointments, setLocalAppointments] = useState<Appointment[]>(
-        initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
-    );
+    const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
-    useEffect(() => {
-        setLocalAppointments(
-            initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
-        );
-    }, [initialAppointments]);
-
-    // WebSocket: подписка на broadcast-события записей
-    useEffect(() => {
-        if (!auth?.user?.id) return;
-
-        const channelName = `App.Models.User.${auth.user.id}`;
-        const channel = echo<'reverb'>().private(channelName)
-            .listen('.AppointmentCreated', (appointment: Appointment) => {
-                setLocalAppointments((prev) => {
-                    if (prev.some((a) => a.id === appointment.id)) return prev;
-                    if (appointment.status === AppointmentStatus.Cancelled) return prev;
-                    return [...prev, appointment];
-                });
-            })
-            .listen('.AppointmentStatusChanged', (appointment: Appointment) => {
-                setLocalAppointments((prev) => {
-                    if (appointment.status === AppointmentStatus.Cancelled) {
-                        return prev.filter((a) => a.id !== appointment.id);
-                    }
-                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
-                });
-            })
-            .listen('.AppointmentRescheduled', (appointment: Appointment) => {
-                setLocalAppointments((prev) => {
-                    if (appointment.status === AppointmentStatus.Cancelled) {
-                        return prev.filter((a) => a.id !== appointment.id);
-                    }
-                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
-                });
-            })
-            .listen('.AppointmentUpdated', (appointment: Appointment) => {
-                setLocalAppointments((prev) => {
-                    if (appointment.status === AppointmentStatus.Cancelled) {
-                        return prev.filter((a) => a.id !== appointment.id);
-                    }
-                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
-                });
-            });
-
-        return () => {
-            channel.stopListening('.AppointmentCreated');
-            channel.stopListening('.AppointmentStatusChanged');
-            channel.stopListening('.AppointmentRescheduled');
-            channel.stopListening('.AppointmentUpdated');
-            echo<'reverb'>().leave(channelName);
-        };
-    }, [auth?.user?.id]);
-
-    // Синхронизация selected с обновлениями через WebSocket
-    useEffect(() => {
-        if (!selected) return;
-        const updated = localAppointments.find((a) => a.id === selected.id);
-        if (updated) {
-            setSelected(updated);
-        } else if (selected.status !== AppointmentStatus.Cancelled) {
-            setSheetOpen(false);
+    const { localAppointments, getAppointmentsForDay, getBlockedTimesForDay } = useCalendarData({
+        initialAppointments,
+        initialBlockedTimes,
+        authUserId: auth?.user?.id,
+        weekDateKeys,
+        selectedId: selected?.id,
+        onSelectedUpdate: setSelected,
+        onSelectedExpired: () => {
             setSelected(null);
-        }
-    }, [localAppointments]);
+            setSheetOpen(false);
+        },
+    });
 
     // ═══════════════ Grid Computed ═══════════════
-    const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
     const gridHours = useMemo(() => {
         let minHour = 24;
@@ -185,23 +127,6 @@ export default function CalendarPage() {
     }, [workingHours]);
 
     const DAY_START_HOUR = gridHours.length > 0 ? gridHours[0] : 8;
-
-    function getAppointmentsForDay(dayIndex: number): Appointment[] {
-        const key = weekDateKeys[dayIndex];
-        return localAppointments.filter((a) => a.date === key);
-    }
-
-    function getBlockedTimesForDay(dayIndex: number): BlockedTime[] {
-        const key = weekDateKeys[dayIndex];
-        const dayStart = new Date(key + 'T00:00:00');
-        const dayEnd = new Date(key + 'T23:59:59');
-
-        return initialBlockedTimes.filter((bt) => {
-            const btStart = new Date(bt.start_datetime);
-            const btEnd = new Date(bt.end_datetime);
-            return btStart <= dayEnd && btEnd >= dayStart;
-        });
-    }
 
     function isToday(date: Date): boolean {
         return (
