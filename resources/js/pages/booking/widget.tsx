@@ -589,7 +589,20 @@ export default function Widget() {
             }
 
             window.location.href = provider === 'max' ? data.max_url : data.telegram_url;
-        } catch {
+        } catch (error: unknown) {
+            // Попробуем извлечь ошибку лимита из ответа сервера (422)
+            if (error instanceof Response) {
+                try {
+                    const errorData = await error.json();
+                    if (error.status === 422 && errorData.errors?.limit) {
+                        setErrors({ limit: errorData.errors.limit });
+                        setLoadingProvider(null);
+                        return;
+                    }
+                } catch {
+                    // не JSON — дефолтная ошибка сети
+                }
+            }
             setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
             setLoadingProvider(null);
         }
