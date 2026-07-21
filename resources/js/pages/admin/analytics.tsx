@@ -318,7 +318,7 @@ export default function AnalyticsPage() {
         <>
             <Head title="Аналитика — Вовремя" />
 
-            <AdminLayout title="Базовая аналитика" auth={auth}>
+            <AdminLayout title="Аналитика" auth={auth}>
                 <div className="space-y-6">
                             {/* ─── Period Selector + Export ─── */}
                             <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
