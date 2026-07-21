@@ -563,6 +563,7 @@ export default function Widget() {
                 method: 'POST',
                 headers: {
                     'Content-Type': 'application/json',
+                    'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-XSRF-TOKEN': decodeURIComponent(
                         document.cookie.match(/XSRF-TOKEN=([^;]+)/)?.[1] ?? ''
@@ -579,8 +580,8 @@ export default function Widget() {
             const data = await response.json();
 
             if (!response.ok) {
-                if (data.errors?.limit) {
-                    setErrors({ limit: 'Онлайн-запись к данному специалисту временно приостановлена. Пожалуйста, свяжитесь с мастером напрямую для уточнения свободного времени.' });
+                if (response.status === 422 && data.errors?.limit) {
+                    setErrors({ limit: data.errors.limit });
                 } else {
                     setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
                 }
@@ -589,20 +590,7 @@ export default function Widget() {
             }
 
             window.location.href = provider === 'max' ? data.max_url : data.telegram_url;
-        } catch (error: unknown) {
-            // Попробуем извлечь ошибку лимита из ответа сервера (422)
-            if (error instanceof Response) {
-                try {
-                    const errorData = await error.json();
-                    if (error.status === 422 && errorData.errors?.limit) {
-                        setErrors({ limit: errorData.errors.limit });
-                        setLoadingProvider(null);
-                        return;
-                    }
-                } catch {
-                    // не JSON — дефолтная ошибка сети
-                }
-            }
+        } catch {
             setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
             setLoadingProvider(null);
         }
