@@ -122,8 +122,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/team/invite', [TeamController::class, 'generateInvite'])->name('admin.team.invite');
 });
 
-Route::get('/invite', [TeamController::class, 'showInvitePage'])->name('team.invite.page');
-
 Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
 
 Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function () {

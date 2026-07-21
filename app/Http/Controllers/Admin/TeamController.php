@@ -58,29 +58,8 @@ class TeamController extends Controller
             'expires_at' => now()->addHours(24),
         ]);
 
-        $link = route('team.invite.page', ['token' => $token]);
+        $link = "https://t.me/se13570350_bot?start=inv_{$token}";
 
         return response()->json(['link' => $link]);
-    }
-
-    public function showInvitePage(Request $request): Response
-    {
-        $token = $request->query('token');
-
-        $invite = WorkspaceInvite::with('workspace')
-            ->where('token', $token)
-            ->where('expires_at', '>', now())
-            ->first();
-
-        if (! $invite) {
-            return Inertia::render('invite/invalid');
-        }
-
-        return Inertia::render('invite/show', [
-            'token' => $token,
-            'workspaceName' => $invite->workspace->name,
-            'tgBot' => config('services.telegram.bot_name', 'se13570350_bot'),
-            'maxBot' => config('services.max.bot_name', 'max_bot_name'),
-        ]);
     }
 }
