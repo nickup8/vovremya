@@ -4,9 +4,9 @@ import {
 } from 'lucide-react';
 
 const MENU_ITEMS = [
-    { icon: CalendarDays, label: 'Интерактивный календарь', href: '/admin/calendar' },
+    { icon: CalendarDays, label: 'Календарь', href: '/admin/calendar' },
     { icon: Users, label: 'База клиентов', href: '/admin/clients' },
-    { icon: BarChart3, label: 'Базовая аналитика', href: '/admin/analytics' },
+    { icon: BarChart3, label: 'Аналитика', href: '/admin/analytics' },
     { icon: Settings, label: 'Настройки профиля', href: '/admin/settings' },
 ];
 
