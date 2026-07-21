@@ -19,6 +19,11 @@ interface SidebarProps {
 export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     const { url, props } = usePage();
     const tariffName = (props as { auth?: { user?: { tariff_name?: string } } })?.auth?.user?.tariff_name || 'Free';
+    const maxMasters = (props as { auth?: { user?: { max_masters?: number } } })?.auth?.user?.max_masters ?? 0;
+
+    const visibleMenuItems = MENU_ITEMS.filter(
+        (item) => item.label !== 'Команда' || maxMasters > 0,
+    );
 
     function handleLogout() {
         router.post('/logout', {}, {
@@ -46,7 +51,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                     </button>
                 </div>
                 <nav className="space-y-1 p-3">
-                    {MENU_ITEMS.map((item) => {
+                    {visibleMenuItems.map((item) => {
                         const isActive = url.startsWith(item.href);
                         return (
                             <Link

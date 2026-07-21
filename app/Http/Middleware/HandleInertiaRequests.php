@@ -50,6 +50,7 @@ class HandleInertiaRequests extends Middleware
             $activeSubscription = $user->workspace?->activeSubscription();
             $tariffCode = $activeSubscription?->tariffPlan?->code ?? 'start';
             $tariffName = $activeSubscription?->tariffPlan?->name ?? 'Старт';
+            $maxMasters = $activeSubscription?->tariffPlan?->max_masters ?? 0;
 
             if ($user->workspace) {
                 $limitService = app(TariffLimitService::class);
@@ -73,6 +74,7 @@ class HandleInertiaRequests extends Middleware
                     'tariff' => $tariffCode,
                     'avatar_url' => $user->avatar_url,
                     'tariff_name' => $tariffName,
+                    'max_masters' => $maxMasters ?? 0,
                 ] : null,
             ],
             'tariff_limits' => $tariffLimits,
