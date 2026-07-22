@@ -57,16 +57,21 @@ class AnalyticsService
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
 
+        $masterIds = $masters->pluck('id');
+        $allWorkingHours = WorkingHour::whereIn('user_id', $masterIds)->get()->groupBy('user_id');
+        $allBlockedTimes = BlockedTime::where('start_datetime', '<', $end->copy()->addDay())
+            ->where('end_datetime', '>', $start)
+            ->whereIn('user_id', $masterIds)
+            ->get()
+            ->groupBy('user_id');
+
         $totalAvailableMinutes = 0;
 
         foreach ($masters as $master) {
-            $workingHours = WorkingHour::where('user_id', $master->id)->get()->keyBy('day_of_week');
+            $workingHours = $allWorkingHours->get($master->id, collect())->keyBy('day_of_week');
             $hasAnySchedule = $workingHours->isNotEmpty();
 
-            $blockedTimes = BlockedTime::where('user_id', $master->id)
-                ->where('start_datetime', '<', $end->copy()->addDay())
-                ->where('end_datetime', '>', $start)
-                ->get();
+            $blockedTimes = $allBlockedTimes->get($master->id, collect());
 
             $current = $start->copy();
 

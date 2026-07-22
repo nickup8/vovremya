@@ -8,6 +8,7 @@ use App\Models\Appointment;
 use App\Models\BlockedTime;
 use App\Models\Client;
 use App\Models\Service;
+use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
@@ -193,8 +194,10 @@ class CalendarController extends Controller
             abort(403, 'У вас нет прав на использование этой услуги.');
         }
 
+        $targetMaster = User::find($service->user_id);
+
         $result = $this->bookingService->createManualAppointment(
-            $master,
+            $targetMaster,
             $service,
             $validated['date'],
             $validated['time'],

@@ -18,32 +18,58 @@ class ClientController extends Controller
 
     public function index(Request $request)
     {
-        $master = auth()->user();
+        $user = auth()->user();
 
-        if (! $master->is_master) {
+        if (! in_array($user->role, ['owner', 'admin']) && ! $user->is_master) {
             return redirect()->route('client.bookings')
-                ->with('error', 'У вас нет профиля мастера.');
+                ->with('error', 'У вас нет доступа к базе клиентов.');
+        }
+
+        if (in_array($user->role, ['owner', 'admin'])) {
+            $masterIds = $user->workspace->users()->where('is_master', true)->pluck('id')->toArray();
+        } else {
+            $masterIds = [$user->id];
         }
 
         $perPage = (int) $request->query('per_page', 20);
 
-        $clients = Client::where('user_id', $master->id)
-            ->select('clients.*')
+        $clients = Client::whereIn('user_id', $masterIds)
+            ->with(['appointments.service'])
             ->withCount(['appointments as total_bookings' => function ($q) {
                 $q->where('status', '!=', AppointmentStatus::Cancelled);
             }])
             ->withCount(['appointments as completed_bookings' => function ($q) {
                 $q->where('status', AppointmentStatus::Paid);
             }])
-            ->selectRaw('(SELECT COALESCE(SUM(s.price), 0) FROM appointments a JOIN services s ON a.service_id = s.id WHERE a.client_id = clients.id AND a.status = ?) as ltv', [
-                AppointmentStatus::Paid->value,
-            ])
-            ->selectRaw('(SELECT MAX(a.start_time) FROM appointments a WHERE a.client_id = clients.id) as last_visit')
-            ->orderByDesc('last_visit')
-            ->paginate($perPage);
+            ->withMax('appointments as last_visit', 'start_time')
+            ->get()
+            ->map(function (Client $client) {
+                $ltv = $client->appointments
+                    ->where('status', AppointmentStatus::Paid)
+                    ->sum(fn ($a) => $a->service?->price ?? 0);
+
+                return [
+                    'id' => $client->id,
+                    'name' => $client->name,
+                    'phone' => $client->phone,
+                    'user_id' => $client->user_id,
+                    'total_bookings' => $client->total_bookings,
+                    'completed_bookings' => $client->completed_bookings,
+                    'ltv' => (float) $ltv,
+                    'last_visit' => $client->last_visit,
+                ];
+            });
+
+        $total = $clients->count();
+        $clients = $clients->slice(($request->query('page', 1) - 1) * $perPage, $perPage)->values();
 
         return Inertia::render('admin/clients', [
-            'clients' => $clients,
+            'clients' => [
+                'data' => $clients,
+                'total' => $total,
+                'per_page' => $perPage,
+                'current_page' => (int) $request->query('page', 1),
+            ],
         ]);
     }
 

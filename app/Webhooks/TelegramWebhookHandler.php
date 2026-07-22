@@ -452,7 +452,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $chatId = $this->chat->chat_id;
 
         // Проверяем флоу инвайта
-        $invToken = Cache::get('inv_token_' . $chatId);
+        $invToken = Cache::pull('inv_token_' . $chatId);
 
         if ($invToken) {
             $this->handleInviteContact($contact, $chatId, $invToken);
@@ -470,7 +470,7 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         // Проверяем флоу авторизации
-        $loginToken = Cache::get(CacheKeys::TG_CHAT_TOKEN . $chatId);
+        $loginToken = Cache::pull(CacheKeys::TG_CHAT_TOKEN . $chatId);
 
         if ($loginToken) {
             $this->handleAuthContact($contact, $chatId, $loginToken);

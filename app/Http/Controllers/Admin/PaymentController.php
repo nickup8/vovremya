@@ -16,6 +16,8 @@ class PaymentController extends Controller
 
     public function createCheckout(Request $request): JsonResponse
     {
+        abort_unless(in_array(auth()->user()->role, ['owner', 'admin']), 403, 'Только руководитель может управлять подпиской.');
+
         $validated = $request->validate([
             'tariff_plan_id' => 'required|exists:tariff_plans,id',
             'period_months' => 'required|integer|in:1,3,6,12',
