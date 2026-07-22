@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\UserRole;
 use App\Traits\SearchableByProvider;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -31,7 +32,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $specialty
  * @property string|null $address
  * @property string|null $workspace_id
- * @property string $role
+ * @property UserRole $role
  * @property Carbon|null $email_verified_at
  * @property string $password
  * @property string|null $two_factor_secret
@@ -63,6 +64,7 @@ class User extends Authenticatable implements PasskeyUser
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
             'is_master' => 'boolean',
+            'role' => UserRole::class,
             'soft_deposit' => 'boolean',
             'deposit_timeout' => 'integer',
             'deposit_percent' => 'integer',

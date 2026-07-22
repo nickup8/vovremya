@@ -121,7 +121,7 @@ class MaxWebhookHandler
                 $user->update([
                     'workspace_id' => $invite->workspace_id,
                 ]);
-                $user->role = 'master';
+                $user->role = \App\Enums\UserRole::Master;
                 $user->save();
 
                 $invite->delete();
@@ -215,7 +215,7 @@ class MaxWebhookHandler
                         $user->update([
                             'workspace_id' => $invite->workspace_id,
                         ]);
-                        $user->role = 'master';
+                        $user->role = \App\Enums\UserRole::Master;
                         $user->save();
 
                         $invite->delete();

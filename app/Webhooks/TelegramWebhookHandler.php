@@ -555,7 +555,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'master_slug' => $slug,
                 'workspace_id' => $invite->workspace_id,
             ]);
-            $user->role = 'staff';
+            $user->role = \App\Enums\UserRole::Master;
             $user->save();
 
             Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
@@ -567,7 +567,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'workspace_id' => $invite->workspace_id,
                 'is_master' => true,
             ]);
-            $user->role = 'staff';
+            $user->role = \App\Enums\UserRole::Master;
             $user->save();
 
             Log::info('[TG] handleInviteContact: existing user updated', ['user_id' => $user->id]);
