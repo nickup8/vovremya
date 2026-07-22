@@ -22,8 +22,11 @@ class BookingWidgetController extends Controller
     {
         $master = User::where('master_slug', $slug)
             ->where('is_master', true)
-            ->firstOrFail()
-            ->load('services');
+            ->firstOrFail();
+
+        abort_unless($master->isSolo(), 404);
+
+        $master->load('services');
 
         $selectedServiceId = $request->query('service_id');
         $selectedDate = $request->query('date') ?? Carbon::today()->toDateString();
