@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\DiscountRule;
+use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Billing\BillingService;
@@ -167,5 +168,28 @@ class BillingTest extends TestCase
 
         $subscription->refresh();
         $this->assertEquals('pending', $subscription->status);
+    }
+
+    public function test_subscribe_creates_workspace_for_solo_user(): void
+    {
+        $master = User::factory()->master()->create([
+            'workspace_id' => null,
+        ]);
+
+        $this->assertNull($master->workspace_id);
+
+        $result = $this->billingService->subscribe($master, $this->proPlan, 1);
+
+        $master->refresh();
+
+        $this->assertNotNull($master->workspace_id, 'Workspace should be created for solo user');
+        $this->assertNotNull($master->workspace, 'Workspace relation should be loaded');
+
+        $subscription = $result['subscription'];
+        $this->assertEquals($master->workspace_id, $subscription->workspace_id, 'Subscription should be tied to the created workspace');
+
+        $this->assertDatabaseHas('workspaces', [
+            'owner_id' => $master->id,
+        ]);
     }
 }
