@@ -27,7 +27,9 @@ class ClientController extends Controller
         }
 
         if ($user->role->canManageTeam()) {
-            $masterIds = $user->workspace->users()->where('is_master', true)->pluck('id')->toArray();
+            $masterIds = $user->workspace
+                ? $user->workspace->users()->where('is_master', true)->pluck('id')->toArray()
+                : [$user->id];
         } else {
             $masterIds = [$user->id];
         }

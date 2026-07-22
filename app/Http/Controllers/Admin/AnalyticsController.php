@@ -28,7 +28,9 @@ class AnalyticsController extends Controller
         }
 
         if ($user->role->canManageTeam()) {
-            $targetMasters = $user->workspace->users()->where('is_master', true)->get();
+            $targetMasters = $user->workspace
+                ? $user->workspace->users()->where('is_master', true)->get()
+                : collect([$user]);
         } else {
             $targetMasters = collect([$user]);
         }
