@@ -68,9 +68,13 @@ class SlugGateTest extends TestCase
             'master_slug' => 'hacked-slug',
         ]);
 
+        $this->assertDatabaseMissing('users', [
+            'id' => $user->id,
+            'master_slug' => 'hacked-slug',
+        ]);
+
         $this->assertDatabaseHas('users', [
             'id' => $user->id,
-            'master_slug' => 'original-slug',
             'name' => 'Updated Name',
         ]);
     }
