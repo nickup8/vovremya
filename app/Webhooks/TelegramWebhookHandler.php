@@ -739,7 +739,9 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $user = User::where('phone', $phone)->first();
+        $user = User::where('telegram_id', $telegramId)
+            ->orWhere('phone', $phone)
+            ->first();
 
         if (! $user) {
             $baseName = trim($firstName . ' ' . $lastName);
