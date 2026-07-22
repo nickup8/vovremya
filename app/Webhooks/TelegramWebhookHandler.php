@@ -514,9 +514,25 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $user = User::where('telegram_id', $telegramId)
-            ->orWhere('phone', $phone)
-            ->first();
+        $user = User::where('telegram_id', $telegramId)->first();
+
+        if (! $user) {
+            $user = User::where('phone', $phone)->first();
+
+            if ($user && $user->telegram_id && $user->telegram_id !== $telegramId) {
+                $this->chat->html('❌ Этот номер телефона уже привязан к другому Telegram-аккаунту.')->send();
+                Cache::forget('inv_token_' . $chatId);
+
+                return;
+            }
+        }
+
+        if ($user && $user->workspace_id && $user->workspace_id !== $invite->workspace_id) {
+            $this->chat->html('❌ Вы уже состоите в другой команде.')->send();
+            Cache::forget('inv_token_' . $chatId);
+
+            return;
+        }
 
         if (! $user) {
             $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name') . ' ' . $phone;
@@ -739,9 +755,17 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $user = User::where('telegram_id', $telegramId)
-            ->orWhere('phone', $phone)
-            ->first();
+        $user = User::where('telegram_id', $telegramId)->first();
+
+        if (! $user) {
+            $user = User::where('phone', $phone)->first();
+
+            if ($user && $user->telegram_id && $user->telegram_id !== $telegramId) {
+                $this->chat->html('❌ Этот номер телефона уже привязан к другому Telegram-аккаунту.')->send();
+
+                return;
+            }
+        }
 
         if (! $user) {
             $baseName = trim($firstName . ' ' . $lastName);
