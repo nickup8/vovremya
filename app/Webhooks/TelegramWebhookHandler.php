@@ -47,21 +47,29 @@ class TelegramWebhookHandler extends WebhookHandler
                 ->where('expires_at', '>', now())
                 ->first();
 
-            if ($invite) {
-                $user = User::firstOrCreate(
-                    ['telegram_id' => $chatId],
-                    ['name' => 'Новый мастер']
-                );
-
-                $user->update([
-                    'workspace_id' => $invite->workspace_id,
-                    'role' => 'master',
-                ]);
-
-                $invite->delete();
-                $this->chat->html('✅ Вы успешно присоединены к команде! Откройте приложение, чтобы настроить свой график.')->send();
-            } else {
+            if (! $invite) {
                 $this->chat->html('❌ Ссылка-приглашение недействительна или просрочена.')->send();
+
+                return;
+            }
+
+            Cache::put('inv_token_' . $chatId, $token, now()->addMinutes(30));
+
+            $message = 'Для присоединения к команде салона, пожалуйста, поделитесь номером телефона, нажав на кнопку ниже.';
+
+            $keyboard = ReplyKeyboard::make()
+                ->button(__('bot.buttons.share_phone'))->requestContact()
+                ->resize()
+                ->oneTime();
+
+            try {
+                $this->chat->html($message)
+                    ->replyKeyboard($keyboard)
+                    ->send();
+            } catch (Throwable $e) {
+                Log::error('[TG] start(inv_) send FAILED', [
+                    'error' => $e->getMessage(),
+                ]);
             }
 
             return;
@@ -443,6 +451,15 @@ class TelegramWebhookHandler extends WebhookHandler
     {
         $chatId = $this->chat->chat_id;
 
+        // Проверяем флоу инвайта
+        $invToken = Cache::get('inv_token_' . $chatId);
+
+        if ($invToken) {
+            $this->handleInviteContact($contact, $chatId, $invToken);
+
+            return;
+        }
+
         // Проверяем флоу бронирования
         $draftAppointmentId = Cache::pull(CacheKeys::TG_BOOKING_DRAFT . $chatId);
 
@@ -462,6 +479,99 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         Log::info('[TG] handleContact: no active flow', ['chat_id' => $chatId]);
+    }
+
+    /**
+     * Обработка контакта в флоу инвайта
+     */
+    private function handleInviteContact(array $contact, string $chatId, string $invToken): void
+    {
+        $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
+        $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
+        $firstName = $contact['first_name'] ?? '';
+        $lastName = $contact['last_name'] ?? '';
+        $fullName = trim($firstName . ' ' . $lastName);
+
+        Log::info('[TG] handleInviteContact()', [
+            'chat_id' => $chatId,
+            'phone' => $phone,
+        ]);
+
+        if (empty($phone)) {
+            $this->chat->html(__('bot.errors.phone_detection_failed'))->send();
+
+            return;
+        }
+
+        $invite = WorkspaceInvite::where('token', $invToken)
+            ->where('expires_at', '>', now())
+            ->first();
+
+        if (! $invite) {
+            $this->chat->html('❌ Ссылка-приглашение недействительна или просрочена.')->send();
+            Cache::forget('inv_token_' . $chatId);
+
+            return;
+        }
+
+        $user = User::where('phone', $phone)->first();
+
+        if (! $user) {
+            $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name') . ' ' . $phone;
+
+            $slug = Str::slug($baseName);
+            $originalSlug = $slug;
+
+            $counter = 1;
+            while (User::where('master_slug', $slug)->exists()) {
+                $slug = $originalSlug . '-' . $counter;
+                $counter++;
+            }
+
+            $user = User::create([
+                'name' => $baseName,
+                'phone' => $phone,
+                'telegram_id' => $telegramId,
+                'telegram_notifications' => true,
+                'is_master' => true,
+                'master_slug' => $slug,
+                'workspace_id' => $invite->workspace_id,
+                'role' => 'staff',
+            ]);
+
+            Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
+        } else {
+            $user->update([
+                'telegram_id' => $telegramId,
+                'telegram_notifications' => true,
+                'name' => $fullName !== '' ? $fullName : $user->name,
+                'workspace_id' => $invite->workspace_id,
+                'role' => 'staff',
+                'is_master' => true,
+            ]);
+
+            Log::info('[TG] handleInviteContact: existing user updated', ['user_id' => $user->id]);
+        }
+
+        $this->syncTelegramAvatar($user, $telegramId);
+
+        $invite->delete();
+        Cache::forget('inv_token_' . $chatId);
+
+        try {
+            $this->chat->html('✅ Вы успешно добавлены в команду! Теперь вы можете управлять своими записями.')
+                ->removeReplyKeyboard()
+                ->send();
+        } catch (Throwable $e) {
+            Log::error('[TG] handleInviteContact: confirmation FAILED', [
+                'error' => $e->getMessage(),
+            ]);
+        }
+
+        Log::info('[TG] handleInviteContact: success', [
+            'user_id' => $user->id,
+            'chat_id' => $chatId,
+        ]);
     }
 
     /**
