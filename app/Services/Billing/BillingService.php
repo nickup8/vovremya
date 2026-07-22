@@ -8,6 +8,7 @@ use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Payment\PaymentGatewayInterface;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 
 class BillingService
 {
@@ -35,25 +36,33 @@ class BillingService
 
     public function subscribe(User $master, TariffPlan $plan, int $periodMonths): array
     {
-        $price = $this->calculatePrice($plan, $periodMonths);
+        return DB::transaction(function () use ($master, $plan, $periodMonths) {
+            // Если у пользователя нет workspace — создаём при первой оплате
+            if (! $master->workspace_id) {
+                $workspace = app(\App\Services\WorkspaceService::class)->createForUser($master);
+                $master->refresh();
+            }
 
-        $subscription = Subscription::create([
-            'workspace_id' => $master->workspace_id,
-            'tariff_plan_id' => $plan->id,
-            'period_months' => $periodMonths,
-            'amount_paid' => $price['final'],
-            'status' => 'pending',
-            'starts_at' => Carbon::now(),
-            'expires_at' => Carbon::now()->copy()->addMonths($periodMonths),
-        ]);
+            $price = $this->calculatePrice($plan, $periodMonths);
 
-        $paymentResult = $this->gateway->createPayment($subscription, $price['final']);
+            $subscription = Subscription::create([
+                'workspace_id' => $master->workspace_id,
+                'tariff_plan_id' => $plan->id,
+                'period_months' => $periodMonths,
+                'amount_paid' => $price['final'],
+                'status' => 'pending',
+                'starts_at' => Carbon::now(),
+                'expires_at' => Carbon::now()->copy()->addMonths($periodMonths),
+            ]);
 
-        $subscription->update(['payment_id' => $paymentResult['payment_id']]);
+            $paymentResult = $this->gateway->createPayment($subscription, $price['final']);
 
-        return [
-            'subscription' => $subscription,
-            'confirmation_url' => $paymentResult['confirmation_url'],
-        ];
+            $subscription->update(['payment_id' => $paymentResult['payment_id']]);
+
+            return [
+                'subscription' => $subscription,
+                'confirmation_url' => $paymentResult['confirmation_url'],
+            ];
+        });
     }
 }
