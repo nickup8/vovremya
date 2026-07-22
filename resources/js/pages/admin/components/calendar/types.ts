@@ -11,6 +11,8 @@ export interface Appointment {
     duration: number;
     price: number;
     status: AppointmentStatus;
+    master_id?: number;
+    master_name?: string;
 }
 
 export interface BlockedTime {
@@ -18,6 +20,7 @@ export interface BlockedTime {
     start_datetime: string;
     end_datetime: string;
     reason: string;
+    user_id?: number;
 }
 
 export interface ClientOption {
@@ -49,6 +52,11 @@ export interface WorkingHour {
     is_working: boolean;
 }
 
+export interface MasterOption {
+    id: number;
+    name: string;
+}
+
 export interface PageProps {
     appointments: Appointment[];
     initialBlockedTimes: BlockedTime[];
@@ -59,6 +67,7 @@ export interface PageProps {
     timezoneConfirmed: boolean;
     prefillClientId?: string;
     auth?: { user?: AuthUser };
+    masters?: MasterOption[];
     [key: string]: unknown;
 }
 

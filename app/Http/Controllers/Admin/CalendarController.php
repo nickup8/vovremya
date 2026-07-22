@@ -157,6 +157,13 @@ class CalendarController extends Controller
             $timezoneConfirmed = $master->isTimezoneConfirmed();
         }
 
+        $masters = [];
+        if (in_array($master->role, ['owner', 'admin'])) {
+            $masters = $master->workspace->users()->where('is_master', true)
+                ->select('id', 'name')
+                ->get();
+        }
+
         return Inertia::render('admin/calendar', [
             'appointments' => $appointments,
             'blockedTimes' => $blockedTimes,
@@ -167,6 +174,7 @@ class CalendarController extends Controller
             'timezone' => $timezone,
             'timezoneConfirmed' => $timezoneConfirmed,
             'prefillClientId' => $request->query('client_id'),
+            'masters' => $masters,
         ]);
     }
 

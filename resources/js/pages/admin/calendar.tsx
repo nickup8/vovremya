@@ -25,7 +25,7 @@ import { useCalendarData } from '@/hooks/useCalendarData';
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
-    const { appointments: initialAppointments = [], initialBlockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [], initialBlockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth, masters = [] } = usePage<PageProps>().props;
 
     const {
         selected, setSelected,
@@ -70,6 +70,7 @@ export default function CalendarPage() {
     const [weekOffset, setWeekOffset] = useState(0);
     const [monthOffset, setMonthOffset] = useState(0);
     const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+    const [selectedMasterId, setSelectedMasterId] = useState<string>('all');
 
     const today = new Date();
     const centerDate = useMemo(() => {
@@ -93,9 +94,19 @@ export default function CalendarPage() {
     // ═══════════════ Appointments Data ═══════════════
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
+    const filteredAppointments = useMemo(() => {
+        if (selectedMasterId === 'all') return initialAppointments;
+        return initialAppointments.filter(app => String(app.master_id) === selectedMasterId);
+    }, [initialAppointments, selectedMasterId]);
+
+    const filteredBlockedTimes = useMemo(() => {
+        if (selectedMasterId === 'all') return initialBlockedTimes;
+        return initialBlockedTimes.filter(bt => String(bt.user_id) === selectedMasterId);
+    }, [initialBlockedTimes, selectedMasterId]);
+
     const { localAppointments, getAppointmentsForDay, getBlockedTimesForDay } = useCalendarData({
-        initialAppointments,
-        initialBlockedTimes,
+        initialAppointments: filteredAppointments,
+        initialBlockedTimes: filteredBlockedTimes,
         authUserId: auth?.user?.id,
         weekDateKeys,
         selectedId: selected?.id,
@@ -157,6 +168,9 @@ export default function CalendarPage() {
                                 onToday={() => { setWeekOffset(0); setMonthOffset(0); }}
                                 onToggleView={toggleViewMode}
                                 onNewAppointment={openNewAppointment}
+                                masters={masters}
+                                selectedMasterId={selectedMasterId}
+                                onMasterChange={setSelectedMasterId}
                             />
 
                             {/* ─── Booking Mode Banner ─── */}
@@ -204,7 +218,7 @@ export default function CalendarPage() {
                             {/* ─── Calendar Content ─── */}
                             {viewMode === 'month' ? (
                                 <MonthView
-                                    appointments={localAppointments}
+                                    appointments={filteredAppointments}
                                     centerDate={monthCenterDate}
                                     onDayClick={openDetail}
                                     onEmptyDayClick={(dateKey) => openNewAppointmentForDate(dateKey)}
@@ -218,7 +232,7 @@ export default function CalendarPage() {
                                     slotInterval={slotInterval}
                                     workingHours={workingHours}
                                     localAppointments={localAppointments}
-                                    initialBlockedTimes={initialBlockedTimes}
+                                    initialBlockedTimes={filteredBlockedTimes}
                                     activeBookingClient={activeBookingClient}
                                     bookingModeServiceId={bookingModeServiceId}
                                     bookingModeService={bookingModeService}
