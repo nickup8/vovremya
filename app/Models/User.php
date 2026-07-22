@@ -117,6 +117,20 @@ class User extends Authenticatable implements PasskeyUser
         return (bool) $this->is_blocked;
     }
 
+    /**
+     * Мастер действует как одиночка, если:
+     * — у него нет workspace (workspace_id === null), ИЛИ
+     * — его workspace не имеет активной подписки (тариф студии истёк → откат на Старт).
+     */
+    public function isSolo(): bool
+    {
+        if ($this->workspace_id === null) {
+            return true;
+        }
+
+        return $this->workspace?->activeSubscription() === null;
+    }
+
     public function getTimezone(): string
     {
         return $this->settings['timezone'] ?? config('booking.default_timezone');
