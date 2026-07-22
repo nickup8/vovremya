@@ -67,7 +67,6 @@ class PaymentWebhookController extends Controller
 
     private function activateSubscription(Subscription $subscription): void
     {
-        $user = $subscription->user;
         $plan = $subscription->tariffPlan;
 
         if (! $plan) {
@@ -76,9 +75,7 @@ class PaymentWebhookController extends Controller
             return;
         }
 
-        $user->update([
-            'tariff' => $plan->code,
-            'expires_at' => $subscription->expires_at,
-        ]);
+        // Activation is done through Subscription status (active) + expires_at.
+        // No need to write to users table — tariff is read via workspace->activeSubscription().
     }
 }

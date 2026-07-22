@@ -38,7 +38,7 @@ class BillingService
         $price = $this->calculatePrice($plan, $periodMonths);
 
         $subscription = Subscription::create([
-            'user_id' => $master->id,
+            'workspace_id' => $master->workspace_id,
             'tariff_plan_id' => $plan->id,
             'period_months' => $periodMonths,
             'amount_paid' => $price['final'],
