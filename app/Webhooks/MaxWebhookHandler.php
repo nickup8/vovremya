@@ -427,14 +427,7 @@ class MaxWebhookHandler
                 $baseName = __('bot.fallback.master_name') . ' ' . $phone;
             }
 
-            $slug = Str::slug($baseName);
-            $originalSlug = $slug;
-
-            $counter = 1;
-            while (User::where('master_slug', $slug)->exists()) {
-                $slug = $originalSlug . '-' . $counter;
-                $counter++;
-            }
+            $slug = app(\App\Services\SlugService::class)->generate(null, $firstName, $lastName);
 
             try {
                 $user = User::create([

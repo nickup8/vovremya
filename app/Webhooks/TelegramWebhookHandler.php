@@ -537,14 +537,8 @@ class TelegramWebhookHandler extends WebhookHandler
         if (! $user) {
             $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name') . ' ' . $phone;
 
-            $slug = Str::slug($baseName);
-            $originalSlug = $slug;
-
-            $counter = 1;
-            while (User::where('master_slug', $slug)->exists()) {
-                $slug = $originalSlug . '-' . $counter;
-                $counter++;
-            }
+            $username = $this->request->input('message.from.username');
+            $slug = app(\App\Services\SlugService::class)->generate($username, $firstName, $lastName);
 
             $user = User::create([
                 'name' => $baseName,
@@ -775,14 +769,8 @@ class TelegramWebhookHandler extends WebhookHandler
                 $baseName = __('bot.fallback.master_name') . ' ' . $phone;
             }
 
-            $slug = Str::slug($baseName);
-            $originalSlug = $slug;
-
-            $counter = 1;
-            while (User::where('master_slug', $slug)->exists()) {
-                $slug = $originalSlug . '-' . $counter;
-                $counter++;
-            }
+            $username = $this->request->input('message.from.username');
+            $slug = app(\App\Services\SlugService::class)->generate($username, $firstName, $lastName);
 
             $user = User::create([
                 'name' => $baseName,
