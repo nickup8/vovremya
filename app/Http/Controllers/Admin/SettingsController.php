@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedTime;
 use App\Models\Service;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
@@ -16,9 +17,31 @@ use Inertia\Response as InertiaResponse;
 
 class SettingsController extends Controller
 {
-    public function index(): InertiaResponse
+    public function index(Request $request): InertiaResponse
     {
         $user = auth()->user();
+        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
+
+        // Определяем target-мастера
+        if ($isAdminOrOwner) {
+            $targetMasterId = $request->query('master_id');
+            if ($targetMasterId) {
+                $targetMaster = User::where('id', $targetMasterId)
+                    ->where('workspace_id', $user->workspace_id)
+                    ->where('is_master', true)
+                    ->firstOrFail();
+            } else {
+                $targetMaster = $user;
+            }
+
+            $masters = $user->workspace->users()
+                ->where('is_master', true)
+                ->select('id', 'name')
+                ->get();
+        } else {
+            $targetMaster = $user;
+            $masters = [];
+        }
 
         // Генерация токена для привязки Telegram, если он еще не создан
         if (! $user->telegram_chat_id && ! $user->telegram_auth_token) {
@@ -71,9 +94,11 @@ class SettingsController extends Controller
                 'custom_prepayment_message' => $user->getCustomPrepaymentMessage(),
                 'reminder_hours_before_final' => $user->getReminderHoursBeforeFinal(),
             ],
-            'services' => $user->services()->get(),
-            'workingHours' => $user->workingHours()->get(),
-            'blockedTimes' => $user->blockedTimes()->get(),
+            'services' => $targetMaster->services()->get(),
+            'workingHours' => $targetMaster->workingHours()->get(),
+            'blockedTimes' => $targetMaster->blockedTimes()->get(),
+            'masters' => $masters,
+            'selectedMasterId' => $targetMaster->id,
         ]);
     }
 
@@ -181,25 +206,34 @@ class SettingsController extends Controller
     public function storeService(Request $request)
     {
         $user = auth()->user();
+        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
 
         $validated = $request->validate([
             'title' => 'required|string|max:255',
             'duration_minutes' => 'required|integer|min:1',
             'price' => 'required|numeric|min:0',
+            'master_id' => 'nullable|uuid|exists:users,id',
         ]);
 
-        $user->services()->create($validated);
+        if ($isAdminOrOwner && ! empty($validated['master_id'])) {
+            $targetMaster = User::where('id', $validated['master_id'])
+                ->where('workspace_id', $user->workspace_id)
+                ->where('is_master', true)
+                ->firstOrFail();
+        } else {
+            $targetMaster = $user;
+        }
+
+        unset($validated['master_id']);
+
+        $targetMaster->services()->create($validated);
 
         return back()->with('success', 'Услуга добавлена');
     }
 
     public function updateService(Request $request, Service $service)
     {
-        $user = auth()->user();
-
-        if ($service->user_id !== $user->id) {
-            abort(403);
-        }
+        $this->authorize('update', $service);
 
         $validated = $request->validate([
             'title' => 'required|string|max:255',
@@ -214,11 +248,7 @@ class SettingsController extends Controller
 
     public function destroyService(Service $service)
     {
-        $user = auth()->user();
-
-        if ($service->user_id !== $user->id) {
-            abort(403);
-        }
+        $this->authorize('delete', $service);
 
         $service->delete();
 
@@ -228,6 +258,7 @@ class SettingsController extends Controller
     public function updateWorkingHours(Request $request)
     {
         $user = auth()->user();
+        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
 
         $validated = $request->validate([
             'working_hours' => 'required|array|min:1|max:7',
@@ -238,13 +269,25 @@ class SettingsController extends Controller
             'working_hours.*.break_start_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'working_hours.*.break_end_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'slot_interval' => 'required|integer|in:15,30,60',
+            'master_id' => 'nullable|uuid|exists:users,id',
         ]);
+
+        if ($isAdminOrOwner && ! empty($validated['master_id'])) {
+            $targetMaster = User::where('id', $validated['master_id'])
+                ->where('workspace_id', $user->workspace_id)
+                ->where('is_master', true)
+                ->firstOrFail();
+        } else {
+            $targetMaster = $user;
+        }
+
+        unset($validated['master_id']);
 
         $errors = [];
 
         foreach ($validated['working_hours'] as $index => $hour) {
             if (! $hour['is_working']) {
-                $user->workingHours()->updateOrCreate(
+                $targetMaster->workingHours()->updateOrCreate(
                     ['day_of_week' => $hour['day_of_week']],
                     [
                         'is_working' => false,
@@ -302,7 +345,7 @@ class SettingsController extends Controller
                 }
             }
 
-            $user->workingHours()->updateOrCreate(
+            $targetMaster->workingHours()->updateOrCreate(
                 ['day_of_week' => $hour['day_of_week']],
                 [
                     'is_working' => true,
@@ -318,7 +361,7 @@ class SettingsController extends Controller
             return back()->withErrors($errors)->withInput();
         }
 
-        $user->update(['slot_interval' => $validated['slot_interval']]);
+        $targetMaster->update(['slot_interval' => $validated['slot_interval']]);
 
         return back()->with('success', 'График работы обновлён');
     }
@@ -326,14 +369,27 @@ class SettingsController extends Controller
     public function storeBlockedTime(Request $request)
     {
         $user = auth()->user();
+        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
 
         $validated = $request->validate([
             'start_datetime' => 'required|date',
             'end_datetime' => 'required|date|after:start_datetime',
             'reason' => ['required', Rule::in(array_column(\App\Enums\BlockedTimeReason::cases(), 'value'))],
+            'master_id' => 'nullable|uuid|exists:users,id',
         ]);
 
-        $user->blockedTimes()->create($validated);
+        if ($isAdminOrOwner && ! empty($validated['master_id'])) {
+            $targetMaster = User::where('id', $validated['master_id'])
+                ->where('workspace_id', $user->workspace_id)
+                ->where('is_master', true)
+                ->firstOrFail();
+        } else {
+            $targetMaster = $user;
+        }
+
+        unset($validated['master_id']);
+
+        $targetMaster->blockedTimes()->create($validated);
 
         return back()->with('success', 'Блокировка добавлена');
     }
@@ -342,8 +398,14 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
-        if ($blockedTime->user_id !== $user->id) {
-            abort(403);
+        if (in_array($user->role, ['owner', 'admin'])) {
+            abort_unless(
+                $blockedTime->user->workspace_id === $user->workspace_id,
+                403,
+                'Блокировка принадлежит другому workspace.'
+            );
+        } else {
+            abort_unless($blockedTime->user_id === $user->id, 403);
         }
 
         $blockedTime->delete();
