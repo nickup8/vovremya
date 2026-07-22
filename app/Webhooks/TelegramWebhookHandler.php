@@ -554,8 +554,9 @@ class TelegramWebhookHandler extends WebhookHandler
                 'is_master' => true,
                 'master_slug' => $slug,
                 'workspace_id' => $invite->workspace_id,
-                'role' => 'staff',
             ]);
+            $user->role = 'staff';
+            $user->save();
 
             Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
         } else {
@@ -564,9 +565,10 @@ class TelegramWebhookHandler extends WebhookHandler
                 'telegram_notifications' => true,
                 'name' => $fullName !== '' ? $fullName : $user->name,
                 'workspace_id' => $invite->workspace_id,
-                'role' => 'staff',
                 'is_master' => true,
             ]);
+            $user->role = 'staff';
+            $user->save();
 
             Log::info('[TG] handleInviteContact: existing user updated', ['user_id' => $user->id]);
         }

@@ -7,6 +7,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class TeamResourceManagementTest extends TestCase
@@ -27,9 +28,8 @@ class TeamResourceManagementTest extends TestCase
         parent::setUp();
 
         // Workspace A — owner first (owner_id NOT NULL)
-        $this->ownerA = User::factory()->master()->create([
-            'role' => 'owner',
-        ]);
+        $this->ownerA = User::factory()->master()->create();
+        DB::table('users')->where('id', $this->ownerA->id)->update(['role' => 'owner']);
 
         $this->workspaceA = Workspace::create([
             'name' => 'Salon A',
@@ -40,21 +40,22 @@ class TeamResourceManagementTest extends TestCase
 
         $this->adminA = User::factory()->master()->create([
             'workspace_id' => $this->workspaceA->id,
-            'role' => 'admin',
         ]);
+        DB::table('users')->where('id', $this->adminA->id)->update(['role' => 'admin']);
 
         $this->staff1 = User::factory()->master()->create([
             'workspace_id' => $this->workspaceA->id,
-            'role' => 'staff',
         ]);
+        DB::table('users')->where('id', $this->staff1->id)->update(['role' => 'staff']);
 
         $this->staff2 = User::factory()->master()->create([
             'workspace_id' => $this->workspaceA->id,
-            'role' => 'staff',
         ]);
+        DB::table('users')->where('id', $this->staff2->id)->update(['role' => 'staff']);
 
         // Workspace B
-        $masterBOwner = User::factory()->master()->create(['role' => 'owner']);
+        $masterBOwner = User::factory()->master()->create();
+        DB::table('users')->where('id', $masterBOwner->id)->update(['role' => 'owner']);
 
         $this->workspaceB = Workspace::create([
             'name' => 'Salon B',
@@ -63,8 +64,8 @@ class TeamResourceManagementTest extends TestCase
 
         $this->masterB = User::factory()->master()->create([
             'workspace_id' => $this->workspaceB->id,
-            'role' => 'staff',
         ]);
+        DB::table('users')->where('id', $this->masterB->id)->update(['role' => 'staff']);
 
         $masterBOwner->update(['workspace_id' => $this->workspaceB->id]);
     }

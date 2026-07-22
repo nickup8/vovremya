@@ -120,8 +120,9 @@ class MaxWebhookHandler
 
                 $user->update([
                     'workspace_id' => $invite->workspace_id,
-                    'role' => 'master',
                 ]);
+                $user->role = 'master';
+                $user->save();
 
                 $invite->delete();
                 $this->sendMessage($userId, '✅ Вы успешно присоединены к команде! Откройте приложение, чтобы настроить свой график.');
@@ -213,8 +214,9 @@ class MaxWebhookHandler
 
                         $user->update([
                             'workspace_id' => $invite->workspace_id,
-                            'role' => 'master',
                         ]);
+                        $user->role = 'master';
+                        $user->save();
 
                         $invite->delete();
                         $this->sendMessage($userId, '✅ Вы успешно присоединены к команде! Откройте приложение, чтобы настроить свой график.');
