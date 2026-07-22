@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\UserRole;
 use App\Models\Client;
 use App\Models\User;
 
@@ -9,7 +10,7 @@ class ClientPolicy
 {
     public function before(User $user, string $ability, mixed $model = null): ?bool
     {
-        if (in_array($user->role, ['owner', 'admin'])) {
+        if ($user->role->canManageTeam()) {
             if ($model instanceof Client && $model->user_id) {
                 $owner = User::find($model->user_id);
                 if ($owner && $owner->workspace_id !== $user->workspace_id) {

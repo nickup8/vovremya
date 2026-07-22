@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedTime;
 use App\Models\Service;
@@ -20,7 +21,7 @@ class SettingsController extends Controller
     public function index(Request $request): InertiaResponse
     {
         $user = auth()->user();
-        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
+        $isAdminOrOwner = $user->role->canManageTeam();
 
         // Определяем target-мастера
         if ($isAdminOrOwner) {
@@ -206,7 +207,7 @@ class SettingsController extends Controller
     public function storeService(Request $request)
     {
         $user = auth()->user();
-        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
+        $isAdminOrOwner = $user->role->canManageTeam();
 
         $validated = $request->validate([
             'title' => 'required|string|max:255',
@@ -258,7 +259,7 @@ class SettingsController extends Controller
     public function updateWorkingHours(Request $request)
     {
         $user = auth()->user();
-        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
+        $isAdminOrOwner = $user->role->canManageTeam();
 
         $validated = $request->validate([
             'working_hours' => 'required|array|min:1|max:7',
@@ -369,7 +370,7 @@ class SettingsController extends Controller
     public function storeBlockedTime(Request $request)
     {
         $user = auth()->user();
-        $isAdminOrOwner = in_array($user->role, ['owner', 'admin']);
+        $isAdminOrOwner = $user->role->canManageTeam();
 
         $validated = $request->validate([
             'start_datetime' => 'required|date',
@@ -398,7 +399,7 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
-        if (in_array($user->role, ['owner', 'admin'])) {
+        if ($user->role->canManageTeam()) {
             abort_unless(
                 $blockedTime->user->workspace_id === $user->workspace_id,
                 403,

@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\UserRole;
 use App\Models\Service;
 use App\Models\User;
 
@@ -9,7 +10,7 @@ class ServicePolicy
 {
     public function before(User $user, string $ability, mixed $model = null): ?bool
     {
-        if (in_array($user->role, ['owner', 'admin'])) {
+        if ($user->role->canManageTeam()) {
             // Для update/delete — проверяем workspace через владельца услуги
             if ($model instanceof Service && $model->user_id) {
                 $owner = User::find($model->user_id);

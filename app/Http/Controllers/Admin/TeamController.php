@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\WorkspaceInvite;
 use Illuminate\Http\JsonResponse;
@@ -21,7 +22,7 @@ class TeamController extends Controller
             abort(404);
         }
 
-        if (! in_array($user->role, ['owner', 'admin'])) {
+        if (! $user->role->canManageTeam()) {
             abort(403, 'У вас нет прав для управления командой.');
         }
 
@@ -43,7 +44,7 @@ class TeamController extends Controller
             return response()->json(['error' => 'Workspace не найден'], 404);
         }
 
-        if (! in_array($user->role, ['owner', 'admin'])) {
+        if (! $user->role->canManageTeam()) {
             abort(403, 'У вас нет прав для управления командой.');
         }
 

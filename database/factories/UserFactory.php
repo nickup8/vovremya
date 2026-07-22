@@ -43,6 +43,7 @@ class UserFactory extends Factory
             'deposit_timeout' => 15,
             'deposit_percent' => 30,
             'slot_interval' => 30,
+            'role' => 'owner',
             'settings' => null,
         ];
     }

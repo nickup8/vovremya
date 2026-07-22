@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
@@ -25,12 +26,12 @@ class CalendarController extends Controller
     {
         $master = auth()->user();
 
-        if (! in_array($master->role, ['owner', 'admin']) && ! $master->is_master) {
+        if (! $master->role->canManageTeam() && ! $master->is_master) {
             return redirect()->route('client.bookings')
                 ->with('error', 'У вас нет доступа к календарю.');
         }
 
-        $isAdminOrOwner = in_array($master->role, ['owner', 'admin']);
+        $isAdminOrOwner = $master->role->canManageTeam();
 
         if ($isAdminOrOwner) {
             $masterIds = $master->workspace->users()->where('is_master', true)->pluck('id');
@@ -158,7 +159,7 @@ class CalendarController extends Controller
         }
 
         $masters = [];
-        if (in_array($master->role, ['owner', 'admin'])) {
+        if ($master->role->canManageTeam()) {
             $masters = $master->workspace->users()->where('is_master', true)
                 ->select('id', 'name')
                 ->get();
@@ -197,7 +198,7 @@ class CalendarController extends Controller
         $service = Service::findOrFail($validated['service_id']);
 
         // Проверка принадлежности услуги (защита от IDOR)
-        $isAdminOrOwner = in_array($master->role, ['owner', 'admin']);
+        $isAdminOrOwner = $master->role->canManageTeam();
         if (! $isAdminOrOwner && $service->user_id !== $master->id) {
             abort(403, 'У вас нет прав на использование этой услуги.');
         }

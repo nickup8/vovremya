@@ -2,6 +2,7 @@
 
 namespace App\Policies;
 
+use App\Enums\UserRole;
 use App\Models\Appointment;
 use App\Models\User;
 
@@ -9,7 +10,7 @@ class AppointmentPolicy
 {
     public function before(User $user, string $ability, mixed $model = null): ?bool
     {
-        if (in_array($user->role, ['owner', 'admin'])) {
+        if ($user->role->canManageTeam()) {
             if ($model instanceof Appointment && $model->master_id) {
                 $master = User::find($model->master_id);
                 if ($master && $master->workspace_id !== $user->workspace_id) {

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Services\Analytics\AnalyticsService;
@@ -21,12 +22,12 @@ class AnalyticsController extends Controller
     {
         $user = auth()->user();
 
-        if (! in_array($user->role, ['owner', 'admin']) && ! $user->is_master) {
+        if (! $user->role->canManageTeam() && ! $user->is_master) {
             return redirect()->route('client.bookings')
                 ->with('error', 'У вас нет доступа к аналитике.');
         }
 
-        if (in_array($user->role, ['owner', 'admin'])) {
+        if ($user->role->canManageTeam()) {
             $targetMasters = $user->workspace->users()->where('is_master', true)->get();
         } else {
             $targetMasters = collect([$user]);

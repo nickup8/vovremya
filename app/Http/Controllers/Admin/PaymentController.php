@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\TariffPlan;
 use App\Services\Billing\BillingService;
@@ -16,7 +17,7 @@ class PaymentController extends Controller
 
     public function createCheckout(Request $request): JsonResponse
     {
-        abort_unless(in_array(auth()->user()->role, ['owner', 'admin']), 403, 'Только руководитель может управлять подпиской.');
+        abort_unless(auth()->user()->role->canManageTeam(), 403, 'Только руководитель может управлять подпиской.');
 
         $validated = $request->validate([
             'tariff_plan_id' => 'required|exists:tariff_plans,id',
