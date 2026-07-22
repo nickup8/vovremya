@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Appointment;
 use App\Services\Analytics\AnalyticsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -18,12 +19,19 @@ class AnalyticsController extends Controller
 
     public function index(Request $request)
     {
-        $master = auth()->user();
+        $user = auth()->user();
 
-        if (! $master->is_master) {
+        if (! in_array($user->role, ['owner', 'admin']) && ! $user->is_master) {
             return redirect()->route('client.bookings')
-                ->with('error', 'У вас нет профиля мастера.');
+                ->with('error', 'У вас нет доступа к аналитике.');
         }
+
+        if (in_array($user->role, ['owner', 'admin'])) {
+            $targetMasters = $user->workspace->users()->where('is_master', true)->get();
+        } else {
+            $targetMasters = collect([$user]);
+        }
+        $masterIds = $targetMasters->pluck('id')->toArray();
 
         $period = $request->query('period', 'week');
         $dateFrom = $request->query('date_from');
@@ -34,7 +42,7 @@ class AnalyticsController extends Controller
             $dateTo = $dateTo ?? Carbon::today()->format('Y-m-d');
         }
 
-        $appointments = $master->masterAppointments()
+        $appointments = Appointment::whereIn('master_id', $masterIds)
             ->with('service')
             ->whereBetween('start_time', [
                 ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00',
@@ -47,14 +55,14 @@ class AnalyticsController extends Controller
         $serviceStats = $this->buildServiceStats($appointments);
 
         $periodStart = ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00';
-        $clientRetention = $this->buildClientRetention($master, $appointments, $periodStart);
+        $clientRetention = $this->buildClientRetention($masterIds, $appointments, $periodStart);
 
         $dateStart = $dateFrom ?? $this->getPeriodStart($period)->toDateString();
         $dateEnd = $dateTo ?? Carbon::now()->toDateString();
-        $utilization = $this->analyticsService->calculateUtilization($master, $appointments, $dateStart, $dateEnd);
+        $utilization = $this->analyticsService->calculateUtilization($targetMasters, $appointments, $dateStart, $dateEnd);
 
         [$prevStart, $prevEnd] = $this->getPreviousPeriodDates($period, $dateFrom, $dateTo);
-        $prevAppointments = $master->masterAppointments()
+        $prevAppointments = Appointment::whereIn('master_id', $masterIds)
             ->with('service')
             ->whereBetween('start_time', [
                 $prevStart->startOfDay()->toDateTimeString(),
@@ -64,7 +72,7 @@ class AnalyticsController extends Controller
 
         $prevMetrics = $this->analyticsService->calculateMetrics($prevAppointments);
         $prevUtilization = $this->analyticsService->calculateUtilization(
-            $master,
+            $targetMasters,
             $prevAppointments,
             $prevStart->toDateString(),
             $prevEnd->toDateString(),
@@ -260,7 +268,7 @@ class AnalyticsController extends Controller
         return $stats->sortByDesc('count')->values()->take(10)->toArray();
     }
 
-    private function buildClientRetention($master, Collection $appointments, string $periodStart): array
+    private function buildClientRetention(array $masterIds, Collection $appointments, string $periodStart): array
     {
         $completed = $this->analyticsService->getCompleted($appointments);
         $currentClientIds = $completed->pluck('client_id')->filter()->unique()->values();
@@ -269,7 +277,7 @@ class AnalyticsController extends Controller
             return ['new_clients_count' => 0, 'returning_clients_count' => 0, 'first_visit_conversion' => null];
         }
 
-        $previousClientIds = $master->masterAppointments()
+        $previousClientIds = Appointment::whereIn('master_id', $masterIds)
             ->where('status', AppointmentStatus::Paid)
             ->where('start_time', '<', $periodStart)
             ->whereIn('client_id', $currentClientIds)

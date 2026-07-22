@@ -46,7 +46,7 @@ class AnalyticsService
         return $appointments->filter(fn ($app) => $app->status === AppointmentStatus::Paid);
     }
 
-    public function calculateUtilization($master, Collection $appointments, string $startDate, string $endDate): int
+    public function calculateUtilization(Collection $masters, Collection $appointments, string $startDate, string $endDate): int
     {
         $occupied = $appointments->filter(fn ($app) => in_array($app->status, [
             AppointmentStatus::Paid,
@@ -57,54 +57,57 @@ class AnalyticsService
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();
 
-        $workingHours = WorkingHour::where('user_id', $master->id)->get()->keyBy('day_of_week');
-        $hasAnySchedule = $workingHours->isNotEmpty();
+        $totalAvailableMinutes = 0;
 
-        $blockedTimes = BlockedTime::where('user_id', $master->id)
-            ->where('start_datetime', '<', $end->copy()->addDay())
-            ->where('end_datetime', '>', $start)
-            ->get();
+        foreach ($masters as $master) {
+            $workingHours = WorkingHour::where('user_id', $master->id)->get()->keyBy('day_of_week');
+            $hasAnySchedule = $workingHours->isNotEmpty();
 
-        $availableMinutes = 0;
-        $current = $start->copy();
+            $blockedTimes = BlockedTime::where('user_id', $master->id)
+                ->where('start_datetime', '<', $end->copy()->addDay())
+                ->where('end_datetime', '>', $start)
+                ->get();
 
-        while ($current->lte($end)) {
-            $dayMinutes = 0;
-            $wh = $workingHours->get($current->dayOfWeek);
+            $current = $start->copy();
 
-            if ($wh && $wh->is_working && $wh->start_time && $wh->end_time) {
-                $dayMinutes = Carbon::parse($wh->start_time)->diffInMinutes(Carbon::parse($wh->end_time));
+            while ($current->lte($end)) {
+                $dayMinutes = 0;
+                $wh = $workingHours->get($current->dayOfWeek);
 
-                if ($wh->hasBreak()) {
-                    $dayMinutes -= Carbon::parse($wh->break_start_time)->diffInMinutes(Carbon::parse($wh->break_end_time));
+                if ($wh && $wh->is_working && $wh->start_time && $wh->end_time) {
+                    $dayMinutes = Carbon::parse($wh->start_time)->diffInMinutes(Carbon::parse($wh->end_time));
+
+                    if ($wh->hasBreak()) {
+                        $dayMinutes -= Carbon::parse($wh->break_start_time)->diffInMinutes(Carbon::parse($wh->break_end_time));
+                    }
+
+                    $dayMinutes = max($dayMinutes, 0);
+
+                    $dayStart = $current->copy()->startOfDay();
+                    $dayEnd = $current->copy()->endOfDay();
+
+                    $overlappingBlocked = $blockedTimes->filter(fn ($bt) =>
+                        $bt->start_datetime->lt($dayEnd) && $bt->end_datetime->gt($dayStart)
+                    );
+
+                    foreach ($overlappingBlocked as $bt) {
+                        $blockStart = max($bt->start_datetime->timestamp, $dayStart->timestamp);
+                        $blockEnd = min($bt->end_datetime->timestamp, $dayEnd->timestamp);
+                        $blockedMinutes = (int) round(($blockEnd - $blockStart) / 60);
+                        $dayMinutes -= $blockedMinutes;
+                    }
+
+                    $dayMinutes = max($dayMinutes, 0);
+                } elseif (! $hasAnySchedule) {
+                    $dayMinutes = in_array($current->dayOfWeek, [1, 2, 3, 4, 5]) ? 480 : 0;
                 }
 
-                $dayMinutes = max($dayMinutes, 0);
-
-                $dayStart = $current->copy()->startOfDay();
-                $dayEnd = $current->copy()->endOfDay();
-
-                $overlappingBlocked = $blockedTimes->filter(fn ($bt) =>
-                    $bt->start_datetime->lt($dayEnd) && $bt->end_datetime->gt($dayStart)
-                );
-
-                foreach ($overlappingBlocked as $bt) {
-                    $blockStart = max($bt->start_datetime->timestamp, $dayStart->timestamp);
-                    $blockEnd = min($bt->end_datetime->timestamp, $dayEnd->timestamp);
-                    $blockedMinutes = (int) round(($blockEnd - $blockStart) / 60);
-                    $dayMinutes -= $blockedMinutes;
-                }
-
-                $dayMinutes = max($dayMinutes, 0);
-            } elseif (! $hasAnySchedule) {
-                $dayMinutes = in_array($current->dayOfWeek, [1, 2, 3, 4, 5]) ? 480 : 0;
+                $totalAvailableMinutes += $dayMinutes;
+                $current->addDay();
             }
-
-            $availableMinutes += $dayMinutes;
-            $current->addDay();
         }
 
-        return $availableMinutes > 0 ? (int) round(($bookedMinutes / $availableMinutes) * 100) : 0;
+        return $totalAvailableMinutes > 0 ? (int) round(($bookedMinutes / max($totalAvailableMinutes, 1)) * 100) : 0;
     }
 
     public function calculateTrends(array $currentMetrics, array $prevMetrics, int $currentUtilization, int $prevUtilization): array
