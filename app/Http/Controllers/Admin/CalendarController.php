@@ -5,8 +5,10 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Models\BlockedTime;
 use App\Models\Client;
 use App\Models\Service;
+use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
@@ -22,69 +24,137 @@ class CalendarController extends Controller
     {
         $master = auth()->user();
 
-        if (! $master->is_master) {
+        if (! in_array($master->role, ['owner', 'admin']) && ! $master->is_master) {
             return redirect()->route('client.bookings')
-                ->with('error', 'У вас нет профиля мастера.');
+                ->with('error', 'У вас нет доступа к календарю.');
         }
 
-        $appointments = $master->masterAppointments()
-            ->with(['client', 'service'])
-            ->whereBetween('start_time', [
-                Carbon::now()->subWeeks(2)->startOfDay(),
-                Carbon::now()->addWeeks(2)->endOfDay(),
-            ])
-            ->whereNotNull('client_id')
-            ->get()
-            ->map(function (Appointment $a) use ($master) {
-                $tz = $master->getTimezone();
+        $isAdminOrOwner = in_array($master->role, ['owner', 'admin']);
 
-                return [
-                    'id' => $a->id,
-                    'client_name' => $a->client?->name ?? 'Клиент не указан',
-                    'client_phone' => $a->client?->phone,
-                    'client_avatar_url' => $a->client?->avatar_url,
-                    'service' => $a->service?->title ?? 'Услуга удалена',
-                    'duration' => $a->service?->duration_minutes ?? 0,
-                    'price' => (float) ($a->service?->price ?? 0),
-                    'time' => $a->start_time->timezone($tz)->format('H:i'),
-                    'date' => $a->start_time->timezone($tz)->format('Y-m-d'),
-                    'status' => $a->status,
-                ];
-            });
+        if ($isAdminOrOwner) {
+            $masterIds = $master->workspace->users()->where('is_master', true)->pluck('id');
 
-        $blockedTimes = $master->blockedTimes()
-            ->where('end_datetime', '>=', Carbon::now()->subWeeks(2)->startOfDay())
-            ->where('start_datetime', '<=', Carbon::now()->addWeeks(2)->endOfDay())
-            ->get()
-            ->map(fn ($bt) => [
-                'id' => $bt->id,
-                'start_datetime' => $bt->start_datetime->toISOString(),
-                'end_datetime' => $bt->end_datetime->toISOString(),
-                'reason' => $bt->reason->value,
-            ]);
+            $appointments = Appointment::whereIn('master_id', $masterIds)
+                ->with(['client', 'service', 'master'])
+                ->whereBetween('start_time', [
+                    Carbon::now()->subWeeks(2)->startOfDay(),
+                    Carbon::now()->addWeeks(2)->endOfDay(),
+                ])
+                ->whereNotNull('client_id')
+                ->get()
+                ->map(function (Appointment $a) {
+                    $tz = $a->master->getTimezone();
 
-        $workingHours = $master->workingHours()->get();
+                    return [
+                        'id' => $a->id,
+                        'client_name' => $a->client?->name ?? 'Клиент не указан',
+                        'client_phone' => $a->client?->phone,
+                        'client_avatar_url' => $a->client?->avatar_url,
+                        'service' => $a->service?->title ?? 'Услуга удалена',
+                        'duration' => $a->service?->duration_minutes ?? 0,
+                        'price' => (float) ($a->service?->price ?? 0),
+                        'time' => $a->start_time->timezone($tz)->format('H:i'),
+                        'date' => $a->start_time->timezone($tz)->format('Y-m-d'),
+                        'status' => $a->status,
+                        'master_id' => $a->master_id,
+                        'master_name' => $a->master?->name ?? 'Мастер',
+                    ];
+                });
 
-        $clients = Client::where('user_id', $master->id)
-            ->get()
-            ->map(fn (Client $c) => [
-                'id' => $c->id,
-                'name' => $c->name,
-                'phone' => $c->phone,
-            ]);
+            $blockedTimes = BlockedTime::whereIn('user_id', $masterIds)
+                ->where('end_datetime', '>=', Carbon::now()->subWeeks(2)->startOfDay())
+                ->where('start_datetime', '<=', Carbon::now()->addWeeks(2)->endOfDay())
+                ->get()
+                ->map(fn ($bt) => [
+                    'id' => $bt->id,
+                    'start_datetime' => $bt->start_datetime->toISOString(),
+                    'end_datetime' => $bt->end_datetime->toISOString(),
+                    'reason' => $bt->reason->value,
+                    'user_id' => $bt->user_id,
+                ]);
 
-        $services = $master->services()
-            ->get()
-            ->map(fn (Service $s) => [
-                'id' => $s->id,
-                'title' => $s->title,
-                'duration_minutes' => $s->duration_minutes,
-                'price' => (float) $s->price,
-            ]);
+            $workingHours = WorkingHour::whereIn('user_id', $masterIds)->get();
 
-        $slotInterval = $master->slot_interval ?? 30;
-        $timezone = $master->getTimezone();
-        $timezoneConfirmed = $master->isTimezoneConfirmed();
+            $clients = Client::whereIn('user_id', $masterIds)
+                ->get()
+                ->map(fn (Client $c) => [
+                    'id' => $c->id,
+                    'name' => $c->name,
+                    'phone' => $c->phone,
+                ]);
+
+            $services = Service::whereIn('user_id', $masterIds)
+                ->get()
+                ->map(fn (Service $s) => [
+                    'id' => $s->id,
+                    'title' => $s->title,
+                    'duration_minutes' => $s->duration_minutes,
+                    'price' => (float) $s->price,
+                ]);
+
+            $slotInterval = $master->slot_interval ?? 30;
+            $timezone = $master->getTimezone();
+            $timezoneConfirmed = $master->isTimezoneConfirmed();
+        } else {
+            $appointments = $master->masterAppointments()
+                ->with(['client', 'service'])
+                ->whereBetween('start_time', [
+                    Carbon::now()->subWeeks(2)->startOfDay(),
+                    Carbon::now()->addWeeks(2)->endOfDay(),
+                ])
+                ->whereNotNull('client_id')
+                ->get()
+                ->map(function (Appointment $a) use ($master) {
+                    $tz = $master->getTimezone();
+
+                    return [
+                        'id' => $a->id,
+                        'client_name' => $a->client?->name ?? 'Клиент не указан',
+                        'client_phone' => $a->client?->phone,
+                        'client_avatar_url' => $a->client?->avatar_url,
+                        'service' => $a->service?->title ?? 'Услуга удалена',
+                        'duration' => $a->service?->duration_minutes ?? 0,
+                        'price' => (float) ($a->service?->price ?? 0),
+                        'time' => $a->start_time->timezone($tz)->format('H:i'),
+                        'date' => $a->start_time->timezone($tz)->format('Y-m-d'),
+                        'status' => $a->status,
+                    ];
+                });
+
+            $blockedTimes = $master->blockedTimes()
+                ->where('end_datetime', '>=', Carbon::now()->subWeeks(2)->startOfDay())
+                ->where('start_datetime', '<=', Carbon::now()->addWeeks(2)->endOfDay())
+                ->get()
+                ->map(fn ($bt) => [
+                    'id' => $bt->id,
+                    'start_datetime' => $bt->start_datetime->toISOString(),
+                    'end_datetime' => $bt->end_datetime->toISOString(),
+                    'reason' => $bt->reason->value,
+                ]);
+
+            $workingHours = $master->workingHours()->get();
+
+            $clients = Client::where('user_id', $master->id)
+                ->get()
+                ->map(fn (Client $c) => [
+                    'id' => $c->id,
+                    'name' => $c->name,
+                    'phone' => $c->phone,
+                ]);
+
+            $services = $master->services()
+                ->get()
+                ->map(fn (Service $s) => [
+                    'id' => $s->id,
+                    'title' => $s->title,
+                    'duration_minutes' => $s->duration_minutes,
+                    'price' => (float) $s->price,
+                ]);
+
+            $slotInterval = $master->slot_interval ?? 30;
+            $timezone = $master->getTimezone();
+            $timezoneConfirmed = $master->isTimezoneConfirmed();
+        }
 
         return Inertia::render('admin/calendar', [
             'appointments' => $appointments,
@@ -117,8 +187,9 @@ class CalendarController extends Controller
 
         $service = Service::findOrFail($validated['service_id']);
 
-        // Проверка принадлежности услуги текущему мастеру (защита от IDOR)
-        if ($service->user_id !== $master->id) {
+        // Проверка принадлежности услуги (защита от IDOR)
+        $isAdminOrOwner = in_array($master->role, ['owner', 'admin']);
+        if (! $isAdminOrOwner && $service->user_id !== $master->id) {
             abort(403, 'У вас нет прав на использование этой услуги.');
         }
 

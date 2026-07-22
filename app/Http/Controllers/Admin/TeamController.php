@@ -21,8 +21,12 @@ class TeamController extends Controller
             abort(404);
         }
 
+        if (! in_array($user->role, ['owner', 'admin'])) {
+            abort(403, 'У вас нет прав для управления командой.');
+        }
+
         $maxMasters = $workspace->activeSubscription()?->tariffPlan?->max_masters;
-        $masters = $workspace->users()->where('role', 'master')->get();
+        $masters = $workspace->users()->where('is_master', true)->get();
 
         return Inertia::render('admin/team', [
             'masters' => $masters,
@@ -39,11 +43,15 @@ class TeamController extends Controller
             return response()->json(['error' => 'Workspace не найден'], 404);
         }
 
+        if (! in_array($user->role, ['owner', 'admin'])) {
+            abort(403, 'У вас нет прав для управления командой.');
+        }
+
         $subscription = $workspace->activeSubscription();
         $maxMasters = $subscription?->tariffPlan?->max_masters;
 
         if ($maxMasters !== null) {
-            $currentMasters = $workspace->users()->where('role', 'master')->count();
+            $currentMasters = $workspace->users()->where('is_master', true)->count();
 
             if ($currentMasters >= $maxMasters) {
                 return response()->json(['error' => 'Достигнут лимит мастеров для вашего тарифа'], 403);
