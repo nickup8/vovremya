@@ -141,6 +141,10 @@ class SettingsController extends Controller
 
         unset($validated['role'], $validated['workspace_id'], $validated['is_master']);
 
+        if (! $user->isSolo()) {
+            unset($validated['master_slug']);
+        }
+
         $jsonFields = ['booking_flow_type', 'custom_prepayment_message', 'reminder_hours_before_final'];
         $settingsData = array_intersect_key($validated, array_flip($jsonFields));
         $columnData = array_diff_key($validated, array_flip($jsonFields));
