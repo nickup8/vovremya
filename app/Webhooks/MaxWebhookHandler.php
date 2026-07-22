@@ -9,6 +9,7 @@ use App\Models\User;
 use App\Models\WorkspaceInvite;
 use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -406,7 +407,17 @@ class MaxWebhookHandler
     ): void {
         Log::info('[MAX] handleAuthContact', ['user_id' => $userId, 'phone' => $phone]);
 
-        $user = User::where('phone', $phone)->first();
+        $user = User::where('max_id', $userId)->first();
+
+        if (! $user) {
+            $user = User::where('phone', $phone)->first();
+
+            if ($user && $user->max_id && $user->max_id !== $userId) {
+                $this->sendMessage($userId, '❌ Этот номер телефона уже привязан к другому MAX-аккаунту.');
+
+                return;
+            }
+        }
 
         if (! $user) {
             $baseName = trim($firstName . ' ' . $lastName);
@@ -423,16 +434,22 @@ class MaxWebhookHandler
                 $counter++;
             }
 
-            $user = User::create([
-                'name' => $baseName,
-                'phone' => $phone,
-                'max_id' => $userId,
-                'max_notifications' => true,
-                'is_master' => true,
-                'master_slug' => $slug,
-            ]);
+            try {
+                $user = User::create([
+                    'name' => $baseName,
+                    'phone' => $phone,
+                    'max_id' => $userId,
+                    'max_notifications' => true,
+                    'is_master' => true,
+                    'master_slug' => $slug,
+                ]);
 
-            Log::info('[MAX] handleAuthContact: user created', ['user_id' => $user->id]);
+                Log::info('[MAX] handleAuthContact: user created', ['user_id' => $user->id]);
+            } catch (UniqueConstraintViolationException $e) {
+                Log::info('[MAX] handleAuthContact: user already created by parallel request');
+                $user = User::where('max_id', $userId)->first()
+                    ?? User::where('phone', $phone)->firstOrFail();
+            }
         } else {
             $updates = [];
 
