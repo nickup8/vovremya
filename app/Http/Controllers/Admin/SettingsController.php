@@ -35,10 +35,9 @@ class SettingsController extends Controller
                 $targetMaster = $user;
             }
 
-            $masters = $user->workspace->users()
-                ->where('is_master', true)
-                ->select('id', 'name')
-                ->get();
+            $masters = $user->workspace
+                ? $user->workspace->users()->where('is_master', true)->select('id', 'name')->get()
+                : [];
         } else {
             $targetMaster = $user;
             $masters = [];

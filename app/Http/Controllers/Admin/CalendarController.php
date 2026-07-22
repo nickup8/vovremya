@@ -34,7 +34,9 @@ class CalendarController extends Controller
         $isAdminOrOwner = $master->role->canManageTeam();
 
         if ($isAdminOrOwner) {
-            $masterIds = $master->workspace->users()->where('is_master', true)->pluck('id');
+            $masterIds = $master->workspace
+                ? $master->workspace->users()->where('is_master', true)->pluck('id')
+                : collect([$master->id]);
 
             $appointments = Appointment::whereIn('master_id', $masterIds)
                 ->with(['client', 'service', 'master'])
@@ -160,9 +162,9 @@ class CalendarController extends Controller
 
         $masters = [];
         if ($master->role->canManageTeam()) {
-            $masters = $master->workspace->users()->where('is_master', true)
-                ->select('id', 'name')
-                ->get();
+            $masters = $master->workspace
+                ? $master->workspace->users()->where('is_master', true)->select('id', 'name')->get()
+                : [];
         }
 
         return Inertia::render('admin/calendar', [

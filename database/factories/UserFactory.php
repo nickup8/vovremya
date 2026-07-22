@@ -2,6 +2,7 @@
 
 namespace Database\Factories;
 
+use App\Enums\UserRole;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 use Illuminate\Support\Facades\Hash;
@@ -43,7 +44,7 @@ class UserFactory extends Factory
             'deposit_timeout' => 15,
             'deposit_percent' => 30,
             'slot_interval' => 30,
-            'role' => 'owner',
+            'role' => UserRole::Owner,
             'settings' => null,
         ];
     }
