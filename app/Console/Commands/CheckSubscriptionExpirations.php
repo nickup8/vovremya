@@ -2,7 +2,8 @@
 
 namespace App\Console\Commands;
 
-use App\Models\User;
+use App\Enums\SubscriptionStatus;
+use App\Models\Subscription;
 use App\Services\Notification\MasterNotificationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -11,7 +12,7 @@ class CheckSubscriptionExpirations extends Command
 {
     protected $signature = 'subscriptions:check-expirations';
 
-    protected $description = 'Downgrade expired subscriptions to free tariff';
+    protected $description = 'Mark expired subscriptions as expired';
 
     public function __construct(
         private MasterNotificationService $notificationService,
@@ -21,32 +22,42 @@ class CheckSubscriptionExpirations extends Command
 
     public function handle(): int
     {
-        $expiredUsers = User::where('tariff', '!=', 'free')
-            ->whereNotNull('expires_at')
+        $expiredSubscriptions = Subscription::where('status', SubscriptionStatus::Active)
             ->where('expires_at', '<', now())
             ->get();
 
-        foreach ($expiredUsers as $user) {
+        foreach ($expiredSubscriptions as $subscription) {
             try {
-                $user->update([
-                    'tariff' => 'free',
-                    'expires_at' => null,
-                ]);
+                $subscription->update(['status' => SubscriptionStatus::Expired]);
 
-                if ($user->telegram_id || $user->max_id) {
-                    $this->notificationService->sendSubscriptionExpired($user);
+                // TODO: обсудить бизнес-логику — нужно ли откатывать доступ workspace
+                // на тариф «Старт» или ограничивать функционал при истечении подписки.
+
+                $workspace = $subscription->workspace;
+
+                if ($workspace) {
+                    $users = $workspace->users()
+                        ->where(function ($q) {
+                            $q->whereNotNull('telegram_id')
+                                ->orWhereNotNull('max_id');
+                        })
+                        ->get();
+
+                    foreach ($users as $user) {
+                        $this->notificationService->sendSubscriptionExpired($user);
+                    }
                 }
 
-                $this->info("Downgraded user {$user->id} ({$user->email}) to free tariff.");
+                $this->info("Expired subscription {$subscription->id} (workspace: {$subscription->workspace_id}).");
             } catch (\Exception $e) {
                 Log::error('Sub expiration failed', [
-                    'user_id' => $user->id,
+                    'subscription_id' => $subscription->id,
                     'error' => $e->getMessage(),
                 ]);
             }
         }
 
-        $this->info("Processed {$expiredUsers->count()} expired subscriptions.");
+        $this->info("Processed {$expiredSubscriptions->count()} expired subscriptions.");
 
         return self::SUCCESS;
     }
