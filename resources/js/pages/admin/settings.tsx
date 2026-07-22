@@ -95,6 +95,8 @@ interface PageProps {
     workingHours: WorkingHour[];
     blockedTimes: BlockedTime[];
     auth?: { user?: AuthUser };
+    masters?: { id: string; name: string }[];
+    selectedMasterId?: string;
     [key: string]: unknown;
 }
 
@@ -292,10 +294,12 @@ function ServiceModal({
     open,
     onClose,
     service,
+    masterId,
 }: {
     open: boolean;
     onClose: () => void;
     service: Service | null;
+    masterId?: string;
 }) {
     const form = useForm({
         title: '',
@@ -317,13 +321,14 @@ function ServiceModal({
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
+        const payload = masterId ? { ...form.data, master_id: masterId } : form.data;
         if (service) {
-            form.put(`/admin/services/${service.id}`, {
+            router.put(`/admin/services/${service.id}`, payload, {
                 preserveScroll: true,
                 onSuccess: () => onClose(),
             });
         } else {
-            form.post('/admin/services', {
+            router.post('/admin/services', payload, {
                 preserveScroll: true,
                 onSuccess: () => {
                     form.reset();
@@ -469,9 +474,11 @@ function buildHours(workingHours: WorkingHour[]): WorkingHour[] {
 function WorkingHoursCard({
     workingHours,
     slotInterval: initialSlotInterval,
+    masterId,
 }: {
     workingHours: WorkingHour[];
     slotInterval: number;
+    masterId?: string;
 }) {
     const [localHours, setLocalHours] = useState<WorkingHour[]>(() =>
         buildHours(workingHours),
@@ -566,7 +573,9 @@ function WorkingHoursCard({
     }
 
     function handleSave() {
+        const payload = masterId ? { ...data, master_id: masterId } : data;
         put('/admin/working-hours', {
+            ...payload,
             preserveScroll: true,
             onSuccess: () => toast.success('График работы сохранён'),
             onError: (errors) => {
@@ -747,7 +756,7 @@ const BLOCKED_REASONS = [
     'Другое',
 ];
 
-function BlockedTimesCard() {
+function BlockedTimesCard({ masterId }: { masterId?: string }) {
     const { blockedTimes: rawBlockedTimes } = usePage<PageProps>().props;
     const blockedTimes = rawBlockedTimes || [];
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -758,13 +767,18 @@ function BlockedTimesCard() {
     function handleAdd() {
         if (!startDate || !endDate) return;
 
+        const payload: Record<string, unknown> = {
+            start_datetime: startDate,
+            end_datetime: endDate,
+            reason,
+        };
+        if (masterId) {
+            payload.master_id = masterId;
+        }
+
         router.post(
             '/admin/blocked-times',
-            {
-                start_datetime: startDate,
-                end_datetime: endDate,
-                reason,
-            },
+            payload,
             {
                 preserveScroll: true,
                 onSuccess: () => {
@@ -926,6 +940,8 @@ export default function SettingsPage() {
         services: rawServices,
         workingHours: rawWorkingHours,
         auth,
+        masters: rawMasters,
+        selectedMasterId: rawSelectedMasterId,
     } = usePage<PageProps>().props;
     const profile = rawProfile || {
         id: '',
@@ -955,6 +971,8 @@ export default function SettingsPage() {
     };
     const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
+    const masters: { id: string; name: string }[] = rawMasters || [];
+    const [selectedMasterId, setSelectedMasterId] = useState<string>(rawSelectedMasterId || '');
     const userName = auth?.user?.name || 'Мастер';
     const initials = getInitials(userName);
     const [serviceModalOpen, setServiceModalOpen] = useState(false);
@@ -963,6 +981,17 @@ export default function SettingsPage() {
     const [avatarCropOpen, setAvatarCropOpen] = useState(false);
     const [isCopied, setIsCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
+
+    function handleMasterChange(newMasterId: string) {
+        setSelectedMasterId(newMasterId);
+        const url = new URL(window.location.href);
+        url.searchParams.set('master_id', newMasterId);
+        router.get(url.toString(), {}, {
+            only: ['services', 'workingHours', 'blockedTimes', 'selectedMasterId'],
+            preserveState: true,
+            preserveScroll: true,
+        });
+    }
 
     const VALID_TABS = ['profile', 'booking', 'notifications', 'services', 'schedule'] as const;
     type TabValue = (typeof VALID_TABS)[number];
@@ -1078,6 +1107,27 @@ export default function SettingsPage() {
                         <TimezoneConfirmBanner
                             confirmed={profile.timezone_confirmed}
                         />
+
+                        {/* ═══ Master Selector (admin/owner only) ═══ */}
+                        {masters.length > 0 && (
+                            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                <label className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Мастер:
+                                </label>
+                                <Select value={selectedMasterId} onValueChange={handleMasterChange}>
+                                    <SelectTrigger className="h-9 w-[220px]">
+                                        <SelectValue placeholder="Выберите мастера" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {masters.map((m) => (
+                                            <SelectItem key={m.id} value={m.id}>
+                                                {m.name}
+                                            </SelectItem>
+                                        ))}
+                                    </SelectContent>
+                                </Select>
+                            </div>
+                        )}
 
                         <div className="max-w-4xl space-y-6">
                             {/* ═══ Tabs ═══ */}
@@ -1773,10 +1823,11 @@ export default function SettingsPage() {
                             <WorkingHoursCard
                                 workingHours={workingHours}
                                 slotInterval={profile.slot_interval || 30}
+                                masterId={selectedMasterId || undefined}
                             />
 
                             {/* ═══ Card 6: Blocked Times ═══ */}
-                            <BlockedTimesCard />
+                            <BlockedTimesCard masterId={selectedMasterId || undefined} />
 
                             </TabsContent>
                             </Tabs>
@@ -1789,6 +1840,7 @@ export default function SettingsPage() {
                 open={serviceModalOpen}
                 onClose={handleCloseModal}
                 service={editingService}
+                masterId={selectedMasterId || undefined}
             />
 
             <AvatarCropModal
