@@ -1296,49 +1296,55 @@ export default function SettingsPage() {
                                         <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                             Slug профиля
                                         </label>
-                                        <div className="flex items-center">
-                                            <span className="shrink-0 rounded-l-lg border border-r-0 border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
-                                                {typeof window !== 'undefined' ? window.location.origin : ''}/book/
-                                            </span>
-                                            <Input
-                                                value={profileForm.data.master_slug}
-                                                onChange={(e) =>
-                                                    profileForm.setData(
-                                                        'master_slug',
-                                                        e.target.value
-                                                            .toLowerCase()
-                                                            .replace(
-                                                                /[^a-z0-9_-]/g,
-                                                                '',
-                                                            ),
-                                                    )
-                                                }
-                                                placeholder="nails_studio"
-                                                className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                            />
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="ml-1 shrink-0"
-                                                onClick={() => {
-                                                    const slug = profileForm.data.master_slug;
-                                                    if (!slug) return;
-                                                    const url = `${window.location.origin}/book/${slug}`;
-                                                    navigator.clipboard.writeText(url).then(() => {
-                                                        setIsCopied(true);
-                                                        toast.success('Ссылка скопирована');
-                                                        setTimeout(() => setIsCopied(false), 2000);
-                                                    });
-                                                }}
-                                            >
-                                                {isCopied ? (
-                                                    <Check className="size-4 text-emerald-500 dark:text-green-400" />
-                                                ) : (
-                                                    <Copy className="size-4 text-muted-foreground" />
-                                                )}
-                                            </Button>
-                                        </div>
+                                        {auth?.user?.is_solo ? (
+                                            <div className="flex items-center">
+                                                <span className="shrink-0 rounded-l-lg border border-r-0 border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                                                    {typeof window !== 'undefined' ? window.location.origin : ''}/book/
+                                                </span>
+                                                <Input
+                                                    value={profileForm.data.master_slug}
+                                                    onChange={(e) =>
+                                                        profileForm.setData(
+                                                            'master_slug',
+                                                            e.target.value
+                                                                .toLowerCase()
+                                                                .replace(
+                                                                    /[^a-z0-9_-]/g,
+                                                                    '',
+                                                                ),
+                                                        )
+                                                    }
+                                                    placeholder="nails_studio"
+                                                    className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="ml-1 shrink-0"
+                                                    onClick={() => {
+                                                        const slug = profileForm.data.master_slug;
+                                                        if (!slug) return;
+                                                        const url = `${window.location.origin}/book/${slug}`;
+                                                        navigator.clipboard.writeText(url).then(() => {
+                                                            setIsCopied(true);
+                                                            toast.success('Ссылка скопирована');
+                                                            setTimeout(() => setIsCopied(false), 2000);
+                                                        });
+                                                    }}
+                                                >
+                                                    {isCopied ? (
+                                                        <Check className="size-4 text-emerald-500 dark:text-green-400" />
+                                                    ) : (
+                                                        <Copy className="size-4 text-muted-foreground" />
+                                                    )}
+                                                </Button>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                                Публичная ссылка для записи управляется вашей студией.
+                                            </p>
+                                        )}
                                         {profileForm.errors.master_slug && (
                                             <p className="mt-1 text-xs text-red-500">
                                                 {profileForm.errors.master_slug}

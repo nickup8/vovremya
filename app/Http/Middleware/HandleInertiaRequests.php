@@ -75,6 +75,7 @@ class HandleInertiaRequests extends Middleware
                     'avatar_url' => $user->avatar_url,
                     'tariff_name' => $tariffName,
                     'max_masters' => $maxMasters ?? 0,
+                    'is_solo' => $user->isSolo(),
                 ] : null,
             ],
             'tariff_limits' => $tariffLimits,
