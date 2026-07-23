@@ -97,6 +97,7 @@ interface PageProps {
     auth?: { user?: AuthUser };
     masters?: { id: string; name: string }[];
     selectedMasterId?: string;
+    workspace_slug?: string | null;
     [key: string]: unknown;
 }
 
@@ -942,6 +943,7 @@ export default function SettingsPage() {
         auth,
         masters: rawMasters,
         selectedMasterId: rawSelectedMasterId,
+        workspace_slug,
     } = usePage<PageProps>().props;
     const profile = rawProfile || {
         id: '',
@@ -1341,9 +1343,38 @@ export default function SettingsPage() {
                                                 </Button>
                                             </div>
                                         ) : (
-                                            <p className="text-sm text-slate-500 dark:text-zinc-400">
-                                                Публичная ссылка для записи управляется вашей студией.
-                                            </p>
+                                            <div className="flex items-center">
+                                                <span className="shrink-0 rounded-l-lg border border-r-0 border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
+                                                    {typeof window !== 'undefined' ? window.location.origin : ''}/book/
+                                                </span>
+                                                <Input
+                                                    value={workspace_slug || ''}
+                                                    readOnly
+                                                    placeholder="slug-studii"
+                                                    className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
+                                                />
+                                                <Button
+                                                    type="button"
+                                                    variant="ghost"
+                                                    size="icon"
+                                                    className="ml-1 shrink-0"
+                                                    onClick={() => {
+                                                        if (!workspace_slug) return;
+                                                        const url = `${window.location.origin}/book/${workspace_slug}`;
+                                                        navigator.clipboard.writeText(url).then(() => {
+                                                            setIsCopied(true);
+                                                            toast.success('Ссылка скопирована');
+                                                            setTimeout(() => setIsCopied(false), 2000);
+                                                        });
+                                                    }}
+                                                >
+                                                    {isCopied ? (
+                                                        <Check className="size-4 text-emerald-500 dark:text-green-400" />
+                                                    ) : (
+                                                        <Copy className="size-4 text-muted-foreground" />
+                                                    )}
+                                                </Button>
+                                            </div>
                                         )}
                                         {profileForm.errors.master_slug && (
                                             <p className="mt-1 text-xs text-red-500">

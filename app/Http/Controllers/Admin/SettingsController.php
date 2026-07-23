@@ -99,6 +99,7 @@ class SettingsController extends Controller
             'blockedTimes' => $targetMaster->blockedTimes()->get(),
             'masters' => $masters,
             'selectedMasterId' => $targetMaster->id,
+            'workspace_slug' => $user->workspace?->slug,
         ]);
     }
 

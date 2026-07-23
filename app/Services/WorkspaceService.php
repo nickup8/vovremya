@@ -39,6 +39,8 @@ class WorkspaceService
                 'owner_id' => $user->id,
             ]);
 
+            $workspace->ensureSlug();
+
             $user->update([
                 'workspace_id' => $workspace->id,
                 'role' => 'owner',

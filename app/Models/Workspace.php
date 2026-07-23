@@ -6,6 +6,8 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class Workspace extends Model
 {
@@ -13,6 +15,7 @@ class Workspace extends Model
 
     protected $fillable = [
         'name',
+        'slug',
         'owner_id',
         'parent_workspace_id',
     ];
@@ -99,5 +102,34 @@ class Workspace extends Model
     public function canAddMaster(): bool
     {
         return $this->mastersCount() < $this->maxMasters();
+    }
+
+    /**
+     * Гарантирует наличие уникального slug для студии.
+     * Если slug пустой — генерирует из name, проверяя коллизии.
+     */
+    public function ensureSlug(): void
+    {
+        if ($this->slug !== null && $this->slug !== '') {
+            return;
+        }
+
+        $base = Str::slug($this->name);
+        if ($base === '') {
+            $base = 'studio';
+        }
+
+        $slug = $base;
+        $attempts = 0;
+        while (self::where('slug', $slug)->where('id', '!=', $this->id)->lockForUpdate()->exists()) {
+            $attempts++;
+            if ($attempts > 5) {
+                $slug = Str::lower(Str::random(8));
+            } else {
+                $slug = $base . '-' . Str::lower(Str::random(5));
+            }
+        }
+
+        $this->update(['slug' => $slug]);
     }
 }
