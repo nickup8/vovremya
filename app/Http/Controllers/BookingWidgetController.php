@@ -24,7 +24,11 @@ class BookingWidgetController extends Controller
             ->where('is_master', true)
             ->firstOrFail();
 
-        abort_unless($master->isSolo(), 404);
+        if (! $master->isSolo()) {
+            return Inertia::render('booking/unavailable', [
+                'workspaceName' => $master->workspace?->name,
+            ])->toResponse($request)->setStatusCode(404);
+        }
 
         $master->load('services');
 
