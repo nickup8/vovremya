@@ -74,13 +74,13 @@ class DetachMasterTest extends TestCase
         ]);
     }
 
-    private function detach(User $actor, User $removed, string $targetId): \Illuminate\Testing\TestResponse
+    private function detach(User $actor, User $removed, string $targetId = null): \Illuminate\Testing\TestResponse
     {
+        $payload = $targetId ? ['target_master_id' => $targetId] : [];
+
         return $this->actingAs($actor)
             ->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class)
-            ->postJson(route('admin.team.detach', $removed->id), [
-                'target_master_id' => $targetId,
-            ]);
+            ->postJson(route('admin.team.detach', $removed->id), $payload);
     }
 
     public function test_owner_can_detach_master_and_appointments_transfer(): void
@@ -220,6 +220,15 @@ class DetachMasterTest extends TestCase
 
     public function test_target_from_other_workspace_returns_422(): void
     {
+        // Need a future appointment so target validation is triggered
+        Appointment::create([
+            'master_id' => $this->master->id,
+            'client_id' => null,
+            'service_id' => $this->service->id,
+            'start_time' => Carbon::tomorrow(),
+            'status' => AppointmentStatus::Booked,
+        ]);
+
         $otherWorkspace = Workspace::create([
             'name' => 'Other Studio',
             'owner_id' => User::factory()->create()->id,
@@ -236,12 +245,30 @@ class DetachMasterTest extends TestCase
 
     public function test_target_same_as_removed_returns_422(): void
     {
+        // Need a future appointment so target validation is triggered
+        Appointment::create([
+            'master_id' => $this->master->id,
+            'client_id' => null,
+            'service_id' => $this->service->id,
+            'start_time' => Carbon::tomorrow(),
+            'status' => AppointmentStatus::Booked,
+        ]);
+
         $this->detach($this->owner, $this->master, $this->master->id)
             ->assertStatus(422);
     }
 
     public function test_target_not_master_returns_422(): void
     {
+        // Need a future appointment so target validation is triggered
+        Appointment::create([
+            'master_id' => $this->master->id,
+            'client_id' => null,
+            'service_id' => $this->service->id,
+            'start_time' => Carbon::tomorrow(),
+            'status' => AppointmentStatus::Booked,
+        ]);
+
         $client = User::factory()->create([
             'workspace_id' => $this->workspace->id,
             'is_master' => false,
@@ -259,6 +286,40 @@ class DetachMasterTest extends TestCase
             'workspace_id' => $this->workspace->id,
             'tariff_plan_id' => $this->plan->id,
             'status' => 'active',
+        ]);
+    }
+
+    public function test_detach_without_target_when_no_future_appointments(): void
+    {
+        $this->detach($this->owner, $this->master)
+            ->assertRedirect();
+
+        $this->assertDatabaseHas('users', [
+            'id' => $this->master->id,
+            'workspace_id' => null,
+            'role' => UserRole::Owner,
+        ]);
+    }
+
+    public function test_detach_without_target_when_has_future_appointments_returns_422(): void
+    {
+        Appointment::create([
+            'master_id' => $this->master->id,
+            'client_id' => null,
+            'service_id' => $this->service->id,
+            'start_time' => Carbon::tomorrow(),
+            'status' => AppointmentStatus::Booked,
+        ]);
+
+        $this->actingAs($this->owner)
+            ->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class)
+            ->postJson(route('admin.team.detach', $this->master->id));
+
+        // Master should NOT be detached — validation should reject the request
+        $this->assertDatabaseHas('users', [
+            'id' => $this->master->id,
+            'workspace_id' => $this->workspace->id,
+            'role' => UserRole::Master,
         ]);
     }
 }

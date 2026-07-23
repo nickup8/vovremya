@@ -107,21 +107,32 @@ class TeamController extends Controller
         abort_unless($removed->id !== $user->workspace->owner_id, 422, 'Нельзя исключить владельца студии.');
         abort_unless($removed->id !== $user->id, 422, 'Нельзя исключить себя.');
 
-        $targetMasterId = $request->validate([
-            'target_master_id' => 'required|uuid|exists:users,id',
-        ])['target_master_id'];
+        $hasFutureAppointments = Appointment::where('master_id', $removed->id)
+            ->where('start_time', '>', now())
+            ->whereIn('status', ['booked', 'pending_payment', 'prepaid'])
+            ->exists();
 
-        $target = User::findOrFail($targetMasterId);
+        $target = null;
 
-        abort_unless($target->workspace_id === $user->workspace_id, 422, 'Выбранный мастер не состоит в вашей студии.');
-        abort_unless($target->is_master, 422, 'Выбранный пользователь не является мастером.');
-        abort_unless($target->id !== $removed->id, 422, 'Нельзя выбрать того же мастера.');
+        if ($hasFutureAppointments) {
+            $targetMasterId = $request->validate([
+                'target_master_id' => 'required|uuid|exists:users,id',
+            ])['target_master_id'];
+
+            $target = User::findOrFail($targetMasterId);
+
+            abort_unless($target->workspace_id === $user->workspace_id, 422, 'Выбранный мастер не состоит в вашей студии.');
+            abort_unless($target->is_master, 422, 'Выбранный пользователь не является мастером.');
+            abort_unless($target->id !== $removed->id, 422, 'Нельзя выбрать того же мастера.');
+        }
 
         DB::transaction(function () use ($removed, $target) {
-            Appointment::where('master_id', $removed->id)
-                ->where('start_time', '>', now())
-                ->whereIn('status', ['booked', 'pending_payment', 'prepaid'])
-                ->update(['master_id' => $target->id]);
+            if ($target) {
+                Appointment::where('master_id', $removed->id)
+                    ->where('start_time', '>', now())
+                    ->whereIn('status', ['booked', 'pending_payment', 'prepaid'])
+                    ->update(['master_id' => $target->id]);
+            }
 
             $removed->workspace_id = null;
             $removed->role = UserRole::Owner;
