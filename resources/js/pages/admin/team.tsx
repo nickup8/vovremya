@@ -2,12 +2,13 @@ import { useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import { toast } from 'sonner';
 import {
-    UserPlus, Crown, Send, MessageCircle, Copy, Check, Users, Sparkles,
+    UserPlus, Crown, Send, MessageCircle, Copy, Check, Users, Sparkles, Trash2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
 import type { PageProps } from '@/types/app';
@@ -22,6 +23,7 @@ interface Master {
     max_id: string | null;
     is_owner: boolean;
     is_current_user: boolean;
+    has_future_appointments: boolean;
 }
 
 interface TeamPageProps extends PageProps {
@@ -65,8 +67,17 @@ function EmptyState({ onOpenInvite }: { onOpenInvite: () => void }) {
 
 /* ═══════════════ Master Card ═══════════════ */
 
-function MasterCard({ master }: { master: Master }) {
+function MasterCard({
+    master,
+    canManageTeam,
+    onDetach,
+}: {
+    master: Master;
+    canManageTeam: boolean;
+    onDetach: (master: Master) => void;
+}) {
     const initials = getInitials(master.name);
+    const canDetach = canManageTeam && !master.is_owner && !master.is_current_user;
 
     return (
         <div className="group overflow-hidden rounded-2xl border border-slate-200/60 bg-white/50 p-5 backdrop-blur-md transition-all hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/5 dark:border-zinc-700/50 dark:bg-zinc-900/50 dark:hover:border-blue-800/50 dark:hover:shadow-blue-500/5">
@@ -105,6 +116,17 @@ function MasterCard({ master }: { master: Master }) {
                         )}
                     </div>
                 </div>
+
+                {canDetach && (
+                    <Button
+                        variant="ghost"
+                        size="icon"
+                        onClick={() => onDetach(master)}
+                        className="shrink-0 text-slate-400 hover:text-red-500 dark:text-zinc-500 dark:hover:text-red-400"
+                    >
+                        <Trash2 className="size-4" />
+                    </Button>
+                )}
             </div>
         </div>
     );
@@ -113,15 +135,22 @@ function MasterCard({ master }: { master: Master }) {
 /* ═══════════════ Main Team Page ═══════════════ */
 
 export default function TeamPage() {
-    const { masters, max_masters, auth } = usePage<TeamPageProps>().props;
+    const { masters, max_masters, can_manage_team, auth } = usePage<TeamPageProps>().props;
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteLink, setInviteLink] = useState('');
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
+    const [detachTarget, setDetachTarget] = useState<Master | null>(null);
+    const [detachTargetId, setDetachTargetId] = useState<string>('');
+    const [detachLoading, setDetachLoading] = useState(false);
 
     const currentCount = masters.length;
     const hasLimit = max_masters !== null && max_masters !== undefined;
     const isLimitReached = hasLimit && currentCount >= max_masters!;
+
+    const receivers = detachTarget
+        ? masters.filter((m) => m.id !== detachTarget.id)
+        : [];
 
     async function handleGenerateInvite() {
         setLoading(true);
@@ -162,6 +191,46 @@ export default function TeamPage() {
         setInviteDialogOpen(true);
     }
 
+    function handleOpenDetach(master: Master) {
+        setDetachTarget(master);
+        setDetachTargetId('');
+    }
+
+    function handleCloseDetach() {
+        setDetachTarget(null);
+        setDetachTargetId('');
+    }
+
+    function handleDetach() {
+        if (!detachTarget) return;
+
+        setDetachLoading(true);
+
+        const payload: Record<string, string> = {};
+        if (detachTarget.has_future_appointments && detachTargetId) {
+            payload.target_master_id = detachTargetId;
+        }
+
+        router.post(`/admin/team/${detachTarget.id}/detach`, payload, {
+            preserveScroll: true,
+            onSuccess: () => {
+                handleCloseDetach();
+            },
+            onError: (errors) => {
+                toast.error(Object.values(errors)[0] as string);
+            },
+            onFinish: () => {
+                setDetachLoading(false);
+            },
+        });
+    }
+
+    const showReceiverSelect = detachTarget?.has_future_appointments && receivers.length > 0;
+    const noReceivers = detachTarget?.has_future_appointments && receivers.length === 0;
+    const canDetach = detachTarget
+        ? (detachTarget.has_future_appointments ? detachTargetId !== '' : true)
+        : false;
+
     return (
         <>
             <Head title="Команда — Вовремя" />
@@ -201,7 +270,12 @@ export default function TeamPage() {
                     ) : (
                         <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                             {masters.map((master) => (
-                                <MasterCard key={master.id} master={master} />
+                                <MasterCard
+                                    key={master.id}
+                                    master={master}
+                                    canManageTeam={can_manage_team}
+                                    onDetach={handleOpenDetach}
+                                />
                             ))}
                         </div>
                     )}
@@ -279,6 +353,68 @@ export default function TeamPage() {
                             onClick={() => setInviteDialogOpen(false)}
                         >
                             Закрыть
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
+
+            {/* ─── Detach Dialog ─── */}
+            <Dialog open={detachTarget !== null} onOpenChange={(open) => !open && handleCloseDetach()}>
+                <DialogContent className="sm:max-w-md">
+                    <DialogHeader>
+                        <DialogTitle>Исключить из команды</DialogTitle>
+                    </DialogHeader>
+
+                    {detachTarget && (
+                        <div className="space-y-4">
+                            <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                Мастер <strong className="text-slate-900 dark:text-zinc-100">{detachTarget.name}</strong> будет отвязан от студии.
+                            </p>
+
+                            {detachTarget.has_future_appointments && receivers.length > 0 && (
+                                <>
+                                    <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                        У мастера есть активные будущие записи. Выберите, кому их передать:
+                                    </p>
+                                    <Select value={detachTargetId} onValueChange={setDetachTargetId}>
+                                        <SelectTrigger>
+                                            <SelectValue placeholder="Выберите мастера" />
+                                        </SelectTrigger>
+                                        <SelectContent>
+                                            {receivers.map((r) => (
+                                                <SelectItem key={r.id} value={r.id}>
+                                                    {r.name}
+                                                </SelectItem>
+                                            ))}
+                                        </SelectContent>
+                                    </Select>
+                                </>
+                            )}
+
+                            {detachTarget.has_future_appointments && noReceivers && (
+                                <p className="text-sm text-amber-600 dark:text-amber-400">
+                                    Нет мастеров для передачи записей. Сначала добавьте мастера.
+                                </p>
+                            )}
+
+                            {!detachTarget.has_future_appointments && (
+                                <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                    Активных записей для передачи нет.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
+                    <DialogFooter>
+                        <Button variant="outline" onClick={handleCloseDetach}>
+                            Отмена
+                        </Button>
+                        <Button
+                            variant="destructive"
+                            disabled={!canDetach || detachLoading}
+                            onClick={handleDetach}
+                        >
+                            {detachLoading ? 'Исключение...' : 'Исключить'}
                         </Button>
                     </DialogFooter>
                 </DialogContent>

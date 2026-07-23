@@ -41,6 +41,10 @@ class TeamController extends Controller
                 'max_id' => $m->max_id,
                 'is_owner' => $m->id === $workspace->owner_id,
                 'is_current_user' => $m->id === $user->id,
+                'has_future_appointments' => Appointment::where('master_id', $m->id)
+                    ->where('start_time', '>', now())
+                    ->whereIn('status', ['booked', 'pending_payment', 'prepaid'])
+                    ->exists(),
             ]);
 
         return Inertia::render('admin/team', [
