@@ -36,6 +36,7 @@ interface PageProps {
     selectedServiceId: string | null;
     maxBotName: string | null;
     studioSlug?: string;
+    studioService?: string;
     [key: string]: unknown;
 }
 
@@ -69,18 +70,21 @@ function formatDateKey(d: Date): string {
 
 /* ═══════════════ Master Profile ═══════════════ */
 
-function MasterProfileHeader({ master, studioSlug }: { master: Master; studioSlug?: string }) {
+function MasterProfileHeader({ master, studioSlug, studioService }: { master: Master; studioSlug?: string; studioService?: string }) {
     const initials = getInitials(master.name);
 
     return (
         <div className="border-b border-stone-200/50 bg-white/50 px-5 py-4 dark:border-stone-800/50 dark:bg-stone-900/30">
             {studioSlug && (
                 <Link
-                    href={`/studio/${studioSlug}`}
+                    href={studioService
+                        ? `/studio/${studioSlug}?service=${encodeURIComponent(studioService)}`
+                        : `/studio/${studioSlug}`
+                    }
                     className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 transition-colors hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200"
                 >
                     <ArrowLeft className="size-3" />
-                    Все мастера студии
+                    {studioService ? 'Мастера услуги' : 'Все мастера студии'}
                 </Link>
             )}
             <div className="flex items-center gap-3.5">
@@ -492,7 +496,7 @@ type Step = 1 | 2 | 3 | 4 | 5;
 const TOTAL_STEPS = 4;
 
 export default function Widget() {
-    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, studioSlug } = usePage<PageProps>().props;
+    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, studioSlug, studioService } = usePage<PageProps>().props;
     const pageProps = usePage<{ errors: Record<string, string> }>().props;
     const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
 
@@ -520,7 +524,7 @@ export default function Widget() {
         (step === 2 && selectedDate !== null) ||
         (step === 3 && selectedTime !== null);
 
-    // Helper to build base URL for widget requests (preserves ?master in studio mode)
+    // Helper to build base URL for widget requests (preserves ?master and ?service in studio mode)
     function getBaseUrl(): string {
         if (studioSlug) {
             return `/studio/${studioSlug}`;
@@ -533,6 +537,9 @@ export default function Widget() {
         const params = new URLSearchParams(extraParams);
         if (studioSlug) {
             params.set('master', master.master_slug);
+            if (studioService) {
+                params.set('service', studioService);
+            }
         }
         return `${base}?${params.toString()}`;
     }
@@ -635,7 +642,10 @@ export default function Widget() {
                 <div className="flex items-center justify-between border-b border-stone-200/50 px-5 py-4 dark:border-stone-800/50">
                     {studioSlug ? (
                         <Link
-                            href={`/studio/${studioSlug}`}
+                            href={studioService
+                                ? `/studio/${studioSlug}?service=${encodeURIComponent(studioService)}`
+                                : `/studio/${studioSlug}`
+                            }
                             className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
                         >
                             <ArrowLeft className="size-5 text-stone-600 dark:text-stone-400" />
@@ -665,7 +675,7 @@ export default function Widget() {
                     </div>
                 )}
 
-                {showHeader && <MasterProfileHeader master={master} studioSlug={studioSlug} />}
+                {showHeader && <MasterProfileHeader master={master} studioSlug={studioSlug} studioService={studioService} />}
 
                 {step === 1 && (
                     <StepServices
