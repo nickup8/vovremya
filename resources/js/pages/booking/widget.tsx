@@ -520,16 +520,33 @@ export default function Widget() {
         (step === 2 && selectedDate !== null) ||
         (step === 3 && selectedTime !== null);
 
+    // Helper to build base URL for widget requests (preserves ?master in studio mode)
+    function getBaseUrl(): string {
+        if (studioSlug) {
+            return `/studio/${studioSlug}`;
+        }
+        return `/book/${master.master_slug}`;
+    }
+
+    function buildUrlWithParams(extraParams: Record<string, string>): string {
+        const base = getBaseUrl();
+        const params = new URLSearchParams(extraParams);
+        if (studioSlug) {
+            params.set('master', master.master_slug);
+        }
+        return `${base}?${params.toString()}`;
+    }
+
     // Загрузка слотов при входе на шаг 3
     useEffect(() => {
         if (step === 3 && selectedDate && selectedService) {
             setLoadingSlots(true);
-            const params = new URLSearchParams({
+            const url = buildUrlWithParams({
                 service_id: selectedService.id,
                 date: formatDateKey(selectedDate),
             });
 
-            router.get(`/book/${master.master_slug}?${params.toString()}`, {}, {
+            router.get(url, {}, {
                 preserveState: true,
                 preserveScroll: true,
                 only: ['availableSlots'],
@@ -542,7 +559,7 @@ export default function Widget() {
                 },
             });
         }
-    }, [step, selectedDate, selectedService, master.master_slug]);
+    }, [step, selectedDate, selectedService, master.master_slug, studioSlug]);
 
     function handleSelectService(service: Service) {
         setSelectedService(service);
