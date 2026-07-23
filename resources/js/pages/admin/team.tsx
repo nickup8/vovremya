@@ -17,15 +17,17 @@ import type { PageProps } from '@/types/app';
 interface Master {
     id: string;
     name: string;
-    role: string;
     avatar_url: string | null;
     telegram_id: string | null;
     max_id: string | null;
+    is_owner: boolean;
+    is_current_user: boolean;
 }
 
 interface TeamPageProps extends PageProps {
     masters: Master[];
     max_masters: number | null;
+    can_manage_team: boolean;
 }
 
 /* ═══════════════ Empty State ═══════════════ */
@@ -81,10 +83,12 @@ function MasterCard({ master }: { master: Master }) {
                         {master.name}
                     </h3>
                     <div className="mt-1 flex items-center gap-1.5">
-                        <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
-                            <Crown className="size-2.5" />
-                            Владелец
-                        </span>
+                        {master.is_owner && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-600 dark:bg-amber-950/30 dark:text-amber-400">
+                                <Crown className="size-2.5" />
+                                Владелец
+                            </span>
+                        )}
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                         {master.telegram_id && (

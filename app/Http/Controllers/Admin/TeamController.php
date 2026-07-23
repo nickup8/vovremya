@@ -30,11 +30,23 @@ class TeamController extends Controller
         }
 
         $maxMasters = $workspace->activeSubscription()?->tariffPlan?->max_masters;
-        $masters = $workspace->users()->where('is_master', true)->get();
+        $masters = $workspace->users()
+            ->where('is_master', true)
+            ->get()
+            ->map(fn ($m) => [
+                'id' => $m->id,
+                'name' => $m->name,
+                'avatar_url' => $m->avatar_url,
+                'telegram_id' => $m->telegram_id,
+                'max_id' => $m->max_id,
+                'is_owner' => $m->id === $workspace->owner_id,
+                'is_current_user' => $m->id === $user->id,
+            ]);
 
         return Inertia::render('admin/team', [
             'masters' => $masters,
             'max_masters' => $maxMasters,
+            'can_manage_team' => $user->role->canManageTeam(),
         ]);
     }
 
