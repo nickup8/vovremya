@@ -554,13 +554,21 @@ class TelegramWebhookHandler extends WebhookHandler
 
             Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
         } else {
-            $user->update([
+            $updateData = [
                 'telegram_id' => $telegramId,
                 'telegram_notifications' => true,
                 'name' => $fullName !== '' ? $fullName : $user->name,
                 'workspace_id' => $invite->workspace_id,
                 'is_master' => true,
-            ]);
+            ];
+
+            if (empty($user->master_slug)) {
+                $username = $this->request->input('message.from.username');
+                $slug = app(\App\Services\SlugService::class)->generate($username, $firstName, $lastName);
+                $updateData['master_slug'] = $slug;
+            }
+
+            $user->update($updateData);
             $user->role = \App\Enums\UserRole::Master;
             $user->save();
 

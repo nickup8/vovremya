@@ -118,9 +118,17 @@ class MaxWebhookHandler
                     ['name' => 'Новый мастер']
                 );
 
-                $user->update([
+                $updateData = [
                     'workspace_id' => $invite->workspace_id,
-                ]);
+                    'is_master' => true,
+                ];
+
+                if (empty($user->master_slug)) {
+                    $slug = app(\App\Services\SlugService::class)->generate(null, $user->name, null);
+                    $updateData['master_slug'] = $slug;
+                }
+
+                $user->update($updateData);
                 $user->role = \App\Enums\UserRole::Master;
                 $user->save();
 
