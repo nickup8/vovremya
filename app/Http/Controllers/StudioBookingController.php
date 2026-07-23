@@ -130,8 +130,19 @@ class StudioBookingController extends Controller
 
         $master->load('services');
 
+        $serviceTitle = $request->query('service');
         $selectedServiceId = $request->query('service_id');
         $selectedDate = $request->query('date') ?? Carbon::today()->toDateString();
+
+        // Если передан ?service={title}, предвыбираем услугу по названию
+        $preselectedServiceId = null;
+        if ($serviceTitle && ! $selectedServiceId) {
+            $preselected = $master->services()->where('title', $serviceTitle)->first();
+            if ($preselected) {
+                $preselectedServiceId = $preselected->id;
+                $selectedServiceId = $preselected->id;
+            }
+        }
 
         $service = $selectedServiceId ? $master->services()->find($selectedServiceId) : null;
 
@@ -160,6 +171,7 @@ class StudioBookingController extends Controller
             'selectedServiceId' => $service ? $selectedServiceId : null,
             'maxBotName' => config('services.max.bot_name'),
             'studioSlug' => $workspace->slug,
+            'preselectedServiceId' => $preselectedServiceId,
         ]);
     }
 }

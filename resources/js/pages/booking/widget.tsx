@@ -37,6 +37,7 @@ interface PageProps {
     maxBotName: string | null;
     studioSlug?: string;
     studioService?: string;
+    preselectedServiceId?: string | null;
     [key: string]: unknown;
 }
 
@@ -496,13 +497,17 @@ type Step = 1 | 2 | 3 | 4 | 5;
 const TOTAL_STEPS = 4;
 
 export default function Widget() {
-    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, studioSlug, studioService } = usePage<PageProps>().props;
+    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, studioSlug, studioService, preselectedServiceId } = usePage<PageProps>().props;
     const pageProps = usePage<{ errors: Record<string, string> }>().props;
     const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
 
-    const [step, setStep] = useState<Step>(1);
+    // Определяем предвыбранную услугу: preselectedServiceId (из ?service) или initialServiceId (из ?service_id)
+    const effectiveServiceId = preselectedServiceId ?? initialServiceId;
+    const hasPreselectedService = effectiveServiceId !== null && effectiveServiceId !== undefined;
+
+    const [step, setStep] = useState<Step>(() => hasPreselectedService ? 2 : 1);
     const [selectedService, setSelectedService] = useState<Service | null>(() =>
-        initialServiceId ? services.find((svc: Service) => svc.id === initialServiceId) ?? null : null
+        effectiveServiceId ? services.find((svc: Service) => svc.id === effectiveServiceId) ?? null : null
     );
     const [selectedDate, setSelectedDate] = useState<Date | null>(() =>
         initialDate ? new Date(initialDate + 'T00:00:00') : null
