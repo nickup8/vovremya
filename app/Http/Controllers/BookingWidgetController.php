@@ -25,9 +25,7 @@ class BookingWidgetController extends Controller
             ->firstOrFail();
 
         if (! $master->isSolo()) {
-            return Inertia::render('booking/unavailable', [
-                'workspaceName' => $master->workspace?->name,
-            ])->toResponse($request)->setStatusCode(404);
+            return redirect('/studio/' . $master->workspace->slug, 302);
         }
 
         $master->load('services');

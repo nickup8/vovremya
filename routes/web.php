@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingStatusController;
 use App\Http\Controllers\BookingWidgetController;
+use App\Http\Controllers\StudioBookingController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\Client\ClientProfileController;
@@ -41,6 +42,8 @@ Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('bo
 Route::get('/book/{master}/available-dates', [BookingWidgetController::class, 'availableDates'])->name('booking.available-dates');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
 Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name('booking.status');
+
+Route::get('/studio/{slug}', [StudioBookingController::class, 'show'])->name('studio.booking');
 
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->middleware('throttle:60,1')->name('webhooks.telegram');
 Route::post('/webhooks/telegram/bypass', [WebhookController::class, 'handleBypass'])->middleware('throttle:60,1')->name('webhooks.telegram.bypass');
