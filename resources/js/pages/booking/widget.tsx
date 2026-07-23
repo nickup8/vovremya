@@ -1,5 +1,5 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
-import { Head, router, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     ArrowRight, ArrowLeft, Clock,
     CheckCircle2, MessageCircle,
@@ -35,6 +35,7 @@ interface PageProps {
     selectedDate: string;
     selectedServiceId: string | null;
     maxBotName: string | null;
+    studioSlug?: string;
     [key: string]: unknown;
 }
 
@@ -68,11 +69,20 @@ function formatDateKey(d: Date): string {
 
 /* ═══════════════ Master Profile ═══════════════ */
 
-function MasterProfileHeader({ master }: { master: Master }) {
+function MasterProfileHeader({ master, studioSlug }: { master: Master; studioSlug?: string }) {
     const initials = getInitials(master.name);
 
     return (
         <div className="border-b border-stone-200/50 bg-white/50 px-5 py-4 dark:border-stone-800/50 dark:bg-stone-900/30">
+            {studioSlug && (
+                <Link
+                    href={`/studio/${studioSlug}`}
+                    className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 transition-colors hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200"
+                >
+                    <ArrowLeft className="size-3" />
+                    Все мастера студии
+                </Link>
+            )}
             <div className="flex items-center gap-3.5">
                 {master.avatar_url ? (
                     <img
@@ -482,7 +492,7 @@ type Step = 1 | 2 | 3 | 4 | 5;
 const TOTAL_STEPS = 4;
 
 export default function Widget() {
-    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName } = usePage<PageProps>().props;
+    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, studioSlug } = usePage<PageProps>().props;
     const pageProps = usePage<{ errors: Record<string, string> }>().props;
     const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
 
@@ -606,7 +616,14 @@ export default function Widget() {
 
             <div className="mx-auto flex min-h-screen max-w-md flex-col bg-[#FAF8F5] dark:bg-[#121110]">
                 <div className="flex items-center justify-between border-b border-stone-200/50 px-5 py-4 dark:border-stone-800/50">
-                    {step > 1 && step <= TOTAL_STEPS ? (
+                    {studioSlug ? (
+                        <Link
+                            href={`/studio/${studioSlug}`}
+                            className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
+                        >
+                            <ArrowLeft className="size-5 text-stone-600 dark:text-stone-400" />
+                        </Link>
+                    ) : step > 1 && step <= TOTAL_STEPS ? (
                         <button
                             onClick={handleBack}
                             className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
@@ -631,7 +648,7 @@ export default function Widget() {
                     </div>
                 )}
 
-                {showHeader && <MasterProfileHeader master={master} />}
+                {showHeader && <MasterProfileHeader master={master} studioSlug={studioSlug} />}
 
                 {step === 1 && (
                     <StepServices
