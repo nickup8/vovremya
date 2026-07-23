@@ -114,22 +114,24 @@ class Workspace extends Model
             return;
         }
 
-        $base = Str::slug($this->name);
-        if ($base === '') {
-            $base = 'studio';
-        }
-
-        $slug = $base;
-        $attempts = 0;
-        while (self::where('slug', $slug)->where('id', '!=', $this->id)->lockForUpdate()->exists()) {
-            $attempts++;
-            if ($attempts > 5) {
-                $slug = Str::lower(Str::random(8));
-            } else {
-                $slug = $base . '-' . Str::lower(Str::random(5));
+        DB::transaction(function () {
+            $base = Str::slug($this->name);
+            if ($base === '') {
+                $base = 'studio';
             }
-        }
 
-        $this->update(['slug' => $slug]);
+            $slug = $base;
+            $attempts = 0;
+            while (self::where('slug', $slug)->where('id', '!=', $this->id)->lockForUpdate()->exists()) {
+                $attempts++;
+                if ($attempts > 5) {
+                    $slug = Str::lower(Str::random(8));
+                } else {
+                    $slug = $base . '-' . Str::lower(Str::random(5));
+                }
+            }
+
+            $this->update(['slug' => $slug]);
+        });
     }
 }
