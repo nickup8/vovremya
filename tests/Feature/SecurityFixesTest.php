@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\UserRole;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\Service;
@@ -31,7 +32,35 @@ class SecurityFixesTest extends TestCase
 
     public function test_master_cannot_update_other_masters_appointment(): void
     {
-        $this->markTestSkipped('Известный баг: ownership check не реализован (возвращается 302 вместо 403)');
+        // Настоящий мастер-владелец записи
+        $ownerMaster = User::factory()->master()->create([
+            'role' => UserRole::Master,
+        ]);
+        // Чужой мастер
+        $strangerMaster = User::factory()->master()->create([
+            'role' => UserRole::Master,
+        ]);
+
+        $service = Service::factory()->create(['user_id' => $ownerMaster->id]);
+        $appointment = Appointment::factory()->create([
+            'master_id' => $ownerMaster->id,
+            'service_id' => $service->id,
+            'status' => 'booked',
+        ]);
+
+        $response = $this->actingAs($strangerMaster)
+            ->patchJson("/admin/appointments/{$appointment->id}/status", [
+                'status' => 'paid',
+            ]);
+
+        // Доступ должен быть запрещён
+        $response->assertForbidden(); // 403
+
+        // ГЛАВНОЕ: статус в БД НЕ должен измениться
+        $this->assertDatabaseHas('appointments', [
+            'id' => $appointment->id,
+            'status' => 'booked',
+        ]);
     }
 
     public function test_master_can_update_own_appointment(): void
@@ -53,7 +82,31 @@ class SecurityFixesTest extends TestCase
 
     public function test_master_cannot_update_other_masters_client(): void
     {
-        $this->markTestSkipped('Известный баг: ownership check не реализован (возвращается 302 вместо 403)');
+        $ownerMaster = User::factory()->master()->create([
+            'role' => UserRole::Master,
+        ]);
+        $strangerMaster = User::factory()->master()->create([
+            'role' => UserRole::Master,
+        ]);
+
+        $client = Client::factory()->create([
+            'user_id' => $ownerMaster->id,
+            'name' => 'Original Name',
+        ]);
+
+        $response = $this->actingAs($strangerMaster)
+            ->putJson("/admin/clients/{$client->id}", [
+                'name' => 'Hacked Name',
+                'phone' => $client->phone,
+            ]);
+
+        $response->assertForbidden(); // 403
+
+        // Имя клиента НЕ должно измениться
+        $this->assertDatabaseHas('clients', [
+            'id' => $client->id,
+            'name' => 'Original Name',
+        ]);
     }
 
     public function test_master_can_update_own_client(): void
