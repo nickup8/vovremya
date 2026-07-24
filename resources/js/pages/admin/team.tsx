@@ -82,7 +82,7 @@ function MasterCard({
 }) {
     const initials = getInitials(master.name);
     const canDetach = canManageTeam && !master.is_owner && !master.is_current_user;
-    const canToggleBookable = canManageTeam && !master.is_owner;
+    const canToggleBookable = canManageTeam && master.is_owner;
 
     return (
         <div className="group overflow-hidden rounded-2xl border border-slate-200/60 bg-white/50 p-5 backdrop-blur-md transition-all hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/5 dark:border-zinc-700/50 dark:bg-zinc-900/50 dark:hover:border-blue-800/50 dark:hover:shadow-blue-500/5">
@@ -135,6 +135,9 @@ function MasterCard({
                                 onCheckedChange={(checked) => onToggleBookable(master, checked)}
                                 aria-label="Доступен для записи"
                             />
+                            <span className="text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap">
+                                Принимаю записи от клиентов
+                            </span>
                         </div>
                     )}
                     {canDetach && (
@@ -219,7 +222,7 @@ export default function TeamPage() {
 
     async function handleToggleBookable(master: Master, value: boolean) {
         try {
-            const response = await fetch(`/admin/team/${master.id}/bookable`, {
+            const response = await fetch('/admin/team/bookable', {
                 method: 'PATCH',
                 headers: {
                     'Content-Type': 'application/json',

@@ -159,24 +159,21 @@ class TeamController extends Controller
         return back()->with('success', "Мастер {$removed->name} исключён из студии.");
     }
 
-    public function updateBookable(Request $request, string $master): JsonResponse
+    public function updateBookable(Request $request): JsonResponse
     {
-        abort_unless($request->user()->role->canManageTeam(), 403, 'У вас нет прав для управления командой.');
-
         $user = $request->user();
-        $masterUser = User::findOrFail($master);
 
-        abort_unless($masterUser->workspace_id === $user->workspace_id, 403, 'Мастер не состоит в вашей студии.');
+        abort_unless($user->role === UserRole::Owner, 403, 'Только владелец может управлять видимостью.');
 
         $validated = $request->validate([
             'is_bookable' => 'required|boolean',
         ]);
 
-        $masterUser->update(['is_bookable' => $validated['is_bookable']]);
+        $user->update(['is_bookable' => $validated['is_bookable']]);
 
         return response()->json([
             'success' => true,
-            'is_bookable' => $masterUser->is_bookable,
+            'is_bookable' => $user->is_bookable,
         ]);
     }
 }
