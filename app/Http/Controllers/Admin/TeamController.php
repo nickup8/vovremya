@@ -68,6 +68,16 @@ class TeamController extends Controller
             abort(403, 'У вас нет прав для управления командой.');
         }
 
+        $validated = $request->validate([
+            'role' => ['nullable', 'string', \Illuminate\Validation\Rule::in(['master', 'admin'])],
+        ]);
+
+        $targetRole = $validated['role'] ?? 'master';
+
+        if ($targetRole === 'admin') {
+            abort_unless($user->role->canInviteAdmins(), 403, 'Только владелец может приглашать администраторов.');
+        }
+
         $subscription = $workspace->activeSubscription();
         $maxMasters = $subscription?->tariffPlan?->max_masters;
 
@@ -83,6 +93,7 @@ class TeamController extends Controller
 
         WorkspaceInvite::create([
             'workspace_id' => $workspace->id,
+            'role' => $targetRole,
             'token' => $token,
             'expires_at' => now()->addHours(24),
         ]);
@@ -123,6 +134,10 @@ class TeamController extends Controller
         abort_unless($removed->workspace_id === $user->workspace_id, 403, 'Мастер не состоит в вашей студии.');
         abort_unless($removed->id !== $user->workspace->owner_id, 422, 'Нельзя исключить владельца студии.');
         abort_unless($removed->id !== $user->id, 422, 'Нельзя исключить себя.');
+
+        if ($user->role === UserRole::Admin && $removed->role === UserRole::Admin) {
+            abort(403, 'Администратор не может исключить другого администратора.');
+        }
 
         $hasFutureAppointments = Appointment::where('master_id', $removed->id)
             ->where('start_time', '>', now())

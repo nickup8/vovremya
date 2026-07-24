@@ -12,6 +12,7 @@ class WorkspaceInvite extends Model
 
     protected $fillable = [
         'workspace_id',
+        'role',
         'token',
         'expires_at',
     ];
@@ -20,6 +21,7 @@ class WorkspaceInvite extends Model
     {
         return [
             'expires_at' => 'datetime',
+            'role' => \App\Enums\UserRole::class,
         ];
     }
 

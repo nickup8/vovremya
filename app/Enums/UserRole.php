@@ -13,6 +13,16 @@ enum UserRole: string
         return in_array($this, [self::Owner, self::Admin]);
     }
 
+    public function canManageBilling(): bool
+    {
+        return $this === self::Owner;
+    }
+
+    public function canInviteAdmins(): bool
+    {
+        return $this === self::Owner;
+    }
+
     public function label(): string
     {
         return match ($this) {
