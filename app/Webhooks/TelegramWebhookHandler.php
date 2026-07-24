@@ -837,9 +837,17 @@ class TelegramWebhookHandler extends WebhookHandler
         Log::info('[TG] handleAuthContact: sending confirmation');
 
         try {
-            $result = $this->chat->html(
-                __('bot.auth_success')
-            )->removeReplyKeyboard()->send();
+            $targetUrl = url($user->is_master ? '/admin/calendar' : '/client/bookings');
+
+            $keyboard = \DefStudio\Telegraph\Keyboard\Keyboard::make()
+                ->row([
+                    \DefStudio\Telegraph\Keyboard\Button::make('Открыть кабинет 🚀')->url($targetUrl),
+                ]);
+
+            $this->chat->html(__('bot.auth_success'))
+                ->removeReplyKeyboard()
+                ->keyboard($keyboard)
+                ->send();
 
             Log::info('[TG] handleAuthContact: confirmation sent', ['ok' => true]);
         } catch (Throwable $e) {

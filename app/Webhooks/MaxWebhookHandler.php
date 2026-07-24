@@ -373,7 +373,7 @@ class MaxWebhookHandler
         $contactPayload = $attachment['payload'] ?? [];
         $maxInfo = $contactPayload['max_info'] ?? [];
         $contactUserId = (string) ($maxInfo['user_id'] ?? $userId);
-        $firstName = $maxInfo['first_name'] ?? $maxInfo['name'] ?? __('bot.fallback.client_name');
+        $firstName = $maxInfo['first_name'] ?? $maxInfo['name'] ?? 'Мастер';
         $lastName = $maxInfo['last_name'] ?? '';
 
         // Extract phone from vcf_info
@@ -490,7 +490,7 @@ class MaxWebhookHandler
 
         broadcast(new \App\Events\UserChannelsUpdated($user));
 
-        $authCacheKey = CacheKeys::TG_AUTH . $loginToken;
+        $authCacheKey = CacheKeys::MAX_AUTH . $loginToken;
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
@@ -498,7 +498,8 @@ class MaxWebhookHandler
 
         Log::info('[MAX] handleAuthContact: sending confirmation');
 
-        $this->sendMessage($userId, __('bot.auth_success'));
+        $targetUrl = url($user->is_master ? '/admin/calendar' : '/client/bookings');
+        $this->sendMessage($userId, __('bot.auth_success') . "\n\n👉 " . $targetUrl);
 
         Cache::forget(CacheKeys::MAX_CHAT_TOKEN . $userId);
     }
