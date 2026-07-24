@@ -45,7 +45,7 @@ interface Props {
 export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, onSubmit, slotInterval }: Props) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 sm:max-w-md">
+            <DialogContent className="w-[calc(100%-2rem)] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
                 <form onSubmit={onSubmit}>
                     <DialogHeader>
                         <DialogTitle className="text-slate-900 dark:text-zinc-100">
@@ -105,7 +105,7 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                             )}
                         </div>
 
-                        <div className="grid grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div>
                                 <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                     Дата *

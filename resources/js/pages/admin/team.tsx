@@ -135,7 +135,7 @@ function MasterCard({
                     </div>
                 </div>
 
-                <div className="flex shrink-0 items-center gap-3">
+                <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
                     {canToggleBookable && (
                         <div className="flex items-center gap-2">
                             <Switch
@@ -143,7 +143,7 @@ function MasterCard({
                                 onCheckedChange={(checked) => onToggleBookable(master, checked)}
                                 aria-label="Доступен для записи"
                             />
-                            <span className="text-xs text-slate-500 dark:text-zinc-400 whitespace-nowrap">
+                            <span className="hidden text-xs text-slate-500 dark:text-zinc-400 sm:inline">
                                 Принимаю записи от клиентов
                             </span>
                         </div>
