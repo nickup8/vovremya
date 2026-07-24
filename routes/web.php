@@ -124,6 +124,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/team', [TeamController::class, 'index'])->name('admin.team');
     Route::post('/admin/team/invite', [TeamController::class, 'generateInvite'])->name('admin.team.invite');
     Route::post('/admin/team/{master}/detach', [TeamController::class, 'detach'])->name('admin.team.detach');
+    Route::patch('/admin/team/{master}/bookable', [TeamController::class, 'updateBookable'])->name('admin.team.bookable');
 });
 
 Route::get('/invite', [TeamController::class, 'showInvitePage'])->name('team.invite.page');

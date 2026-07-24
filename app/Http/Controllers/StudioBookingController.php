@@ -41,6 +41,7 @@ class StudioBookingController extends Controller
     {
         $masters = $workspace->users()
             ->where('is_master', true)
+            ->where('is_bookable', true)
             ->whereNotNull('master_slug')
             ->where('master_slug', '!=', '')
             ->select('id')
@@ -76,6 +77,7 @@ class StudioBookingController extends Controller
     {
         $masters = $workspace->users()
             ->where('is_master', true)
+            ->where('is_bookable', true)
             ->whereNotNull('master_slug')
             ->where('master_slug', '!=', '')
             ->select('id', 'name', 'master_slug', 'avatar_url', 'specialty')
@@ -121,6 +123,7 @@ class StudioBookingController extends Controller
         $master = User::where('workspace_id', $workspace->id)
             ->where('master_slug', $masterSlug)
             ->where('is_master', true)
+            ->where('is_bookable', true)
             ->whereNotNull('master_slug')
             ->first();
 
