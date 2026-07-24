@@ -41,6 +41,7 @@ class TeamController extends Controller
                 'max_id' => $m->max_id,
                 'is_owner' => $m->id === $workspace->owner_id,
                 'is_current_user' => $m->id === $user->id,
+                'role' => $m->role->value,
                 'is_bookable' => $m->is_bookable,
                 'has_future_appointments' => Appointment::where('master_id', $m->id)
                     ->where('start_time', '>', now())
@@ -52,6 +53,7 @@ class TeamController extends Controller
             'masters' => $masters,
             'max_masters' => $maxMasters,
             'can_manage_team' => $user->role->canManageTeam(),
+            'can_invite_admins' => $user->role->canInviteAdmins(),
         ]);
     }
 

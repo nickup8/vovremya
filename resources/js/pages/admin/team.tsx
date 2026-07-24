@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import { toast } from 'sonner';
 import {
-    UserPlus, Crown, Send, MessageCircle, Copy, Check, Users, Sparkles, Trash2,
+    UserPlus, Crown, Send, MessageCircle, Copy, Check, Users, Sparkles, Trash2, Shield,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -24,6 +24,7 @@ interface Master {
     max_id: string | null;
     is_owner: boolean;
     is_current_user: boolean;
+    role: 'owner' | 'admin' | 'master';
     is_bookable: boolean;
     has_future_appointments: boolean;
 }
@@ -32,6 +33,7 @@ interface TeamPageProps extends PageProps {
     masters: Master[];
     max_masters: number | null;
     can_manage_team: boolean;
+    can_invite_admins: boolean;
 }
 
 /* ═══════════════ Empty State ═══════════════ */
@@ -105,6 +107,12 @@ function MasterCard({
                                 Владелец
                             </span>
                         )}
+                        {!master.is_owner && master.role === 'admin' && (
+                            <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600 dark:bg-blue-950/30 dark:text-blue-400">
+                                <Shield className="size-2.5" />
+                                Администратор
+                            </span>
+                        )}
                         {!master.is_bookable && !master.is_owner && (
                             <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
                                 Скрыт
@@ -159,9 +167,10 @@ function MasterCard({
 /* ═══════════════ Main Team Page ═══════════════ */
 
 export default function TeamPage() {
-    const { masters, max_masters, can_manage_team, auth } = usePage<TeamPageProps>().props;
+    const { masters, max_masters, can_manage_team, can_invite_admins, auth } = usePage<TeamPageProps>().props;
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteLink, setInviteLink] = useState('');
+    const [inviteRole, setInviteRole] = useState<'master' | 'admin'>('master');
     const [loading, setLoading] = useState(false);
     const [copied, setCopied] = useState(false);
     const [detachTarget, setDetachTarget] = useState<Master | null>(null);
@@ -186,6 +195,7 @@ export default function TeamPage() {
                     'X-CSRF-TOKEN': (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '',
                     'X-Requested-With': 'XMLHttpRequest',
                 },
+                body: JSON.stringify({ role: inviteRole }),
             });
 
             const data = await response.json();
@@ -212,6 +222,7 @@ export default function TeamPage() {
     function handleOpenInvite() {
         setInviteLink('');
         setCopied(false);
+        setInviteRole('master');
         setInviteDialogOpen(true);
     }
 
@@ -338,6 +349,39 @@ export default function TeamPage() {
 
                     {!inviteLink ? (
                         <div className="py-4 text-center">
+                            {can_invite_admins && (
+                                <div className="mb-6">
+                                    <p className="mb-3 text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        Кого приглашаем?
+                                    </p>
+                                    <div className="flex gap-3 justify-center">
+                                        <button
+                                            type="button"
+                                            onClick={() => setInviteRole('master')}
+                                            className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-5 py-3 text-sm font-medium transition-all ${
+                                                inviteRole === 'master'
+                                                    ? 'border-blue-600 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-400'
+                                                    : 'border-slate-200 bg-white text-slate-600 hover:border-slate-300 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:border-zinc-600'
+                                            }`}
+                                        >
+                                            <Users className="size-5" />
+                                            Мастер
+                                        </button>
+                                        <button
+                                            type="button"
+                                            onClick={() => setInviteRole('admin')}
+                                            className={`flex flex-col items-center gap-1.5 rounded-xl border-2 px-5 py-3 text-sm font-medium transition-all ${
+                                                inviteRole === 'admin'
+                                                    ? 'border-blue-600 bg-blue-50 text-blue-700 dark:border-blue-500 dark:bg-blue-950/30 dark:text-blue-700 dark:text-blue-400'
+                                                    : 'border-slate-200 text-slate-500 hover:border-slate-300 hover:text-slate-700 dark:border-zinc-700 dark:text-zinc-400 dark:hover:border-zinc-600 dark:hover:text-zinc-300'
+                                            }`}
+                                        >
+                                            <Shield className="size-5" />
+                                            Администратор
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
                             <p className="mb-6 text-sm text-slate-500 dark:text-zinc-400">
                                 Нажмите кнопку, чтобы сгенерировать персональную ссылку-приглашение.
                                 Ссылка действует 24 часа.
