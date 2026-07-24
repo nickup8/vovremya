@@ -18,7 +18,7 @@ class MagicLoginController extends Controller
             return redirect('/')->with('error', 'Неверная ссылка авторизации.');
         }
 
-        $userId = Cache::pull('magic_login_' . $token);
+        $userId = Cache::get('magic_login_' . $token);
 
         if (! $userId) {
             return redirect('/')->with('error', 'Ссылка устарела или уже была использована. Пожалуйста, авторизуйтесь заново.');
