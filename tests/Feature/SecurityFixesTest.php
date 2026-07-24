@@ -176,7 +176,14 @@ class SecurityFixesTest extends TestCase
 
     public function test_max_webhook_without_secret_config_returns_500(): void
     {
-        $this->markTestSkipped('Изменилось поведение: обработчик MAX теперь не возвращает 500 при отсутствии secret_token');
+        config()->offsetUnset('services.max.secret_token');
+
+        $response = $this->postJson('/webhooks/max', [
+            'event' => 'message_created',
+            'data' => ['body' => 'random', 'chat' => ['id' => 123]],
+        ]);
+
+        $response->assertStatus(500);
     }
 
     public function test_max_webhook_without_signature_header_returns_403(): void
@@ -199,7 +206,7 @@ class SecurityFixesTest extends TestCase
             'event' => 'message_created',
             'data' => ['body' => 'hello', 'chat' => ['id' => 123]],
         ], [
-            'X-Max-Signature' => 'wrong-sig',
+            'X-Max-Bot-Api-Secret' => 'wrong-sig',
         ]);
 
         $response->assertStatus(403);
@@ -213,7 +220,7 @@ class SecurityFixesTest extends TestCase
             'event' => 'message_created',
             'data' => ['body' => 'random', 'chat' => ['id' => 123]],
         ], [
-            'X-Max-Signature' => 'max-secret',
+            'X-Max-Bot-Api-Secret' => 'max-secret',
         ]);
 
         $response->assertOk();

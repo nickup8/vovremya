@@ -87,23 +87,17 @@ class WebhookController extends Controller
             'max' => 'services.max.secret_token',
         };
 
+        $headerName = match ($provider) {
+            'telegram' => 'X-Telegram-Bot-Api-Secret-Token',
+            'max' => 'X-Max-Bot-Api-Secret',
+        };
+
         $secret = config($secretKey);
 
         if (empty($secret)) {
-            if ($provider === 'max') {
-                Log::info("[MAX] webhook secret not configured, skipping signature verification");
-
-                return;
-            }
-
             Log::critical("Webhook secret not configured for {$provider}");
             abort(500, 'Webhook secret not configured');
         }
-
-        $headerName = match ($provider) {
-            'telegram' => 'X-Telegram-Bot-Api-Secret-Token',
-            'max' => 'X-Max-Signature',
-        };
 
         $provided = $request->header($headerName);
 
