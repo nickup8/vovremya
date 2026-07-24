@@ -534,6 +534,13 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
+        if ($user && $user->id === $invite->workspace->owner_id) {
+            $this->chat->html('❌ Вы уже являетесь владельцем этой студии.')->send();
+            Cache::forget('inv_token_' . $chatId);
+
+            return;
+        }
+
         if (! $user) {
             $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name') . ' ' . $phone;
 

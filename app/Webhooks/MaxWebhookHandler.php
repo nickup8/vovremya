@@ -118,6 +118,12 @@ class MaxWebhookHandler
                     ['name' => 'Новый мастер']
                 );
 
+                if ($user->id === $invite->workspace->owner_id) {
+                    $this->sendMessage($userId, '❌ Вы уже являетесь владельцем этой студии.');
+
+                    return;
+                }
+
                 $updateData = [
                     'workspace_id' => $invite->workspace_id,
                     'is_master' => true,
@@ -219,6 +225,12 @@ class MaxWebhookHandler
                             ['max_id' => $userId],
                             ['name' => 'Новый мастер']
                         );
+
+                        if ($user->id === $invite->workspace->owner_id) {
+                            $this->sendMessage($userId, '❌ Вы уже являетесь владельцем этой студии.');
+
+                            return;
+                        }
 
                         $user->update([
                             'workspace_id' => $invite->workspace_id,
