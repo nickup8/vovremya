@@ -75,13 +75,14 @@ class BookingWidgetAccessTest extends TestCase
         $response->assertStatus(200);
     }
 
-    public function test_employed_master_booking_widget_returns_404(): void
+    public function test_employed_master_booking_widget_redirects_to_studio(): void
     {
         $master = $this->createEmployedMaster(SubscriptionStatus::Active);
 
         $response = $this->get("/book/{$master->master_slug}");
 
-        $response->assertStatus(404);
+        $response->assertStatus(302);
+        $response->assertRedirect('/studio/' . $master->workspace->slug);
     }
 
     public function test_master_widget_revives_when_studio_subscription_expired(): void
