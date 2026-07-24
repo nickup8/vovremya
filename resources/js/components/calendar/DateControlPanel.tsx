@@ -34,7 +34,7 @@ export default function DateControlPanel({
     onMasterChange,
 }: DateControlPanelProps) {
     return (
-        <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
             <div className="flex items-center gap-2">
                 <button
                     onClick={onPrev}
@@ -61,7 +61,7 @@ export default function DateControlPanel({
             <div className="flex items-center gap-2">
                 {masters.length > 0 && onMasterChange && (
                     <Select value={selectedMasterId} onValueChange={onMasterChange}>
-                        <SelectTrigger className="h-8 w-[180px] border-slate-200 bg-white text-xs dark:border-zinc-700 dark:bg-zinc-800">
+                        <SelectTrigger className="h-8 w-full border-slate-200 bg-white text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto">
                             <SelectValue placeholder="Все мастера" />
                         </SelectTrigger>
                         <SelectContent>
@@ -74,14 +74,14 @@ export default function DateControlPanel({
                 )}
                 <button
                     onClick={onToggleView}
-                    className="flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    className="flex w-full items-center justify-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 sm:w-auto sm:justify-start"
                 >
                     <CalendarDays className="size-3.5" />
                     {viewMode === 'week' ? 'Месяц' : 'Неделя'}
                 </button>
                 <button
                     onClick={onNewAppointment}
-                    className="flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700"
+                    className="flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 sm:w-auto sm:justify-start"
                 >
                     <Plus className="size-3.5" />
                     Новая запись
