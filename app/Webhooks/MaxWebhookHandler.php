@@ -498,8 +498,7 @@ class MaxWebhookHandler
 
         Log::info('[MAX] handleAuthContact: sending confirmation');
 
-        $targetUrl = url($user->is_master ? '/admin/calendar' : '/client/bookings');
-        $this->sendMessage($userId, __('bot.auth_success') . "\n\n👉 " . $targetUrl);
+        $this->sendMessage($userId, __('bot.auth_success'));
 
         Cache::forget(CacheKeys::MAX_CHAT_TOKEN . $userId);
     }
