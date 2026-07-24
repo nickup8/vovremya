@@ -498,7 +498,11 @@ class MaxWebhookHandler
 
         Log::info('[MAX] handleAuthContact: sending confirmation');
 
-        $this->sendMessage($userId, __('bot.auth_success'));
+        $magicToken = \Illuminate\Support\Str::random(32);
+        \Illuminate\Support\Facades\Cache::put('magic_login_' . $magicToken, $user->id, now()->addMinutes(15));
+        $magicUrl = route('auth.magic', ['token' => $magicToken]);
+
+        $this->sendMessage($userId, "✅ Авторизация пройдена!\n\nНажмите на ссылку ниже, чтобы открыть кабинет:\n👉 " . $magicUrl);
 
         Cache::forget(CacheKeys::MAX_CHAT_TOKEN . $userId);
     }

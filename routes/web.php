@@ -38,6 +38,8 @@ Route::post('/auth/telegram/token', [TelegramAuthController::class, 'generateLog
 Route::get('/auth/telegram/check/{token}', [TelegramAuthController::class, 'checkAuthStatus'])->middleware('throttle:30,1')->name('auth.telegram.check');
 Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout');
 
+Route::get('/auth/magic', \App\Http\Controllers\Auth\MagicLoginController::class)->name('auth.magic');
+
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
 Route::get('/book/{master}/available-dates', [BookingWidgetController::class, 'availableDates'])->name('booking.available-dates');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
