@@ -74,7 +74,7 @@ class DetachMasterTest extends TestCase
         ]);
     }
 
-    private function detach(User $actor, User $removed, string $targetId = null): \Illuminate\Testing\TestResponse
+    private function detach(User $actor, User $removed, ?string $targetId = null): \Illuminate\Testing\TestResponse
     {
         $payload = $targetId ? ['target_master_id' => $targetId] : [];
 
