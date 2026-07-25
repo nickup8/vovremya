@@ -3,15 +3,16 @@
 namespace App\Services\Billing;
 
 use App\Enums\AppointmentStatus;
+use App\Models\Subscription;
 use App\Models\Workspace;
 use Carbon\CarbonInterface;
 
 class TariffLimitService
 {
 
-    public function canCreateAppointment(Workspace $workspace): bool
+    public function canCreateAppointment(Workspace $workspace, ?Subscription $subscription = null): bool
     {
-        $limit = $this->getMonthlyLimit($workspace);
+        $limit = $this->getMonthlyLimit($workspace, $subscription);
 
         if ($limit === PHP_INT_MAX) {
             return true;
@@ -24,9 +25,9 @@ class TariffLimitService
         return $usedCount < $limit;
     }
 
-    public function getRemainingCount(Workspace $workspace): int
+    public function getRemainingCount(Workspace $workspace, ?Subscription $subscription = null): int
     {
-        $limit = $this->getMonthlyLimit($workspace);
+        $limit = $this->getMonthlyLimit($workspace, $subscription);
 
         if ($limit === PHP_INT_MAX) {
             return PHP_INT_MAX;
@@ -39,9 +40,9 @@ class TariffLimitService
         return max(0, $limit - $usedCount);
     }
 
-    public function getMonthlyLimit(Workspace $workspace): int
+    public function getMonthlyLimit(Workspace $workspace, ?Subscription $subscription = null): int
     {
-        $activeSubscription = $workspace->activeSubscription();
+        $activeSubscription = $subscription ?? $workspace->activeSubscription();
 
         if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
             return 30; // Fallback to 'start' plan limits
@@ -50,9 +51,9 @@ class TariffLimitService
         return $activeSubscription->tariffPlan->max_appointments_per_month ?? PHP_INT_MAX;
     }
 
-    public function getUsedCount(Workspace $workspace): int
+    public function getUsedCount(Workspace $workspace, ?Subscription $subscription = null): int
     {
-        $limit = $this->getMonthlyLimit($workspace);
+        $limit = $this->getMonthlyLimit($workspace, $subscription);
 
         if ($limit === PHP_INT_MAX) {
             return 0;
