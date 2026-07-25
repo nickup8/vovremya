@@ -20,6 +20,7 @@ class CleanupDraftAppointments extends Command
 
         $appointments = Appointment::query()
             ->whereNull('client_id')
+            ->where('status', '!=', AppointmentStatus::Cancelled)
             ->where('created_at', '<', $threshold)
             ->get();
 
