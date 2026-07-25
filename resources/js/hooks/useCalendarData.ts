@@ -62,21 +62,12 @@ export function useCalendarData({
                     }
                     return prev.map((a) => (a.id === appointment.id ? appointment : a));
                 });
-            })
-            .listen('.AppointmentUpdated', (appointment: Appointment) => {
-                setLocalAppointments((prev) => {
-                    if (appointment.status === AppointmentStatus.Cancelled) {
-                        return prev.filter((a) => a.id !== appointment.id);
-                    }
-                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
-                });
             });
 
         return () => {
             channel.stopListening('.AppointmentCreated');
             channel.stopListening('.AppointmentStatusChanged');
             channel.stopListening('.AppointmentRescheduled');
-            channel.stopListening('.AppointmentUpdated');
             echo<'reverb'>().leave(channelName);
         };
     }, [authUserId]);
