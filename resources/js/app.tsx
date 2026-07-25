@@ -1,5 +1,6 @@
 import { createInertiaApp } from '@inertiajs/react';
 import { TooltipProvider } from '@/components/ui/tooltip';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { initializeTheme } from '@/hooks/use-appearance';
 import { configureEcho } from '@laravel/echo-react';
 import axios from 'axios';
@@ -38,9 +39,11 @@ createInertiaApp({
     strictMode: true,
     withApp(app) {
         return (
-            <TooltipProvider delayDuration={0}>
-                {app}
-            </TooltipProvider>
+            <ErrorBoundary>
+                <TooltipProvider delayDuration={0}>
+                    {app}
+                </TooltipProvider>
+            </ErrorBoundary>
         );
     },
     progress: {
