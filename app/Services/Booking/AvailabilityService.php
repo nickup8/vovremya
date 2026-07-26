@@ -319,10 +319,16 @@ class AvailabilityService
 
             $day = $start->copy()->startOfDay();
             $monthEnd = Carbon::create($year, $month, 1, 0, 0, 0, $tz)->endOfMonth()->startOfDay();
-
+            $guard = 0;
             while ($day->lte($monthEnd) && $day->lte($end)) {
+                if (++$guard > 40) {
+                    \Log::warning('loadBlockedPeriodsForMonth: guard triggered', [
+                        'day' => (string) $day, 'end' => (string) $end,
+                    ]);
+                    break;
+                }
                 $grouped[$day->format('Y-m-d')][] = $entry;
-                $day->addDay();
+                $day = $day->addDay();
             }
         }
 
