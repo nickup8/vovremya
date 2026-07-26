@@ -2,15 +2,15 @@
 
 namespace App\Http\Controllers\Admin;
 
-use App\Enums\UserRole;
+use App\Enums\BlockedTimeReason;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedTime;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
@@ -61,7 +61,7 @@ class SettingsController extends Controller
         $maxBotName = config('services.max.bot_name');
         $maxLinkUrl = null;
         if (! $user->max_id && $maxBotName) {
-            $linkToken = 'link_' . Str::uuid();
+            $linkToken = 'link_'.Str::uuid();
             Cache::put("max_link:{$linkToken}", $user->id, now()->addMinutes(60));
             $maxLinkUrl = "https://max.ru/{$maxBotName}?start={$linkToken}";
         }
@@ -311,16 +311,19 @@ class SettingsController extends Controller
 
             if ($startTime === null || $endTime === null) {
                 $errors["working_hours.{$index}.start_time"] = 'Для рабочего дня укажите время начала и окончания.';
+
                 continue;
             }
 
             if (! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $startTime) || ! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $endTime)) {
                 $errors["working_hours.{$index}.start_time"] = 'Неверный формат времени. Используйте ЧЧ:ММ или ЧЧ:ММ:СС.';
+
                 continue;
             }
 
             if ($endTime <= $startTime) {
                 $errors["working_hours.{$index}.end_time"] = 'Время окончания должно быть позже времени начала.';
+
                 continue;
             }
 
@@ -331,21 +334,25 @@ class SettingsController extends Controller
             if ($hasBreak) {
                 if (! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $breakStart) || ! preg_match('/^\d{2}:\d{2}(:\d{2})?$/', $breakEnd)) {
                     $errors["working_hours.{$index}.break_start_time"] = 'Неверный формат времени обеда.';
+
                     continue;
                 }
 
                 if ($breakStart <= $startTime) {
                     $errors["working_hours.{$index}.break_start_time"] = 'Обед должен начинаться после начала рабочего дня.';
+
                     continue;
                 }
 
                 if ($breakEnd >= $endTime) {
                     $errors["working_hours.{$index}.break_end_time"] = 'Обед должен заканчиваться до окончания рабочего дня.';
+
                     continue;
                 }
 
                 if ($breakEnd <= $breakStart) {
                     $errors["working_hours.{$index}.break_end_time"] = 'Время окончания обеда должно быть позже времени начала.';
+
                     continue;
                 }
             }
@@ -379,7 +386,7 @@ class SettingsController extends Controller
         $validated = $request->validate([
             'start_datetime' => 'required|date',
             'end_datetime' => 'required|date|after:start_datetime',
-            'reason' => ['required', Rule::in(array_column(\App\Enums\BlockedTimeReason::cases(), 'value'))],
+            'reason' => ['required', Rule::in(array_column(BlockedTimeReason::cases(), 'value'))],
             'master_id' => 'nullable|uuid|exists:users,id',
         ]);
 
@@ -393,6 +400,10 @@ class SettingsController extends Controller
         }
 
         unset($validated['master_id']);
+
+        $tz = $targetMaster->getTimezone();
+        $validated['start_datetime'] = Carbon::parse($validated['start_datetime'], $tz)->utc();
+        $validated['end_datetime'] = Carbon::parse($validated['end_datetime'], $tz)->utc();
 
         $targetMaster->blockedTimes()->create($validated);
 
