@@ -7,6 +7,7 @@ use App\Models\Appointment;
 use App\Models\BlockedTime;
 use App\Models\User;
 use App\Models\WorkingHour;
+use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -314,12 +315,15 @@ class AvailabilityService
         foreach ($blockedTimes as $b) {
             $start = $b->start_datetime->copy()->timezone($tz);
             $end = $b->end_datetime->copy()->timezone($tz);
-            $dateKey = $start->format('Y-m-d');
+            $entry = ['start' => $start, 'end' => $end];
 
-            $grouped[$dateKey][] = [
-                'start' => $start,
-                'end' => $end,
-            ];
+            $day = $start->copy()->startOfDay();
+            $monthEnd = Carbon::create($year, $month, 1, 0, 0, 0, $tz)->endOfMonth()->startOfDay();
+
+            while ($day->lte($monthEnd) && $day->lte($end)) {
+                $grouped[$day->format('Y-m-d')][] = $entry;
+                $day->addDay();
+            }
         }
 
         return $grouped;
@@ -462,6 +466,7 @@ class AvailabilityService
 
             if ($date->isToday() && $slotStart->lt($now)) {
                 $slotStart->addMinutes($interval);
+
                 continue;
             }
 
@@ -474,7 +479,7 @@ class AvailabilityService
                 $periodStart = $period['start'];
                 $periodEnd = $period['end'];
 
-                if (! $periodStart instanceof \Carbon\CarbonInterface || ! $periodEnd instanceof \Carbon\CarbonInterface) {
+                if (! $periodStart instanceof CarbonInterface || ! $periodEnd instanceof CarbonInterface) {
                     continue;
                 }
 

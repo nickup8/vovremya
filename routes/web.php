@@ -1,25 +1,28 @@
 <?php
 
 use App\Http\Controllers\Admin\AnalyticsController;
+use App\Http\Controllers\Admin\CalendarApiController;
 use App\Http\Controllers\Admin\CalendarController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Admin\TeamController;
+use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingStatusController;
 use App\Http\Controllers\BookingWidgetController;
-use App\Http\Controllers\StudioBookingController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\Client\ClientProfileController;
 use App\Http\Controllers\Client\RoleSwitchController;
 use App\Http\Controllers\ClientModeController;
+use App\Http\Controllers\StudioBookingController;
 use App\Http\Controllers\Webhook\PaymentWebhookController;
 use App\Http\Controllers\Webhook\TelegraphWebhookController;
 use App\Http\Controllers\WebhookController;
 use App\Models\User;
+use DefStudio\Telegraph\Models\TelegraphBot;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -38,11 +41,11 @@ Route::post('/auth/telegram/token', [TelegramAuthController::class, 'generateLog
 Route::get('/auth/telegram/check/{token}', [TelegramAuthController::class, 'checkAuthStatus'])->middleware('throttle:30,1')->name('auth.telegram.check');
 Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout');
 
-Route::get('/auth/magic', [\App\Http\Controllers\Auth\MagicLoginController::class, 'show'])
+Route::get('/auth/magic', [MagicLoginController::class, 'show'])
     ->name('auth.magic')
     ->middleware('throttle:10,1');
 
-Route::post('/auth/magic', [\App\Http\Controllers\Auth\MagicLoginController::class, 'login'])
+Route::post('/auth/magic', [MagicLoginController::class, 'login'])
     ->name('auth.magic.login')
     ->middleware('throttle:10,1');
 
@@ -68,7 +71,7 @@ Route::post('/telegraph/{token}/webhook', [TelegraphWebhookController::class, 'h
 // Временный роут для принудительной перерегистрации вебхука (только dev)
 if (app()->environment('local')) {
     Route::get('/dev/set-webhook', function () {
-        $bot = \DefStudio\Telegraph\Models\TelegraphBot::first();
+        $bot = TelegraphBot::first();
 
         if (! $bot) {
             return 'Бот не найден в базе.';
@@ -85,7 +88,7 @@ if (app()->environment('local')) {
 
         $registration->send();
 
-        return 'Webhook forced to: ' . $url;
+        return 'Webhook forced to: '.$url;
     });
 }
 
@@ -103,6 +106,7 @@ if (app()->environment('local')) {
 
 Route::middleware(['auth'])->group(function () {
     Route::get('/admin/calendar', [CalendarController::class, 'index'])->name('admin.calendar');
+    Route::get('/admin/calendar/data', [CalendarApiController::class, 'range'])->name('admin.calendar.data');
     Route::post('/admin/calendar/appointments', [CalendarController::class, 'store'])->name('admin.calendar.store');
     Route::patch('/admin/appointments/{appointment}/status', [CalendarController::class, 'updateStatus'])->name('admin.appointments.update-status');
 

@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
@@ -31,6 +30,18 @@ class CalendarController extends Controller
                 ->with('error', 'У вас нет доступа к календарю.');
         }
 
+        $validated = $request->validate([
+            'start' => 'nullable|date_format:Y-m-d',
+            'end' => 'nullable|date_format:Y-m-d',
+        ]);
+
+        $rangeStart = isset($validated['start'])
+            ? Carbon::parse($validated['start'])->startOfDay()
+            : Carbon::now()->subWeeks(2)->startOfDay();
+        $rangeEnd = isset($validated['end'])
+            ? Carbon::parse($validated['end'])->endOfDay()
+            : Carbon::now()->addWeeks(2)->endOfDay();
+
         $isAdminOrOwner = $master->role->canManageTeam();
 
         if ($isAdminOrOwner) {
@@ -41,8 +52,8 @@ class CalendarController extends Controller
             $appointments = Appointment::whereIn('master_id', $masterIds)
                 ->with(['client', 'service', 'master'])
                 ->whereBetween('start_time', [
-                    Carbon::now()->subWeeks(2)->startOfDay(),
-                    Carbon::now()->addWeeks(2)->endOfDay(),
+                    $rangeStart,
+                    $rangeEnd,
                 ])
                 ->whereNotNull('client_id')
                 ->get()
@@ -66,8 +77,8 @@ class CalendarController extends Controller
                 });
 
             $blockedTimes = BlockedTime::whereIn('user_id', $masterIds)
-                ->where('end_datetime', '>=', Carbon::now()->subWeeks(2)->startOfDay())
-                ->where('start_datetime', '<=', Carbon::now()->addWeeks(2)->endOfDay())
+                ->where('end_datetime', '>=', $rangeStart)
+                ->where('start_datetime', '<=', $rangeEnd)
                 ->with('user')
                 ->get()
                 ->map(fn ($bt) => [
@@ -106,8 +117,8 @@ class CalendarController extends Controller
             $appointments = $master->masterAppointments()
                 ->with(['client', 'service'])
                 ->whereBetween('start_time', [
-                    Carbon::now()->subWeeks(2)->startOfDay(),
-                    Carbon::now()->addWeeks(2)->endOfDay(),
+                    $rangeStart,
+                    $rangeEnd,
                 ])
                 ->whereNotNull('client_id')
                 ->get()
@@ -129,8 +140,8 @@ class CalendarController extends Controller
                 });
 
             $blockedTimes = $master->blockedTimes()
-                ->where('end_datetime', '>=', Carbon::now()->subWeeks(2)->startOfDay())
-                ->where('start_datetime', '<=', Carbon::now()->addWeeks(2)->endOfDay())
+                ->where('end_datetime', '>=', $rangeStart)
+                ->where('start_datetime', '<=', $rangeEnd)
                 ->get()
                 ->map(fn ($bt) => [
                     'id' => $bt->id,
@@ -183,6 +194,10 @@ class CalendarController extends Controller
             'timezoneConfirmed' => $timezoneConfirmed,
             'prefillClientId' => $request->query('client_id'),
             'masters' => $masters,
+            'dateRange' => [
+                'start' => $rangeStart->format('Y-m-d'),
+                'end' => $rangeEnd->format('Y-m-d'),
+            ],
         ]);
     }
 

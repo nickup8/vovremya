@@ -29,9 +29,12 @@ export function useCalendarData({
 
     // ═══════════════ Sync with Inertia props ═══════════════
     useEffect(() => {
-        setLocalAppointments(
-            initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
-        );
+        setLocalAppointments((prev) => {
+            const incoming = initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled);
+            const incomingIds = new Set(incoming.map((a) => a.id));
+            const wsAdded = prev.filter((a) => !incomingIds.has(a.id));
+            return [...incoming, ...wsAdded];
+        });
     }, [initialAppointments]);
 
     // ═══════════════ WebSocket subscription ═══════════════

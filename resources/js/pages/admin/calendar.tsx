@@ -1,5 +1,5 @@
-import { useState, useMemo } from 'react';
-import { Head, usePage } from '@inertiajs/react';
+import { useState, useMemo, useEffect } from 'react';
+import { Head, usePage, router } from '@inertiajs/react';
 import { User } from 'lucide-react';
 import { MONTHS_RU } from '@/lib/locale';
 import DateControlPanel from '@/components/calendar/DateControlPanel';
@@ -25,7 +25,7 @@ import { useCalendarData } from '@/hooks/useCalendarData';
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
-    const { appointments: initialAppointments = [], initialBlockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth, masters = [] } = usePage<PageProps>().props;
+    const { appointments: initialAppointments = [], initialBlockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth, masters = [], dateRange: loadedRange } = usePage<PageProps>().props;
 
     const {
         selected, setSelected,
@@ -138,6 +138,37 @@ export default function CalendarPage() {
     }, [workingHours]);
 
     const DAY_START_HOUR = gridHours.length > 0 ? gridHours[0] : 8;
+
+    // ═══════════════ Dynamic Date Range Loading ═══════════════
+    useEffect(() => {
+        const visibleStart = new Date(centerDate);
+        visibleStart.setDate(visibleStart.getDate() - 3);
+        const visibleEnd = new Date(centerDate);
+        visibleEnd.setDate(visibleEnd.getDate() + 10);
+
+        const bufferStart = new Date(visibleStart);
+        bufferStart.setDate(bufferStart.getDate() - 7);
+        const bufferEnd = new Date(visibleEnd);
+        bufferEnd.setDate(bufferEnd.getDate() + 7);
+
+        const toKey = (d: Date) => d.toISOString().split('T')[0];
+        const bufferStartKey = toKey(bufferStart);
+        const bufferEndKey = toKey(bufferEnd);
+
+        if (loadedRange && loadedRange.start <= bufferStartKey && loadedRange.end >= bufferEndKey) {
+            return;
+        }
+
+        router.reload({
+            data: {
+                start: toKey(bufferStart),
+                end: toKey(bufferEnd),
+            },
+            preserveState: true,
+            preserveScroll: true,
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [weekOffset, monthOffset]);
 
     function isToday(date: Date): boolean {
         return (

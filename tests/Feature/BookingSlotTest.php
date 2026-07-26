@@ -245,4 +245,133 @@ class BookingSlotTest extends TestCase
         $this->assertSame('error', $result['status']);
         $this->assertSame('outside_working_hours', $result['error']);
     }
+
+    #[Test]
+    public function multi_day_blocked_time_blocks_day_after_start(): void
+    {
+        $master = $this->createMasterWithSchedule(
+            $this->tomorrow10amMoscow()->dayOfWeek
+        );
+
+        $service = Service::factory()->create([
+            'user_id' => $master->id,
+            'duration_minutes' => 60,
+        ]);
+
+        $tomorrow = $this->tomorrow10amMoscow()->copy()->startOfDay();
+        $dayAfter = $tomorrow->copy()->addDay();
+
+        // Block from tomorrow 10:00 to day-after-tomorrow 10:00 (48h)
+        $blockStart = $tomorrow->copy()->setTime(10, 0)->timezone('UTC');
+        $blockEnd = $dayAfter->copy()->setTime(10, 0)->timezone('UTC');
+
+        BlockedTime::create([
+            'user_id' => $master->id,
+            'start_datetime' => $blockStart->format('Y-m-d H:i:s'),
+            'end_datetime' => $blockEnd->format('Y-m-d H:i:s'),
+            'reason' => 'Другое',
+        ]);
+
+        // Day after tomorrow at 09:00 should be blocked
+        $dayAfterAt9am = $dayAfter->copy()->setTime(9, 0);
+        $result = $this->bookingService->checkSlot(
+            $master,
+            $dayAfterAt9am,
+            $service->duration_minutes,
+        );
+
+        $this->assertSame('error', $result['status']);
+        $this->assertSame('slot_taken', $result['error']);
+    }
+
+    #[Test]
+    public function multi_day_blocked_time_frees_after_end(): void
+    {
+        $master = $this->createMasterWithSchedule(
+            $this->tomorrow10amMoscow()->dayOfWeek
+        );
+
+        $service = Service::factory()->create([
+            'user_id' => $master->id,
+            'duration_minutes' => 60,
+        ]);
+
+        $tomorrow = $this->tomorrow10amMoscow()->copy()->startOfDay();
+        $dayAfter = $tomorrow->copy()->addDay();
+
+        // Block from tomorrow 10:00 MSK to day-after-tomorrow 10:00 MSK
+        // In UTC: tomorrow 07:00 UTC to day-after-tomorrow 07:00 UTC
+        $blockStart = $tomorrow->copy()->setTime(10, 0)->timezone('UTC');
+        $blockEnd = $dayAfter->copy()->setTime(10, 0)->timezone('UTC');
+
+        BlockedTime::create([
+            'user_id' => $master->id,
+            'start_datetime' => $blockStart->format('Y-m-d H:i:s'),
+            'end_datetime' => $blockEnd->format('Y-m-d H:i:s'),
+            'reason' => 'Другое',
+        ]);
+
+        // Day after tomorrow at 10:00 MSK = 07:00 UTC — block ends at 07:00 UTC
+        // So 10:00 MSK (07:00 UTC) should be free since end_datetime = 07:00 UTC (slotStart == periodEnd → no overlap)
+        $dayAfterAt10am = $dayAfter->copy()->setTime(10, 0);
+        $result = $this->bookingService->checkSlot(
+            $master,
+            $dayAfterAt10am,
+            $service->duration_minutes,
+        );
+
+        $this->assertSame('ok', $result['status']);
+
+        // Day after tomorrow at 09:00 MSK — still within the block
+        $dayAfterAt9am = $dayAfter->copy()->setTime(9, 0);
+        $result = $this->bookingService->checkSlot(
+            $master,
+            $dayAfterAt9am,
+            $service->duration_minutes,
+        );
+
+        $this->assertSame('error', $result['status']);
+        $this->assertSame('slot_taken', $result['error']);
+    }
+
+    #[Test]
+    public function get_available_slots_excludes_multi_day_blocked_times(): void
+    {
+        $master = $this->createMasterWithSchedule(
+            $this->tomorrow10amMoscow()->dayOfWeek
+        );
+
+        $service = Service::factory()->create([
+            'user_id' => $master->id,
+            'duration_minutes' => 60,
+        ]);
+
+        $tomorrow = $this->tomorrow10amMoscow()->copy()->startOfDay();
+        $dayAfter = $tomorrow->copy()->addDay();
+
+        // Block from tomorrow 10:00 to day-after-tomorrow 14:00
+        $blockStart = $tomorrow->copy()->setTime(10, 0)->timezone('UTC');
+        $blockEnd = $dayAfter->copy()->setTime(14, 0)->timezone('UTC');
+
+        BlockedTime::create([
+            'user_id' => $master->id,
+            'start_datetime' => $blockStart->format('Y-m-d H:i:s'),
+            'end_datetime' => $blockEnd->format('Y-m-d H:i:s'),
+            'reason' => 'Другое',
+        ]);
+
+        // Day after tomorrow: 09:00 blocked (within multi-day block), 14:00 free (block ended)
+        $slots = $this->bookingService->getAvailableSlots(
+            $master,
+            $service,
+            $dayAfter->toDateString(),
+        );
+
+        $this->assertNotContains('09:00', $slots, '09:00 should be blocked (within multi-day block)');
+        $this->assertNotContains('10:00', $slots, '10:00 should be blocked');
+        $this->assertNotContains('11:00', $slots, '11:00 should be blocked');
+        $this->assertNotContains('12:00', $slots, '12:00 should be blocked');
+        $this->assertNotContains('13:00', $slots, '13:00 should be blocked');
+        $this->assertContains('14:00', $slots, '14:00 should be available');
+    }
 }
