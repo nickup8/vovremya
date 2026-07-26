@@ -34,10 +34,10 @@ export function useCalendarActions({
     // Warning dialog states
     const [breakWarningOpen, setBreakWarningOpen] = useState(false);
     const [breakWarningMessage, setBreakWarningMessage] = useState('');
-    const [pendingReschedule, setPendingReschedule] = useState<{ appointmentId: number; date: string; time: string } | null>(null);
+    const [pendingReschedule, setPendingReschedule] = useState<{ appointmentId: string; date: string; time: string } | null>(null);
     const [outsideHoursOpen, setOutsideHoursOpen] = useState(false);
     const [outsideHoursMessage, setOutsideHoursMessage] = useState('');
-    const [pendingOutsideHours, setPendingOutsideHours] = useState<{ appointmentId?: number; date: string; time: string } | null>(null);
+    const [pendingOutsideHours, setPendingOutsideHours] = useState<{ appointmentId?: string; date: string; time: string } | null>(null);
 
     const newAppointmentForm = useForm({
         client_id: '',

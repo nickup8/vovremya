@@ -6,9 +6,9 @@ import { Appointment, BlockedTime } from '@/pages/admin/components/calendar/type
 interface UseCalendarDataParams {
     initialAppointments: Appointment[];
     initialBlockedTimes: BlockedTime[];
-    authUserId?: number;
+    authUserId?: string;
     weekDateKeys: string[];
-    selectedId?: number;
+    selectedId?: string;
     onSelectedUpdate?: (appointment: Appointment) => void;
     onSelectedExpired?: () => void;
 }

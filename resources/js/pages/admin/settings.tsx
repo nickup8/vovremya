@@ -60,7 +60,7 @@ interface Profile {
 }
 
 interface Service {
-    id: number;
+    id: string;
     title: string;
     duration_minutes: number;
     price: number;
@@ -73,7 +73,7 @@ interface AuthUser {
 }
 
 interface WorkingHour {
-    id: number;
+    id: string;
     day_of_week: number;
     start_time: string | null;
     end_time: string | null;
@@ -83,7 +83,7 @@ interface WorkingHour {
 }
 
 interface BlockedTime {
-    id: number;
+    id: string;
     start_datetime: string;
     end_datetime: string;
     reason: string;
@@ -457,9 +457,9 @@ function buildHours(workingHours: WorkingHour[]): WorkingHour[] {
         );
         hours.push(
             existing
-                ? { ...existing, day_of_week: i }
-                : {
-                      id: 0,
+                  ? { ...existing, day_of_week: i }
+                  : {
+                      id: '',
                       day_of_week: i,
                       start_time: '09:00',
                       end_time: '18:00',
@@ -792,7 +792,7 @@ function BlockedTimesCard({ masterId }: { masterId?: string }) {
         );
     }
 
-    function handleDelete(id: number) {
+    function handleDelete(id: string) {
         if (confirm('Удалить блокировку?')) {
             router.delete(`/admin/blocked-times/${id}`, {
                 preserveScroll: true,

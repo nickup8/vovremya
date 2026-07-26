@@ -15,7 +15,7 @@ import { AppointmentStatus } from '@/types/appointment-status';
 Bookings.layout = (page: React.ReactNode) => <ClientLayout>{page}</ClientLayout>;
 
 interface Appointment {
-    id: number;
+    id: string;
     master_name: string;
     master_specialty: string | null;
     service: string;
@@ -62,7 +62,7 @@ function formatDate(dateStr: string): string {
 export default function Bookings() {
     const { appointments: initialAppointments = [] } = usePage<PageProps>().props;
     const [tab, setTab] = useState<'upcoming' | 'archive'>('upcoming');
-    const [cancelId, setCancelId] = useState<number | null>(null);
+    const [cancelId, setCancelId] = useState<string | null>(null);
     const [isProcessing, setIsProcessing] = useState(false);
 
     const upcoming = useMemo(

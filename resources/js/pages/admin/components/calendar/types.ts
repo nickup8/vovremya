@@ -1,7 +1,7 @@
 import { AppointmentStatus } from '@/types/appointment-status';
 
 export interface Appointment {
-    id: number;
+    id: string;
     client_name: string;
     client_phone: string | null;
     client_avatar_url: string | null;
@@ -11,33 +11,33 @@ export interface Appointment {
     duration: number;
     price: number;
     status: AppointmentStatus;
-    master_id?: number;
+    master_id?: string;
     master_name?: string;
 }
 
 export interface BlockedTime {
-    id: number;
+    id: string;
     start_datetime: string;
     end_datetime: string;
     reason: string;
-    user_id?: number;
+    user_id?: string;
 }
 
 export interface ClientOption {
-    id: number;
+    id: string;
     name: string;
     phone: string | null;
 }
 
 export interface ServiceOption {
-    id: number;
+    id: string;
     title: string;
     duration_minutes: number;
     price: number;
 }
 
 export interface AuthUser {
-    id: number;
+    id: string;
     name: string;
     tariff_name?: string;
     [key: string]: unknown;
@@ -53,7 +53,7 @@ export interface WorkingHour {
 }
 
 export interface MasterOption {
-    id: number;
+    id: string;
     name: string;
 }
 

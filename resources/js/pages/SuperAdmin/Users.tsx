@@ -2,7 +2,7 @@ import { Head, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 
 interface User {
-    id: number;
+    id: string;
     name: string;
     email: string;
     phone: string | null;
@@ -41,18 +41,18 @@ export default function Users() {
         }, { preserveState: true });
     };
 
-    const handleBlock = (userId: number) => {
+    const handleBlock = (userId: string) => {
         router.post(`/admin-root/users/${userId}/block`, {}, { preserveState: true });
     };
 
-    const handleExtend = (userId: number) => {
+    const handleExtend = (userId: string) => {
         const days = prompt('Количество дней для продления:', '30');
         if (days) {
             router.post(`/admin-root/users/${userId}/extend`, { days: parseInt(days) }, { preserveState: true });
         }
     };
 
-    const handleImpersonate = (userId: number) => {
+    const handleImpersonate = (userId: string) => {
         if (confirm('Войти как этот пользователь?')) {
             router.post(`/admin-root/users/${userId}/impersonate`);
         }

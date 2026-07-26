@@ -9,18 +9,18 @@ Status.layout = (page: React.ReactNode) => <PublicLayout children={page} />;
 /* ═══════════════ Types ═══════════════ */
 
 interface Service {
-    id: number;
+    id: string;
     title: string;
 }
 
 interface Master {
-    id: number;
+    id: string;
     name: string;
     specialty: string | null;
 }
 
 interface Appointment {
-    id: number;
+    id: string;
     status: string;
     start_time: string;
     created_at: string;
@@ -59,8 +59,8 @@ export default function Status({ appointment }: PageProps) {
     }
 
     const safeAppointment = appointment;
-    const service = safeAppointment.service ?? { id: 0, title: '' };
-    const master = safeAppointment.master ?? { id: 0, name: '', specialty: null };
+    const service = safeAppointment.service ?? { id: '', title: '' };
+    const master = safeAppointment.master ?? { id: '', name: '', specialty: null };
 
     const isPending = safeAppointment.status === AppointmentStatus.Booked || safeAppointment.status === AppointmentStatus.PendingPayment;
     const isConfirmed = safeAppointment.status === AppointmentStatus.Prepaid || safeAppointment.status === AppointmentStatus.Paid;
