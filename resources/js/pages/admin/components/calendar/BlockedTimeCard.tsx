@@ -18,7 +18,7 @@ export function BlockedTimeCard({ blockedTime, dayStartHour }: Props) {
 
     return (
         <div
-            className="absolute z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-zinc-300 bg-zinc-50 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+            className="absolute inset-x-0 z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-zinc-300 bg-zinc-50 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
             style={{
                 top,
                 height: Math.max(height, 24),
