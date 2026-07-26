@@ -73,6 +73,7 @@ class CalendarController extends Controller
                 ->map(fn ($bt) => [
                     'id' => $bt->id,
                     'date' => $bt->start_datetime->timezone($bt->user->getTimezone())->format('Y-m-d'),
+                    'end_date' => $bt->end_datetime->timezone($bt->user->getTimezone())->format('Y-m-d'),
                     'start_time' => $bt->start_datetime->timezone($bt->user->getTimezone())->format('H:i'),
                     'end_time' => $bt->end_datetime->timezone($bt->user->getTimezone())->format('H:i'),
                     'reason' => $bt->reason->value,
@@ -134,6 +135,7 @@ class CalendarController extends Controller
                 ->map(fn ($bt) => [
                     'id' => $bt->id,
                     'date' => $bt->start_datetime->timezone($tz)->format('Y-m-d'),
+                    'end_date' => $bt->end_datetime->timezone($tz)->format('Y-m-d'),
                     'start_time' => $bt->start_datetime->timezone($tz)->format('H:i'),
                     'end_time' => $bt->end_datetime->timezone($tz)->format('H:i'),
                     'reason' => $bt->reason->value,
