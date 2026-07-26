@@ -1,3 +1,4 @@
+import { useState, useEffect } from 'react';
 import { Appointment, BlockedTime, WorkingHour, ClientOption, ServiceOption } from './types';
 import { AppointmentCard } from './AppointmentCard';
 import { BlockedTimeCard } from './BlockedTimeCard';
@@ -25,6 +26,35 @@ interface WeekViewProps {
     getAppointmentsForDay: (dayIndex: number) => Appointment[];
     getBlockedTimesForDay: (dayIndex: number) => BlockedTime[];
     isToday: (date: Date) => boolean;
+}
+
+interface CurrentTimeLineProps {
+    dayStartHour: number;
+    gridHours: number[];
+}
+
+function CurrentTimeLine({ dayStartHour, gridHours }: CurrentTimeLineProps) {
+    const [now, setNow] = useState(() => new Date());
+
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 60_000);
+        return () => clearInterval(id);
+    }, []);
+
+    const totalMinutes = now.getHours() * 60 + now.getMinutes();
+    const gridStart = dayStartHour * 60;
+    const gridEnd = gridStart + gridHours.length * 60;
+
+    if (totalMinutes < gridStart || totalMinutes >= gridEnd) return null;
+
+    const top = (totalMinutes - gridStart) * MINUTE_HEIGHT;
+
+    return (
+        <div className="pointer-events-none absolute inset-x-0 z-20" style={{ top }}>
+            <div className="absolute -left-[5px] top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-red-500" />
+            <div className="h-[2px] bg-red-500" />
+        </div>
+    );
 }
 
 export function WeekView({
@@ -201,6 +231,9 @@ export function WeekView({
                                         dayStartHour={DAY_START_HOUR}
                                     />
                                 ))}
+                                {isToday(date) && (
+                                    <CurrentTimeLine dayStartHour={DAY_START_HOUR} gridHours={gridHours} />
+                                )}
                             </div>
                         );
                     })}
