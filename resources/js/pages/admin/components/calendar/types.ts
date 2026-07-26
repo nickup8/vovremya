@@ -17,8 +17,9 @@ export interface Appointment {
 
 export interface BlockedTime {
     id: string;
-    start_datetime: string;
-    end_datetime: string;
+    date: string;
+    start_time: string;
+    end_time: string;
     reason: string;
     user_id?: string;
 }

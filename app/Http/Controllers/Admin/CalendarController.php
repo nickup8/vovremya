@@ -68,11 +68,13 @@ class CalendarController extends Controller
             $blockedTimes = BlockedTime::whereIn('user_id', $masterIds)
                 ->where('end_datetime', '>=', Carbon::now()->subWeeks(2)->startOfDay())
                 ->where('start_datetime', '<=', Carbon::now()->addWeeks(2)->endOfDay())
+                ->with('user')
                 ->get()
                 ->map(fn ($bt) => [
                     'id' => $bt->id,
-                    'start_datetime' => $bt->start_datetime->toISOString(),
-                    'end_datetime' => $bt->end_datetime->toISOString(),
+                    'date' => $bt->start_datetime->timezone($bt->user->getTimezone())->format('Y-m-d'),
+                    'start_time' => $bt->start_datetime->timezone($bt->user->getTimezone())->format('H:i'),
+                    'end_time' => $bt->end_datetime->timezone($bt->user->getTimezone())->format('H:i'),
                     'reason' => $bt->reason->value,
                     'user_id' => $bt->user_id,
                 ]);
@@ -131,8 +133,9 @@ class CalendarController extends Controller
                 ->get()
                 ->map(fn ($bt) => [
                     'id' => $bt->id,
-                    'start_datetime' => $bt->start_datetime->toISOString(),
-                    'end_datetime' => $bt->end_datetime->toISOString(),
+                    'date' => $bt->start_datetime->timezone($tz)->format('Y-m-d'),
+                    'start_time' => $bt->start_datetime->timezone($tz)->format('H:i'),
+                    'end_time' => $bt->end_datetime->timezone($tz)->format('H:i'),
                     'reason' => $bt->reason->value,
                 ]);
 

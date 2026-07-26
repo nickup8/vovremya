@@ -94,14 +94,7 @@ export function useCalendarData({
 
     function getBlockedTimesForDay(dayIndex: number): BlockedTime[] {
         const key = weekDateKeys[dayIndex];
-        const dayStart = new Date(key + 'T00:00:00');
-        const dayEnd = new Date(key + 'T23:59:59');
-
-        return initialBlockedTimes.filter((bt) => {
-            const btStart = new Date(bt.start_datetime);
-            const btEnd = new Date(bt.end_datetime);
-            return btStart <= dayEnd && btEnd >= dayStart;
-        });
+        return initialBlockedTimes.filter((bt) => bt.date === key);
     }
 
     // ═══════════════ Return ═══════════════

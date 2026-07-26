@@ -1,5 +1,6 @@
 import { BlockedTime } from './types';
 import { MINUTE_HEIGHT } from './constants';
+import { timeToMinutes } from './helpers';
 
 interface Props {
     blockedTime: BlockedTime;
@@ -7,18 +8,9 @@ interface Props {
     dayStartHour: number;
 }
 
-export function BlockedTimeCard({ blockedTime, dayDate, dayStartHour }: Props) {
-    const btStart = new Date(blockedTime.start_datetime);
-    const btEnd = new Date(blockedTime.end_datetime);
-
-    const dayStart = new Date(dayDate + 'T00:00:00');
-    const dayEnd = new Date(dayDate + 'T23:59:59');
-
-    const effectiveStart = btStart < dayStart ? dayStart : btStart;
-    const effectiveEnd = btEnd > dayEnd ? dayEnd : btEnd;
-
-    const startMinutes = effectiveStart.getHours() * 60 + effectiveStart.getMinutes() - dayStartHour * 60;
-    const endMinutes = effectiveEnd.getHours() * 60 + effectiveEnd.getMinutes() - dayStartHour * 60;
+export function BlockedTimeCard({ blockedTime, dayStartHour }: Props) {
+    const startMinutes = timeToMinutes(blockedTime.start_time) - dayStartHour * 60;
+    const endMinutes = timeToMinutes(blockedTime.end_time) - dayStartHour * 60;
     const durationMinutes = Math.max(endMinutes - startMinutes, 15);
 
     const top = startMinutes * MINUTE_HEIGHT;
