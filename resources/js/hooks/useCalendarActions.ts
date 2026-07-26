@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { router, useForm } from '@inertiajs/react';
 import { toast } from 'sonner';
 import { AppointmentStatus } from '@/types/appointment-status';
-import { Appointment, ClientOption, ServiceOption } from '@/pages/admin/components/calendar/types';
+import type { Appointment, ClientOption, ServiceOption } from '@/pages/admin/components/calendar/types';
 import { dateToKey } from '@/pages/admin/components/calendar/helpers';
 
 interface UseCalendarActionsParams {
@@ -11,6 +11,13 @@ interface UseCalendarActionsParams {
     slotInterval: number;
     timezone: string;
     prefillClientId?: string;
+    selected: Appointment | null;
+    setSelected: React.Dispatch<React.SetStateAction<Appointment | null>>;
+    sheetOpen: boolean;
+    setSheetOpen: React.Dispatch<React.SetStateAction<boolean>>;
+    applyOptimisticMove: (id: string, newDate: string, newTime: string) => void;
+    rollbackAppointment: (id: string) => void;
+    confirmOptimistic: (id: string) => void;
 }
 
 export function useCalendarActions({
@@ -19,10 +26,14 @@ export function useCalendarActions({
     slotInterval,
     timezone,
     prefillClientId,
+    selected,
+    setSelected,
+    sheetOpen,
+    setSheetOpen,
+    applyOptimisticMove,
+    rollbackAppointment,
+    confirmOptimistic,
 }: UseCalendarActionsParams) {
-    // ═══════════════ State ═══════════════
-    const [selected, setSelected] = useState<Appointment | null>(null);
-    const [sheetOpen, setSheetOpen] = useState(false);
     const [isProcessing, setIsProcessing] = useState(false);
     const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
     const [rescheduleOpen, setRescheduleOpen] = useState(false);
@@ -66,14 +77,20 @@ export function useCalendarActions({
         for (let h = 0; h < 24; h++) {
             for (let m = 0; m < 60; m += interval) {
                 const timeStr = `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+
                 if (isToday) {
                     const slotDate = new Date(`${dateStr}T${timeStr}:00`);
                     const slotInTz = new Date(slotDate.toLocaleString('en-US', { timeZone: tz }));
-                    if (slotInTz < now) continue;
+
+                    if (slotInTz < now) {
+continue;
+}
                 }
+
                 options.push(timeStr);
             }
         }
+
         return options;
     }
 
@@ -92,6 +109,7 @@ export function useCalendarActions({
     function clearBookingMode() {
         setBookingModeServiceId('');
         setHoveredSlot(null);
+
         if (prefillClientId) {
             window.history.replaceState({}, '', '/admin/calendar');
         }
@@ -99,7 +117,10 @@ export function useCalendarActions({
 
     // ═══════════════ CRUD: Update / Delete ═══════════════
     function updateStatus(status: AppointmentStatus) {
-        if (!selected || isProcessing) return;
+        if (!selected || isProcessing) {
+return;
+}
+
         setIsProcessing(true);
         router.patch(`/admin/appointments/${selected.id}/status`, { status }, {
             preserveScroll: true,
@@ -118,7 +139,10 @@ export function useCalendarActions({
     }
 
     function deleteAppointment() {
-        if (!selected || isProcessing) return;
+        if (!selected || isProcessing) {
+return;
+}
+
         setIsProcessing(true);
         router.patch(`/admin/appointments/${selected.id}/status`, { status: AppointmentStatus.Cancelled }, {
             preserveScroll: true,
@@ -138,7 +162,10 @@ export function useCalendarActions({
 
     // ═══════════════ CRUD: Reschedule ═══════════════
     function openReschedule() {
-        if (!selected) return;
+        if (!selected) {
+return;
+}
+
         setRescheduleDate(selected.date);
         setRescheduleTime(selected.time);
         setRescheduleOpen(true);
@@ -146,29 +173,40 @@ export function useCalendarActions({
     }
 
     function submitReschedule() {
-        if (!selected || !rescheduleDate || !rescheduleTime) return;
+        if (!selected || !rescheduleDate || !rescheduleTime) {
+return;
+}
 
-        router.patch(`/admin/appointments/${selected.id}/status`, {
+        const apptId = selected.id;
+        applyOptimisticMove(apptId, rescheduleDate, rescheduleTime);
+
+        router.patch(`/admin/appointments/${apptId}/status`, {
             start_time: `${rescheduleDate} ${rescheduleTime}:00`,
         }, {
             preserveScroll: true,
+            preserveState: true,
             only: ['appointments'],
             onError: (errors: Record<string, string>) => {
+                rollbackAppointment(apptId);
+
                 if (errors.lunch_intersection) {
                     setBreakWarningMessage(errors.lunch_intersection);
-                    setPendingReschedule({ appointmentId: selected.id, date: rescheduleDate, time: rescheduleTime });
+                    setPendingReschedule({ appointmentId: apptId, date: rescheduleDate, time: rescheduleTime });
                     setBreakWarningOpen(true);
                 }
+
                 if (errors.outside_working_hours) {
                     setOutsideHoursMessage(errors.outside_working_hours);
-                    setPendingOutsideHours({ appointmentId: selected.id, date: rescheduleDate, time: rescheduleTime });
+                    setPendingOutsideHours({ appointmentId: apptId, date: rescheduleDate, time: rescheduleTime });
                     setOutsideHoursOpen(true);
                 }
+
                 if (errors.time) {
                     toast.error(errors.time);
                 }
             },
             onFinish: () => {
+                confirmOptimistic(apptId);
                 setRescheduleOpen(false);
                 setSelected(null);
             },
@@ -177,7 +215,9 @@ export function useCalendarActions({
 
     // ═══════════════ Warning Dialogs ═══════════════
     function submitNewAppointmentIgnoreBreak() {
-        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) return;
+        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) {
+return;
+}
 
         newAppointmentForm.setData('ignore_warnings', true);
         newAppointmentForm.post('/admin/calendar/appointments', {
@@ -186,9 +226,11 @@ export function useCalendarActions({
                 if (errors.limit) {
                     toast.error(errors.limit, { duration: 5000 });
                 }
+
                 if (errors.time) {
                     toast.error(errors.time);
                 }
+
                 if (errors.client_id) {
                     toast.error(errors.client_id);
                 }
@@ -203,7 +245,9 @@ export function useCalendarActions({
     }
 
     function submitNewAppointmentConfirmOutside() {
-        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) return;
+        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) {
+return;
+}
 
         newAppointmentForm.setData('confirm_outside_hours', true);
         newAppointmentForm.post('/admin/calendar/appointments', {
@@ -212,9 +256,11 @@ export function useCalendarActions({
                 if (errors.limit) {
                     toast.error(errors.limit, { duration: 5000 });
                 }
+
                 if (errors.time) {
                     toast.error(errors.time);
                 }
+
                 if (errors.client_id) {
                     toast.error(errors.client_id);
                 }
@@ -230,16 +276,25 @@ export function useCalendarActions({
 
     function confirmRescheduleWithBreak() {
         if (pendingReschedule) {
-            router.patch(`/admin/appointments/${pendingReschedule.appointmentId}/status`, {
+            const apptId = pendingReschedule.appointmentId;
+            applyOptimisticMove(apptId, pendingReschedule.date, pendingReschedule.time);
+
+            router.patch(`/admin/appointments/${apptId}/status`, {
                 start_time: `${pendingReschedule.date} ${pendingReschedule.time}:00`,
                 ignore_warnings: true,
             }, {
                 preserveScroll: true,
+                preserveState: true,
                 only: ['appointments'],
                 onError: (errors: Record<string, string>) => {
+                    rollbackAppointment(apptId);
+
                     if (errors.time) {
                         toast.error(errors.time);
                     }
+                },
+                onFinish: () => {
+                    confirmOptimistic(apptId);
                 },
             });
 
@@ -259,16 +314,25 @@ export function useCalendarActions({
 
     function confirmOutsideHours() {
         if (pendingOutsideHours?.appointmentId) {
-            router.patch(`/admin/appointments/${pendingOutsideHours.appointmentId}/status`, {
+            const apptId = pendingOutsideHours.appointmentId;
+            applyOptimisticMove(apptId, pendingOutsideHours.date, pendingOutsideHours.time);
+
+            router.patch(`/admin/appointments/${apptId}/status`, {
                 start_time: `${pendingOutsideHours.date} ${pendingOutsideHours.time}:00`,
                 confirm_outside_hours: true,
             }, {
                 preserveScroll: true,
+                preserveState: true,
                 only: ['appointments'],
                 onError: (errors: Record<string, string>) => {
+                    rollbackAppointment(apptId);
+
                     if (errors.time) {
                         toast.error(errors.time);
                     }
+                },
+                onFinish: () => {
+                    confirmOptimistic(apptId);
                 },
             });
 
@@ -298,21 +362,28 @@ export function useCalendarActions({
         if (activeBookingClient && !bookingModeServiceId) {
             return;
         }
+
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateKey);
         newAppointmentForm.setData('time', time || '09:00');
+
         if (activeBookingClient) {
             newAppointmentForm.setData('client_id', activeBookingClient.id);
         }
+
         if (bookingModeServiceId) {
             newAppointmentForm.setData('service_id', bookingModeServiceId);
         }
+
         setNewAppointmentOpen(true);
     }
 
     function submitNewAppointment(e: React.FormEvent) {
         e.preventDefault();
-        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) return;
+
+        if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) {
+return;
+}
 
         newAppointmentForm.post('/admin/calendar/appointments', {
             preserveScroll: true,
@@ -320,19 +391,23 @@ export function useCalendarActions({
                 if (errors.limit) {
                     toast.error(errors.limit, { duration: 5000 });
                 }
+
                 if (errors.lunch_intersection) {
                     setBreakWarningMessage(errors.lunch_intersection);
                     setPendingReschedule(null);
                     setBreakWarningOpen(true);
                 }
+
                 if (errors.outside_working_hours) {
                     setOutsideHoursMessage(errors.outside_working_hours);
                     setPendingOutsideHours(null);
                     setOutsideHoursOpen(true);
                 }
+
                 if (errors.time) {
                     toast.error(errors.time);
                 }
+
                 if (errors.client_id) {
                     toast.error(errors.client_id);
                 }
