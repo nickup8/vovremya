@@ -6,22 +6,35 @@ interface Props {
     blockedTime: BlockedTime;
     dayDate: string;
     dayStartHour: number;
+    dayEndHour: number;
 }
 
-export function BlockedTimeCard({ blockedTime, dayStartHour }: Props) {
-    const startMinutes = timeToMinutes(blockedTime.start_time) - dayStartHour * 60;
-    const endMinutes = timeToMinutes(blockedTime.end_time) - dayStartHour * 60;
-    const durationMinutes = Math.max(endMinutes - startMinutes, 15);
+export function BlockedTimeCard({ blockedTime, dayDate, dayStartHour, dayEndHour }: Props) {
+    const gridStartMin = dayStartHour * 60;
+    const gridEndMin = dayEndHour * 60;
 
-    const top = startMinutes * MINUTE_HEIGHT;
-    const height = durationMinutes * MINUTE_HEIGHT;
+    const isFirstDay = dayDate === blockedTime.date;
+    const isLastDay = dayDate === (blockedTime.end_date ?? blockedTime.date);
+
+    const rawStartMin = isFirstDay ? timeToMinutes(blockedTime.start_time) : gridStartMin;
+    const rawEndMin = isLastDay ? timeToMinutes(blockedTime.end_time) : gridEndMin;
+
+    const clippedStart = Math.max(rawStartMin, gridStartMin);
+    const clippedEnd = Math.min(rawEndMin, gridEndMin);
+
+    if (clippedEnd <= clippedStart) {
+        return null;
+    }
+
+    const top = (clippedStart - gridStartMin) * MINUTE_HEIGHT;
+    const height = Math.max(clippedEnd - clippedStart, 15) * MINUTE_HEIGHT;
 
     return (
         <div
             className="absolute inset-x-0 z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-zinc-300 bg-zinc-50 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
             style={{
                 top,
-                height: Math.max(height, 24),
+                height,
                 backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0,0,0,0.03) 8px, rgba(0,0,0,0.03) 16px)',
             }}
         >

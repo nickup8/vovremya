@@ -78,6 +78,7 @@ export function WeekView({
     isToday,
 }: WeekViewProps) {
     const DAY_START_HOUR = dayStartHour;
+    const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
 
     return (
         <div className="relative max-h-[calc(100vh-240px)] w-full overflow-x-auto overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xs scrollbar-thin dark:border-zinc-800 dark:bg-zinc-900">
@@ -148,7 +149,7 @@ export function WeekView({
                         return (
                             <div
                                 key={`col-${dayIdx}`}
-                                className="relative border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
+                                className="relative overflow-hidden border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
                             >
                                 {gridHours.map((hour) => {
                                     const slots: React.ReactNode[] = [];
@@ -221,6 +222,7 @@ export function WeekView({
                                         blockedTime={bt}
                                         dayDate={dateKey}
                                         dayStartHour={DAY_START_HOUR}
+                                        dayEndHour={DAY_END_HOUR}
                                     />
                                 ))}
                                 {calculateCollisions(dayAppts).map((appt) => (
