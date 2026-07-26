@@ -169,7 +169,7 @@ class CalendarController extends Controller
 
         return Inertia::render('admin/calendar', [
             'appointments' => $appointments,
-            'blockedTimes' => $blockedTimes,
+            'initialBlockedTimes' => $blockedTimes,
             'workingHours' => $workingHours,
             'clients' => $clients,
             'services' => $services,
