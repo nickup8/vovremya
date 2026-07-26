@@ -32,7 +32,7 @@ export function useCalendarData({
         setLocalAppointments((prev) => {
             const incoming = initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled);
             const incomingIds = new Set(incoming.map((a) => a.id));
-            const wsAdded = prev.filter((a) => !incomingIds.has(a.id));
+            const wsAdded = prev.filter((a) => !incomingIds.has(a.id) && a.status !== AppointmentStatus.Cancelled);
             return [...incoming, ...wsAdded];
         });
     }, [initialAppointments]);
