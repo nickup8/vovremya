@@ -187,26 +187,32 @@ return;
             preserveState: true,
             only: ['appointments'],
             onError: (errors: Record<string, string>) => {
-                rollbackAppointment(apptId);
-
                 if (errors.lunch_intersection) {
                     setBreakWarningMessage(errors.lunch_intersection);
                     setPendingReschedule({ appointmentId: apptId, date: rescheduleDate, time: rescheduleTime });
                     setBreakWarningOpen(true);
+
+                    return;
                 }
 
                 if (errors.outside_working_hours) {
                     setOutsideHoursMessage(errors.outside_working_hours);
                     setPendingOutsideHours({ appointmentId: apptId, date: rescheduleDate, time: rescheduleTime });
                     setOutsideHoursOpen(true);
+
+                    return;
                 }
+
+                rollbackAppointment(apptId);
 
                 if (errors.time) {
                     toast.error(errors.time);
                 }
             },
-            onFinish: () => {
+            onSuccess: () => {
                 confirmOptimistic(apptId);
+            },
+            onFinish: () => {
                 setRescheduleOpen(false);
                 setSelected(null);
             },
@@ -293,7 +299,7 @@ return;
                         toast.error(errors.time);
                     }
                 },
-                onFinish: () => {
+                onSuccess: () => {
                     confirmOptimistic(apptId);
                 },
             });
@@ -307,6 +313,10 @@ return;
     }
 
     function cancelReschedule() {
+        if (pendingReschedule) {
+            rollbackAppointment(pendingReschedule.appointmentId);
+        }
+
         setBreakWarningOpen(false);
         setPendingReschedule(null);
         setBreakWarningMessage('');
@@ -331,7 +341,7 @@ return;
                         toast.error(errors.time);
                     }
                 },
-                onFinish: () => {
+                onSuccess: () => {
                     confirmOptimistic(apptId);
                 },
             });
@@ -345,6 +355,10 @@ return;
     }
 
     function cancelOutsideHours() {
+        if (pendingOutsideHours?.appointmentId) {
+            rollbackAppointment(pendingOutsideHours.appointmentId);
+        }
+
         setOutsideHoursOpen(false);
         setPendingOutsideHours(null);
         setOutsideHoursMessage('');
