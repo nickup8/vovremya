@@ -43,7 +43,9 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
 
         function handleKeyDown(e: KeyboardEvent) {
             if (e.key === 'Escape' && open) {
+                e.preventDefault();
                 e.stopPropagation();
+                e.stopImmediatePropagation();
                 setOpen(false);
                 setCreating(false);
                 setSearch('');
