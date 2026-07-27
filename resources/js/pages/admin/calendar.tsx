@@ -37,7 +37,38 @@ export default function CalendarPage() {
     const [weekOffset, setWeekOffset] = useState(0);
     const [monthOffset, setMonthOffset] = useState(0);
     const [dayOffset, setDayOffset] = useState(0);
-    const [viewMode, setViewMode] = useState<'week' | 'day' | 'month'>('week');
+    const safeGetItem = (key: string): string | null => {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                return localStorage.getItem(key);
+            }
+        } catch {
+            return null;
+        }
+        return null;
+    };
+
+    const safeSetItem = (key: string, value: string): void => {
+        try {
+            if (typeof window !== 'undefined' && window.localStorage) {
+                localStorage.setItem(key, value);
+            }
+        } catch {
+            return;
+        }
+    };
+
+    const [viewMode, setViewModeState] = useState<'week' | 'day' | 'month'>(() => {
+        const saved = safeGetItem('calendar_view_mode');
+
+        return saved === 'day' || saved === 'week' || saved === 'month' ? saved : 'week';
+    });
+
+    const setViewMode = (mode: 'week' | 'day' | 'month') => {
+        setViewModeState(mode);
+        safeSetItem('calendar_view_mode', mode);
+    };
+
     const [selectedMasterId, setSelectedMasterId] = useState<string>('all');
     const [localClients, setLocalClients] = useState<ClientOption[]>(clients);
 
@@ -169,7 +200,11 @@ return initialBlockedTimes;
         rollbackAppointment,
         confirmOptimistic,
         localAppointments,
+        masters,
     });
+
+    const rescheduleByDragDay = (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) =>
+        rescheduleByDrag(apptId, newDate, newTime, newMasterId, false, prevMasterId);
 
     // ═══════════════ Grid Computed ═══════════════
 
@@ -336,7 +371,7 @@ continue;
                                     onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time)}
                                     onAppointmentClick={openDetail}
                                     isToday={isToday}
-                                    onRescheduleByDrag={rescheduleByDrag}
+                                    onRescheduleByDrag={rescheduleByDragDay}
                                 />
                             ) : viewMode === 'month' ? (
                                 <MonthView

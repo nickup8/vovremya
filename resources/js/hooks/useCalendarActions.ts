@@ -2,7 +2,7 @@ import { useState, useMemo } from 'react';
 import { router, useForm } from '@inertiajs/react';
 import { toast } from 'sonner';
 import { AppointmentStatus } from '@/types/appointment-status';
-import type { Appointment, ClientOption, ServiceOption } from '@/pages/admin/components/calendar/types';
+import type { Appointment, ClientOption, MasterOption, ServiceOption } from '@/pages/admin/components/calendar/types';
 import { dateToKey } from '@/pages/admin/components/calendar/helpers';
 
 interface UseCalendarActionsParams {
@@ -19,6 +19,7 @@ interface UseCalendarActionsParams {
     rollbackAppointment: (id: string) => void;
     confirmOptimistic: (id: string) => void;
     localAppointments: Appointment[];
+    masters: MasterOption[];
 }
 
 export function useCalendarActions({
@@ -35,6 +36,7 @@ export function useCalendarActions({
     rollbackAppointment,
     confirmOptimistic,
     localAppointments,
+    masters,
 }: UseCalendarActionsParams) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
@@ -451,11 +453,13 @@ return;
         newTime: string,
         newMasterId?: string,
         isUndo = false,
+        prevMasterIdArg?: string,
     ) {
         const prev = localAppointments.find((a) => a.id === apptId);
         const prevDate = prev?.date ?? newDate;
         const prevTime = prev?.time ?? newTime;
-        const prevMasterId = prev?.master_id != null ? String(prev.master_id) : undefined;
+        const prevMasterId = prevMasterIdArg
+            ?? (prev?.master_id != null ? String(prev.master_id) : undefined);
 
         applyOptimisticMove(apptId, newDate, newTime);
 
@@ -500,10 +504,20 @@ return;
                 if (isUndo) {
                     toast.success('Перенос отменён');
                 } else {
-                    toast.success('Запись перенесена', {
+                    let msg = 'Запись перенесена';
+
+                    if (newMasterId !== undefined) {
+                        const m = masters.find((x) => String(x.id) === String(newMasterId));
+
+                        if (m) {
+                            msg = `Запись перенесена к ${m.name}`;
+                        }
+                    }
+
+                    toast.success(msg, {
                         action: {
                             label: 'Отменить',
-                            onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, prevMasterId, true),
+                            onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, prevMasterId, true, prevMasterId),
                         },
                     });
                 }

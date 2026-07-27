@@ -29,7 +29,7 @@ interface DayViewProps {
     onSlotClick: (date: string, time: string, masterId: string) => void;
     onAppointmentClick: (appointment: Appointment) => void;
     isToday: (date: Date) => boolean;
-    onRescheduleByDrag: (apptId: string, newDate: string, newTime: string, newMasterId: string) => void;
+    onRescheduleByDrag: (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) => void;
 }
 
 interface CurrentTimeLineProps {
@@ -144,7 +144,9 @@ export function DayView({
             return;
         }
 
-        onRescheduleByDrag(apptId, newDate, newTime, newMasterId);
+        const prevMasterId = appt.master_id != null ? String(appt.master_id) : undefined;
+
+        onRescheduleByDrag(apptId, newDate, newTime, newMasterId, prevMasterId);
     }
 
     if (masters.length === 0) {
@@ -191,7 +193,7 @@ export function DayView({
             {/* Grid Body — time + slots */}
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
                 <div
-                    className="flex"
+                    className="relative flex"
                     style={{ minWidth: `${gridMinWidth}px` }}
                 >
                     {/* Time Column — sticky left */}
@@ -293,16 +295,16 @@ export function DayView({
                             );
                         })}
                     </div>
-                </div>
 
-                {isToday(dayDate) && (
-                    <div
-                        className="pointer-events-none absolute inset-x-0 z-20"
-                        style={{ left: 60 }}
-                    >
-                        <CurrentTimeLine dayStartHour={DAY_START_HOUR} gridHours={gridHours} />
-                    </div>
-                )}
+                    {isToday(dayDate) && (
+                        <div
+                            className="pointer-events-none absolute z-20"
+                            style={{ left: 60, right: 0, top: 0 }}
+                        >
+                            <CurrentTimeLine dayStartHour={DAY_START_HOUR} gridHours={gridHours} />
+                        </div>
+                    )}
+                </div>
 
                 <DragOverlay>
                     {activeAppointment ? (
