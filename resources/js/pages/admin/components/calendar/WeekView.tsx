@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
+import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import {
     DndContext,
     PointerSensor,
@@ -13,7 +13,7 @@ import { AppointmentCard } from './AppointmentCard';
 import { BlockedTimeCard } from './BlockedTimeCard';
 import { BreakZone } from './BreakZone';
 import { DAY_NAMES, HOUR_HEIGHT, MINUTE_HEIGHT } from './constants';
-import { timeToMinutes, hasCollision } from './helpers';
+import { timeToMinutes, getEndTime, hasCollision } from './helpers';
 import { calculateCollisions } from './collision';
 
 interface WeekViewProps {
@@ -103,6 +103,7 @@ export function WeekView({
     const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
 
     const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
+    const [hoveredDropId, setHoveredDropId] = useState<string | null>(null);
 
     const sensors = useSensors(
         useSensor(PointerSensor, {
@@ -119,10 +120,15 @@ export function WeekView({
         }
     }
 
+    function handleDragOver(event: DragOverEvent) {
+        setHoveredDropId(event.over ? String(event.over.id) : null);
+    }
+
     function handleDragEnd(event: DragEndEvent) {
         const { active, over } = event;
 
         setActiveAppointment(null);
+        setHoveredDropId(null);
 
         if (!over) {
 return;
@@ -179,7 +185,7 @@ return;
             </div>
 
             {/* Grid Body — time + slots */}
-            <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+            <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
                 <div className="flex min-w-[980px]">
                     {/* Time Column — sticky left */}
                     <div className="sticky left-0 z-20 w-[60px] min-w-[60px] border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -324,11 +330,24 @@ return;
                 <DragOverlay>
                     {activeAppointment ? (
                         <div
-                            className="pointer-events-none z-50 w-48 rounded-lg border-l-4 border-blue-500 bg-white px-2 py-1 shadow-lg"
+                            className="pointer-events-none z-50 w-56 rounded-lg border-l-4 border-blue-500 bg-white px-2 py-1 shadow-lg"
                         >
-                            <p className="font-mono text-[10px]">
-                                {activeAppointment.time}
+                            <p className="font-mono text-[10px] text-gray-400">
+                                {activeAppointment.time} – {getEndTime(activeAppointment.time, activeAppointment.duration)}
                             </p>
+                            {(() => {
+                                const newTime = hoveredDropId?.split('__')[1];
+
+                                if (newTime && newTime !== activeAppointment.time) {
+                                    return (
+                                        <p className="font-mono text-[10px] font-bold text-blue-600">
+                                            → {newTime} – {getEndTime(newTime, activeAppointment.duration)}
+                                        </p>
+                                    );
+                                }
+
+                                return null;
+                            })()}
                             <p className="truncate text-xs font-semibold">
                                 {activeAppointment.client_name}
                             </p>
