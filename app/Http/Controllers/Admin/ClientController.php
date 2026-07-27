@@ -3,7 +3,6 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
-use App\Enums\UserRole;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -92,17 +91,26 @@ class ClientController extends Controller
 
         if ($existing) {
             $existing->update(['name' => $validated['name']]);
-
-            return back()->with('success', 'Клиент обновлён (номер уже был в базе)');
+            $client = $existing;
+        } else {
+            $client = $master->clients()->create([
+                'name' => $validated['name'],
+                'phone' => $validated['phone'],
+                'notes' => $validated['notes'] ?? null,
+            ]);
         }
 
-        $master->clients()->create([
-            'name' => $validated['name'],
-            'phone' => $validated['phone'],
-            'notes' => $validated['notes'] ?? null,
-        ]);
+        if (! $request->header('X-Inertia')) {
+            return response()->json([
+                'id' => $client->id,
+                'name' => $client->name,
+                'phone' => $client->phone,
+            ]);
+        }
 
-        return back()->with('success', 'Клиент добавлен');
+        return back()->with('success', $existing
+            ? 'Клиент обновлён (номер уже был в базе)'
+            : 'Клиент добавлен');
     }
 
     public function update(Request $request, Client $client)

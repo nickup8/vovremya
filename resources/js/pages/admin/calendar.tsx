@@ -10,7 +10,7 @@ import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
 import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
-import type { PageProps, Appointment } from './components/calendar/types';
+import type { PageProps, Appointment, ClientOption } from './components/calendar/types';
 import {
     getWeekDates, formatDateRange, dateToKey, timeToMinutes,
 } from './components/calendar/helpers';
@@ -36,6 +36,13 @@ export default function CalendarPage() {
     const [monthOffset, setMonthOffset] = useState(0);
     const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
     const [selectedMasterId, setSelectedMasterId] = useState<string>('all');
+    const [localClients, setLocalClients] = useState<ClientOption[]>(clients);
+
+    const handleClientCreated = (c: ClientOption) => {
+        setLocalClients((prev: ClientOption[]) =>
+            prev.some((x: ClientOption) => String(x.id) === String(c.id)) ? prev : [c, ...prev],
+        );
+    };
 
     const today = new Date();
     const centerDate = useMemo(() => {
@@ -370,10 +377,11 @@ continue;
                 open={newAppointmentOpen}
                 onOpenChange={setNewAppointmentOpen}
                 form={newAppointmentForm}
-                clients={clients}
+                clients={localClients}
                 services={services}
                 onSubmit={submitNewAppointment}
                 slotInterval={slotInterval}
+                onClientCreated={handleClientCreated}
             />
 
             {/* ─── Reschedule Dialog ─── */}

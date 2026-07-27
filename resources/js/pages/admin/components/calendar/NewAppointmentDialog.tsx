@@ -6,7 +6,8 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { dateToKey } from './helpers';
-import { ClientOption, ServiceOption } from './types';
+import type { ClientOption, ServiceOption } from './types';
+import { ClientCombobox } from './ClientCombobox';
 
 interface FormData {
     client_id: string;
@@ -40,9 +41,10 @@ interface Props {
     services: ServiceOption[];
     onSubmit: (e: React.FormEvent) => void;
     slotInterval: number;
+    onClientCreated: (client: ClientOption) => void;
 }
 
-export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, onSubmit, slotInterval }: Props) {
+export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, onSubmit, slotInterval, onClientCreated }: Props) {
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="w-[calc(100%-2rem)] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -61,21 +63,12 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                             <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                 Клиент *
                             </label>
-                            <Select
+                            <ClientCombobox
+                                clients={clients}
                                 value={form.data.client_id}
-                                onValueChange={(value) => form.setData('client_id', value)}
-                            >
-                                <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Выберите клиента" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {clients.map((c) => (
-                                        <SelectItem key={c.id} value={String(c.id)}>
-                                            {c.name}{c.phone ? ` (${c.phone})` : ''}
-                                        </SelectItem>
-                                    ))}
-                                </SelectContent>
-                            </Select>
+                                onChange={(id) => form.setData('client_id', id)}
+                                onClientCreated={onClientCreated}
+                            />
                             {form.errors.client_id && (
                                 <p className="mt-1 text-xs text-red-500">{form.errors.client_id}</p>
                             )}

@@ -7,6 +7,8 @@ import axios from 'axios';
 
 // Ensure cookies are sent with every request (session, XSRF-TOKEN)
 axios.defaults.withCredentials = true;
+axios.defaults.xsrfCookieName = 'XSRF-TOKEN';
+axios.defaults.xsrfHeaderName = 'X-XSRF-TOKEN';
 
 configureEcho({
     broadcaster: 'reverb',
