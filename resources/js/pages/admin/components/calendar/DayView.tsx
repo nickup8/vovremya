@@ -1,0 +1,339 @@
+import { useState, useEffect } from 'react';
+import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
+import {
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    useDroppable,
+    DragOverlay,
+} from '@dnd-kit/core';
+import type { Appointment, BlockedTime, WorkingHour, MasterOption } from './types';
+import { AppointmentCard } from './AppointmentCard';
+import { BlockedTimeCard } from './BlockedTimeCard';
+import { BreakZone } from './BreakZone';
+import { HOUR_HEIGHT, MINUTE_HEIGHT } from './constants';
+import { timeToMinutes, getEndTime } from './helpers';
+import { calculateCollisions } from './collision';
+
+interface DayViewProps {
+    dayDate: Date;
+    dayDateKey: string;
+    masters: MasterOption[];
+    gridHours: number[];
+    dayStartHour: number;
+    slotInterval: number;
+    workingHours: WorkingHour[];
+    localAppointments: Appointment[];
+    blockedTimes: BlockedTime[];
+    onSlotClick: (date: string, time: string, masterId: string) => void;
+    onAppointmentClick: (appointment: Appointment) => void;
+    isToday: (date: Date) => boolean;
+    onRescheduleByDrag: (apptId: string, newDate: string, newTime: string, newMasterId: string) => void;
+}
+
+interface CurrentTimeLineProps {
+    dayStartHour: number;
+    gridHours: number[];
+}
+
+function CurrentTimeLine({ dayStartHour, gridHours }: CurrentTimeLineProps) {
+    const [now, setNow] = useState(() => new Date());
+
+    useEffect(() => {
+        const id = setInterval(() => setNow(new Date()), 60_000);
+
+        return () => clearInterval(id);
+    }, []);
+
+    const totalMinutes = now.getHours() * 60 + now.getMinutes();
+    const gridStart = dayStartHour * 60;
+    const gridEnd = gridStart + gridHours.length * 60;
+
+    if (totalMinutes < gridStart || totalMinutes >= gridEnd) {
+        return null;
+    }
+
+    const top = (totalMinutes - gridStart) * MINUTE_HEIGHT;
+
+    return (
+        <div className="pointer-events-none absolute inset-x-0 z-20" style={{ top }}>
+            <div className="absolute -left-[5px] top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-red-500" />
+            <div className="h-[2px] bg-red-500" />
+        </div>
+    );
+}
+
+function DroppableSlot({ id, children, ...rest }: { id: string; children: React.ReactNode; [key: string]: unknown }) {
+    const { setNodeRef } = useDroppable({ id });
+
+    return (
+        <div ref={setNodeRef} {...rest}>
+            {children}
+        </div>
+    );
+}
+
+export function DayView({
+    dayDate,
+    dayDateKey,
+    masters,
+    gridHours,
+    dayStartHour,
+    slotInterval,
+    workingHours,
+    localAppointments,
+    blockedTimes,
+    onSlotClick,
+    onAppointmentClick,
+    isToday,
+    onRescheduleByDrag,
+}: DayViewProps) {
+    const DAY_START_HOUR = dayStartHour;
+    const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
+    const gridMinWidth = 60 + masters.length * 160;
+
+    const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
+    const [hoveredDropId, setHoveredDropId] = useState<string | null>(null);
+
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: { distance: 8 },
+        }),
+    );
+
+    function handleDragStart(event: DragStartEvent) {
+        const id = String(event.active.id);
+        const appt = localAppointments.find((a) => a.id === id);
+
+        if (appt) {
+            setActiveAppointment(appt);
+        }
+    }
+
+    function handleDragOver(event: DragOverEvent) {
+        setHoveredDropId(event.over ? String(event.over.id) : null);
+    }
+
+    function handleDragEnd(event: DragEndEvent) {
+        const { active, over } = event;
+
+        setActiveAppointment(null);
+        setHoveredDropId(null);
+
+        if (!over) {
+            return;
+        }
+
+        const overId = String(over.id);
+        const parts = overId.split('__');
+
+        if (parts.length !== 3) {
+            return;
+        }
+
+        const [newDate, newMasterId, newTime] = parts;
+        const apptId = String(active.id);
+        const appt = localAppointments.find((a) => a.id === apptId);
+
+        if (!appt) {
+            return;
+        }
+
+        if (appt.date === newDate && String(appt.master_id) === newMasterId && appt.time === newTime) {
+            return;
+        }
+
+        onRescheduleByDrag(apptId, newDate, newTime, newMasterId);
+    }
+
+    if (masters.length === 0) {
+        return (
+            <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-20 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                <p className="text-sm text-slate-500 dark:text-zinc-400">
+                    Нет мастеров
+                </p>
+            </div>
+        );
+    }
+
+    return (
+        <div className="relative max-h-[calc(100vh-240px)] w-full overflow-x-auto overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xs scrollbar-thin dark:border-zinc-800 dark:bg-zinc-900">
+            {/* Day Header + Master Headers — sticky at top */}
+            <div className="sticky top-0 z-30 flex border-b border-slate-200 bg-slate-50 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50"
+                style={{ minWidth: `${gridMinWidth}px` }}
+            >
+                <div className="sticky left-0 z-40 w-[60px] min-w-[60px] border-r border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
+                    Время
+                </div>
+                <div
+                    className="grid flex-1"
+                    style={{
+                        gridTemplateColumns: `repeat(${masters.length}, minmax(0, 1fr))`,
+                    }}
+                >
+                    {masters.map((master) => (
+                        <div
+                            key={`h-${master.id}`}
+                            className="border-r border-slate-200 p-3 text-center last:border-r-0 dark:border-zinc-800"
+                        >
+                            <div className="text-xs font-medium text-slate-500 dark:text-zinc-400">
+                                {dayDate.toLocaleDateString('ru-RU', { weekday: 'short' })}
+                            </div>
+                            <div className="mt-0.5 text-sm font-bold text-slate-900 dark:text-zinc-100">
+                                {master.name}
+                            </div>
+                        </div>
+                    ))}
+                </div>
+            </div>
+
+            {/* Grid Body — time + slots */}
+            <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
+                <div
+                    className="flex"
+                    style={{ minWidth: `${gridMinWidth}px` }}
+                >
+                    {/* Time Column — sticky left */}
+                    <div className="sticky left-0 z-20 w-[60px] min-w-[60px] border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                        {gridHours.map((hour) => {
+                            const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
+                            const labels: React.ReactNode[] = [];
+
+                            for (let m = 0; m < 60; m += slotInterval) {
+                                labels.push(
+                                    <div
+                                        key={`${hour}-${m}`}
+                                        style={{ height: slotHeightPx }}
+                                        className="flex items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
+                                    >
+                                        {m === 0 ? `${String(hour).padStart(2, '0')}:00` : ''}
+                                    </div>,
+                                );
+                            }
+
+                            return labels;
+                        })}
+                    </div>
+
+                    {/* Master Columns with Appointment Cards */}
+                    <div
+                        className="grid flex-1"
+                        style={{
+                            gridTemplateColumns: `repeat(${masters.length}, minmax(0, 1fr))`,
+                        }}
+                    >
+                        {masters.map((master) => {
+                            const dayAppts = localAppointments.filter(
+                                (a) => a.date === dayDateKey && String(a.master_id) === master.id,
+                            );
+                            const dayBlocked = blockedTimes.filter((bt) => {
+                                const endKey = bt.end_date ?? bt.date;
+
+                                return bt.date <= dayDateKey && dayDateKey <= endKey && String(bt.user_id) === master.id;
+                            });
+                            const backendDow = dayDate.getDay();
+                            const wh = workingHours.find(
+                                (w) => w.day_of_week === backendDow && String(w.user_id) === master.id,
+                            );
+                            const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
+
+                            return (
+                                <div
+                                    key={`col-${master.id}`}
+                                    className="relative overflow-hidden border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
+                                >
+                                    {gridHours.map((hour) => {
+                                        const slots: React.ReactNode[] = [];
+
+                                        for (let m = 0; m < 60; m += slotInterval) {
+                                            const timeStr = `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                                            slots.push(
+                                                <DroppableSlot
+                                                    key={`${hour}-${m}`}
+                                                    id={`${dayDateKey}__${master.id}__${timeStr}`}
+                                                    style={{ height: slotHeightPx }}
+                                                    className="group relative border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                    onClick={() => onSlotClick(dayDateKey, timeStr, master.id)}
+                                                >
+                                                    <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-[10px] font-medium text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-zinc-500">
+                                                        {timeStr}
+                                                    </span>
+                                                </DroppableSlot>,
+                                            );
+                                        }
+
+                                        return slots;
+                                    })}
+                                    {wh?.is_working && wh.break_start_time && wh.break_end_time && (
+                                        <BreakZone
+                                            breakStart={wh.break_start_time}
+                                            breakEnd={wh.break_end_time}
+                                            dayStartHour={DAY_START_HOUR}
+                                        />
+                                    )}
+                                    {dayBlocked.map((bt) => (
+                                        <BlockedTimeCard
+                                            key={`bt-${bt.id}`}
+                                            blockedTime={bt}
+                                            dayDate={dayDateKey}
+                                            dayStartHour={DAY_START_HOUR}
+                                            dayEndHour={DAY_END_HOUR}
+                                        />
+                                    ))}
+                                    {calculateCollisions(dayAppts).map((appt) => (
+                                        <AppointmentCard
+                                            key={appt.id}
+                                            appointment={appt}
+                                            onClick={() => onAppointmentClick(appt)}
+                                            dayStartHour={DAY_START_HOUR}
+                                        />
+                                    ))}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+
+                {isToday(dayDate) && (
+                    <div
+                        className="pointer-events-none absolute inset-x-0 z-20"
+                        style={{ left: 60 }}
+                    >
+                        <CurrentTimeLine dayStartHour={DAY_START_HOUR} gridHours={gridHours} />
+                    </div>
+                )}
+
+                <DragOverlay>
+                    {activeAppointment ? (
+                        <div className="pointer-events-none z-50 w-56 rounded-lg border-l-4 border-blue-500 bg-white px-2 py-1 shadow-lg">
+                            <p className="font-mono text-[10px] text-gray-400">
+                                {activeAppointment.time} – {getEndTime(activeAppointment.time, activeAppointment.duration)}
+                            </p>
+                            {(() => {
+                                const parts = hoveredDropId?.split('__');
+
+                                if (parts?.length === 3) {
+                                    const newTime = parts[2];
+
+                                    if (newTime !== activeAppointment.time) {
+                                        return (
+                                            <p className="font-mono text-[10px] font-bold text-blue-600">
+                                                → {newTime} – {getEndTime(newTime, activeAppointment.duration)}
+                                            </p>
+                                        );
+                                    }
+                                }
+
+                                return null;
+                            })()}
+                            <p className="truncate text-xs font-semibold">
+                                {activeAppointment.client_name}
+                            </p>
+                        </div>
+                    ) : null}
+                </DragOverlay>
+            </DndContext>
+        </div>
+    );
+}

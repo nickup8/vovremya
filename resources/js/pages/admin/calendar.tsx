@@ -8,6 +8,7 @@ import {
 } from '@/components/ui/select';
 import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
+import { AppointmentStatus } from '@/types/appointment-status';
 import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
 import type { PageProps, Appointment, ClientOption } from './components/calendar/types';
@@ -15,6 +16,7 @@ import {
     getWeekDates, formatDateRange, dateToKey, timeToMinutes,
 } from './components/calendar/helpers';
 import { WeekView } from './components/calendar/WeekView';
+import { DayView } from './components/calendar/DayView';
 import { MonthView } from './components/calendar/MonthView';
 import { CalendarLegend } from './components/calendar/CalendarLegend';
 import { AppointmentDetailDialog } from './components/calendar/AppointmentDetailDialog';
@@ -34,7 +36,8 @@ export default function CalendarPage() {
     // ═══════════════ UI Navigation State ═══════════════
     const [weekOffset, setWeekOffset] = useState(0);
     const [monthOffset, setMonthOffset] = useState(0);
-    const [viewMode, setViewMode] = useState<'week' | 'month'>('week');
+    const [dayOffset, setDayOffset] = useState(0);
+    const [viewMode, setViewMode] = useState<'week' | 'day' | 'month'>('week');
     const [selectedMasterId, setSelectedMasterId] = useState<string>('all');
     const [localClients, setLocalClients] = useState<ClientOption[]>(clients);
 
@@ -65,6 +68,19 @@ export default function CalendarPage() {
         return `${MONTHS_RU[monthCenterDate.getMonth()]} ${monthCenterDate.getFullYear()}`;
     }, [monthCenterDate]);
 
+    const dayDate = useMemo(() => {
+        const d = new Date(today);
+        d.setDate(d.getDate() + dayOffset);
+
+        return d;
+    }, [dayOffset]);
+    const dayDateKey = useMemo(() => dateToKey(dayDate), [dayDate]);
+    const dayRangeStr = useMemo(() => {
+        return dayDate.toLocaleDateString('ru-RU', {
+            day: 'numeric', month: 'long', year: 'numeric', weekday: 'long',
+        });
+    }, [dayDate]);
+
     // ═══════════════ Appointments Data ═══════════════
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
@@ -83,6 +99,11 @@ return initialBlockedTimes;
 
         return initialBlockedTimes.filter(bt => String(bt.user_id) === selectedMasterId);
     }, [initialBlockedTimes, selectedMasterId]);
+
+    const dayAppointments = useMemo(
+        () => (initialAppointments as Appointment[]).filter((a) => a.status !== AppointmentStatus.Cancelled),
+        [initialAppointments],
+    );
 
     const {
         localAppointments,
@@ -234,10 +255,6 @@ continue;
         );
     }
 
-    function toggleViewMode() {
-        setViewMode((m) => (m === 'week' ? 'month' : 'week'));
-    }
-
     return (
         <>
             <Head title="Календарь — Вовремя" />
@@ -249,13 +266,13 @@ continue;
                             {/* ─── Date Control Panel ─── */}
                             <DateControlPanel
                                 viewMode={viewMode}
-                                dateLabel={viewMode === 'week' ? dateRangeStr : monthRangeStr}
-                                onPrev={() => viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
-                                onNext={() => viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
+                                dateLabel={viewMode === 'day' ? dayRangeStr : viewMode === 'week' ? dateRangeStr : monthRangeStr}
+                                onPrev={() => viewMode === 'day' ? setDayOffset((d) => d - 1) : viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
+                                onNext={() => viewMode === 'day' ? setDayOffset((d) => d + 1) : viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
                                 onToday={() => {
- setWeekOffset(0); setMonthOffset(0); 
+ setWeekOffset(0); setMonthOffset(0); setDayOffset(0); 
 }}
-                                onToggleView={toggleViewMode}
+                                onSetView={setViewMode}
                                 onNewAppointment={openNewAppointment}
                                 masters={masters}
                                 selectedMasterId={selectedMasterId}
@@ -305,7 +322,23 @@ continue;
                             )}
 
                             {/* ─── Calendar Content ─── */}
-                            {viewMode === 'month' ? (
+                            {viewMode === 'day' ? (
+                                <DayView
+                                    dayDate={dayDate}
+                                    dayDateKey={dayDateKey}
+                                    masters={masters}
+                                    gridHours={gridHours}
+                                    dayStartHour={DAY_START_HOUR}
+                                    slotInterval={slotInterval}
+                                    workingHours={workingHours}
+                                    localAppointments={dayAppointments}
+                                    blockedTimes={initialBlockedTimes}
+                                    onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time)}
+                                    onAppointmentClick={openDetail}
+                                    isToday={isToday}
+                                    onRescheduleByDrag={rescheduleByDrag}
+                                />
+                            ) : viewMode === 'month' ? (
                                 <MonthView
                                     appointments={filteredAppointments}
                                     centerDate={monthCenterDate}

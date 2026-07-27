@@ -218,7 +218,7 @@ return;
                 toast.success('Запись перенесена', {
                     action: {
                         label: 'Отменить',
-                        onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, true),
+                        onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, undefined, true),
                     },
                 });
             },
@@ -445,16 +445,29 @@ return;
     }
 
     // ═══════════════ Drag & Drop Reschedule ═══════════════
-    function rescheduleByDrag(apptId: string, newDate: string, newTime: string, isUndo = false) {
+    function rescheduleByDrag(
+        apptId: string,
+        newDate: string,
+        newTime: string,
+        newMasterId?: string,
+        isUndo = false,
+    ) {
         const prev = localAppointments.find((a) => a.id === apptId);
         const prevDate = prev?.date ?? newDate;
         const prevTime = prev?.time ?? newTime;
+        const prevMasterId = prev?.master_id != null ? String(prev.master_id) : undefined;
 
         applyOptimisticMove(apptId, newDate, newTime);
 
-        router.patch(`/admin/appointments/${apptId}/status`, {
+        const payload: Record<string, string> = {
             start_time: `${newDate} ${newTime}:00`,
-        }, {
+        };
+
+        if (newMasterId !== undefined) {
+            payload.master_id = newMasterId;
+        }
+
+        router.patch(`/admin/appointments/${apptId}/status`, payload, {
             preserveScroll: true,
             preserveState: true,
             only: ['appointments'],
@@ -490,7 +503,7 @@ return;
                     toast.success('Запись перенесена', {
                         action: {
                             label: 'Отменить',
-                            onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, true),
+                            onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, prevMasterId, true),
                         },
                     });
                 }

@@ -1,4 +1,4 @@
-import { ChevronLeft, ChevronRight, CalendarDays, Plus } from 'lucide-react';
+import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -9,12 +9,12 @@ interface MasterOption {
 }
 
 interface DateControlPanelProps {
-    viewMode: 'week' | 'month';
+    viewMode: 'week' | 'day' | 'month';
     dateLabel: string;
     onPrev: () => void;
     onNext: () => void;
     onToday: () => void;
-    onToggleView: () => void;
+    onSetView: (mode: 'week' | 'day' | 'month') => void;
     onNewAppointment: () => void;
     masters?: MasterOption[];
     selectedMasterId?: string;
@@ -27,7 +27,7 @@ export default function DateControlPanel({
     onPrev,
     onNext,
     onToday,
-    onToggleView,
+    onSetView,
     onNewAppointment,
     masters = [],
     selectedMasterId = 'all',
@@ -59,7 +59,7 @@ export default function DateControlPanel({
                 </button>
             </div>
             <div className="flex items-center gap-2">
-                {masters.length > 0 && onMasterChange && (
+                {viewMode !== 'day' && masters.length > 0 && onMasterChange && (
                     <Select value={selectedMasterId} onValueChange={onMasterChange}>
                         <SelectTrigger className="h-8 w-full border-slate-200 bg-white text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto">
                             <SelectValue placeholder="Все мастера" />
@@ -72,13 +72,21 @@ export default function DateControlPanel({
                         </SelectContent>
                     </Select>
                 )}
-                <button
-                    onClick={onToggleView}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700 sm:w-auto sm:justify-start"
-                >
-                    <CalendarDays className="size-3.5" />
-                    {viewMode === 'week' ? 'Месяц' : 'Неделя'}
-                </button>
+                <div className="flex overflow-hidden rounded-md bg-slate-100 dark:bg-zinc-800">
+                    {(['day', 'week', 'month'] as const).map((mode) => (
+                        <button
+                            key={mode}
+                            onClick={() => onSetView(mode)}
+                            className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                                viewMode === mode
+                                    ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                                    : 'bg-transparent text-slate-600 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                            }`}
+                        >
+                            {mode === 'day' ? 'День' : mode === 'week' ? 'Неделя' : 'Месяц'}
+                        </button>
+                    ))}
+                </div>
                 <button
                     onClick={onNewAppointment}
                     className="flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 sm:w-auto sm:justify-start"
