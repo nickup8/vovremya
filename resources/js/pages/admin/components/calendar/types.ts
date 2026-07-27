@@ -46,6 +46,7 @@ export interface AuthUser {
 }
 
 export interface WorkingHour {
+    user_id?: string;
     day_of_week: number;
     start_time: string | null;
     end_time: string | null;

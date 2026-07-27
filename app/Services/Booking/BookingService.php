@@ -306,11 +306,25 @@ class BookingService
         string $newTime,
         bool $ignoreWarnings = false,
         bool $confirmOutsideHours = false,
+        ?string $newMasterId = null,
     ): array {
-        return DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours) {
+        return DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId) {
             $locked = Appointment::where('id', $appointment->id)->lockForUpdate()->first();
 
-            $master = $locked->master;
+            $originalMaster = $locked->master;
+
+            if ($newMasterId) {
+                $newMaster = User::findOrFail($newMasterId);
+
+                if ($newMaster->workspace_id !== $originalMaster->workspace_id) {
+                    abort(403, 'Мастер из другого воркспейса');
+                }
+
+                $master = $newMaster;
+            } else {
+                $master = $originalMaster;
+            }
+
             $service = $locked->service;
             $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
 
@@ -346,7 +360,11 @@ class BookingService
 
             $oldStartTime = $locked->start_time->toIso8601String();
 
-            $locked->update(['start_time' => $startDateTime]);
+            $updateData = ['start_time' => $startDateTime];
+            if ($newMasterId) {
+                $updateData['master_id'] = $newMasterId;
+            }
+            $locked->update($updateData);
 
             if ($locked->status === AppointmentStatus::NoShow) {
                 $this->statusService->transition($locked, AppointmentStatus::Booked);

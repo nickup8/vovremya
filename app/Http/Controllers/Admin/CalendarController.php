@@ -267,6 +267,7 @@ class CalendarController extends Controller
         $validated = $request->validate([
             'status' => 'sometimes|in:booked,pending_payment,prepaid,no_show,paid,cancelled',
             'start_time' => 'sometimes|date',
+            'master_id' => 'sometimes|string|exists:users,id',
             'ignore_warnings' => 'sometimes|boolean',
             'confirm_outside_hours' => 'sometimes|boolean',
         ]);
@@ -297,12 +298,15 @@ class CalendarController extends Controller
             $newDate = $newDateTime->format('Y-m-d');
             $newTime = $newDateTime->format('H:i');
 
+            $newMasterId = $validated['master_id'] ?? null;
+
             $result = $this->bookingService->rescheduleAppointment(
                 $appointment,
                 $newDate,
                 $newTime,
                 $validated['ignore_warnings'] ?? false,
                 $validated['confirm_outside_hours'] ?? false,
+                $newMasterId,
             );
 
             if (! $result['success']) {
