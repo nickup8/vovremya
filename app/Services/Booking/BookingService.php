@@ -13,6 +13,8 @@ use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Validator;
+use Illuminate\Validation\ValidationException;
 
 class BookingService
 {
@@ -93,12 +95,12 @@ class BookingService
         string $provider,
         ?string $clientId = null,
         ?AppointmentStatus $status = null,
-        ?\App\Enums\AppointmentSource $source = null,
+        ?AppointmentSource $source = null,
     ): Appointment {
         $workspace = $master->workspace;
 
         if ($workspace && ! $this->tariffLimitService->canCreateAppointment($workspace)) {
-            throw \Illuminate\Validation\ValidationException::withMessages([
+            throw ValidationException::withMessages([
                 'limit' => 'Лимит записей исчерпан. Для продолжения работы перейдите на тариф «Профи».',
             ]);
         }
@@ -141,7 +143,7 @@ class BookingService
             if (! in_array($appointmentStatus, $allowedInitialStatuses, true)) {
                 throw new \InvalidArgumentException(
                     "Cannot create appointment with status [{$appointmentStatus->value}]. "
-                    ."Allowed initial statuses: booked, pending_payment."
+                    .'Allowed initial statuses: booked, pending_payment.'
                 );
             }
 
@@ -238,8 +240,8 @@ class BookingService
         );
 
         if ($breakIntersection) {
-            throw new \Illuminate\Validation\ValidationException(
-                \Illuminate\Support\Facades\Validator::make([], []),
+            throw new ValidationException(
+                Validator::make([], []),
                 'Невозможно подтвердить запись: пересечение с обеденным временем.',
             );
         }
@@ -330,12 +332,16 @@ class BookingService
             }
 
             if ($check['status'] === 'error') {
-                return [
-                    'success' => false,
-                    'error' => $check['error'],
-                    'message' => $check['message'],
-                    'break_info' => $check['break_info'] ?? null,
-                ];
+                if ($ignoreWarnings && $check['error'] === 'break_intersection') {
+                    // пользователь подтвердил обед — пропускаем, сохраняем с новым временем
+                } else {
+                    return [
+                        'success' => false,
+                        'error' => $check['error'],
+                        'message' => $check['message'],
+                        'break_info' => $check['break_info'] ?? null,
+                    ];
+                }
             }
 
             $oldStartTime = $locked->start_time->toIso8601String();
