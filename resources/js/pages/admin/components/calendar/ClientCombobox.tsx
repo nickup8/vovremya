@@ -134,7 +134,12 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
                 </button>
             </PopoverTrigger>
 
-            <PopoverContent className="w-[--radix-popover-trigger-width] p-0" align="start">
+            <PopoverContent
+                className="w-[--radix-popover-trigger-width] p-0"
+                align="start"
+                withPortal={false}
+                onOpenAutoFocus={(e) => e.preventDefault()}
+            >
                 {creating ? (
                     <div className="space-y-3 p-3">
                         <div className="flex items-center justify-between">
