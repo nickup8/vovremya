@@ -18,6 +18,7 @@ interface UseCalendarActionsParams {
     applyOptimisticMove: (id: string, newDate: string, newTime: string) => void;
     rollbackAppointment: (id: string) => void;
     confirmOptimistic: (id: string) => void;
+    localAppointments: Appointment[];
 }
 
 export function useCalendarActions({
@@ -33,6 +34,7 @@ export function useCalendarActions({
     applyOptimisticMove,
     rollbackAppointment,
     confirmOptimistic,
+    localAppointments,
 }: UseCalendarActionsParams) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
@@ -178,6 +180,8 @@ return;
 }
 
         const apptId = selected.id;
+        const prevDate = selected.date;
+        const prevTime = selected.time;
         applyOptimisticMove(apptId, rescheduleDate, rescheduleTime);
 
         router.patch(`/admin/appointments/${apptId}/status`, {
@@ -211,6 +215,12 @@ return;
             },
             onSuccess: () => {
                 confirmOptimistic(apptId);
+                toast.success('Запись перенесена', {
+                    action: {
+                        label: 'Отменить',
+                        onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, true),
+                    },
+                });
             },
             onFinish: () => {
                 setRescheduleOpen(false);
@@ -435,7 +445,11 @@ return;
     }
 
     // ═══════════════ Drag & Drop Reschedule ═══════════════
-    function rescheduleByDrag(apptId: string, newDate: string, newTime: string) {
+    function rescheduleByDrag(apptId: string, newDate: string, newTime: string, isUndo = false) {
+        const prev = localAppointments.find((a) => a.id === apptId);
+        const prevDate = prev?.date ?? newDate;
+        const prevTime = prev?.time ?? newTime;
+
         applyOptimisticMove(apptId, newDate, newTime);
 
         router.patch(`/admin/appointments/${apptId}/status`, {
@@ -469,6 +483,17 @@ return;
             },
             onSuccess: () => {
                 confirmOptimistic(apptId);
+
+                if (isUndo) {
+                    toast.success('Перенос отменён');
+                } else {
+                    toast.success('Запись перенесена', {
+                        action: {
+                            label: 'Отменить',
+                            onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, true),
+                        },
+                    });
+                }
             },
         });
     }

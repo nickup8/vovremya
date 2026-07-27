@@ -147,6 +147,7 @@ return initialBlockedTimes;
         applyOptimisticMove,
         rollbackAppointment,
         confirmOptimistic,
+        localAppointments,
     });
 
     // ═══════════════ Grid Computed ═══════════════
