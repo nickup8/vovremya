@@ -12,7 +12,7 @@ import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
 import type { PageProps, Appointment } from './components/calendar/types';
 import {
-    getWeekDates, formatDateRange, dateToKey,
+    getWeekDates, formatDateRange, dateToKey, timeToMinutes,
 } from './components/calendar/helpers';
 import { WeekView } from './components/calendar/WeekView';
 import { MonthView } from './components/calendar/MonthView';
@@ -167,8 +167,22 @@ maxHour = eh;
             maxHour = 21;
         }
 
+        for (const a of localAppointments) {
+            if (!a.time || a.duration == null) {
+continue;
+}
+
+            const startMin = timeToMinutes(a.time);
+            const endMin = startMin + a.duration;
+            minHour = Math.min(minHour, Math.floor(startMin / 60));
+            maxHour = Math.max(maxHour, Math.ceil(endMin / 60));
+        }
+
+        minHour = Math.max(0, minHour);
+        maxHour = Math.min(24, maxHour);
+
         return Array.from({ length: maxHour - minHour }, (_, i) => minHour + i);
-    }, [workingHours]);
+    }, [workingHours, localAppointments]);
 
     const DAY_START_HOUR = gridHours.length > 0 ? gridHours[0] : 8;
 
