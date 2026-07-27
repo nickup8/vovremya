@@ -1,5 +1,14 @@
 import { useState, useEffect } from 'react';
-import { Appointment, BlockedTime, WorkingHour, ClientOption, ServiceOption } from './types';
+import type { DragStartEvent, DragEndEvent } from '@dnd-kit/core';
+import {
+    DndContext,
+    PointerSensor,
+    useSensor,
+    useSensors,
+    useDroppable,
+    DragOverlay,
+} from '@dnd-kit/core';
+import type { Appointment, BlockedTime, WorkingHour, ClientOption, ServiceOption } from './types';
 import { AppointmentCard } from './AppointmentCard';
 import { BlockedTimeCard } from './BlockedTimeCard';
 import { BreakZone } from './BreakZone';
@@ -15,7 +24,6 @@ interface WeekViewProps {
     slotInterval: number;
     workingHours: WorkingHour[];
     localAppointments: Appointment[];
-    initialBlockedTimes: BlockedTime[];
     activeBookingClient: ClientOption | null;
     bookingModeServiceId: string;
     bookingModeService: ServiceOption | null;
@@ -26,6 +34,7 @@ interface WeekViewProps {
     getAppointmentsForDay: (dayIndex: number) => Appointment[];
     getBlockedTimesForDay: (dayIndex: number) => BlockedTime[];
     isToday: (date: Date) => boolean;
+    onRescheduleByDrag: (apptId: string, newDate: string, newTime: string) => void;
 }
 
 interface CurrentTimeLineProps {
@@ -38,6 +47,7 @@ function CurrentTimeLine({ dayStartHour, gridHours }: CurrentTimeLineProps) {
 
     useEffect(() => {
         const id = setInterval(() => setNow(new Date()), 60_000);
+
         return () => clearInterval(id);
     }, []);
 
@@ -45,7 +55,9 @@ function CurrentTimeLine({ dayStartHour, gridHours }: CurrentTimeLineProps) {
     const gridStart = dayStartHour * 60;
     const gridEnd = gridStart + gridHours.length * 60;
 
-    if (totalMinutes < gridStart || totalMinutes >= gridEnd) return null;
+    if (totalMinutes < gridStart || totalMinutes >= gridEnd) {
+return null;
+}
 
     const top = (totalMinutes - gridStart) * MINUTE_HEIGHT;
 
@@ -53,6 +65,16 @@ function CurrentTimeLine({ dayStartHour, gridHours }: CurrentTimeLineProps) {
         <div className="pointer-events-none absolute inset-x-0 z-20" style={{ top }}>
             <div className="absolute -left-[5px] top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-red-500" />
             <div className="h-[2px] bg-red-500" />
+        </div>
+    );
+}
+
+function DroppableSlot({ id, children, ...rest }: { id: string; children: React.ReactNode; [key: string]: unknown }) {
+    const { setNodeRef } = useDroppable({ id });
+
+    return (
+        <div ref={setNodeRef} {...rest}>
+            {children}
         </div>
     );
 }
@@ -65,7 +87,6 @@ export function WeekView({
     slotInterval,
     workingHours,
     localAppointments,
-    initialBlockedTimes,
     activeBookingClient,
     bookingModeServiceId,
     bookingModeService,
@@ -76,9 +97,58 @@ export function WeekView({
     getAppointmentsForDay,
     getBlockedTimesForDay,
     isToday,
+    onRescheduleByDrag,
 }: WeekViewProps) {
     const DAY_START_HOUR = dayStartHour;
     const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
+
+    const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
+
+    const sensors = useSensors(
+        useSensor(PointerSensor, {
+            activationConstraint: { distance: 8 },
+        }),
+    );
+
+    function handleDragStart(event: DragStartEvent) {
+        const id = String(event.active.id);
+        const appt = localAppointments.find((a) => a.id === id);
+
+        if (appt) {
+            setActiveAppointment(appt);
+        }
+    }
+
+    function handleDragEnd(event: DragEndEvent) {
+        const { active, over } = event;
+
+        setActiveAppointment(null);
+
+        if (!over) {
+return;
+}
+
+        const overId = String(over.id);
+
+        if (!overId.includes('__')) {
+return;
+}
+
+        const [newDate, newTime] = overId.split('__');
+
+        const apptId = String(active.id);
+        const appt = localAppointments.find((a) => a.id === apptId);
+
+        if (!appt) {
+return;
+}
+
+        if (appt.date === newDate && appt.time === newTime) {
+return;
+}
+
+        onRescheduleByDrag(apptId, newDate, newTime);
+    }
 
     return (
         <div className="relative max-h-[calc(100vh-240px)] w-full overflow-x-auto overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xs scrollbar-thin dark:border-zinc-800 dark:bg-zinc-900">
@@ -90,6 +160,7 @@ export function WeekView({
                 <div className="grid min-w-[920px] flex-1 grid-cols-7">
                     {weekDates.map((date, idx) => {
                         const todayMark = isToday(date);
+
                         return (
                             <div
                                 key={`h-${idx}`}
@@ -108,139 +179,163 @@ export function WeekView({
             </div>
 
             {/* Grid Body — time + slots */}
-            <div className="flex min-w-[980px]">
-                {/* Time Column — sticky left */}
-                <div className="sticky left-0 z-20 w-[60px] min-w-[60px] border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                    {gridHours.map((hour) => {
-                        const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
-                        const labels: React.ReactNode[] = [];
-                        for (let m = 0; m < 60; m += slotInterval) {
-                            labels.push(
+            <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+                <div className="flex min-w-[980px]">
+                    {/* Time Column — sticky left */}
+                    <div className="sticky left-0 z-20 w-[60px] min-w-[60px] border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                        {gridHours.map((hour) => {
+                            const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
+                            const labels: React.ReactNode[] = [];
+
+                            for (let m = 0; m < 60; m += slotInterval) {
+                                labels.push(
+                                    <div
+                                        key={`${hour}-${m}`}
+                                        style={{ height: slotHeightPx }}
+                                        className="flex items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
+                                    >
+                                        {m === 0 ? `${String(hour).padStart(2, '0')}:00` : ''}
+                                    </div>,
+                                );
+                            }
+
+                            return labels;
+                        })}
+                    </div>
+
+                    {/* Day Columns with Appointment Cards */}
+                    <div className="grid min-w-[920px] flex-1 grid-cols-7">
+                        {weekDates.map((date, dayIdx) => {
+                            const dayAppts = getAppointmentsForDay(dayIdx);
+                            const dayBlocked = getBlockedTimesForDay(dayIdx);
+                            const dateKey = weekDateKeys[dayIdx];
+                            const backendDow = (dayIdx + 1) % 7;
+                            const wh = workingHours.find((w) => w.day_of_week === backendDow);
+                            const isBookingDay = activeBookingClient && bookingModeServiceId && hoveredSlot?.date === dateKey;
+                            const ghostHeight = bookingModeService ? (bookingModeService.duration_minutes / 60) * HOUR_HEIGHT : 0;
+                            const ghostTop = hoveredSlot && isBookingDay
+                                ? (timeToMinutes(hoveredSlot.time) - DAY_START_HOUR * 60) * MINUTE_HEIGHT
+                                : 0;
+                            const ghostHasCollision = isBookingDay && hoveredSlot && bookingModeService
+                                ? hasCollision(dateKey, hoveredSlot.time, bookingModeService.duration_minutes, localAppointments)
+                                : false;
+                            const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
+
+                            return (
                                 <div
-                                    key={`${hour}-${m}`}
-                                    style={{ height: slotHeightPx }}
-                                    className="flex items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
+                                    key={`col-${dayIdx}`}
+                                    className="relative overflow-hidden border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
                                 >
-                                    {m === 0 ? `${String(hour).padStart(2, '0')}:00` : ''}
-                                </div>,
+                                    {gridHours.map((hour) => {
+                                        const slots: React.ReactNode[] = [];
+
+                                        for (let m = 0; m < 60; m += slotInterval) {
+                                            const timeStr = `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                                            slots.push(
+                                                <DroppableSlot
+                                                    key={`${hour}-${m}`}
+                                                    id={`${dateKey}__${timeStr}`}
+                                                    style={{ height: slotHeightPx }}
+                                                    className="group relative border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                    onMouseEnter={() => {
+                                                        if (activeBookingClient && bookingModeServiceId) {
+                                                            onSlotHover({ date: dateKey, time: timeStr });
+                                                        }
+                                                    }}
+                                                    onMouseLeave={() => {
+                                                        if (hoveredSlot?.date === dateKey && hoveredSlot?.time === timeStr) {
+                                                            onSlotHover(null);
+                                                        }
+                                                    }}
+                                                    onClick={() => {
+                                                        if (activeBookingClient && bookingModeServiceId) {
+                                                            if (hasCollision(dateKey, timeStr, bookingModeService?.duration_minutes ?? 60, localAppointments)) {
+                                                                return;
+                                                            }
+                                                        }
+
+                                                        onSlotClick(dateKey, timeStr);
+                                                    }}
+                                                >
+                                                    <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-[10px] font-medium text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-zinc-500">
+                                                        {timeStr}
+                                                    </span>
+                                                </DroppableSlot>,
+                                            );
+                                        }
+
+                                        return slots;
+                                    })}
+                                    {/* Ghost Appointment */}
+                                    {isBookingDay && ghostHeight > 0 && (
+                                        <div
+                                            className={`pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed transition-all ${
+                                                ghostHasCollision
+                                                    ? 'border-red-500 bg-red-500/20'
+                                                    : 'border-blue-500 bg-blue-500/20'
+                                            }`}
+                                            style={{ top: ghostTop, height: Math.max(ghostHeight, 32) }}
+                                        >
+                                            <div className="px-2 py-1">
+                                                <p className={`text-[10px] font-semibold ${
+                                                    ghostHasCollision
+                                                        ? 'text-red-700 dark:text-red-300'
+                                                        : 'text-blue-700 dark:text-blue-300'
+                                                }`}>
+                                                    {hoveredSlot?.time} — {bookingModeService?.title}
+                                                    {ghostHasCollision && ' (занято)'}
+                                                </p>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {wh?.is_working && wh.break_start_time && wh.break_end_time && (
+                                        <BreakZone
+                                            breakStart={wh.break_start_time}
+                                            breakEnd={wh.break_end_time}
+                                            dayStartHour={DAY_START_HOUR}
+                                        />
+                                    )}
+                                    {dayBlocked.map((bt) => (
+                                        <BlockedTimeCard
+                                            key={`bt-${bt.id}`}
+                                            blockedTime={bt}
+                                            dayDate={dateKey}
+                                            dayStartHour={DAY_START_HOUR}
+                                            dayEndHour={DAY_END_HOUR}
+                                        />
+                                    ))}
+                                    {calculateCollisions(dayAppts).map((appt) => (
+                                        <AppointmentCard
+                                            key={appt.id}
+                                            appointment={appt}
+                                            onClick={() => onAppointmentClick(appt)}
+                                            dayStartHour={DAY_START_HOUR}
+                                        />
+                                    ))}
+                                    {isToday(date) && (
+                                        <CurrentTimeLine dayStartHour={DAY_START_HOUR} gridHours={gridHours} />
+                                    )}
+                                </div>
                             );
-                        }
-                        return labels;
-                    })}
+                        })}
+                    </div>
                 </div>
 
-                {/* Day Columns with Appointment Cards */}
-                <div className="grid min-w-[920px] flex-1 grid-cols-7">
-                    {weekDates.map((date, dayIdx) => {
-                        const dayAppts = getAppointmentsForDay(dayIdx);
-                        const dayBlocked = getBlockedTimesForDay(dayIdx);
-                        const dateKey = weekDateKeys[dayIdx];
-                        const backendDow = (dayIdx + 1) % 7;
-                        const wh = workingHours.find((w) => w.day_of_week === backendDow);
-                        const isBookingDay = activeBookingClient && bookingModeServiceId && hoveredSlot?.date === dateKey;
-                        const ghostHeight = bookingModeService ? (bookingModeService.duration_minutes / 60) * HOUR_HEIGHT : 0;
-                        const ghostTop = hoveredSlot && isBookingDay
-                            ? (timeToMinutes(hoveredSlot.time) - DAY_START_HOUR * 60) * MINUTE_HEIGHT
-                            : 0;
-                        const ghostHasCollision = isBookingDay && hoveredSlot && bookingModeService
-                            ? hasCollision(dateKey, hoveredSlot.time, bookingModeService.duration_minutes, localAppointments)
-                            : false;
-                        const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
-                        return (
-                            <div
-                                key={`col-${dayIdx}`}
-                                className="relative overflow-hidden border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
-                            >
-                                {gridHours.map((hour) => {
-                                    const slots: React.ReactNode[] = [];
-                                    for (let m = 0; m < 60; m += slotInterval) {
-                                        const timeStr = `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
-                                        slots.push(
-                                            <div
-                                                key={`${hour}-${m}`}
-                                                style={{ height: slotHeightPx }}
-                                                className="group relative border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
-                                                onMouseEnter={() => {
-                                                    if (activeBookingClient && bookingModeServiceId) {
-                                                        onSlotHover({ date: dateKey, time: timeStr });
-                                                    }
-                                                }}
-                                                onMouseLeave={() => {
-                                                    if (hoveredSlot?.date === dateKey && hoveredSlot?.time === timeStr) {
-                                                        onSlotHover(null);
-                                                    }
-                                                }}
-                                                onClick={() => {
-                                                    if (activeBookingClient && bookingModeServiceId) {
-                                                        if (hasCollision(dateKey, timeStr, bookingModeService?.duration_minutes ?? 60, localAppointments)) {
-                                                            return;
-                                                        }
-                                                    }
-                                                    onSlotClick(dateKey, timeStr);
-                                                }}
-                                            >
-                                                <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-[10px] font-medium text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-zinc-500">
-                                                    {timeStr}
-                                                </span>
-                                            </div>,
-                                        );
-                                    }
-                                    return slots;
-                                })}
-                                {/* Ghost Appointment */}
-                                {isBookingDay && ghostHeight > 0 && (
-                                    <div
-                                        className={`pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed transition-all ${
-                                            ghostHasCollision
-                                                ? 'border-red-500 bg-red-500/20'
-                                                : 'border-blue-500 bg-blue-500/20'
-                                        }`}
-                                        style={{ top: ghostTop, height: Math.max(ghostHeight, 32) }}
-                                    >
-                                        <div className="px-2 py-1">
-                                            <p className={`text-[10px] font-semibold ${
-                                                ghostHasCollision
-                                                    ? 'text-red-700 dark:text-red-300'
-                                                    : 'text-blue-700 dark:text-blue-300'
-                                            }`}>
-                                                {hoveredSlot?.time} — {bookingModeService?.title}
-                                                {ghostHasCollision && ' (занято)'}
-                                            </p>
-                                        </div>
-                                    </div>
-                                )}
-                                {wh?.is_working && wh.break_start_time && wh.break_end_time && (
-                                    <BreakZone
-                                        breakStart={wh.break_start_time}
-                                        breakEnd={wh.break_end_time}
-                                        dayStartHour={DAY_START_HOUR}
-                                    />
-                                )}
-                                {dayBlocked.map((bt) => (
-                                    <BlockedTimeCard
-                                        key={`bt-${bt.id}`}
-                                        blockedTime={bt}
-                                        dayDate={dateKey}
-                                        dayStartHour={DAY_START_HOUR}
-                                        dayEndHour={DAY_END_HOUR}
-                                    />
-                                ))}
-                                {calculateCollisions(dayAppts).map((appt) => (
-                                    <AppointmentCard
-                                        key={appt.id}
-                                        appointment={appt}
-                                        onClick={() => onAppointmentClick(appt)}
-                                        dayStartHour={DAY_START_HOUR}
-                                    />
-                                ))}
-                                {isToday(date) && (
-                                    <CurrentTimeLine dayStartHour={DAY_START_HOUR} gridHours={gridHours} />
-                                )}
-                            </div>
-                        );
-                    })}
-                </div>
-            </div>
+                <DragOverlay>
+                    {activeAppointment ? (
+                        <div
+                            className="pointer-events-none z-50 w-48 rounded-lg border-l-4 border-blue-500 bg-white px-2 py-1 shadow-lg"
+                        >
+                            <p className="font-mono text-[10px]">
+                                {activeAppointment.time}
+                            </p>
+                            <p className="truncate text-xs font-semibold">
+                                {activeAppointment.client_name}
+                            </p>
+                        </div>
+                    ) : null}
+                </DragOverlay>
+            </DndContext>
         </div>
     );
 }

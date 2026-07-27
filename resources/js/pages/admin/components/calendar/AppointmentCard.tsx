@@ -1,6 +1,8 @@
+import { useDraggable } from '@dnd-kit/core';
+import { CSS } from '@dnd-kit/utilities';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
-import { AppointmentWithCollision } from './types';
+import type { AppointmentWithCollision } from './types';
 import { STATUS_STYLES } from './constants';
 import { timeToMinutes, getEndTime } from './helpers';
 import { MINUTE_HEIGHT } from './constants';
@@ -23,8 +25,15 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
     const widthPercent = 100 / totalCols;
     const leftPercent = widthPercent * colIndex;
 
+    const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
+        id: appointment.id,
+    });
+
     return (
         <button
+            ref={setNodeRef}
+            {...listeners}
+            {...attributes}
             onClick={onClick}
             className={`absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2 py-1 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
             style={{
@@ -32,6 +41,8 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                 height: Math.max(height, 32),
                 width: `calc(${widthPercent}% - 4px)`,
                 left: `calc(${leftPercent}% + 2px)`,
+                transform: CSS.Translate.toString(transform),
+                opacity: isDragging ? 0.4 : undefined,
             }}
         >
             <div className="flex h-full flex-col justify-between">

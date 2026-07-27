@@ -434,6 +434,45 @@ return;
         });
     }
 
+    // ═══════════════ Drag & Drop Reschedule ═══════════════
+    function rescheduleByDrag(apptId: string, newDate: string, newTime: string) {
+        applyOptimisticMove(apptId, newDate, newTime);
+
+        router.patch(`/admin/appointments/${apptId}/status`, {
+            start_time: `${newDate} ${newTime}:00`,
+        }, {
+            preserveScroll: true,
+            preserveState: true,
+            only: ['appointments'],
+            onError: (errors: Record<string, string>) => {
+                if (errors.lunch_intersection) {
+                    setBreakWarningMessage(errors.lunch_intersection);
+                    setPendingReschedule({ appointmentId: apptId, date: newDate, time: newTime });
+                    setBreakWarningOpen(true);
+
+                    return;
+                }
+
+                if (errors.outside_working_hours) {
+                    setOutsideHoursMessage(errors.outside_working_hours);
+                    setPendingOutsideHours({ appointmentId: apptId, date: newDate, time: newTime });
+                    setOutsideHoursOpen(true);
+
+                    return;
+                }
+
+                rollbackAppointment(apptId);
+
+                if (errors.time) {
+                    toast.error(errors.time);
+                }
+            },
+            onSuccess: () => {
+                confirmOptimistic(apptId);
+            },
+        });
+    }
+
     // ═══════════════ Detail ═══════════════
     function openDetail(appointment: Appointment) {
         setSelected(appointment);
@@ -472,6 +511,7 @@ return;
         cancelReschedule,
         confirmOutsideHours,
         cancelOutsideHours,
+        rescheduleByDrag,
         openNewAppointment,
         openNewAppointmentForDate,
         submitNewAppointment,

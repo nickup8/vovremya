@@ -121,6 +121,7 @@ return initialBlockedTimes;
         cancelReschedule,
         confirmOutsideHours,
         cancelOutsideHours,
+        rescheduleByDrag,
         openNewAppointment,
         openNewAppointmentForDate,
         submitNewAppointment,
@@ -312,7 +313,6 @@ continue;
                                     slotInterval={slotInterval}
                                     workingHours={workingHours}
                                     localAppointments={localAppointments}
-                                    initialBlockedTimes={filteredBlockedTimes}
                                     activeBookingClient={activeBookingClient}
                                     bookingModeServiceId={bookingModeServiceId}
                                     bookingModeService={bookingModeService}
@@ -323,6 +323,7 @@ continue;
                                     getAppointmentsForDay={getAppointmentsForDay}
                                     getBlockedTimesForDay={getBlockedTimesForDay}
                                     isToday={isToday}
+                                    onRescheduleByDrag={rescheduleByDrag}
                                 />
                             )}
 
