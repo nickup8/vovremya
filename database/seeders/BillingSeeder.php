@@ -29,7 +29,7 @@ class BillingSeeder extends Seeder
                 'price_monthly' => 490,
                 'max_appointments_per_month' => null,
                 'max_masters' => 1,
-                'features' => ['unlimited_appointments', 'analytics', 'client_management'],
+                'features' => ['unlimited_appointments', 'client_management'],
                 'is_active' => true,
             ],
         );
@@ -41,7 +41,7 @@ class BillingSeeder extends Seeder
                 'price_monthly' => 1290,
                 'max_appointments_per_month' => null,
                 'max_masters' => 5,
-                'features' => ['unlimited_appointments', 'analytics', 'client_management', 'multi_master', 'priority_support'],
+                'features' => ['unlimited_appointments', 'client_management', 'multi_master', 'priority_support'],
                 'is_active' => true,
             ],
         );
@@ -53,7 +53,7 @@ class BillingSeeder extends Seeder
                 'price_monthly' => 2990,
                 'max_appointments_per_month' => null,
                 'max_masters' => null,
-                'features' => ['unlimited_appointments', 'analytics', 'client_management', 'multi_master', 'priority_support', 'white_label'],
+                'features' => ['unlimited_appointments', 'client_management', 'multi_master', 'priority_support', 'white_label'],
                 'is_active' => true,
             ],
         );

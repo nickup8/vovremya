@@ -10,6 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
 
@@ -22,6 +23,21 @@ class StudioBookingController extends Controller
     public function show(string $slug, Request $request): InertiaResponse|RedirectResponse
     {
         $workspace = Workspace::where('slug', $slug)->firstOrFail();
+
+        if (! $workspace->activeSubscription()) {
+            $owner = $workspace->owner;
+
+            if ($owner && $owner->master_slug) {
+                return redirect()->route('booking.widget', ['master' => $owner->master_slug]);
+            }
+
+            Log::warning('Studio owner has no master_slug for redirect', [
+                'workspace_id' => $workspace->id,
+                'owner_id' => $owner?->id,
+            ]);
+
+            abort(404, 'Студия недоступна для бронирования.');
+        }
 
         $serviceTitle = $request->query('service');
         $masterSlug = $request->query('master');
