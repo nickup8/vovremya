@@ -17,7 +17,6 @@ class Workspace extends Model
         'name',
         'slug',
         'owner_id',
-        'parent_workspace_id',
     ];
 
     public function owner(): BelongsTo
@@ -33,16 +32,6 @@ class Workspace extends Model
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);
-    }
-
-    public function parent(): BelongsTo
-    {
-        return $this->belongsTo(Workspace::class, 'parent_workspace_id');
-    }
-
-    public function children(): HasMany
-    {
-        return $this->hasMany(Workspace::class, 'parent_workspace_id');
     }
 
     public function activeSubscription()
