@@ -68,17 +68,37 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
         [clients, value],
     );
 
+    const dedupedClients = useMemo(() => {
+        const byPhone = new Map<string, ClientOption>();
+        const noPhone: ClientOption[] = [];
+
+        for (const c of clients) {
+            const key = (c.phone ?? '').replace(/\D/g, '');
+
+            if (!key) {
+                noPhone.push(c);
+                continue;
+            }
+
+            if (!byPhone.has(key)) {
+                byPhone.set(key, c);
+            }
+        }
+
+        return [...byPhone.values(), ...noPhone];
+    }, [clients]);
+
     const filtered = useMemo(() => {
         const q = search.trim().toLowerCase();
 
         if (!q) {
-            return clients;
+            return dedupedClients;
         }
 
-        return clients.filter(
+        return dedupedClients.filter(
             (c) => c.name.toLowerCase().includes(q) || (c.phone ?? '').toLowerCase().includes(q),
         );
-    }, [clients, search]);
+    }, [dedupedClients, search]);
 
     function openCreateForm() {
         if (looksLikePhone(search)) {

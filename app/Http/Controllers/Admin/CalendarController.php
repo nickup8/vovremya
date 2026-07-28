@@ -232,6 +232,15 @@ class CalendarController extends Controller
 
         $targetMaster = User::find($service->user_id);
 
+        // Клиент привязан к мастеру (unique user_id+phone). Если выбранный клиент
+        // принадлежит другому мастеру workspace — найти/создать его строку под мастером услуги.
+        if ($client->phone && $client->user_id !== $targetMaster->id) {
+            $client = Client::firstOrCreate(
+                ['user_id' => $targetMaster->id, 'phone' => $client->phone],
+                ['name' => $client->name],
+            );
+        }
+
         $result = $this->bookingService->createManualAppointment(
             $targetMaster,
             $service,
@@ -239,7 +248,7 @@ class CalendarController extends Controller
             $validated['time'],
             $validated['ignore_warnings'] ?? false,
             $validated['confirm_outside_hours'] ?? false,
-            $validated['client_id'],
+            $client->id,
         );
 
         if (! $result['success']) {
