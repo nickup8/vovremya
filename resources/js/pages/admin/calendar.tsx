@@ -206,6 +206,15 @@ return initialBlockedTimes;
     const rescheduleByDragDay = (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) =>
         rescheduleByDrag(apptId, newDate, newTime, newMasterId, false, prevMasterId);
 
+    const openDayFromMonth = (dateKey: string) => {
+        const clicked = new Date(dateKey + 'T00:00:00');
+        const base = new Date(today);
+        base.setHours(0, 0, 0, 0);
+        const offset = Math.round((clicked.getTime() - base.getTime()) / 86400000);
+        setDayOffset(offset);
+        setViewMode('day');
+    };
+
     // ═══════════════ Grid Computed ═══════════════
 
     const gridHours = useMemo(() => {
@@ -372,6 +381,7 @@ continue;
                                     onAppointmentClick={openDetail}
                                     isToday={isToday}
                                     onRescheduleByDrag={rescheduleByDragDay}
+                                    selectedMasterId={selectedMasterId}
                                 />
                             ) : viewMode === 'month' ? (
                                 <MonthView
@@ -379,6 +389,7 @@ continue;
                                     centerDate={monthCenterDate}
                                     onDayClick={openDetail}
                                     onEmptyDayClick={(dateKey) => openNewAppointmentForDate(dateKey)}
+                                    onDayColumnClick={openDayFromMonth}
                                 />
                             ) : (
                                 <WeekView

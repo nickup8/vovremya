@@ -59,7 +59,7 @@ export default function DateControlPanel({
                 </button>
             </div>
             <div className="flex items-center gap-2">
-                {viewMode !== 'day' && masters.length > 0 && onMasterChange && (
+                {masters.length > 0 && onMasterChange && (
                     <Select value={selectedMasterId} onValueChange={onMasterChange}>
                         <SelectTrigger className="h-8 w-full border-slate-200 bg-white text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto">
                             <SelectValue placeholder="Все мастера" />

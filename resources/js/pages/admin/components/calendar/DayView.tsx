@@ -30,6 +30,7 @@ interface DayViewProps {
     onAppointmentClick: (appointment: Appointment) => void;
     isToday: (date: Date) => boolean;
     onRescheduleByDrag: (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) => void;
+    selectedMasterId: string;
 }
 
 interface CurrentTimeLineProps {
@@ -88,10 +89,14 @@ export function DayView({
     onAppointmentClick,
     isToday,
     onRescheduleByDrag,
+    selectedMasterId,
 }: DayViewProps) {
     const DAY_START_HOUR = dayStartHour;
     const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
-    const gridMinWidth = 60 + masters.length * 160;
+    const visibleMasters = selectedMasterId === 'all'
+        ? masters
+        : masters.filter((m) => String(m.id) === selectedMasterId);
+    const gridMinWidth = 60 + visibleMasters.length * 160;
 
     const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
     const [hoveredDropId, setHoveredDropId] = useState<string | null>(null);
@@ -149,7 +154,7 @@ export function DayView({
         onRescheduleByDrag(apptId, newDate, newTime, newMasterId, prevMasterId);
     }
 
-    if (masters.length === 0) {
+    if (visibleMasters.length === 0) {
         return (
             <div className="flex items-center justify-center rounded-xl border border-slate-200 bg-white py-20 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
                 <p className="text-sm text-slate-500 dark:text-zinc-400">
@@ -171,10 +176,10 @@ export function DayView({
                 <div
                     className="grid flex-1"
                     style={{
-                        gridTemplateColumns: `repeat(${masters.length}, minmax(0, 1fr))`,
+                        gridTemplateColumns: `repeat(${visibleMasters.length}, minmax(0, 1fr))`,
                     }}
                 >
-                    {masters.map((master) => (
+                    {visibleMasters.map((master) => (
                         <div
                             key={`h-${master.id}`}
                             className="border-r border-slate-200 p-3 text-center last:border-r-0 dark:border-zinc-800"
@@ -222,17 +227,17 @@ export function DayView({
                     <div
                         className="grid flex-1"
                         style={{
-                            gridTemplateColumns: `repeat(${masters.length}, minmax(0, 1fr))`,
+                            gridTemplateColumns: `repeat(${visibleMasters.length}, minmax(0, 1fr))`,
                         }}
                     >
-                        {masters.map((master) => {
+                        {visibleMasters.map((master) => {
                             const dayAppts = localAppointments.filter(
                                 (a) => a.date === dayDateKey && String(a.master_id) === master.id,
                             );
                             const dayBlocked = blockedTimes.filter((bt) => {
                                 const endKey = bt.end_date ?? bt.date;
 
-                                return bt.date <= dayDateKey && dayDateKey <= endKey && String(bt.user_id) === master.id;
+                                return bt.date <= dayDateKey && dayDateKey <= endKey && String(bt.user_id) === String(master.id);
                             });
                             const backendDow = dayDate.getDay();
                             const wh = workingHours.find(

@@ -9,9 +9,10 @@ interface Props {
     centerDate: Date;
     onDayClick: (appointment: Appointment) => void;
     onEmptyDayClick: (date: string) => void;
+    onDayColumnClick: (dateKey: string) => void;
 }
 
-export function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClick }: Props) {
+export function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClick, onDayColumnClick }: Props) {
     const today = new Date();
     const grid = useMemo(() => getMonthGrid(centerDate), [centerDate]);
     const currentMonth = centerDate.getMonth();
@@ -39,7 +40,7 @@ export function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClic
                         <button
                             key={i}
                             type="button"
-                            onClick={() => dayAppts.length === 0 ? onEmptyDayClick(dateKey) : undefined}
+                            onClick={() => onDayColumnClick(dateKey)}
                             className={`flex min-h-[80px] md:min-h-[120px] flex-col gap-1 bg-white p-1.5 text-left transition-colors hover:bg-slate-50 dark:bg-zinc-900 dark:hover:bg-zinc-800/50 ${
                                 !isCurrentMonth ? 'bg-slate-50/50 text-slate-400 dark:bg-zinc-900/50 dark:text-zinc-600' : ''
                             }`}
