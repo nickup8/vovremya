@@ -5,6 +5,7 @@ namespace App\Services\Billing;
 use App\Enums\AppointmentStatus;
 use App\Models\Subscription;
 use App\Models\Workspace;
+use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 class TariffLimitService
@@ -66,7 +67,25 @@ class TariffLimitService
 
     private function getCycleStart(?Workspace $workspace): CarbonInterface
     {
-        return now()->subDays(30)->startOfDay();
+        if (! $workspace || ! $workspace->created_at) {
+            return now()->startOfMonth()->startOfDay();
+        }
+
+        $anchorDay = (int) $workspace->created_at->day;
+        $now = now();
+
+        $currentDay = min($anchorDay, $now->daysInMonth);
+        $candidate = Carbon::create($now->year, $now->month, $currentDay, 0, 0, 0);
+
+        if ($candidate <= $now) {
+            return $candidate->startOfDay();
+        }
+
+        $prevMonth = $now->copy()->subMonthNoOverflow();
+        $prevDay = min($anchorDay, $prevMonth->daysInMonth);
+        $candidate = Carbon::create($prevMonth->year, $prevMonth->month, $prevDay, 0, 0, 0);
+
+        return $candidate->startOfDay();
     }
 
     private function countAppointmentsInCycle(?Workspace $workspace, CarbonInterface $cycleStart): int
