@@ -3,6 +3,7 @@
 namespace App\Services\Billing;
 
 use App\Enums\AppointmentStatus;
+use App\Models\Appointment;
 use App\Models\Subscription;
 use App\Models\Workspace;
 use Carbon\Carbon;
@@ -10,7 +11,6 @@ use Carbon\CarbonInterface;
 
 class TariffLimitService
 {
-
     public function canCreateAppointment(Workspace $workspace, ?Subscription $subscription = null): bool
     {
         $limit = $this->getMonthlyLimit($workspace, $subscription);
@@ -65,7 +65,7 @@ class TariffLimitService
         return $this->countAppointmentsInCycle($workspace, $cycleStart);
     }
 
-    private function getCycleStart(?Workspace $workspace): CarbonInterface
+    public function getCycleStart(?Workspace $workspace): CarbonInterface
     {
         if (! $workspace || ! $workspace->created_at) {
             return now()->startOfMonth()->startOfDay();
@@ -96,7 +96,7 @@ class TariffLimitService
 
         $masterIds = $workspace->users()->pluck('id');
 
-        return \App\Models\Appointment::whereIn('master_id', $masterIds)
+        return Appointment::whereIn('master_id', $masterIds)
             ->whereIn('status', [
                 AppointmentStatus::Booked,
                 AppointmentStatus::PendingPayment,

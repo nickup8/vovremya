@@ -4,11 +4,17 @@ namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
+use App\Enums\UserRole;
+use App\Events\AppointmentCreated;
+use App\Events\UserChannelsUpdated;
+use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use App\Models\WorkspaceInvite;
 use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
+use App\Services\Notification\MasterNotificationService;
+use App\Services\SlugService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -130,12 +136,12 @@ class MaxWebhookHandler
                 ];
 
                 if (empty($user->master_slug)) {
-                    $slug = app(\App\Services\SlugService::class)->generate(null, $user->name, null);
+                    $slug = app(SlugService::class)->generate(null, $user->name, null);
                     $updateData['master_slug'] = $slug;
                 }
 
                 $user->update($updateData);
-                $user->role = $invite->role ?? \App\Enums\UserRole::Master;
+                $user->role = $invite->role ?? UserRole::Master;
                 $user->save();
 
                 $invite->delete();
@@ -158,14 +164,14 @@ class MaxWebhookHandler
             $masterUserId = Cache::pull("max_link:{$linkToken}");
 
             if ($masterUserId) {
-                $user = \App\Models\User::find($masterUserId);
+                $user = User::find($masterUserId);
                 if ($user) {
                     $user->update([
                         'max_id' => $userId,
                         'max_notifications' => true,
                     ]);
 
-                    broadcast(new \App\Events\UserChannelsUpdated($user));
+                    broadcast(new UserChannelsUpdated($user));
 
                     $this->sendMessage($userId, __('bot.notifications.linked_success'));
 
@@ -235,7 +241,7 @@ class MaxWebhookHandler
                         $user->update([
                             'workspace_id' => $invite->workspace_id,
                         ]);
-                        $user->role = $invite->role ?? \App\Enums\UserRole::Master;
+                        $user->role = $invite->role ?? UserRole::Master;
                         $user->save();
 
                         $invite->delete();
@@ -292,7 +298,7 @@ class MaxWebhookHandler
     private function handleAuthStart(string $userId, string $loginToken): void
     {
         Cache::put(
-            CacheKeys::MAX_CHAT_TOKEN . $userId,
+            CacheKeys::MAX_CHAT_TOKEN.$userId,
             $loginToken,
             config('booking.token_ttl'),
         );
@@ -328,7 +334,7 @@ class MaxWebhookHandler
 
         // Store pending booking in cache
         Cache::put(
-            CacheKeys::MAX_BOOKING_DRAFT . $userId,
+            CacheKeys::MAX_BOOKING_DRAFT.$userId,
             $appointmentId,
             config('booking.draft_ttl'),
         );
@@ -403,8 +409,8 @@ class MaxWebhookHandler
         }
 
         // Determine flow: auth or booking
-        $loginToken = Cache::get(CacheKeys::MAX_CHAT_TOKEN . $userId);
-        $draftAppointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT . $userId);
+        $loginToken = Cache::get(CacheKeys::MAX_CHAT_TOKEN.$userId);
+        $draftAppointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
 
         if ($loginToken) {
             $this->handleAuthContact($userId, $contactUserId, $phone, $firstName, $lastName, $loginToken);
@@ -442,12 +448,12 @@ class MaxWebhookHandler
         }
 
         if (! $user) {
-            $baseName = trim($firstName . ' ' . $lastName);
+            $baseName = trim($firstName.' '.$lastName);
             if ($baseName === '') {
-                $baseName = __('bot.fallback.master_name') . ' ' . $phone;
+                $baseName = __('bot.fallback.master_name').' '.$phone;
             }
 
-            $slug = app(\App\Services\SlugService::class)->generate(null, $firstName, $lastName);
+            $slug = app(SlugService::class)->generate(null, $firstName, $lastName);
 
             try {
                 $user = User::create([
@@ -476,7 +482,7 @@ class MaxWebhookHandler
                 $updates['max_notifications'] = true;
             }
 
-            $fullName = trim($firstName . ' ' . $lastName);
+            $fullName = trim($firstName.' '.$lastName);
             if ($fullName !== '' && $user->name !== $fullName) {
                 $updates['name'] = $fullName;
             }
@@ -488,9 +494,9 @@ class MaxWebhookHandler
             Log::info('[MAX] handleAuthContact: existing user', ['user_id' => $user->id]);
         }
 
-        broadcast(new \App\Events\UserChannelsUpdated($user));
+        broadcast(new UserChannelsUpdated($user));
 
-        $authCacheKey = CacheKeys::MAX_AUTH . $loginToken;
+        $authCacheKey = CacheKeys::MAX_AUTH.$loginToken;
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
@@ -498,13 +504,13 @@ class MaxWebhookHandler
 
         Log::info('[MAX] handleAuthContact: sending confirmation');
 
-        $magicToken = \Illuminate\Support\Str::random(32);
-        \Illuminate\Support\Facades\Cache::put('magic_login_' . $magicToken, $user->id, now()->addMinutes(15));
+        $magicToken = Str::random(32);
+        Cache::put('magic_login_'.$magicToken, $user->id, now()->addMinutes(15));
         $magicUrl = route('auth.magic', ['token' => $magicToken]);
 
-        $this->sendMessage($userId, "✅ Авторизация пройдена!\n\nНажмите на ссылку ниже, чтобы открыть кабинет:\n👉 " . $magicUrl);
+        $this->sendMessage($userId, "✅ Авторизация пройдена!\n\nНажмите на ссылку ниже, чтобы открыть кабинет:\n👉 ".$magicUrl);
 
-        Cache::forget(CacheKeys::MAX_CHAT_TOKEN . $userId);
+        Cache::forget(CacheKeys::MAX_CHAT_TOKEN.$userId);
     }
 
     /**
@@ -524,7 +530,7 @@ class MaxWebhookHandler
             'phone' => $phone,
         ]);
 
-        $appointment = \App\Models\Appointment::with(['master', 'service'])
+        $appointment = Appointment::with(['master', 'service'])
             ->find($appointmentId);
 
         if (! $appointment) {
@@ -534,13 +540,13 @@ class MaxWebhookHandler
         }
 
         $masterId = $appointment->master_id;
-        $fullName = trim($firstName . ' ' . $lastName);
+        $fullName = trim($firstName.' '.$lastName);
 
         $client = $this->clientMergeService->findOrCreateByPhone(
             $masterId,
             $phone,
             '',
-            $fullName ?: __('bot.fallback.client_name') . " {$phone}",
+            $fullName ?: __('bot.fallback.client_name')." {$phone}",
         );
 
         // Link max_id to client
@@ -557,7 +563,7 @@ class MaxWebhookHandler
 
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
 
-        broadcast(new \App\Events\AppointmentCreated(
+        broadcast(new AppointmentCreated(
             $appointment->load(['client', 'service'])
         ));
 
@@ -581,7 +587,7 @@ class MaxWebhookHandler
         $message .= __('bot.booking_confirmed_suffix');
 
         // Атомарная блокировка: защищаем и клиента, и мастера от дублей (retry вебхука)
-        $lockKey = 'master_notified_' . $appointment->id;
+        $lockKey = 'master_notified_'.$appointment->id;
 
         if (! Cache::add($lockKey, true, now()->addMinutes(10))) {
             Log::info('[MAX] Повторный вебхук пойман в handleBookingContact, глушим отправку.');
@@ -594,7 +600,7 @@ class MaxWebhookHandler
         $phone = $client->phone ?? __('bot.fallback.phone');
         $clientName = $client->name ?? __('bot.fallback.client_name');
 
-        app(\App\Services\Notification\MasterNotificationService::class)
+        app(MasterNotificationService::class)
             ->sendToMaster($master, __('bot.master.new_booking', [
                 'client' => $clientName,
                 'phone' => $phone,
@@ -603,7 +609,7 @@ class MaxWebhookHandler
                 'time' => $time,
             ]));
 
-        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT . $userId);
+        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
     }
 
     /**
@@ -635,7 +641,7 @@ class MaxWebhookHandler
         }
 
         // Normalize all newlines to \r\n and ensure trailing \r\n after END:VCARD
-        $vcfFormatted = rtrim(preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo)) . "\r\n";
+        $vcfFormatted = rtrim(preg_replace("/\r\n|\r|\n/", "\r\n", $vcfInfo))."\r\n";
 
         $actualHash = hash_hmac('sha256', $vcfFormatted, $token);
 

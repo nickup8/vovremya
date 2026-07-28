@@ -2,13 +2,13 @@
 
 namespace App\Http\Middleware;
 
+use App\Services\Billing\TariffLimitService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
 use Inertia\Middleware;
-use App\Services\Billing\TariffLimitService;
 
 class HandleInertiaRequests extends Middleware
 {

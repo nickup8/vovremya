@@ -82,7 +82,7 @@ class BookingWidgetAccessTest extends TestCase
         $response = $this->get("/book/{$master->master_slug}");
 
         $response->assertStatus(302);
-        $response->assertRedirect('/studio/' . $master->workspace->slug);
+        $response->assertRedirect('/studio/'.$master->workspace->slug);
     }
 
     public function test_master_widget_revives_when_studio_subscription_expired(): void

@@ -5,6 +5,7 @@ namespace Database\Factories;
 use App\Models\BlockedTime;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
+use Illuminate\Support\Carbon;
 
 /**
  * @extends Factory<BlockedTime>
@@ -34,7 +35,7 @@ class BlockedTimeFactory extends Factory
         ]);
     }
 
-    public function between(\Illuminate\Support\Carbon $start, \Illuminate\Support\Carbon $end): static
+    public function between(Carbon $start, Carbon $end): static
     {
         return $this->state(fn () => [
             'start_datetime' => $start,

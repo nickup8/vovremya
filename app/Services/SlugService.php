@@ -25,7 +25,7 @@ class SlugService
                 if ($attempts > 5) {
                     $slug = Str::lower(Str::random(8));
                 } else {
-                    $slug = $this->normalize($base) . '-' . Str::lower(Str::random(5));
+                    $slug = $this->normalize($base).'-'.Str::lower(Str::random(5));
                 }
             }
 
@@ -39,7 +39,7 @@ class SlugService
             return $username;
         }
 
-        $fullName = trim(($firstName ?? '') . ' ' . ($lastName ?? ''));
+        $fullName = trim(($firstName ?? '').' '.($lastName ?? ''));
 
         if ($fullName !== '') {
             return $fullName;

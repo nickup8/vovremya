@@ -12,6 +12,7 @@ use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -20,6 +21,7 @@ class SendAppointmentReminderJob implements ShouldQueue
     use Dispatchable, InteractsWithQueue, Queueable, SerializesModels;
 
     public int $tries = 3;
+
     public int $timeout = 60;
 
     public function backoff(): array
@@ -46,15 +48,15 @@ class SendAppointmentReminderJob implements ShouldQueue
 
         $client = $appointment->client;
         $source = $appointment->source;
-        $sourceValue = $source instanceof \App\Enums\AppointmentSource ? $source->value : $source;
+        $sourceValue = $source instanceof AppointmentSource ? $source->value : $source;
 
         if ($client->telegram_id && ($sourceValue === 'telegram' || ! $source)) {
             $lockTg = "reminder_{$this->type}_tg_{$appointment->id}";
-            if (\Illuminate\Support\Facades\Cache::add($lockTg, true, now()->addHours(12))) {
+            if (Cache::add($lockTg, true, now()->addHours(12))) {
                 try {
                     $this->sendTelegram($appointment, $client);
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Cache::forget($lockTg);
+                    Cache::forget($lockTg);
                     throw $e;
                 }
             }
@@ -62,11 +64,11 @@ class SendAppointmentReminderJob implements ShouldQueue
 
         if ($client->max_id && ($sourceValue === 'max' || (! $source && ! $client->telegram_id))) {
             $lockMax = "reminder_{$this->type}_max_{$appointment->id}";
-            if (\Illuminate\Support\Facades\Cache::add($lockMax, true, now()->addHours(12))) {
+            if (Cache::add($lockMax, true, now()->addHours(12))) {
                 try {
                     $this->sendMax($appointment, $client);
                 } catch (\Throwable $e) {
-                    \Illuminate\Support\Facades\Cache::forget($lockMax);
+                    Cache::forget($lockMax);
                     throw $e;
                 }
             }
@@ -93,7 +95,7 @@ class SendAppointmentReminderJob implements ShouldQueue
             ]);
 
             if ($response->failed()) {
-                throw new \Exception('TG API failed: ' . $response->body());
+                throw new \Exception('TG API failed: '.$response->body());
             }
         } catch (\Exception $e) {
             Log::error('Telegram reminder failed', [

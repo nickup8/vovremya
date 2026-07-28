@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
+use App\Models\TariffPlan;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -104,6 +105,7 @@ class SuperAdminController extends Controller
         // Append virtual 'tariff' attribute for frontend compatibility
         $users->getCollection()->transform(function ($user) {
             $user->tariff = $user->workspace?->activeSubscription()?->tariffPlan?->code ?? 'start';
+
             return $user;
         });
 
@@ -152,7 +154,7 @@ class SuperAdminController extends Controller
 
             // Create a new subscription if none exists
             if (! $activeSubscription) {
-                $startPlan = \App\Models\TariffPlan::where('code', 'pro')->first();
+                $startPlan = TariffPlan::where('code', 'pro')->first();
 
                 if ($startPlan) {
                     $workspace->subscriptions()->create([

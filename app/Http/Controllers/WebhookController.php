@@ -3,10 +3,11 @@
 namespace App\Http\Controllers;
 
 use App\Webhooks\MaxWebhookHandler;
+use App\Webhooks\TelegramWebhookHandler;
+use DefStudio\Telegraph\Models\TelegraphBot;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
-use DefStudio\Telegraph\Models\TelegraphBot;
 
 class WebhookController extends Controller
 {
@@ -15,7 +16,7 @@ class WebhookController extends Controller
         $this->verifySignature('telegram', $request);
 
         try {
-            app(\App\Webhooks\TelegramWebhookHandler::class)
+            app(TelegramWebhookHandler::class)
                 ->handle($request, TelegraphBot::firstOrFail());
         } catch (\Throwable $e) {
             Log::error('[TG] webhook processing failed', [
@@ -52,7 +53,7 @@ class WebhookController extends Controller
             return response('Bot not found', 404);
         }
 
-        app(\App\Webhooks\TelegramWebhookHandler::class)->handle($request, $bot);
+        app(TelegramWebhookHandler::class)->handle($request, $bot);
 
         return response('OK', 200);
     }

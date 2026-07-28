@@ -2,6 +2,8 @@
 
 namespace Tests\Feature;
 
+use App\Enums\BlockedTimeReason;
+use App\Models\BlockedTime;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -103,11 +105,11 @@ class SlotTimezoneTest extends TestCase
 
         $futureDate = Carbon::tomorrow()->addDays(3)->timezone('Europe/Moscow');
 
-        \App\Models\BlockedTime::create([
+        BlockedTime::create([
             'user_id' => $master->id,
             'start_datetime' => $futureDate->copy()->setTime(10, 0)->timezone('UTC'),
             'end_datetime' => $futureDate->copy()->setTime(12, 0)->timezone('UTC'),
-            'reason' => \App\Enums\BlockedTimeReason::Personal,
+            'reason' => BlockedTimeReason::Personal,
         ]);
 
         $slots = app(BookingService::class)->getAvailableSlots($master, $service, $futureDate->toDateString());

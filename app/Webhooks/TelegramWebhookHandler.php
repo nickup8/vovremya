@@ -5,12 +5,16 @@ namespace App\Webhooks;
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Enums\UserRole;
+use App\Events\AppointmentCreated;
+use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use App\Models\WorkspaceInvite;
 use App\Services\AppointmentStatusService;
 use App\Services\Notification\MasterNotificationService;
+use App\Services\SlugService;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\Button;
 use DefStudio\Telegraph\Keyboard\Keyboard;
@@ -53,7 +57,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 return;
             }
 
-            Cache::put('inv_token_' . $chatId, $token, now()->addMinutes(30));
+            Cache::put('inv_token_'.$chatId, $token, now()->addMinutes(30));
 
             $message = 'Для присоединения к команде салона, пожалуйста, поделитесь номером телефона, нажав на кнопку ниже.';
 
@@ -91,7 +95,7 @@ class TelegramWebhookHandler extends WebhookHandler
             $loginToken = $parameter;
 
             Cache::put(
-                CacheKeys::TG_CHAT_TOKEN . $chatId,
+                CacheKeys::TG_CHAT_TOKEN.$chatId,
                 $loginToken,
                 config('booking.token_ttl'),
             );
@@ -135,7 +139,7 @@ class TelegramWebhookHandler extends WebhookHandler
                         'telegram_notifications' => true,
                     ]);
 
-                    broadcast(new \App\Events\UserChannelsUpdated($user));
+                    broadcast(new UserChannelsUpdated($user));
 
                     $this->chat->html(__('bot.notifications.linked_success'))->send();
 
@@ -160,7 +164,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'telegram_notifications' => true,
             ]);
 
-            broadcast(new \App\Events\UserChannelsUpdated($user));
+            broadcast(new UserChannelsUpdated($user));
 
             $this->chat->html(__('bot.notifications.linked_success'))->send();
 
@@ -259,10 +263,10 @@ class TelegramWebhookHandler extends WebhookHandler
             }
         } else {
             // Клиент новый — запрашиваем контакт
-            Cache::put(CacheKeys::TG_BOOKING_DRAFT . $chatId, $appointmentId, config('booking.draft_ttl'));
+            Cache::put(CacheKeys::TG_BOOKING_DRAFT.$chatId, $appointmentId, config('booking.draft_ttl'));
 
-            $contactMessage = $details . "\n\n"
-                . __('bot.contact_request.booking');
+            $contactMessage = $details."\n\n"
+                .__('bot.contact_request.booking');
 
             $keyboard = ReplyKeyboard::make()
                 ->button(__('bot.buttons.share_phone'))->requestContact()
@@ -302,7 +306,7 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         // Атомарная блокировка: если уже обработано — просто закрываем клавиатуру
-        $lockKey = 'master_notified_' . $appointment->id;
+        $lockKey = 'master_notified_'.$appointment->id;
 
         if (! Cache::add($lockKey, true, now()->addMinutes(10))) {
             $this->chat->deleteKeyboard($this->messageId)->send();
@@ -329,7 +333,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $this->statusService->transition($appointment, AppointmentStatus::Booked);
 
-        broadcast(new \App\Events\AppointmentCreated(
+        broadcast(new AppointmentCreated(
             $appointment->load(['client', 'service'])
         ));
 
@@ -452,7 +456,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $chatId = $this->chat->chat_id;
 
         // Проверяем флоу инвайта
-        $invToken = Cache::pull('inv_token_' . $chatId);
+        $invToken = Cache::pull('inv_token_'.$chatId);
 
         if ($invToken) {
             $this->handleInviteContact($contact, $chatId, $invToken);
@@ -461,7 +465,7 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         // Проверяем флоу бронирования
-        $draftAppointmentId = Cache::pull(CacheKeys::TG_BOOKING_DRAFT . $chatId);
+        $draftAppointmentId = Cache::pull(CacheKeys::TG_BOOKING_DRAFT.$chatId);
 
         if ($draftAppointmentId) {
             $this->handleBookingContact($contact, $chatId, $draftAppointmentId);
@@ -470,7 +474,7 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         // Проверяем флоу авторизации
-        $loginToken = Cache::pull(CacheKeys::TG_CHAT_TOKEN . $chatId);
+        $loginToken = Cache::pull(CacheKeys::TG_CHAT_TOKEN.$chatId);
 
         if ($loginToken) {
             $this->handleAuthContact($contact, $chatId, $loginToken);
@@ -490,7 +494,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
         $firstName = $contact['first_name'] ?? '';
         $lastName = $contact['last_name'] ?? '';
-        $fullName = trim($firstName . ' ' . $lastName);
+        $fullName = trim($firstName.' '.$lastName);
 
         Log::info('[TG] handleInviteContact()', [
             'chat_id' => $chatId,
@@ -509,7 +513,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         if (! $invite) {
             $this->chat->html('❌ Ссылка-приглашение недействительна или просрочена.')->send();
-            Cache::forget('inv_token_' . $chatId);
+            Cache::forget('inv_token_'.$chatId);
 
             return;
         }
@@ -521,7 +525,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
             if ($user && $user->telegram_id && $user->telegram_id !== $telegramId) {
                 $this->chat->html('❌ Этот номер телефона уже привязан к другому Telegram-аккаунту.')->send();
-                Cache::forget('inv_token_' . $chatId);
+                Cache::forget('inv_token_'.$chatId);
 
                 return;
             }
@@ -529,23 +533,23 @@ class TelegramWebhookHandler extends WebhookHandler
 
         if ($user && $user->workspace_id && $user->workspace_id !== $invite->workspace_id) {
             $this->chat->html('❌ Вы уже состоите в другой команде.')->send();
-            Cache::forget('inv_token_' . $chatId);
+            Cache::forget('inv_token_'.$chatId);
 
             return;
         }
 
         if ($user && $user->id === $invite->workspace->owner_id) {
             $this->chat->html('❌ Вы уже являетесь владельцем этой студии.')->send();
-            Cache::forget('inv_token_' . $chatId);
+            Cache::forget('inv_token_'.$chatId);
 
             return;
         }
 
         if (! $user) {
-            $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name') . ' ' . $phone;
+            $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name').' '.$phone;
 
             $username = $this->request->input('message.from.username');
-            $slug = app(\App\Services\SlugService::class)->generate($username, $firstName, $lastName);
+            $slug = app(SlugService::class)->generate($username, $firstName, $lastName);
 
             $user = User::create([
                 'name' => $baseName,
@@ -556,7 +560,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'master_slug' => $slug,
                 'workspace_id' => $invite->workspace_id,
             ]);
-            $user->role = $invite->role ?? \App\Enums\UserRole::Master;
+            $user->role = $invite->role ?? UserRole::Master;
             $user->save();
 
             Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
@@ -571,12 +575,12 @@ class TelegramWebhookHandler extends WebhookHandler
 
             if (empty($user->master_slug)) {
                 $username = $this->request->input('message.from.username');
-                $slug = app(\App\Services\SlugService::class)->generate($username, $firstName, $lastName);
+                $slug = app(SlugService::class)->generate($username, $firstName, $lastName);
                 $updateData['master_slug'] = $slug;
             }
 
             $user->update($updateData);
-            $user->role = $invite->role ?? \App\Enums\UserRole::Master;
+            $user->role = $invite->role ?? UserRole::Master;
             $user->save();
 
             Log::info('[TG] handleInviteContact: existing user updated', ['user_id' => $user->id]);
@@ -585,7 +589,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $this->syncTelegramAvatar($user, $telegramId);
 
         $invite->delete();
-        Cache::forget('inv_token_' . $chatId);
+        Cache::forget('inv_token_'.$chatId);
 
         try {
             $this->chat->html('✅ Вы успешно добавлены в команду! Теперь вы можете управлять своими записями.')
@@ -612,7 +616,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
         $firstName = $contact['first_name'] ?? '';
         $lastName = $contact['last_name'] ?? '';
-        $fullName = trim($firstName . ' ' . $lastName);
+        $fullName = trim($firstName.' '.$lastName);
 
         Log::info('[TG] handleBookingContact()', [
             'chat_id' => $chatId,
@@ -644,7 +648,7 @@ class TelegramWebhookHandler extends WebhookHandler
         if (! $client) {
             $client = Client::create([
                 'user_id' => $masterId,
-                'name' => $fullName ?: __('bot.fallback.client_name') . " {$phone}",
+                'name' => $fullName ?: __('bot.fallback.client_name')." {$phone}",
                 'phone' => $phone,
                 'telegram_id' => $telegramId,
                 'auth_token' => Client::generateAuthToken(),
@@ -673,12 +677,12 @@ class TelegramWebhookHandler extends WebhookHandler
         // Привязываем запись
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Telegram]);
 
-        broadcast(new \App\Events\AppointmentCreated(
+        broadcast(new AppointmentCreated(
             $appointment->load(['client', 'service'])
         ));
 
         // Атомарная блокировка: если уже обработано — выходим
-        $lockKey = 'master_notified_' . $appointment->id;
+        $lockKey = 'master_notified_'.$appointment->id;
 
         if (! Cache::add($lockKey, true, now()->addMinutes(10))) {
             return;
@@ -779,13 +783,13 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         if (! $user) {
-            $baseName = trim($firstName . ' ' . $lastName);
+            $baseName = trim($firstName.' '.$lastName);
             if ($baseName === '') {
-                $baseName = __('bot.fallback.master_name') . ' ' . $phone;
+                $baseName = __('bot.fallback.master_name').' '.$phone;
             }
 
             $username = $this->request->input('message.from.username');
-            $slug = app(\App\Services\SlugService::class)->generate($username, $firstName, $lastName);
+            $slug = app(SlugService::class)->generate($username, $firstName, $lastName);
 
             $user = User::create([
                 'name' => $baseName,
@@ -810,7 +814,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 $updates['telegram_notifications'] = true;
             }
 
-            $fullName = trim($firstName . ' ' . $lastName);
+            $fullName = trim($firstName.' '.$lastName);
             if ($fullName !== '' && $user->name !== $fullName) {
                 $updates['name'] = $fullName;
             }
@@ -824,26 +828,26 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $this->syncTelegramAvatar($user, $telegramId);
 
-        broadcast(new \App\Events\UserChannelsUpdated($user));
+        broadcast(new UserChannelsUpdated($user));
 
-        $authCacheKey = CacheKeys::TG_AUTH . $loginToken;
+        $authCacheKey = CacheKeys::TG_AUTH.$loginToken;
         Cache::put($authCacheKey, [
             'status' => 'authenticated',
             'user_id' => $user->id,
         ], config('booking.token_ttl'));
 
-        Cache::forget(CacheKeys::TG_CHAT_TOKEN . $chatId);
+        Cache::forget(CacheKeys::TG_CHAT_TOKEN.$chatId);
 
         Log::info('[TG] handleAuthContact: sending confirmation');
 
         try {
-            $magicToken = \Illuminate\Support\Str::random(32);
-            \Illuminate\Support\Facades\Cache::put('magic_login_' . $magicToken, $user->id, now()->addMinutes(15));
+            $magicToken = Str::random(32);
+            Cache::put('magic_login_'.$magicToken, $user->id, now()->addMinutes(15));
             $magicUrl = route('auth.magic', ['token' => $magicToken]);
 
-            $keyboard = \DefStudio\Telegraph\Keyboard\Keyboard::make()
+            $keyboard = Keyboard::make()
                 ->row([
-                    \DefStudio\Telegraph\Keyboard\Button::make('Открыть кабинет 🚀')->url($magicUrl),
+                    Button::make('Открыть кабинет 🚀')->url($magicUrl),
                 ]);
 
             $this->chat->html('✅ <b>Авторизация пройдена!</b>')
@@ -925,6 +929,7 @@ class TelegramWebhookHandler extends WebhookHandler
                     'user_id' => $master->id,
                     'status' => $content->status(),
                 ]);
+
                 return;
             }
 
@@ -934,7 +939,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 return;
             }
 
-            $filename = "tg_avatar_{$telegramId}_" . time() . '.jpg';
+            $filename = "tg_avatar_{$telegramId}_".time().'.jpg';
             Storage::disk('public')->put("avatars/{$filename}", $body);
 
             $master->update(['avatar_url' => "/storage/avatars/{$filename}"]);
@@ -943,7 +948,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'user_id' => $master->id,
                 'filename' => $filename,
             ]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('[TG] syncTelegramAvatar: failed', [
                 'user_id' => $master->id,
                 'error' => $e->getMessage(),
@@ -1003,6 +1008,7 @@ class TelegramWebhookHandler extends WebhookHandler
                     'client_id' => $client->id,
                     'status' => $content->status(),
                 ]);
+
                 return;
             }
 
@@ -1012,7 +1018,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 return;
             }
 
-            $filename = "tg_avatar_client_{$telegramId}_" . time() . '.jpg';
+            $filename = "tg_avatar_client_{$telegramId}_".time().'.jpg';
             Storage::disk('public')->put("avatars/clients/{$filename}", $body);
 
             $client->update(['avatar_url' => "/storage/avatars/clients/{$filename}"]);
@@ -1021,7 +1027,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'client_id' => $client->id,
                 'filename' => $filename,
             ]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::warning('[TG] syncClientTelegramAvatar: failed', [
                 'client_id' => $client->id,
                 'error' => $e->getMessage(),

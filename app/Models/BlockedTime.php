@@ -11,6 +11,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class BlockedTime extends Model
 {
     use HasFactory, HasUuids;
+
     protected $fillable = [
         'user_id',
         'start_datetime',

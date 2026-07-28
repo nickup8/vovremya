@@ -25,7 +25,7 @@ class BookingWidgetController extends Controller
             ->firstOrFail();
 
         if (! $master->isSolo()) {
-            return redirect('/studio/' . $master->workspace->slug, 302);
+            return redirect('/studio/'.$master->workspace->slug, 302);
         }
 
         $master->load('services');

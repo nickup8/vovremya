@@ -15,12 +15,17 @@ class TeamResourceManagementTest extends TestCase
     use RefreshDatabase;
 
     private Workspace $workspaceA;
+
     private Workspace $workspaceB;
 
     private User $ownerA;
+
     private User $adminA;
+
     private User $staff1;
+
     private User $staff2;
+
     private User $masterB;
 
     protected function setUp(): void

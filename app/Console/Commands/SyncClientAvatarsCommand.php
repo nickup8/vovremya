@@ -42,6 +42,7 @@ class SyncClientAvatarsCommand extends Command
 
                 if (! $photosResponse->ok() || $photosResponse->json('result.total_count', 0) === 0) {
                     $skipped++;
+
                     continue;
                 }
 
@@ -50,6 +51,7 @@ class SyncClientAvatarsCommand extends Command
 
                 if (empty($photos)) {
                     $skipped++;
+
                     continue;
                 }
 
@@ -61,6 +63,7 @@ class SyncClientAvatarsCommand extends Command
 
                 if (! $fileResponse->ok()) {
                     $skipped++;
+
                     continue;
                 }
 
@@ -75,6 +78,7 @@ class SyncClientAvatarsCommand extends Command
                         'status' => $downloadResponse->status(),
                     ]);
                     $skipped++;
+
                     continue;
                 }
 
@@ -82,10 +86,11 @@ class SyncClientAvatarsCommand extends Command
 
                 if (empty($content)) {
                     $skipped++;
+
                     continue;
                 }
 
-                $filename = "tg_avatar_client_{$client->telegram_id}_" . time() . '.jpg';
+                $filename = "tg_avatar_client_{$client->telegram_id}_".time().'.jpg';
                 Storage::disk('public')->put("avatars/clients/{$filename}", $content);
 
                 $client->update(['avatar_url' => "/storage/avatars/clients/{$filename}"]);

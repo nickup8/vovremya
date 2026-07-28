@@ -56,7 +56,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 class User extends Authenticatable implements PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasUuids, Notifiable, PasskeyAuthenticatable, TwoFactorAuthenticatable, SearchableByProvider;
+    use HasFactory, HasUuids, Notifiable, PasskeyAuthenticatable, SearchableByProvider, TwoFactorAuthenticatable;
 
     protected function casts(): array
     {

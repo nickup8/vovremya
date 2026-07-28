@@ -65,7 +65,7 @@ class MasterNotificationService
             ]);
 
             if ($response->failed()) {
-                throw new \Exception('TG API failed: ' . $response->body());
+                throw new \Exception('TG API failed: '.$response->body());
             }
         } catch (\Exception $e) {
             Log::error('Telegram master notification failed', [

@@ -7,6 +7,7 @@ use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -22,7 +23,7 @@ class SlugGateTest extends TestCase
         ]);
 
         $this->actingAs($user);
-        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class);
+        $this->withoutMiddleware(PreventRequestForgery::class);
 
         $this->put('/admin/settings', [
             'name' => $user->name,
@@ -60,7 +61,7 @@ class SlugGateTest extends TestCase
         ]);
 
         $this->actingAs($user);
-        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class);
+        $this->withoutMiddleware(PreventRequestForgery::class);
 
         $this->put('/admin/settings', [
             'name' => 'Updated Name',
@@ -103,7 +104,7 @@ class SlugGateTest extends TestCase
         ]);
 
         $this->actingAs($user);
-        $this->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class);
+        $this->withoutMiddleware(PreventRequestForgery::class);
 
         $this->put('/admin/settings', [
             'name' => $user->name,

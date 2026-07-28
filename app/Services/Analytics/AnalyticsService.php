@@ -91,8 +91,7 @@ class AnalyticsService
                     $dayStart = $current->copy()->startOfDay();
                     $dayEnd = $current->copy()->endOfDay();
 
-                    $overlappingBlocked = $blockedTimes->filter(fn ($bt) =>
-                        $bt->start_datetime->lt($dayEnd) && $bt->end_datetime->gt($dayStart)
+                    $overlappingBlocked = $blockedTimes->filter(fn ($bt) => $bt->start_datetime->lt($dayEnd) && $bt->end_datetime->gt($dayStart)
                     );
 
                     foreach ($overlappingBlocked as $bt) {

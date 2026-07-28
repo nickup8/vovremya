@@ -11,6 +11,7 @@ use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use PHPUnit\Framework\Attributes\Test;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 use Tests\TestCase;
 
 class BookingRescheduleTest extends TestCase
@@ -172,7 +173,7 @@ class BookingRescheduleTest extends TestCase
             AppointmentStatus::Booked,
         );
 
-        $this->expectException(\Symfony\Component\HttpKernel\Exception\HttpException::class);
+        $this->expectException(HttpException::class);
         $this->expectExceptionMessage('Мастер из другого воркспейса');
 
         $this->bookingService->rescheduleAppointment(

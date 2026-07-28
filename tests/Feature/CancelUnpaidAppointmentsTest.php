@@ -2,7 +2,6 @@
 
 namespace Tests\Feature;
 
-use App\Console\Commands\CancelUnpaidAppointments;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -17,6 +16,7 @@ class CancelUnpaidAppointmentsTest extends TestCase
     use RefreshDatabase;
 
     private User $master;
+
     private Service $service;
 
     protected function setUp(): void

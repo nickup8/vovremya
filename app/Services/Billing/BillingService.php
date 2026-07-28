@@ -7,6 +7,7 @@ use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Payment\PaymentGatewayInterface;
+use App\Services\WorkspaceService;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 
@@ -39,7 +40,7 @@ class BillingService
         return DB::transaction(function () use ($master, $plan, $periodMonths) {
             // Если у пользователя нет workspace — создаём при первой оплате
             if (! $master->workspace_id) {
-                $workspace = app(\App\Services\WorkspaceService::class)->createForUser($master);
+                $workspace = app(WorkspaceService::class)->createForUser($master);
                 $master->refresh();
             }
 

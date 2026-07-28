@@ -127,7 +127,7 @@ class Workspace extends Model
                 if ($attempts > 5) {
                     $slug = Str::lower(Str::random(8));
                 } else {
-                    $slug = $base . '-' . Str::lower(Str::random(5));
+                    $slug = $base.'-'.Str::lower(Str::random(5));
                 }
             }
 

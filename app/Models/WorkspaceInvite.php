@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\UserRole;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -21,7 +22,7 @@ class WorkspaceInvite extends Model
     {
         return [
             'expires_at' => 'datetime',
-            'role' => \App\Enums\UserRole::class,
+            'role' => UserRole::class,
         ];
     }
 

@@ -33,11 +33,11 @@ class TelegramAuthController extends Controller
      */
     public function generateLoginToken(): JsonResponse
     {
-        $token = 'auth_' . Str::uuid();
+        $token = 'auth_'.Str::uuid();
 
         // Сохраняем в Cache со статусом pending
         Cache::put(
-            CacheKeys::TG_AUTH . $token,
+            CacheKeys::TG_AUTH.$token,
             ['status' => 'pending'],
             config('booking.token_ttl'),
         );
@@ -53,7 +53,7 @@ class TelegramAuthController extends Controller
      */
     public function checkAuthStatus(string $token): JsonResponse
     {
-        $cacheKey = CacheKeys::TG_AUTH . $token;
+        $cacheKey = CacheKeys::TG_AUTH.$token;
         $data = Cache::get($cacheKey);
 
         if (! $data) {

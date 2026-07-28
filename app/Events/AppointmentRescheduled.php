@@ -8,6 +8,7 @@ use Illuminate\Broadcasting\PrivateChannel;
 use Illuminate\Contracts\Broadcasting\ShouldBroadcastNow;
 use Illuminate\Foundation\Events\Dispatchable;
 use Illuminate\Queue\SerializesModels;
+use Illuminate\Support\Carbon;
 
 class AppointmentRescheduled implements ShouldBroadcastNow
 {
@@ -32,7 +33,7 @@ class AppointmentRescheduled implements ShouldBroadcastNow
     {
         $data = $this->appointment->toCalendarArray();
         $tz = $this->appointment->master->getTimezone();
-        $oldTime = \Illuminate\Support\Carbon::parse($this->oldStartTime, 'UTC')->timezone($tz);
+        $oldTime = Carbon::parse($this->oldStartTime, 'UTC')->timezone($tz);
 
         $data['old_date'] = $oldTime->format('Y-m-d');
         $data['old_time'] = $oldTime->format('H:i');

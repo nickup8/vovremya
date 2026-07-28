@@ -10,6 +10,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 class WorkingHour extends Model
 {
     use HasFactory, HasUuids;
+
     protected $fillable = [
         'user_id',
         'day_of_week',

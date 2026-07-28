@@ -9,9 +9,11 @@ use App\Models\User;
 use App\Models\WorkspaceInvite;
 use App\Services\WorkspaceService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
+use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -72,7 +74,7 @@ class TeamController extends Controller
         }
 
         $validated = $request->validate([
-            'role' => ['nullable', 'string', \Illuminate\Validation\Rule::in(['master', 'admin'])],
+            'role' => ['nullable', 'string', Rule::in(['master', 'admin'])],
         ]);
 
         $targetRole = $validated['role'] ?? 'master';
@@ -127,7 +129,7 @@ class TeamController extends Controller
         ]);
     }
 
-    public function detach(Request $request, string $master): \Illuminate\Http\RedirectResponse
+    public function detach(Request $request, string $master): RedirectResponse
     {
         abort_unless($request->user()->role->canManageTeam(), 403, 'У вас нет прав для управления командой.');
 

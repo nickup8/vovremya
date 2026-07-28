@@ -8,7 +8,9 @@ use Illuminate\Support\Facades\Log;
 class MaxApiClient
 {
     private string $apiUrl;
+
     private string $token;
+
     private bool $configured;
 
     public function __construct()

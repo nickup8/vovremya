@@ -2,17 +2,11 @@
 
 namespace Tests\Feature;
 
-use App\Models\Appointment;
-use App\Models\Client;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\WorkingHour;
-use App\Services\Booking\AvailabilityService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Config;
-use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class ClientBlockTest extends TestCase

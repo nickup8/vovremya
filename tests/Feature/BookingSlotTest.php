@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Models\Appointment;
 use App\Models\BlockedTime;
 use App\Models\Client;
 use App\Models\Service;
@@ -85,7 +86,7 @@ class BookingSlotTest extends TestCase
 
         $client = Client::factory()->create(['user_id' => $master->id]);
 
-        \App\Models\Appointment::factory()
+        Appointment::factory()
             ->forMaster($master)
             ->forClient($client)
             ->withService($service)

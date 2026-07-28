@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\DiscountRule;
-use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Billing\BillingService;

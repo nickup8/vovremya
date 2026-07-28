@@ -11,7 +11,9 @@ use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
 use Carbon\Carbon;
+use Illuminate\Foundation\Http\Middleware\PreventRequestForgery;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 class DetachMasterTest extends TestCase
@@ -19,10 +21,15 @@ class DetachMasterTest extends TestCase
     use RefreshDatabase;
 
     private Workspace $workspace;
+
     private User $owner;
+
     private User $master;
+
     private User $target;
+
     private TariffPlan $plan;
+
     private Service $service;
 
     protected function setUp(): void
@@ -74,12 +81,12 @@ class DetachMasterTest extends TestCase
         ]);
     }
 
-    private function detach(User $actor, User $removed, ?string $targetId = null): \Illuminate\Testing\TestResponse
+    private function detach(User $actor, User $removed, ?string $targetId = null): TestResponse
     {
         $payload = $targetId ? ['target_master_id' => $targetId] : [];
 
         return $this->actingAs($actor)
-            ->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class)
+            ->withoutMiddleware(PreventRequestForgery::class)
             ->postJson(route('admin.team.detach', $removed->id), $payload);
     }
 
@@ -312,7 +319,7 @@ class DetachMasterTest extends TestCase
         ]);
 
         $this->actingAs($this->owner)
-            ->withoutMiddleware(\Illuminate\Foundation\Http\Middleware\PreventRequestForgery::class)
+            ->withoutMiddleware(PreventRequestForgery::class)
             ->postJson(route('admin.team.detach', $this->master->id));
 
         // Master should NOT be detached — validation should reject the request

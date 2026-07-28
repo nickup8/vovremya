@@ -17,7 +17,9 @@ class StatusTransitionTest extends TestCase
     use RefreshDatabase;
 
     private User $master;
+
     private Service $service;
+
     private AppointmentStatusService $statusService;
 
     protected function setUp(): void
