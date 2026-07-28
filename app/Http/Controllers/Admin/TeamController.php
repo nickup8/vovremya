@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\User;
 use App\Models\WorkspaceInvite;
+use App\Services\WorkspaceService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
@@ -168,9 +169,7 @@ class TeamController extends Controller
                     ->update(['master_id' => $target->id]);
             }
 
-            $removed->workspace_id = null;
-            $removed->role = UserRole::Owner;
-            $removed->save();
+            app(WorkspaceService::class)->createForUser($removed);
         });
 
         return back()->with('success', "Мастер {$removed->name} исключён из студии.");

@@ -5,6 +5,7 @@ namespace App\Console\Commands;
 use App\Enums\SubscriptionStatus;
 use App\Models\Subscription;
 use App\Services\Notification\MasterNotificationService;
+use App\Services\WorkspaceService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -12,10 +13,11 @@ class CheckSubscriptionExpirations extends Command
 {
     protected $signature = 'subscriptions:check-expirations';
 
-    protected $description = 'Mark expired subscriptions as expired';
+    protected $description = 'Mark expired subscriptions as expired and dissolve studio workspace';
 
     public function __construct(
         private MasterNotificationService $notificationService,
+        private WorkspaceService $workspaceService,
     ) {
         parent::__construct();
     }
@@ -30,28 +32,17 @@ class CheckSubscriptionExpirations extends Command
             try {
                 $subscription->update(['status' => SubscriptionStatus::Expired]);
 
-                // TODO: обсудить бизнес-логику — нужно ли откатывать доступ workspace
-                // на тариф «Старт» или ограничивать функционал при истечении подписки.
-
                 $workspace = $subscription->workspace;
 
                 if ($workspace) {
-                    $users = $workspace->users()
-                        ->where(function ($q) {
-                            $q->whereNotNull('telegram_id')
-                                ->orWhereNotNull('max_id');
-                        })
-                        ->get();
-
-                    foreach ($users as $user) {
-                        $this->notificationService->sendSubscriptionExpired($user);
-                    }
+                    $this->workspaceService->dissolveStudio($workspace, $this->notificationService);
                 }
 
                 $this->info("Expired subscription {$subscription->id} (workspace: {$subscription->workspace_id}).");
             } catch (\Exception $e) {
                 Log::error('Sub expiration failed', [
                     'subscription_id' => $subscription->id,
+                    'workspace_id' => $subscription->workspace_id,
                     'error' => $e->getMessage(),
                 ]);
             }
