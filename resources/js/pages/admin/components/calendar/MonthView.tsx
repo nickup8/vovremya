@@ -7,12 +7,10 @@ import { dateToKey, isSameDay, getMonthGrid } from './helpers';
 interface Props {
     appointments: Appointment[];
     centerDate: Date;
-    onDayClick: (appointment: Appointment) => void;
-    onEmptyDayClick: (date: string) => void;
     onDayColumnClick: (dateKey: string) => void;
 }
 
-export function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClick, onDayColumnClick }: Props) {
+export function MonthView({ appointments, centerDate, onDayColumnClick }: Props) {
     const today = new Date();
     const grid = useMemo(() => getMonthGrid(centerDate), [centerDate]);
     const currentMonth = centerDate.getMonth();

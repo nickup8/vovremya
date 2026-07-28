@@ -387,8 +387,6 @@ continue;
                                 <MonthView
                                     appointments={filteredAppointments}
                                     centerDate={monthCenterDate}
-                                    onDayClick={openDetail}
-                                    onEmptyDayClick={(dateKey) => openNewAppointmentForDate(dateKey)}
                                     onDayColumnClick={openDayFromMonth}
                                 />
                             ) : (
