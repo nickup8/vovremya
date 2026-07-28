@@ -68,8 +68,7 @@ export function MonthView({ appointments, centerDate, onDayClick, onEmptyDayClic
                                 {dayAppts.slice(0, 3).map((appt) => (
                                     <div
                                         key={appt.id}
-                                        onClick={(e) => { e.stopPropagation(); onDayClick(appt); }}
-                                        className={`cursor-pointer truncate rounded px-1 py-0.5 text-[10px] font-medium leading-tight transition-colors hover:opacity-80 ${
+                                        className={`truncate rounded px-1 py-0.5 text-[10px] font-medium leading-tight transition-colors ${
                                             appt.status === AppointmentStatus.Paid
                                                 ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950/40 dark:text-emerald-400'
                                                 : appt.status === AppointmentStatus.NoShow
