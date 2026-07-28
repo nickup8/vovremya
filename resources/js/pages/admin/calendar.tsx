@@ -8,7 +8,7 @@ import {
 } from '@/components/ui/select';
 import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
-import { AppointmentStatus } from '@/types/appointment-status';
+
 import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
 import type { PageProps, Appointment, ClientOption } from './components/calendar/types';
@@ -130,11 +130,6 @@ return initialBlockedTimes;
 
         return initialBlockedTimes.filter(bt => String(bt.user_id) === selectedMasterId);
     }, [initialBlockedTimes, selectedMasterId]);
-
-    const dayAppointments = useMemo(
-        () => (initialAppointments as Appointment[]).filter((a) => a.status !== AppointmentStatus.Cancelled),
-        [initialAppointments],
-    );
 
     const {
         localAppointments,
@@ -376,7 +371,7 @@ continue;
                                     dayStartHour={DAY_START_HOUR}
                                     slotInterval={slotInterval}
                                     workingHours={workingHours}
-                                    localAppointments={dayAppointments}
+                                    localAppointments={filteredAppointments}
                                     blockedTimes={initialBlockedTimes}
                                     onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time, masterId)}
                                     onAppointmentClick={openDetail}
