@@ -24,8 +24,6 @@ class CheckAppointmentLimits extends Command
 
     public function handle(): int
     {
-        $thresholds = [0, 5, 10];
-
         $workspaces = Workspace::whereHas('subscriptions', function ($q) {
             $q->where('status', 'active')->where('expires_at', '>', now());
         })->get();
@@ -51,26 +49,25 @@ class CheckAppointmentLimits extends Command
                     continue;
                 }
 
-                foreach ($thresholds as $threshold) {
-                    if ($remaining <= $threshold) {
-                        $periodKey = $cycleDate.'_'.$threshold;
-
-                        if (NotificationLog::hasBeenSent($workspace->id, 'limit_warning', $periodKey)) {
-                            continue;
-                        }
-
-                        $text = match ($threshold) {
-                            0 => __('bot.master.limit_reached'),
-                            5, 10 => __('bot.master.limit_warning', ['count' => $threshold]),
-                            default => null,
-                        };
-
-                        if ($text) {
-                            $this->notificationService->sendToMaster($owner, $text);
-                            NotificationLog::markSent($workspace->id, 'limit_warning', $periodKey);
-                        }
-                    }
+                if ($remaining <= 0) {
+                    $type = 'limit_0';
+                    $text = __('bot.master.limit_reached');
+                } elseif ($remaining <= 5) {
+                    $type = 'limit_5';
+                    $text = __('bot.master.limit_warning', ['count' => $remaining]);
+                } elseif ($remaining <= 10) {
+                    $type = 'limit_10';
+                    $text = __('bot.master.limit_warning', ['count' => $remaining]);
+                } else {
+                    continue;
                 }
+
+                if (NotificationLog::hasBeenSent($workspace->id, $type, $cycleDate)) {
+                    continue;
+                }
+
+                $this->notificationService->sendToMaster($owner, $text);
+                NotificationLog::markSent($workspace->id, $type, $cycleDate);
             } catch (\Exception $e) {
                 Log::error('CheckAppointmentLimits failed', [
                     'workspace_id' => $workspace->id,
