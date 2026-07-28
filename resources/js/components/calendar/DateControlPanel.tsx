@@ -58,7 +58,7 @@ export default function DateControlPanel({
                     Сегодня
                 </button>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
                 {masters.length > 0 && onMasterChange && (
                     <Select value={selectedMasterId} onValueChange={onMasterChange}>
                         <SelectTrigger className="h-8 w-full border-slate-200 bg-white text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto">
@@ -72,12 +72,12 @@ export default function DateControlPanel({
                         </SelectContent>
                     </Select>
                 )}
-                <div className="flex overflow-hidden rounded-md bg-slate-100 dark:bg-zinc-800">
+                <div className="flex w-full overflow-hidden rounded-md bg-slate-100 dark:bg-zinc-800 sm:w-auto">
                     {(['day', 'week', 'month'] as const).map((mode) => (
                         <button
                             key={mode}
                             onClick={() => onSetView(mode)}
-                            className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                            className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors sm:flex-none ${
                                 viewMode === mode
                                     ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
                                     : 'bg-transparent text-slate-600 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200'
