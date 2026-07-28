@@ -13,7 +13,7 @@ import { AppointmentCard } from './AppointmentCard';
 import { BlockedTimeCard } from './BlockedTimeCard';
 import { BreakZone } from './BreakZone';
 import { DAY_NAMES, HOUR_HEIGHT, MINUTE_HEIGHT } from './constants';
-import { timeToMinutes, getEndTime, hasCollision } from './helpers';
+import { timeToMinutes, getEndTime, hasCollision, formatGmtOffset } from './helpers';
 import { calculateCollisions } from './collision';
 
 interface WeekViewProps {
@@ -34,6 +34,7 @@ interface WeekViewProps {
     getAppointmentsForDay: (dayIndex: number) => Appointment[];
     getBlockedTimesForDay: (dayIndex: number) => BlockedTime[];
     isToday: (date: Date) => boolean;
+    timezone: string;
     onRescheduleByDrag: (apptId: string, newDate: string, newTime: string) => void;
 }
 
@@ -97,6 +98,7 @@ export function WeekView({
     getAppointmentsForDay,
     getBlockedTimesForDay,
     isToday,
+    timezone,
     onRescheduleByDrag,
 }: WeekViewProps) {
     const DAY_START_HOUR = dayStartHour;
@@ -160,8 +162,9 @@ return;
         <div className="relative max-h-[calc(100vh-240px)] w-full overflow-x-auto overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xs scrollbar-thin dark:border-zinc-800 dark:bg-zinc-900">
             {/* Day Headers — sticky at top */}
             <div className="sticky top-0 z-30 flex min-w-[980px] border-b border-slate-200 bg-slate-50 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50">
-                <div className="sticky left-0 z-40 w-[60px] min-w-[60px] border-r border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
-                    Время
+                <div className="sticky left-0 z-40 flex w-[60px] min-w-[60px] flex-col items-start justify-center gap-0.5 border-r border-slate-200 bg-slate-50 p-3 text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
+                    <span className="text-xs font-semibold">Время</span>
+                    <span className="text-[10px] font-normal text-slate-400 dark:text-zinc-600">{formatGmtOffset(timezone)}</span>
                 </div>
                 <div className="grid min-w-[920px] flex-1 grid-cols-7">
                     {weekDates.map((date, idx) => {

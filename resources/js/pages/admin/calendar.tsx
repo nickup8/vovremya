@@ -109,7 +109,7 @@ export default function CalendarPage() {
     const dayRangeStr = useMemo(() => {
         return dayDate.toLocaleDateString('ru-RU', {
             day: 'numeric', month: 'long', year: 'numeric', weekday: 'long',
-        });
+        }).replace(/\s*г\.$/, '');
     }, [dayDate]);
 
     // ═══════════════ Appointments Data ═══════════════
@@ -382,6 +382,7 @@ continue;
                                     isToday={isToday}
                                     onRescheduleByDrag={rescheduleByDragDay}
                                     selectedMasterId={selectedMasterId}
+                                    timezone={timezone}
                                 />
                             ) : viewMode === 'month' ? (
                                 <MonthView
@@ -408,6 +409,7 @@ continue;
                                     getAppointmentsForDay={getAppointmentsForDay}
                                     getBlockedTimesForDay={getBlockedTimesForDay}
                                     isToday={isToday}
+                                    timezone={timezone}
                                     onRescheduleByDrag={rescheduleByDrag}
                                 />
                             )}

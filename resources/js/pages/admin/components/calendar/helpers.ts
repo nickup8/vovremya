@@ -53,6 +53,23 @@ export function hasCollision(date: string, startTime: string, durationMinutes: n
     });
 }
 
+export function formatGmtOffset(timezone: string): string {
+    try {
+        const parts = new Intl.DateTimeFormat('ru', {
+            timeZone: timezone,
+            timeZoneName: 'shortOffset',
+        }).formatToParts(new Date());
+        const tzName = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+        const match = tzName.match(/([+-]\d{1,2})(?::?(\d{2}))?/);
+        if (!match) return 'GMT';
+        const hours = parseInt(match[1], 10);
+        const mins = match[2] && match[2] !== '00' ? ':' + match[2] : '';
+        return `GMT${hours >= 0 ? '+' : ''}${hours}${mins}`;
+    } catch {
+        return 'GMT';
+    }
+}
+
 export function getMonthGrid(center: Date): Date[] {
     const year = center.getFullYear();
     const month = center.getMonth();

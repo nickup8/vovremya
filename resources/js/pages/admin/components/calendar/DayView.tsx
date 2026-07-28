@@ -13,7 +13,7 @@ import { AppointmentCard } from './AppointmentCard';
 import { BlockedTimeCard } from './BlockedTimeCard';
 import { BreakZone } from './BreakZone';
 import { HOUR_HEIGHT, MINUTE_HEIGHT } from './constants';
-import { timeToMinutes, getEndTime } from './helpers';
+import { timeToMinutes, getEndTime, formatGmtOffset } from './helpers';
 import { calculateCollisions } from './collision';
 
 interface DayViewProps {
@@ -31,6 +31,7 @@ interface DayViewProps {
     isToday: (date: Date) => boolean;
     onRescheduleByDrag: (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) => void;
     selectedMasterId: string;
+    timezone: string;
 }
 
 interface CurrentTimeLineProps {
@@ -90,6 +91,7 @@ export function DayView({
     isToday,
     onRescheduleByDrag,
     selectedMasterId,
+    timezone,
 }: DayViewProps) {
     const DAY_START_HOUR = dayStartHour;
     const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
@@ -170,8 +172,9 @@ export function DayView({
             <div className="sticky top-0 z-30 flex border-b border-slate-200 bg-slate-50 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50"
                 style={{ minWidth: `${gridMinWidth}px` }}
             >
-                <div className="sticky left-0 z-40 w-[60px] min-w-[60px] border-r border-slate-200 bg-slate-50 p-3 text-xs font-semibold text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
-                    Время
+                <div className="sticky left-0 z-40 flex w-[60px] min-w-[60px] flex-col items-start justify-center gap-0.5 border-r border-slate-200 bg-slate-50 p-3 text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
+                    <span className="text-xs font-semibold">Время</span>
+                    <span className="text-[10px] font-normal text-slate-400 dark:text-zinc-600">{formatGmtOffset(timezone)}</span>
                 </div>
                 <div
                     className="grid flex-1"
