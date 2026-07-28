@@ -80,10 +80,9 @@ class WorkspaceService
 
         $workspace->ensureSlug();
 
-        $user->update([
-            'workspace_id' => $workspace->id,
-            'role' => 'owner',
-        ]);
+        $user->workspace_id = $workspace->id;
+        $user->role = UserRole::Owner;
+        $user->save();
 
         return $workspace;
     }
