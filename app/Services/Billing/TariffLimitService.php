@@ -64,24 +64,26 @@ class TariffLimitService
         return $this->countAppointmentsInCycle($workspace, $cycleStart);
     }
 
-    private function getCycleStart(Workspace $workspace): CarbonInterface
+    private function getCycleStart(?Workspace $workspace): CarbonInterface
     {
-        $registrationDay = $workspace->created_at->day;
-
-        $cycleStart = now()->day >= $registrationDay
-            ? now()->startOfMonth()->addDays($registrationDay - 1)
-            : now()->subMonth()->startOfMonth()->addDays($registrationDay - 1);
-
-        return $cycleStart->startOfDay();
+        return now()->subDays(30)->startOfDay();
     }
 
-    private function countAppointmentsInCycle(Workspace $workspace, CarbonInterface $cycleStart): int
+    private function countAppointmentsInCycle(?Workspace $workspace, CarbonInterface $cycleStart): int
     {
+        if (! $workspace) {
+            return 0;
+        }
+
         $masterIds = $workspace->users()->pluck('id');
 
         return \App\Models\Appointment::whereIn('master_id', $masterIds)
-            ->whereNotIn('status', [
-                AppointmentStatus::Cancelled,
+            ->whereIn('status', [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+                AppointmentStatus::Prepaid,
+                AppointmentStatus::Paid,
+                AppointmentStatus::NoShow,
             ])
             ->where('start_time', '>=', $cycleStart)
             ->count();
