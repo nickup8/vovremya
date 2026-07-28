@@ -532,10 +532,17 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         if ($user && $user->workspace_id && $user->workspace_id !== $invite->workspace_id) {
-            $this->chat->html('❌ Вы уже состоите в другой команде.')->send();
-            Cache::forget('inv_token_'.$chatId);
+            $currentWs = $user->workspace;
+            $isSoloOwner = $currentWs
+                && $currentWs->owner_id === $user->id
+                && $currentWs->users()->count() <= 1;
 
-            return;
+            if (! $isSoloOwner) {
+                $this->chat->html('❌ Вы уже состоите в другой команде.')->send();
+                Cache::forget('inv_token_'.$chatId);
+
+                return;
+            }
         }
 
         if ($user && $user->id === $invite->workspace->owner_id) {
@@ -565,6 +572,8 @@ class TelegramWebhookHandler extends WebhookHandler
 
             Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
         } else {
+            $oldWorkspaceId = $user->workspace_id;
+
             $updateData = [
                 'telegram_id' => $telegramId,
                 'telegram_notifications' => true,
@@ -582,6 +591,21 @@ class TelegramWebhookHandler extends WebhookHandler
             $user->update($updateData);
             $user->role = $invite->role ?? UserRole::Master;
             $user->save();
+
+            if ($oldWorkspaceId && $oldWorkspaceId !== $invite->workspace_id) {
+                try {
+                    $oldWs = \App\Models\Workspace::find($oldWorkspaceId);
+                    if ($oldWs && $oldWs->owner_id === $user->id && $oldWs->users()->count() === 0) {
+                        $oldWs->delete();
+                    }
+                } catch (\Throwable $e) {
+                    Log::warning('Failed to clean up old personal workspace', [
+                        'workspace_id' => $oldWorkspaceId,
+                        'user_id' => $user->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+            }
 
             Log::info('[TG] handleInviteContact: existing user updated', ['user_id' => $user->id]);
         }
