@@ -35,6 +35,7 @@ interface WeekViewProps {
     getBlockedTimesForDay: (dayIndex: number) => BlockedTime[];
     isToday: (date: Date) => boolean;
     timezone: string;
+    selectedMasterId: string;
     onRescheduleByDrag: (apptId: string, newDate: string, newTime: string) => void;
 }
 
@@ -99,6 +100,7 @@ export function WeekView({
     getBlockedTimesForDay,
     isToday,
     timezone,
+    selectedMasterId,
     onRescheduleByDrag,
 }: WeekViewProps) {
     const DAY_START_HOUR = dayStartHour;
@@ -319,6 +321,7 @@ return;
                                             appointment={appt}
                                             onClick={() => onAppointmentClick(appt)}
                                             dayStartHour={DAY_START_HOUR}
+                                            showMasterDot={selectedMasterId === 'all'}
                                         />
                                     ))}
                                     {isToday(date) && (

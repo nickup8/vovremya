@@ -4,16 +4,17 @@ import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
 import type { AppointmentWithCollision } from './types';
 import { STATUS_STYLES } from './constants';
-import { timeToMinutes, getEndTime } from './helpers';
+import { timeToMinutes, getEndTime, masterColor } from './helpers';
 import { MINUTE_HEIGHT } from './constants';
 
 interface Props {
     appointment: AppointmentWithCollision;
     onClick: () => void;
     dayStartHour: number;
+    showMasterDot?: boolean;
 }
 
-export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
+export function AppointmentCard({ appointment, onClick, dayStartHour, showMasterDot }: Props) {
     const startMinutes = timeToMinutes(appointment.time) - dayStartHour * 60;
     const top = startMinutes * MINUTE_HEIGHT;
     const height = appointment.duration * MINUTE_HEIGHT;
@@ -55,6 +56,13 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                             <AvatarImage src={appointment.client_avatar_url ?? undefined} className="object-cover" />
                             <AvatarFallback className="text-[8px]">{getInitials(appointment.client_name)}</AvatarFallback>
                         </Avatar>
+                        {showMasterDot && appointment.master_id && (
+                            <span
+                                className="size-1.5 shrink-0 rounded-full"
+                                style={{ backgroundColor: masterColor(appointment.master_id) }}
+                                title={appointment.master_name ?? undefined}
+                            />
+                        )}
                         <p className="truncate text-xs font-semibold leading-tight">
                             {appointment.client_name}
                         </p>
