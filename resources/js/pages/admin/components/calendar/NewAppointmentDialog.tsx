@@ -6,7 +6,7 @@ import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
 import { dateToKey } from './helpers';
-import type { ClientOption, ServiceOption } from './types';
+import type { ClientOption, MasterOption, ServiceOption } from './types';
 import { ClientCombobox } from './ClientCombobox';
 
 interface FormData {
@@ -39,12 +39,19 @@ interface Props {
     form: FormMethods;
     clients: ClientOption[];
     services: ServiceOption[];
+    masters: MasterOption[];
+    preselectedMasterId?: string | null;
     onSubmit: (e: React.FormEvent) => void;
     slotInterval: number;
     onClientCreated: (client: ClientOption) => void;
 }
 
-export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, onSubmit, slotInterval, onClientCreated }: Props) {
+export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated }: Props) {
+    const masterNameMap = new Map(masters.map((m) => [m.id, m.name]));
+    const visibleServices = preselectedMasterId
+        ? services.filter((s) => s.user_id === preselectedMasterId)
+        : services;
+
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
             <DialogContent className="w-[calc(100%-2rem)] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
@@ -86,11 +93,26 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     <SelectValue placeholder="Выберите услугу" />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    {services.map((s) => (
-                                        <SelectItem key={s.id} value={String(s.id)}>
-                                            {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
+                                    {visibleServices.length === 0 ? (
+                                        <SelectItem value="" disabled>
+                                            У мастера нет услуг
                                         </SelectItem>
-                                    ))}
+                                    ) : (
+                                        visibleServices.map((s) => {
+                                            const label = preselectedMasterId
+                                                ? `${s.title} — ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`
+                                                : (() => {
+                                                    const mn = masterNameMap.get(s.user_id) ?? '';
+                                                    return `${s.title}${mn ? ` — ${mn}` : ''} · ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`;
+                                                })();
+
+                                            return (
+                                                <SelectItem key={s.id} value={String(s.id)}>
+                                                    {label}
+                                                </SelectItem>
+                                            );
+                                        })
+                                    )}
                                 </SelectContent>
                             </Select>
                             {form.errors.service_id && (

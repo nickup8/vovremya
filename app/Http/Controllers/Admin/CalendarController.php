@@ -108,6 +108,7 @@ class CalendarController extends Controller
                     'title' => $s->title,
                     'duration_minutes' => $s->duration_minutes,
                     'price' => (float) $s->price,
+                    'user_id' => $s->user_id,
                 ]);
 
             $slotInterval = $master->slot_interval ?? 30;
@@ -169,6 +170,7 @@ class CalendarController extends Controller
                     'title' => $s->title,
                     'duration_minutes' => $s->duration_minutes,
                     'price' => (float) $s->price,
+                    'user_id' => $s->user_id,
                 ]);
 
             $slotInterval = $master->slot_interval ?? 30;
@@ -219,9 +221,12 @@ class CalendarController extends Controller
 
         $service = Service::findOrFail($validated['service_id']);
 
-        // Проверка принадлежности услуги (защита от IDOR)
-        $isAdminOrOwner = $master->role->canManageTeam();
-        if (! $isAdminOrOwner && $service->user_id !== $master->id) {
+        // Проверка принадлежности услуги мастерам текущего workspace (защита от IDOR)
+        $workspaceMasterIds = $master->workspace
+            ? $master->workspace->users()->pluck('id')->all()
+            : [$master->id];
+
+        if (! in_array($service->user_id, $workspaceMasterIds, true)) {
             abort(403, 'У вас нет прав на использование этой услуги.');
         }
 

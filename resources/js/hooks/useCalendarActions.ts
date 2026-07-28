@@ -45,6 +45,7 @@ export function useCalendarActions({
     const [rescheduleTime, setRescheduleTime] = useState('');
     const [bookingModeServiceId, setBookingModeServiceId] = useState<string>('');
     const [hoveredSlot, setHoveredSlot] = useState<{ date: string; time: string } | null>(null);
+    const [preselectedMasterId, setPreselectedMasterId] = useState<string | null>(null);
 
     // Warning dialog states
     const [breakWarningOpen, setBreakWarningOpen] = useState(false);
@@ -111,6 +112,7 @@ continue;
     }
 
     function clearBookingMode() {
+        setPreselectedMasterId(null);
         setBookingModeServiceId('');
         setHoveredSlot(null);
 
@@ -378,17 +380,19 @@ return;
 
     // ═══════════════ CRUD: New Appointment ═══════════════
     function openNewAppointment() {
+        setPreselectedMasterId(null);
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateToKey(new Date()));
         newAppointmentForm.setData('time', '09:00');
         setNewAppointmentOpen(true);
     }
 
-    function openNewAppointmentForDate(dateKey: string, time?: string) {
+    function openNewAppointmentForDate(dateKey: string, time?: string, masterId?: string) {
         if (activeBookingClient && !bookingModeServiceId) {
             return;
         }
 
+        setPreselectedMasterId(masterId ?? null);
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateKey);
         newAppointmentForm.setData('time', time || '09:00');
@@ -553,6 +557,7 @@ return;
         // Computed
         activeBookingClient,
         bookingModeService,
+        preselectedMasterId,
 
         // Actions
         updateStatus,

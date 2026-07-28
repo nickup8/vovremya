@@ -36,6 +36,7 @@ export interface ServiceOption {
     title: string;
     duration_minutes: number;
     price: number;
+    user_id: string;
 }
 
 export interface AuthUser {

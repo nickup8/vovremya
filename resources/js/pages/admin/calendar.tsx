@@ -172,6 +172,7 @@ return initialBlockedTimes;
         timeOptions,
         activeBookingClient,
         bookingModeService,
+        preselectedMasterId,
         updateStatus,
         deleteAppointment,
         openReschedule,
@@ -377,7 +378,7 @@ continue;
                                     workingHours={workingHours}
                                     localAppointments={dayAppointments}
                                     blockedTimes={initialBlockedTimes}
-                                    onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time)}
+                                    onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time, masterId)}
                                     onAppointmentClick={openDetail}
                                     isToday={isToday}
                                     onRescheduleByDrag={rescheduleByDragDay}
@@ -459,6 +460,8 @@ continue;
                 form={newAppointmentForm}
                 clients={localClients}
                 services={services}
+                masters={masters}
+                preselectedMasterId={preselectedMasterId}
                 onSubmit={submitNewAppointment}
                 slotInterval={slotInterval}
                 onClientCreated={handleClientCreated}
