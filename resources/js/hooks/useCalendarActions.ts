@@ -20,6 +20,7 @@ interface UseCalendarActionsParams {
     confirmOptimistic: (id: string) => void;
     localAppointments: Appointment[];
     masters: MasterOption[];
+    selectedMasterId: string;
 }
 
 export function useCalendarActions({
@@ -37,6 +38,7 @@ export function useCalendarActions({
     confirmOptimistic,
     localAppointments,
     masters,
+    selectedMasterId,
 }: UseCalendarActionsParams) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
@@ -380,7 +382,7 @@ return;
 
     // ═══════════════ CRUD: New Appointment ═══════════════
     function openNewAppointment() {
-        setPreselectedMasterId(null);
+        setPreselectedMasterId(selectedMasterId !== 'all' ? selectedMasterId : null);
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateToKey(new Date()));
         newAppointmentForm.setData('time', '09:00');

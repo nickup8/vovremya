@@ -197,6 +197,7 @@ return initialBlockedTimes;
         confirmOptimistic,
         localAppointments,
         masters,
+        selectedMasterId,
     });
 
     const rescheduleByDragDay = (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) =>
