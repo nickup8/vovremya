@@ -214,6 +214,16 @@ return initialBlockedTimes;
 
     // ═══════════════ Grid Computed ═══════════════
 
+    const visibleAppointments = useMemo(() => {
+        if (viewMode === 'day') {
+            return localAppointments.filter(a => a.date === dayDateKey);
+        }
+
+        const weekKeySet = new Set(weekDateKeys);
+
+        return localAppointments.filter(a => weekKeySet.has(a.date));
+    }, [localAppointments, viewMode, weekDateKeys, dayDateKey]);
+
     const gridHours = useMemo(() => {
         let minHour = 24;
         let maxHour = 0;
@@ -233,7 +243,7 @@ maxHour = eh;
             }
         }
 
-        for (const a of localAppointments) {
+        for (const a of visibleAppointments) {
             if (!a.time || a.duration == null) {
 continue;
 }
@@ -250,7 +260,7 @@ continue;
         maxHour = Math.min(24, maxHour);
 
         return Array.from({ length: maxHour - minHour }, (_, i) => minHour + i);
-    }, [workingHours, localAppointments]);
+    }, [workingHours, visibleAppointments]);
 
     const DAY_START_HOUR = gridHours.length > 0 ? gridHours[0] : 8;
 
