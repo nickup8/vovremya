@@ -108,9 +108,7 @@ continue;
 
     // ═══════════════ Booking Mode ═══════════════
     function cancelBookingMode() {
-        setBookingModeServiceId('');
-        setHoveredSlot(null);
-        router.visit('/admin/calendar', { replace: true, only: [] });
+        clearBookingMode();
     }
 
     function clearBookingMode() {
