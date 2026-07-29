@@ -36,7 +36,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour, showMaster
             {...listeners}
             {...attributes}
             onClick={onClick}
-            className={`absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2 py-1 shadow-xs transition-all duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
+            className={`absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2 py-1 shadow-xs transition-shadow duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
             style={{
                 top,
                 height: Math.max(height, 32),

@@ -280,7 +280,7 @@ return;
                                     {/* Ghost Appointment */}
                                     {isBookingDay && ghostHeight > 0 && (
                                         <div
-                                            className={`pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed transition-all ${
+                                            className={`pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed transition-shadow ${
                                                 ghostHasCollision
                                                     ? 'border-red-500 bg-red-500/20'
                                                     : 'border-blue-500 bg-blue-500/20'
