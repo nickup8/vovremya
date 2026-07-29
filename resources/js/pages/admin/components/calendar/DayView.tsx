@@ -95,12 +95,6 @@ export function DayView({
 }: DayViewProps) {
     const DAY_START_HOUR = dayStartHour;
     const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
-    console.log('[DayView DIAG]', {
-        selectedMasterId,
-        localAppointmentsLen: localAppointments.length,
-        uniqueMasterIds: [...new Set(localAppointments.map(a => String(a.master_id)))],
-        mastersLen: masters.length,
-    });
     const visibleMasters = selectedMasterId === 'all'
         ? masters
         : masters.filter((m) => String(m.id) === selectedMasterId);
