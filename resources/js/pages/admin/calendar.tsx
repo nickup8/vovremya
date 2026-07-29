@@ -305,11 +305,6 @@ continue;
 
     return (
         <>
-            {import.meta.env.PROD && (
-                <div style={{position:'fixed',top:0,left:0,zIndex:99999,background:'#000',color:'#0f0',fontSize:11,padding:'2px 6px',fontFamily:'monospace',pointerEvents:'none'}}>
-                    wh:{workingHours?.length ?? 'undef'} | appt:{initialAppointments?.length ?? 'undef'} | range:{loadedRange ? `${loadedRange.start}→${loadedRange.end}` : 'undef'} | grid0:{gridHours[0] ?? '?'} | gridN:{gridHours.length}
-                </div>
-            )}
             <Head title="Календарь — Вовремя" />
 
             <AdminLayout title="Рабочий календарь" auth={auth}>
