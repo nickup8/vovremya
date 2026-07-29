@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Support\PlanDefaults;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -49,12 +50,10 @@ class Workspace extends Model
      */
     public function hasFeature(string $feature): bool
     {
-        $startFeatures = ['calendar', 'basic_client_management'];
-
         $activeSubscription = $this->activeSubscription();
 
         if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
-            return in_array($feature, $startFeatures);
+            return in_array($feature, PlanDefaults::START_FEATURES);
         }
 
         $features = $activeSubscription->tariffPlan->features ?? [];
@@ -79,7 +78,7 @@ class Workspace extends Model
         $activeSubscription = $this->activeSubscription();
 
         if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
-            return 1;
+            return PlanDefaults::START_MAX_MASTERS;
         }
 
         return $activeSubscription->tariffPlan->max_masters ?? PHP_INT_MAX;

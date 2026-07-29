@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\HasMany;
@@ -26,9 +27,17 @@ class TariffPlan extends Model
             'features' => 'array',
             'is_active' => 'boolean',
             'price_monthly' => 'integer',
-            'max_appointments_per_month' => 'integer',
-            'max_masters' => 'integer',
         ];
+    }
+
+    protected function maxAppointmentsPerMonth(): Attribute
+    {
+        return Attribute::get(fn ($value): ?int => $value === null ? null : (int) $value);
+    }
+
+    protected function maxMasters(): Attribute
+    {
+        return Attribute::get(fn ($value): ?int => $value === null ? null : (int) $value);
     }
 
     public function subscriptions(): HasMany

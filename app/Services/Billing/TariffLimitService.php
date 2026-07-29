@@ -6,6 +6,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Subscription;
 use App\Models\Workspace;
+use App\Support\PlanDefaults;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
@@ -46,7 +47,7 @@ class TariffLimitService
         $activeSubscription = $subscription ?? $workspace->activeSubscription();
 
         if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
-            return 30; // Fallback to 'start' plan limits
+            return PlanDefaults::START_MAX_APPOINTMENTS;
         }
 
         return $activeSubscription->tariffPlan->max_appointments_per_month ?? PHP_INT_MAX;
