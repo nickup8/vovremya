@@ -11,11 +11,15 @@ interface Props {
     appointment: AppointmentWithCollision;
     onClick: () => void;
     dayStartHour: number;
+    dayEndHour?: number;
     showMasterDot?: boolean;
 }
 
-export function AppointmentCard({ appointment, onClick, dayStartHour, showMasterDot }: Props) {
-    const startMinutes = timeToMinutes(appointment.time) - dayStartHour * 60;
+export function AppointmentCard({ appointment, onClick, dayStartHour, dayEndHour, showMasterDot }: Props) {
+    const rawStartMinutes = timeToMinutes(appointment.time) - dayStartHour * 60;
+    const gridHeightMinutes = dayEndHour != null ? (dayEndHour - dayStartHour) * 60 : null;
+    const maxTopMinutes = gridHeightMinutes != null ? Math.max(0, gridHeightMinutes - 32 / MINUTE_HEIGHT) : Infinity;
+    const startMinutes = Math.max(0, Math.min(rawStartMinutes, maxTopMinutes));
     const top = startMinutes * MINUTE_HEIGHT;
     const height = appointment.duration * MINUTE_HEIGHT;
     const styles = STATUS_STYLES[appointment.status];
