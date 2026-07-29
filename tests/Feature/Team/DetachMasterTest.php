@@ -105,8 +105,14 @@ class DetachMasterTest extends TestCase
 
         $this->assertDatabaseHas('users', [
             'id' => $this->master->id,
-            'workspace_id' => null,
             'role' => UserRole::Owner,
+        ]);
+        $this->assertDatabaseMissing('users', [
+            'id' => $this->master->id,
+            'workspace_id' => $this->workspace->id,
+        ]);
+        $this->assertDatabaseHas('workspaces', [
+            'owner_id' => $this->master->id,
         ]);
 
         $this->assertDatabaseHas('appointments', [
@@ -135,8 +141,14 @@ class DetachMasterTest extends TestCase
 
         $this->assertDatabaseHas('users', [
             'id' => $this->master->id,
-            'workspace_id' => null,
             'role' => UserRole::Owner,
+        ]);
+        $this->assertDatabaseMissing('users', [
+            'id' => $this->master->id,
+            'workspace_id' => $this->workspace->id,
+        ]);
+        $this->assertDatabaseHas('workspaces', [
+            'owner_id' => $this->master->id,
         ]);
     }
 
@@ -303,8 +315,14 @@ class DetachMasterTest extends TestCase
 
         $this->assertDatabaseHas('users', [
             'id' => $this->master->id,
-            'workspace_id' => null,
             'role' => UserRole::Owner,
+        ]);
+        $this->assertDatabaseMissing('users', [
+            'id' => $this->master->id,
+            'workspace_id' => $this->workspace->id,
+        ]);
+        $this->assertDatabaseHas('workspaces', [
+            'owner_id' => $this->master->id,
         ]);
     }
 
