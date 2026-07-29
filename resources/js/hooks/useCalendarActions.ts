@@ -394,7 +394,9 @@ return;
             return;
         }
 
-        setPreselectedMasterId(masterId ?? null);
+        const resolvedMasterId =
+            masterId ?? (selectedMasterId !== 'all' ? selectedMasterId : null);
+        setPreselectedMasterId(resolvedMasterId);
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateKey);
         newAppointmentForm.setData('time', time || '09:00');
