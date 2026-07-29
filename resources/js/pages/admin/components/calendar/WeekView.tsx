@@ -321,7 +321,6 @@ return;
                                             appointment={appt}
                                             onClick={() => onAppointmentClick(appt)}
                                             dayStartHour={DAY_START_HOUR}
-                                            dayEndHour={DAY_END_HOUR}
                                             showMasterDot={selectedMasterId === 'all'}
                                         />
                                     ))}

@@ -37,10 +37,10 @@ class CalendarController extends Controller
 
         $rangeStart = isset($validated['start'])
             ? Carbon::parse($validated['start'])->startOfDay()
-            : Carbon::now()->subWeeks(2)->startOfDay();
+            : Carbon::now()->subWeeks(3)->startOfDay();
         $rangeEnd = isset($validated['end'])
             ? Carbon::parse($validated['end'])->endOfDay()
-            : Carbon::now()->addWeeks(2)->endOfDay();
+            : Carbon::now()->addWeeks(3)->endOfDay();
 
         $isAdminOrOwner = $master->role->canManageTeam();
 
