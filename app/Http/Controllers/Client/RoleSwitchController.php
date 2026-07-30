@@ -30,6 +30,7 @@ class RoleSwitchController extends Controller
         if (! $client) {
             $client = Client::create([
                 'user_id' => $user->id,
+                'workspace_id' => $user->workspace_id,
                 'name' => $user->name,
                 'phone' => $user->phone,
             ]);

@@ -547,6 +547,7 @@ class MaxWebhookHandler
             $phone,
             '',
             $fullName ?: __('bot.fallback.client_name')." {$phone}",
+            $appointment->master?->workspace_id,
         );
 
         // Link max_id to client

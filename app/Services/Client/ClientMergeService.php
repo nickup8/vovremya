@@ -11,12 +11,14 @@ class ClientMergeService
         string $phone,
         string $telegramId = '',
         string $name = 'Клиент',
+        ?string $workspaceId = null,
     ): Client {
         $client = Client::firstOrCreate(
             ['user_id' => $masterId, 'phone' => $phone],
             [
                 'name' => $name,
                 'telegram_id' => $telegramId ?: null,
+                'workspace_id' => $workspaceId,
             ]
         );
 

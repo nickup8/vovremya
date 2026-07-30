@@ -672,6 +672,7 @@ class TelegramWebhookHandler extends WebhookHandler
         if (! $client) {
             $client = Client::create([
                 'user_id' => $masterId,
+                'workspace_id' => $appointment->master?->workspace_id,
                 'name' => $fullName ?: __('bot.fallback.client_name')." {$phone}",
                 'phone' => $phone,
                 'telegram_id' => $telegramId,

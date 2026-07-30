@@ -97,6 +97,7 @@ class ClientController extends Controller
                 'name' => $validated['name'],
                 'phone' => $validated['phone'],
                 'notes' => $validated['notes'] ?? null,
+                'workspace_id' => $master->workspace_id,
             ]);
         }
 
