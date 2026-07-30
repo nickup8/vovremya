@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Traits\SearchableByProvider;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -71,5 +72,18 @@ class Client extends Authenticatable
     public static function generateAuthToken(): string
     {
         return Str::random(64);
+    }
+
+    public function scopeForWorkspaceOrMaster(Builder $query, User $user): Builder
+    {
+        return $query->where(function ($q) use ($user) {
+            if ($user->workspace_id !== null) {
+                $q->where('workspace_id', $user->workspace_id);
+            }
+
+            $q->orWhere(function ($sub) use ($user) {
+                $sub->whereNull('workspace_id')->where('user_id', $user->id);
+            });
+        });
     }
 }

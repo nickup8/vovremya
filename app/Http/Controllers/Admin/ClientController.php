@@ -25,17 +25,9 @@ class ClientController extends Controller
                 ->with('error', 'У вас нет доступа к базе клиентов.');
         }
 
-        if ($user->role->canManageTeam()) {
-            $masterIds = $user->workspace
-                ? $user->workspace->users()->where('is_master', true)->pluck('id')->toArray()
-                : [$user->id];
-        } else {
-            $masterIds = [$user->id];
-        }
-
         $perPage = (int) $request->query('per_page', 20);
 
-        $clients = Client::whereIn('user_id', $masterIds)
+        $clients = Client::forWorkspaceOrMaster($user)
             ->with(['appointments.service'])
             ->withCount(['appointments as total_bookings' => function ($q) {
                 $q->where('status', '!=', AppointmentStatus::Cancelled);

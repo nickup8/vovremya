@@ -93,7 +93,7 @@ class CalendarController extends Controller
 
             $workingHours = WorkingHour::whereIn('user_id', $masterIds)->get();
 
-            $clients = Client::whereIn('user_id', $masterIds)
+            $clients = Client::forWorkspaceOrMaster($master)
                 ->get()
                 ->map(fn (Client $c) => [
                     'id' => $c->id,
@@ -155,7 +155,7 @@ class CalendarController extends Controller
 
             $workingHours = $master->workingHours()->get();
 
-            $clients = Client::where('user_id', $master->id)
+            $clients = Client::forWorkspaceOrMaster($master)
                 ->get()
                 ->map(fn (Client $c) => [
                     'id' => $c->id,
