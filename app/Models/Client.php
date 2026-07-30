@@ -16,6 +16,8 @@ class Client extends Authenticatable
 
     protected $fillable = [
         'user_id',
+        'is_personal',
+        'workspace_id',
         'phone',
         'telegram_id',
         'max_id',
@@ -29,9 +31,14 @@ class Client extends Authenticatable
         'notes',
     ];
 
+    protected $attributes = [
+        'is_personal' => true,
+    ];
+
     protected function casts(): array
     {
         return [
+            'is_personal' => 'boolean',
             'is_blocked' => 'boolean',
         ];
     }
@@ -39,6 +46,11 @@ class Client extends Authenticatable
     public function master(): BelongsTo
     {
         return $this->belongsTo(User::class, 'user_id');
+    }
+
+    public function workspace(): BelongsTo
+    {
+        return $this->belongsTo(Workspace::class);
     }
 
     public function user(): BelongsTo
