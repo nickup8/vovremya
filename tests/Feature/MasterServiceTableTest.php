@@ -40,6 +40,11 @@ class MasterServiceTableTest extends TestCase
         $master = User::factory()->master()->create();
         $service = Service::factory()->create(['user_id' => $master->id]);
 
+        // Confirm IDs are UUIDs (matching production schema)
+        $this->assertIsString($master->id);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $master->id);
+        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $service->id);
+
         $link = MasterService::create([
             'master_id' => $master->id,
             'service_id' => $service->id,

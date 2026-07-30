@@ -10,8 +10,8 @@ return new class extends Migration
     {
         Schema::create('master_service', function (Blueprint $table) {
             $table->id();
-            $table->foreignId('master_id')->constrained('users')->cascadeOnDelete();
-            $table->foreignId('service_id')->constrained('services')->cascadeOnDelete();
+            $table->foreignUuid('master_id')->constrained('users')->cascadeOnDelete();
+            $table->foreignUuid('service_id')->constrained('services')->cascadeOnDelete();
             $table->decimal('price', 10, 2)->nullable();
             $table->unsignedInteger('duration')->nullable();
             $table->boolean('is_active')->default(true);
