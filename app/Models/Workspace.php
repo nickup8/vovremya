@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Support\PlanDefaults;
+use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -14,10 +15,30 @@ class Workspace extends Model
 {
     use HasUuids;
 
+    protected function casts(): array
+    {
+        return [
+            'settings' => 'array',
+        ];
+    }
+
+    protected function allowMastersEditPrices(): Attribute
+    {
+        return Attribute::get(fn () => (bool) ($this->settings['allow_masters_edit_prices'] ?? false));
+    }
+
+    public function setAllowMastersEditPrices(bool $value): void
+    {
+        $settings = $this->settings ?? [];
+        $settings['allow_masters_edit_prices'] = $value;
+        $this->update(['settings' => $settings]);
+    }
+
     protected $fillable = [
         'name',
         'slug',
         'owner_id',
+        'settings',
     ];
 
     public function owner(): BelongsTo
