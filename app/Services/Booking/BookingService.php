@@ -153,6 +153,7 @@ class BookingService
                 'service_id' => $service->id,
                 'price' => $service->price,
                 'duration' => $service->duration_minutes,
+                'service_name' => $service->title,
                 'start_time' => $startDateTime,
                 'status' => $appointmentStatus,
                 'provider' => $provider,
