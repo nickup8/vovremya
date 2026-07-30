@@ -151,6 +151,8 @@ class BookingService
                 'master_id' => $master->id,
                 'client_id' => $clientId,
                 'service_id' => $service->id,
+                'price' => $service->price,
+                'duration' => $service->duration_minutes,
                 'start_time' => $startDateTime,
                 'status' => $appointmentStatus,
                 'provider' => $provider,
