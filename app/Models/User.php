@@ -29,6 +29,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $avatar_url
  * @property bool $is_master
  * @property bool $is_bookable
+ * @property bool $is_service_provider
+ * @property bool $admin_can_see_finance
  * @property string|null $master_slug
  * @property string|null $specialty
  * @property string|null $address
@@ -46,7 +48,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 #[Fillable([
     'name', 'email', 'password', 'phone',
     'telegram_id', 'telegram_chat_id', 'telegram_auth_token', 'max_id', 'vk_id', 'vk_chat_id', 'avatar_url',
-    'is_master', 'is_bookable', 'master_slug', 'specialty', 'address',
+    'is_master', 'is_bookable', 'is_service_provider', 'admin_can_see_finance',
+    'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
     'slot_interval', 'workspace_id',
@@ -66,6 +69,8 @@ class User extends Authenticatable implements PasskeyUser
             'two_factor_confirmed_at' => 'datetime',
             'is_master' => 'boolean',
             'is_bookable' => 'boolean',
+            'is_service_provider' => 'boolean',
+            'admin_can_see_finance' => 'boolean',
             'role' => UserRole::class,
             'soft_deposit' => 'boolean',
             'deposit_timeout' => 'integer',
