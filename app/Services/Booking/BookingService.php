@@ -149,13 +149,22 @@ class BookingService
                 );
             }
 
+            // Resolve legacy Service for FK (service_id NOT NULL on production)
+            $legacyService = Service::where('user_id', $master->id)
+                ->where('title', $service->catalog?->title)
+                ->first();
+
+            $serviceIdForFk = $legacyServiceId
+                ?? $legacyService?->id
+                ?? Service::where('user_id', $master->id)->value('id');
+
             $appointment = Appointment::create([
                 'master_id' => $master->id,
                 'client_id' => $clientId,
-                'service_id' => $legacyServiceId,
+                'service_id' => $serviceIdForFk,
                 'price' => $service->effective_price,
                 'duration' => $service->effective_duration,
-                'service_name' => $service->catalog?->title ?? '',
+                'service_name' => $service->catalog?->title ?? $legacyService?->title ?? '',
                 'start_time' => $startDateTime,
                 'status' => $appointmentStatus,
                 'provider' => $provider,
@@ -164,7 +173,7 @@ class BookingService
 
             if ($clientId !== null) {
                 broadcast(new AppointmentCreated(
-                    $appointment->load(['client'])
+                    $appointment->load(['client', 'service'])
                 ));
             }
 

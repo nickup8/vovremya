@@ -280,7 +280,7 @@ class AvailabilityService
         $grouped = [];
         foreach ($appointments as $a) {
             $start = Carbon::parse($a->start_time)->timezone($tz);
-            $duration = $a->service->duration_minutes ?? 60;
+            $duration = $a->duration ?? $a->service?->duration_minutes ?? 60;
             $dateKey = $start->format('Y-m-d');
 
             $grouped[$dateKey][] = [
@@ -422,7 +422,7 @@ class AvailabilityService
 
         return $appointments->map(function (Appointment $a) use ($tz) {
             $start = Carbon::parse($a->start_time)->timezone($tz);
-            $duration = $a->service->duration_minutes ?? 60;
+            $duration = $a->duration ?? $a->service?->duration_minutes ?? 60;
 
             return [
                 'start' => $start,

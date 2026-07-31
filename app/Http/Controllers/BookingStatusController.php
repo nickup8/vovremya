@@ -31,8 +31,8 @@ class BookingStatusController extends Controller
                 'start_time' => $appointment->start_time->toISOString(),
                 'created_at' => $appointment->created_at->toISOString(),
                 'service' => [
-                    'id' => $appointment->service->id,
-                    'title' => $appointment->service->title,
+                    'id' => $appointment->service?->id,
+                    'title' => $appointment->service?->title,
                 ],
                 'master' => [
                     'id' => $appointment->master->id,
