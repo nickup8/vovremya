@@ -4,13 +4,13 @@ namespace App\Http\Controllers;
 
 use App\Models\MasterService;
 use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Collection;
 use Illuminate\Support\Facades\Log;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
@@ -66,19 +66,26 @@ class StudioBookingController extends Controller
 
         $masterIds = $masters->pluck('id');
 
-        $services = Service::whereIn('user_id', $masterIds)
-            ->select('title', 'price', 'duration_minutes')
+        $catalogs = ServiceCatalog::where('workspace_id', $workspace->id)
+            ->whereHas('masterServices', fn ($q) => $q
+                ->whereIn('master_id', $masterIds)->where('is_active', true))
+            ->with(['masterServices' => fn ($q) => $q
+                ->whereIn('master_id', $masterIds)->where('is_active', true)])
             ->get();
 
-        $grouped = $services->groupBy('title')->map(function (Collection $group, string $title) {
+        $grouped = $catalogs->map(function (ServiceCatalog $cat) {
+            $activeMs = $cat->masterServices;
+            $prices = $activeMs->map->effective_price->filter(fn ($p) => $p !== null);
+            $durations = $activeMs->map->effective_duration->filter(fn ($d) => $d !== null);
+
             return [
-                'title' => $title,
-                'masters_count' => $group->count(),
-                'price_from' => (float) $group->min('price'),
-                'duration_min' => (int) $group->min('duration_minutes'),
-                'duration_max' => (int) $group->max('duration_minutes'),
+                'title' => $cat->title,
+                'masters_count' => $activeMs->count(),
+                'price_from' => (float) ($prices->min() ?? 0),
+                'duration_min' => (int) ($durations->min() ?? 0),
+                'duration_max' => (int) ($durations->max() ?? 0),
             ];
-        })->values();
+        })->filter(fn ($s) => $s['masters_count'] > 0)->values();
 
         return Inertia::render('booking/studio-services', [
             'workspace' => [
