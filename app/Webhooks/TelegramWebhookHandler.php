@@ -552,6 +552,17 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
+        // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
+        if (($invite->role ?? UserRole::Master) === UserRole::Master
+            && $invite->workspace
+            && $invite->workspace->activeSubscription()
+            && ! $invite->workspace->canAddProvider()) {
+            $this->chat->html('❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.')->send();
+            Cache::forget('inv_token_'.$chatId);
+
+            return;
+        }
+
         if (! $user) {
             $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name').' '.$phone;
 
@@ -573,6 +584,17 @@ class TelegramWebhookHandler extends WebhookHandler
 
             Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
         } else {
+            // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
+            if (($invite->role ?? UserRole::Master) === UserRole::Master
+                && $invite->workspace
+                && $invite->workspace->activeSubscription()
+                && ! $invite->workspace->canAddProvider()) {
+                $this->chat->html('❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.')->send();
+                Cache::forget('inv_token_'.$chatId);
+
+                return;
+            }
+
             $oldWorkspaceId = $user->workspace_id;
 
             $updateData = [

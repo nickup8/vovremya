@@ -83,14 +83,11 @@ class TeamController extends Controller
             abort_unless($user->role->canInviteAdmins(), 403, 'Только владелец может приглашать администраторов.');
         }
 
-        $subscription = $workspace->activeSubscription();
-        $maxMasters = $subscription?->tariffPlan?->max_masters;
-
-        if ($maxMasters !== null) {
-            $currentMasters = $workspace->users()->where('is_master', true)->count();
-
-            if ($currentMasters >= $maxMasters) {
-                return response()->json(['error' => 'Достигнут лимит мастеров для вашего тарифа'], 403);
+        // Лимит мест: только МАСТЕР занимает место. Проверяем лишь при активной подписке.
+        if ($targetRole === 'master') {
+            $subscription = $workspace->activeSubscription();
+            if ($subscription && ! $workspace->canAddProvider()) {
+                return response()->json(['error' => 'Достигнут лимит мест по вашему тарифу. Повысьте тариф или освободите место.'], 403);
             }
         }
 

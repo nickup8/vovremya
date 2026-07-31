@@ -130,6 +130,16 @@ class MaxWebhookHandler
                     return;
                 }
 
+                // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
+                if (($invite->role ?? UserRole::Master) === UserRole::Master
+                    && $invite->workspace
+                    && $invite->workspace->activeSubscription()
+                    && ! $invite->workspace->canAddProvider()) {
+                    $this->sendMessage($userId, '❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.');
+
+                    return;
+                }
+
                 $updateData = [
                     'workspace_id' => $invite->workspace_id,
                     'is_master' => true,
@@ -235,6 +245,16 @@ class MaxWebhookHandler
 
                         if ($user->id === $invite->workspace->owner_id) {
                             $this->sendMessage($userId, '❌ Вы уже являетесь владельцем этой студии.');
+
+                            return;
+                        }
+
+                        // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
+                        if (($invite->role ?? UserRole::Master) === UserRole::Master
+                            && $invite->workspace
+                            && $invite->workspace->activeSubscription()
+                            && ! $invite->workspace->canAddProvider()) {
+                            $this->sendMessage($userId, '❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.');
 
                             return;
                         }
