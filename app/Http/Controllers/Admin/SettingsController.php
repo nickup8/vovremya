@@ -94,7 +94,16 @@ class SettingsController extends Controller
                 'custom_prepayment_message' => $user->getCustomPrepaymentMessage(),
                 'reminder_hours_before_final' => $user->getReminderHoursBeforeFinal(),
             ],
-            'services' => $targetMaster->services()->get(),
+            'services' => \App\Models\MasterService::where('master_id', $targetMaster->id)
+                ->where('is_active', true)
+                ->with('catalog')
+                ->get()
+                ->map(fn ($ms) => [
+                    'id'               => $ms->id,
+                    'title'            => $ms->catalog->title,
+                    'duration_minutes' => (int) $ms->effective_duration,
+                    'price'            => (float) $ms->effective_price,
+                ]),
             'workingHours' => $targetMaster->workingHours()->get(),
             'blockedTimes' => $targetMaster->blockedTimes()->get(),
             'masters' => $masters,
