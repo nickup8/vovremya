@@ -43,7 +43,7 @@ Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout'
 
 Route::get('/auth/magic', [MagicLoginController::class, 'show'])
     ->name('auth.magic')
-    ->middleware('throttle:10,1');
+    ->middleware('throttle:30,1');
 
 Route::post('/auth/magic', [MagicLoginController::class, 'login'])
     ->name('auth.magic.login')
