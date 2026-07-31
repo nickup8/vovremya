@@ -51,6 +51,11 @@ class Workspace extends Model
         return $this->hasMany(User::class);
     }
 
+    public function serviceCatalog(): HasMany
+    {
+        return $this->hasMany(ServiceCatalog::class);
+    }
+
     public function subscriptions(): HasMany
     {
         return $this->hasMany(Subscription::class);

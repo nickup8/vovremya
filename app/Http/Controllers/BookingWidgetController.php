@@ -2,7 +2,7 @@
 
 namespace App\Http\Controllers;
 
-use App\Models\Service;
+use App\Models\MasterService;
 use App\Models\User;
 use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
@@ -28,12 +28,12 @@ class BookingWidgetController extends Controller
             return redirect('/studio/'.$master->workspace->slug, 302);
         }
 
-        $master->load('services');
+        $master->load(['masterServices' => fn ($q) => $q->with('catalog')->where('is_active', true)]);
 
         $selectedServiceId = $request->query('service_id');
         $selectedDate = $request->query('date') ?? Carbon::today()->toDateString();
 
-        $service = $selectedServiceId ? $master->services()->find($selectedServiceId) : null;
+        $service = $selectedServiceId ? $master->masterServices()->find($selectedServiceId) : null;
 
         $availableSlots = $this->bookingService->getAvailableSlots(
             $master,
@@ -49,11 +49,11 @@ class BookingWidgetController extends Controller
                 'avatar_url' => $master->avatar_url,
                 'master_slug' => $master->master_slug,
             ],
-            'services' => $master->services->map(fn ($s) => [
+            'services' => $master->masterServices->map(fn (MasterService $s) => [
                 'id' => $s->id,
-                'title' => $s->title,
-                'price' => (float) $s->price,
-                'duration_minutes' => $s->duration_minutes,
+                'title' => $s->catalog?->title ?? '',
+                'price' => (float) $s->effective_price,
+                'duration_minutes' => $s->effective_duration,
             ]),
             'availableSlots' => $availableSlots,
             'selectedDate' => $selectedDate,
@@ -74,9 +74,9 @@ class BookingWidgetController extends Controller
             'month' => 'required|integer|min:1|max:12',
         ]);
 
-        $service = Service::find($validated['service_id']);
+        $service = MasterService::find($validated['service_id']);
 
-        if (! $service || $service->user_id !== $master->id) {
+        if (! $service || $service->master_id !== $master->id) {
             return response()->json(['dates' => []]);
         }
 
@@ -84,7 +84,7 @@ class BookingWidgetController extends Controller
             $master,
             $validated['year'],
             $validated['month'],
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         return response()->json(['dates' => $dates]);
@@ -97,15 +97,15 @@ class BookingWidgetController extends Controller
             ->firstOrFail();
 
         $validated = $request->validate([
-            'service_id' => 'required|exists:services,id',
+            'service_id' => 'required|exists:master_service,id',
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
             'provider' => 'required|in:telegram,max,admin',
         ]);
 
-        $service = Service::findOrFail($validated['service_id']);
+        $service = MasterService::findOrFail($validated['service_id']);
 
-        if ($service->user_id !== $master->id) {
+        if ($service->master_id !== $master->id) {
             return response()->json(['message' => 'Услуга не найдена.'], 404);
         }
 
@@ -122,14 +122,13 @@ class BookingWidgetController extends Controller
             ], 422);
         }
 
-        // Создаём запись без client_id (черновик) — клиент подтвердит номер в боте
         $appointment = $this->bookingService->createAppointment(
             $master,
             $service,
             $validated['date'],
             $validated['time'],
             $validated['provider'],
-            null, // client_id будет заполнен после подтверждения в боте
+            null,
         );
 
         $telegramBotName = config('services.telegram.bot_name', 'vovremia_bot');

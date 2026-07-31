@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\AppointmentStatus;
+use App\Models\MasterService;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -49,6 +50,19 @@ class BookingFlowStatusTest extends TestCase
         return $master;
     }
 
+    private function createMasterService(User $master, int $durationMinutes = 60): MasterService
+    {
+        return MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => null,
+            'price_override' => 1000.00,
+            'duration_override' => $durationMinutes,
+            'is_custom' => true,
+            'status' => 'approved',
+            'is_active' => true,
+        ]);
+    }
+
     #[Test]
     public function prepayment_custom_creates_pending_payment_status(): void
     {
@@ -56,10 +70,7 @@ class BookingFlowStatusTest extends TestCase
             'booking_flow_type' => 'prepayment_custom',
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
-        ]);
+        $service = $this->createMasterService($master);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->setTime(10, 0);
 
@@ -81,10 +92,7 @@ class BookingFlowStatusTest extends TestCase
             'booking_flow_type' => 'free_verification',
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
-        ]);
+        $service = $this->createMasterService($master);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->setTime(10, 0);
 
@@ -104,10 +112,7 @@ class BookingFlowStatusTest extends TestCase
     {
         $master = $this->createMaster();
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
-        ]);
+        $service = $this->createMasterService($master);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->setTime(10, 0);
 
@@ -154,10 +159,7 @@ class BookingFlowStatusTest extends TestCase
             'booking_flow_type' => 'prepayment_custom',
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
-        ]);
+        $service = $this->createMasterService($master);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->setTime(10, 0);
 
@@ -178,7 +180,7 @@ class BookingFlowStatusTest extends TestCase
     public function paid_as_initial_status_throws_invalid_argument(): void
     {
         $master = $this->createMaster();
-        $service = Service::factory()->create(['user_id' => $master->id, 'duration_minutes' => 60]);
+        $service = $this->createMasterService($master);
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->setTime(10, 0);
 
         $this->expectException(\InvalidArgumentException::class);
@@ -195,7 +197,7 @@ class BookingFlowStatusTest extends TestCase
     public function cancelled_as_initial_status_throws_invalid_argument(): void
     {
         $master = $this->createMaster();
-        $service = Service::factory()->create(['user_id' => $master->id, 'duration_minutes' => 60]);
+        $service = $this->createMasterService($master);
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->setTime(10, 0);
 
         $this->expectException(\InvalidArgumentException::class);

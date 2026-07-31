@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers;
 
+use App\Models\MasterService;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\Workspace;
@@ -147,23 +148,24 @@ class StudioBookingController extends Controller
             abort(404, 'Мастер не найден в студии.');
         }
 
-        $master->load('services');
+        $master->load(['masterServices' => fn ($q) => $q->with('catalog')->where('is_active', true)]);
 
         $serviceTitle = $request->query('service');
         $selectedServiceId = $request->query('service_id');
         $selectedDate = $request->query('date') ?? Carbon::today()->toDateString();
 
-        // Если передан ?service={title}, предвыбираем услугу по названию
         $preselectedServiceId = null;
         if ($serviceTitle && ! $selectedServiceId) {
-            $preselected = $master->services()->where('title', $serviceTitle)->first();
+            $preselected = $master->masterServices->first(
+                fn (MasterService $ms) => $ms->catalog?->title === $serviceTitle
+            );
             if ($preselected) {
                 $preselectedServiceId = $preselected->id;
                 $selectedServiceId = $preselected->id;
             }
         }
 
-        $service = $selectedServiceId ? $master->services()->find($selectedServiceId) : null;
+        $service = $selectedServiceId ? $master->masterServices()->find($selectedServiceId) : null;
 
         $availableSlots = $this->bookingService->getAvailableSlots(
             $master,
@@ -179,11 +181,11 @@ class StudioBookingController extends Controller
                 'avatar_url' => $master->avatar_url,
                 'master_slug' => $master->master_slug,
             ],
-            'services' => $master->services->map(fn ($s) => [
+            'services' => $master->masterServices->map(fn (MasterService $s) => [
                 'id' => $s->id,
-                'title' => $s->title,
-                'price' => (float) $s->price,
-                'duration_minutes' => $s->duration_minutes,
+                'title' => $s->catalog?->title ?? '',
+                'price' => (float) $s->effective_price,
+                'duration_minutes' => $s->effective_duration,
             ]),
             'availableSlots' => $availableSlots,
             'selectedDate' => $selectedDate,

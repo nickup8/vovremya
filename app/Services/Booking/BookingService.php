@@ -7,6 +7,7 @@ use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Events\AppointmentRescheduled;
 use App\Models\Appointment;
+use App\Models\MasterService;
 use App\Models\Service;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
@@ -89,13 +90,14 @@ class BookingService
 
     public function createAppointment(
         User $master,
-        Service $service,
+        MasterService $service,
         string $date,
         string $time,
         string $provider,
         ?string $clientId = null,
         ?AppointmentStatus $status = null,
         ?AppointmentSource $source = null,
+        ?string $legacyServiceId = null,
     ): Appointment {
         $workspace = $master->workspace;
 
@@ -106,9 +108,9 @@ class BookingService
         }
 
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
-        $endDateTime = $startDateTime->copy()->addMinutes($service->duration_minutes);
+        $endDateTime = $startDateTime->copy()->addMinutes($service->effective_duration);
 
-        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source) {
+        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source, $legacyServiceId) {
             $conflict = Appointment::with('service')
                 ->where('master_id', $master->id)
                 ->whereIn('status', [
@@ -122,7 +124,7 @@ class BookingService
                 ->get()
                 ->contains(function (Appointment $existing) use ($startDateTime, $endDateTime) {
                     $existingEnd = $existing->start_time->copy()->addMinutes(
-                        $existing->service?->duration_minutes ?? 60
+                        $existing->duration ?? $existing->service?->duration_minutes ?? 60
                     );
 
                     return $startDateTime->lt($existingEnd) && $existing->start_time->lt($endDateTime);
@@ -150,20 +152,19 @@ class BookingService
             $appointment = Appointment::create([
                 'master_id' => $master->id,
                 'client_id' => $clientId,
-                'service_id' => $service->id,
-                'price' => $service->price,
-                'duration' => $service->duration_minutes,
-                'service_name' => $service->title,
+                'service_id' => $legacyServiceId,
+                'price' => $service->effective_price,
+                'duration' => $service->effective_duration,
+                'service_name' => $service->catalog?->title ?? '',
                 'start_time' => $startDateTime,
                 'status' => $appointmentStatus,
                 'provider' => $provider,
                 'source' => $source,
             ]);
 
-            // Черновики (clientId=null) не бродкастятся — мастер увидит только после подтверждения
             if ($clientId !== null) {
                 broadcast(new AppointmentCreated(
-                    $appointment->load(['client', 'service'])
+                    $appointment->load(['client'])
                 ));
             }
 
@@ -207,21 +208,48 @@ class BookingService
             ];
         }
 
+        $masterService = $this->resolveMasterService($master, $service);
+
         $appointment = $this->createAppointment(
             $master,
-            $service,
+            $masterService,
             $date,
             $time,
             'admin',
             $clientId,
             AppointmentStatus::Booked,
             AppointmentSource::Admin,
+            $service->id,
         );
 
         return [
             'success' => true,
             'appointment' => $appointment,
         ];
+    }
+
+    private function resolveMasterService(User $master, Service $service): MasterService
+    {
+        $catalog = $master->workspace
+            ? $master->workspace->serviceCatalog()->where('title', $service->title)->first()
+            : null;
+
+        if ($catalog) {
+            return MasterService::firstOrCreate(
+                ['master_id' => $master->id, 'catalog_id' => $catalog->id],
+                ['price_override' => null, 'duration_override' => null],
+            );
+        }
+
+        return new MasterService([
+            'master_id' => $master->id,
+            'catalog_id' => null,
+            'price_override' => $service->price,
+            'duration_override' => $service->duration_minutes,
+            'is_custom' => true,
+            'status' => 'approved',
+            'is_active' => true,
+        ]);
     }
 
     public function updateStatus(Appointment $appointment, AppointmentStatus $status): Appointment
@@ -232,9 +260,8 @@ class BookingService
     public function confirm(Appointment $appointment): Appointment
     {
         $master = $appointment->master;
-        $service = $appointment->service;
         $startDateTime = Carbon::parse($appointment->start_time);
-        $durationMinutes = $service->duration_minutes ?? 60;
+        $durationMinutes = $appointment->duration ?? $appointment->service?->duration_minutes ?? 60;
 
         $breakIntersection = $this->availabilityService->checkBreakIntersection(
             $master,
@@ -269,7 +296,7 @@ class BookingService
 
     public function validateSlot(
         User $master,
-        Service $service,
+        MasterService $service,
         string $date,
         string $time,
     ): bool {
@@ -278,7 +305,7 @@ class BookingService
         $check = $this->checkSlot(
             $master,
             $startDateTime,
-            $service->duration_minutes,
+            $service->effective_duration,
             'client',
         );
 
@@ -287,7 +314,7 @@ class BookingService
 
     public function getAvailableSlots(
         User $master,
-        ?Service $service,
+        ?MasterService $service,
         string $date,
     ): array {
         if (! $service) {
@@ -299,7 +326,7 @@ class BookingService
         return $this->availabilityService->getAvailableSlots(
             $master,
             $dateObj,
-            $service->duration_minutes,
+            $service->effective_duration,
         );
     }
 
@@ -328,13 +355,13 @@ class BookingService
                 $master = $originalMaster;
             }
 
-            $service = $locked->service;
+            $durationMinutes = $locked->duration ?? $locked->service?->duration_minutes ?? 60;
             $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
 
             $check = $this->checkSlot(
                 $master,
                 $startDateTime,
-                $service->duration_minutes,
+                $durationMinutes,
                 'master',
                 $confirmOutsideHours,
                 $locked->id,

@@ -23,9 +23,9 @@ class MasterServiceTableTest extends TestCase
         $this->assertTrue(Schema::hasColumns('master_service', [
             'id',
             'master_id',
-            'service_id',
-            'price',
-            'duration',
+            'catalog_id',
+            'price_override',
+            'duration_override',
             'is_active',
         ]));
     }
@@ -47,49 +47,55 @@ class MasterServiceTableTest extends TestCase
 
         $link = MasterService::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
-            'price' => 1500.00,
-            'duration' => 60,
+            'catalog_id' => null,
+            'price_override' => 1500.00,
+            'duration_override' => 60,
             'is_active' => true,
         ]);
 
         $this->assertNotNull($link->id);
-        $this->assertSame('1500.00', $link->price);
+        $this->assertSame('1500.00', $link->price_override);
         $this->assertTrue($link->is_active);
-        $this->assertSame(60, $link->duration);
+        $this->assertSame(60, $link->duration_override);
     }
 
     public function test_nullable_override_defaults(): void
     {
         $master = User::factory()->master()->create();
-        $service = Service::factory()->create(['user_id' => $master->id]);
 
         $link = MasterService::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
+            'catalog_id' => null,
             'is_active' => true,
         ]);
 
-        $this->assertNull($link->price);
-        $this->assertNull($link->duration);
+        $this->assertNull($link->price_override);
+        $this->assertNull($link->duration_override);
         $this->assertTrue($link->is_active);
     }
 
     public function test_unique_master_service(): void
     {
         $master = User::factory()->master()->create();
-        $service = Service::factory()->create(['user_id' => $master->id]);
+
+        $catalog = \App\Models\ServiceCatalog::create([
+            'workspace_id' => null,
+            'title' => 'Test Service',
+            'category' => 'general',
+            'base_price' => 1000.00,
+            'base_duration' => 60,
+        ]);
 
         MasterService::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
+            'catalog_id' => $catalog->id,
         ]);
 
         $this->expectException(\Illuminate\Database\QueryException::class);
 
         MasterService::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
+            'catalog_id' => $catalog->id,
         ]);
     }
 }

@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
 use App\Models\Client;
+use App\Models\MasterService;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -342,9 +343,14 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $masterService = MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => null,
+            'price_override' => 1000.00,
+            'duration_override' => 60,
+            'is_custom' => true,
+            'status' => 'approved',
+            'is_active' => true,
         ]);
 
         $tomorrow = $this->tomorrow10amMoscow()->copy()->startOfDay();
@@ -364,7 +370,7 @@ class BookingSlotTest extends TestCase
         // Day after tomorrow: 09:00 blocked (within multi-day block), 14:00 free (block ended)
         $slots = $this->bookingService->getAvailableSlots(
             $master,
-            $service,
+            $masterService,
             $dayAfter->toDateString(),
         );
 
