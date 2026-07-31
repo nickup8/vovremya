@@ -827,6 +827,11 @@ class TelegramWebhookHandler extends WebhookHandler
                 'address' => null,
             ]);
 
+            if (! $user->workspace_id) {
+                app(\App\Services\WorkspaceService::class)->createForUser($user);
+                $user->refresh();
+            }
+
             Log::info('[TG] handleAuthContact: user created', ['user_id' => $user->id]);
         } else {
             $updates = [];

@@ -465,6 +465,11 @@ class MaxWebhookHandler
                     'master_slug' => $slug,
                 ]);
 
+                if (! $user->workspace_id) {
+                    app(\App\Services\WorkspaceService::class)->createForUser($user);
+                    $user->refresh();
+                }
+
                 Log::info('[MAX] handleAuthContact: user created', ['user_id' => $user->id]);
             } catch (UniqueConstraintViolationException $e) {
                 Log::info('[MAX] handleAuthContact: user already created by parallel request');
