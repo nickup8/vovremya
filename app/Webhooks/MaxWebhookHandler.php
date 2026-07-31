@@ -142,6 +142,7 @@ class MaxWebhookHandler
 
                 $user->update($updateData);
                 $user->role = $invite->role ?? UserRole::Master;
+                $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
                 $user->save();
 
                 $invite->delete();
@@ -242,6 +243,7 @@ class MaxWebhookHandler
                             'workspace_id' => $invite->workspace_id,
                         ]);
                         $user->role = $invite->role ?? UserRole::Master;
+                        $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
                         $user->save();
 
                         $invite->delete();

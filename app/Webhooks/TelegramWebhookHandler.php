@@ -568,6 +568,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 'workspace_id' => $invite->workspace_id,
             ]);
             $user->role = $invite->role ?? UserRole::Master;
+            $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
             $user->save();
 
             Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
@@ -590,6 +591,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
             $user->update($updateData);
             $user->role = $invite->role ?? UserRole::Master;
+            $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
             $user->save();
 
             if ($oldWorkspaceId && $oldWorkspaceId !== $invite->workspace_id) {

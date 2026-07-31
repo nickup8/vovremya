@@ -82,6 +82,7 @@ class WorkspaceService
 
         $user->workspace_id = $workspace->id;
         $user->role = UserRole::Owner;
+        $user->is_service_provider = $user->is_master;
         $user->save();
 
         return $workspace;

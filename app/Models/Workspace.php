@@ -119,6 +119,30 @@ class Workspace extends Model
     }
 
     /**
+     * Количество провайдеров (is_service_provider=true), занимающих место в тарифе.
+     */
+    public function providersCount(): int
+    {
+        return $this->users()->where('is_service_provider', true)->count();
+    }
+
+    /**
+     * Максимум мест провайдеров по тарифу (используем max_masters). Без подписки — START_MAX_MASTERS.
+     */
+    public function maxProviders(): int
+    {
+        return $this->maxMasters();
+    }
+
+    /**
+     * Можно ли добавить ещё одного провайдера.
+     */
+    public function canAddProvider(): bool
+    {
+        return $this->providersCount() < $this->maxProviders();
+    }
+
+    /**
      * Гарантирует наличие уникального slug для студии.
      * Если slug пустой — генерирует из name, проверяя коллизии.
      */
