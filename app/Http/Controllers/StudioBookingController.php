@@ -3,7 +3,6 @@
 namespace App\Http\Controllers;
 
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
@@ -109,21 +108,24 @@ class StudioBookingController extends Controller
 
         $masterIds = $masters->pluck('id');
 
-        $services = Service::whereIn('user_id', $masterIds)
-            ->where('title', $serviceTitle)
+        $masterServices = MasterService::whereIn('master_id', $masterIds)
+            ->where('is_active', true)
+            ->whereHas('catalog', fn ($q) => $q->where('title', $serviceTitle))
+            ->with('catalog')
             ->get()
-            ->keyBy('user_id');
+            ->keyBy('master_id');
 
-        $mastersWithService = $masters->filter(fn ($master) => $services->has($master->id))
+        $mastersWithService = $masters
+            ->filter(fn ($master) => $masterServices->has($master->id))
             ->map(fn ($master) => [
                 'id' => $master->id,
                 'name' => $master->name,
                 'master_slug' => $master->master_slug,
                 'avatar_url' => $master->avatar_url,
                 'specialty' => $master->specialty,
-                'price' => (float) $services[$master->id]->price,
-                'duration_minutes' => (int) $services[$master->id]->duration_minutes,
-                'service_id' => $services[$master->id]->id,
+                'price' => (float) $masterServices[$master->id]->effective_price,
+                'duration_minutes' => (int) $masterServices[$master->id]->effective_duration,
+                'service_id' => $masterServices[$master->id]->id,
             ])
             ->values();
 
