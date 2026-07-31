@@ -231,7 +231,7 @@ class SettingsController extends Controller
 
         unset($validated['master_id']);
 
-        $targetMaster->services()->create($validated);
+        app(\App\Services\CreateServiceAction::class)->execute($targetMaster, $validated);
 
         return back()->with('success', 'Услуга добавлена');
     }
