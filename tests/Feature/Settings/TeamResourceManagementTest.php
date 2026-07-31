@@ -3,9 +3,11 @@
 namespace Tests\Feature\Settings;
 
 use App\Models\BlockedTime;
+use App\Models\MasterService;
 use App\Models\Service;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\CreateServiceAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -128,9 +130,11 @@ class TeamResourceManagementTest extends TestCase
     public function test_admin_updates_staff1s_service(): void
     {
         $service = Service::factory()->create(['user_id' => $this->staff1->id]);
+        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
+        $masterService = MasterService::where('master_id', $this->staff1->id)->first();
 
         $response = $this->actingAs($this->adminA)
-            ->put("/admin/services/{$service->id}", [
+            ->put("/admin/services/{$masterService->id}", [
                 'title' => 'Обновлённая стрижка',
                 'duration_minutes' => 60,
                 'price' => 1200,
@@ -170,9 +174,11 @@ class TeamResourceManagementTest extends TestCase
     public function test_admin_cannot_update_service_from_other_workspace(): void
     {
         $service = Service::factory()->create(['user_id' => $this->masterB->id]);
+        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
+        $masterService = MasterService::where('master_id', $this->masterB->id)->first();
 
         $response = $this->actingAs($this->adminA)
-            ->put("/admin/services/{$service->id}", [
+            ->put("/admin/services/{$masterService->id}", [
                 'title' => 'Hacked',
                 'duration_minutes' => 30,
                 'price' => 0,

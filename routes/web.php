@@ -124,7 +124,7 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/admin/settings/avatar', [SettingsController::class, 'destroyAvatar'])->name('admin.settings.avatar.destroy');
 
     Route::post('/admin/services', [SettingsController::class, 'storeService'])->name('admin.services.store');
-    Route::put('/admin/services/{service}', [SettingsController::class, 'updateService'])->name('admin.services.update');
+    Route::put('/admin/services/{masterService}', [SettingsController::class, 'updateService'])->name('admin.services.update');
     Route::delete('/admin/services/{service}', [SettingsController::class, 'destroyService'])->name('admin.services.destroy');
 
     Route::put('/admin/working-hours', [SettingsController::class, 'updateWorkingHours'])->name('admin.working-hours.update');

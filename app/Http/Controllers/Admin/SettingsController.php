@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\BlockedTimeReason;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedTime;
+use App\Models\MasterService;
 use App\Models\Service;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
@@ -245,17 +246,38 @@ class SettingsController extends Controller
         return back()->with('success', 'Услуга добавлена');
     }
 
-    public function updateService(Request $request, Service $service)
+    public function updateService(Request $request, MasterService $masterService)
     {
-        $this->authorize('update', $service);
+        $user = auth()->user();
+        $isOwner = $masterService->master_id === $user->id;
+        $isWorkspaceAdmin = $user->workspace_id
+            && $masterService->master->workspace_id === $user->workspace_id
+            && $user->role->canManageTeam();
+
+        abort_unless($isOwner || $isWorkspaceAdmin || $user->is_super_admin, 403);
 
         $validated = $request->validate([
-            'title' => 'required|string|max:255',
+            'title'            => 'required|string|max:255',
             'duration_minutes' => 'required|integer|min:1',
-            'price' => 'required|numeric|min:0',
+            'price'            => 'required|numeric|min:0',
         ]);
 
-        $service->update($validated);
+        $oldTitle = $masterService->catalog?->title;
+
+        if ($oldTitle !== null) {
+            Service::where('user_id', $masterService->master_id)
+                ->where('title', $oldTitle)
+                ->update([
+                    'title'            => $validated['title'],
+                    'price'            => $validated['price'],
+                    'duration_minutes' => $validated['duration_minutes'],
+                ]);
+        }
+
+        $masterService->update([
+            'price_override'    => $validated['price'],
+            'duration_override' => $validated['duration_minutes'],
+        ]);
 
         return back()->with('success', 'Услуга обновлена');
     }
