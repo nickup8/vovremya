@@ -21,21 +21,6 @@ class HandleInertiaRequests extends Middleware
 
     public function handle(Request $request, \Closure $next): mixed
     {
-        $user = $request->user();
-
-        if ($user && $user->isBlocked()) {
-            Log::warning('Blocked user force-logged out', ['user_id' => $user->id, 'ip' => $request->ip()]);
-            Auth::logout();
-            $request->session()->invalidate();
-            $request->session()->regenerateToken();
-
-            if ($request->expectsInertia()) {
-                return inertia()->location(route('auth.choose'));
-            }
-
-            return new RedirectResponse(route('auth.choose'));
-        }
-
         return parent::handle($request, $next);
     }
 

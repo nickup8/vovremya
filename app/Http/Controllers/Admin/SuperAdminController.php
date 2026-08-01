@@ -117,7 +117,13 @@ class SuperAdminController extends Controller
 
     public function blockUser(User $user): RedirectResponse
     {
-        $user->update(['is_blocked' => ! $user->is_blocked]);
+        $wasBlocked = $user->is_blocked;
+        $user->update(['is_blocked' => ! $wasBlocked]);
+
+        // При блокировке — уничтожить активные сессии забаненного (мгновенный вылет)
+        if (! $wasBlocked && $user->is_blocked) {
+            DB::table('sessions')->where('user_id', $user->id)->delete();
+        }
 
         Log::info('Super admin blocked/unblocked user', [
             'admin_id' => auth()->id(),
