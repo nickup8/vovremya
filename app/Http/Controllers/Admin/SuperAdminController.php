@@ -118,7 +118,8 @@ class SuperAdminController extends Controller
     public function blockUser(User $user): RedirectResponse
     {
         $wasBlocked = $user->is_blocked;
-        $user->update(['is_blocked' => ! $wasBlocked]);
+        $user->is_blocked = ! $wasBlocked;
+        $user->save();
 
         // При блокировке — уничтожить активные сессии забаненного (мгновенный вылет)
         if (! $wasBlocked && $user->is_blocked) {

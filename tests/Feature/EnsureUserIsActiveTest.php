@@ -4,6 +4,7 @@ namespace Tests\Feature;
 
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class EnsureUserIsActiveTest extends TestCase
@@ -83,5 +84,60 @@ class EnsureUserIsActiveTest extends TestCase
 
         $this->actingAs($user, 'web')->get('/admin/calendar');
         $this->assertGuest();
+    }
+
+    public function test_block_user_writes_is_blocked_via_mass_assignment(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $target = User::factory()->master()->create(['is_blocked' => false]);
+
+        $response = $this->actingAs($admin)->post("/admin-root/users/{$target->id}/block");
+
+        $response->assertRedirect();
+        $this->assertTrue($target->fresh()->is_blocked, 'blockUser must write is_blocked via mass-assignment');
+    }
+
+    public function test_block_user_toggle_back(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $target = User::factory()->master()->create(['is_blocked' => false]);
+
+        // Block
+        $this->actingAs($admin)->post("/admin-root/users/{$target->id}/block");
+        $this->assertTrue($target->fresh()->is_blocked);
+
+        // Unblock
+        $this->actingAs($admin)->post("/admin-root/users/{$target->id}/block");
+        $this->assertFalse($target->fresh()->is_blocked);
+    }
+
+    public function test_block_user_destroys_sessions_on_ban(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $target = User::factory()->master()->create(['is_blocked' => false]);
+
+        // Insert fake session row for target
+        DB::table('sessions')->insert([
+            'id' => 'test-session-' . $target->id,
+            'user_id' => $target->id,
+            'ip_address' => '127.0.0.1',
+            'user_agent' => 'test',
+            'payload' => '',
+            'last_activity' => time(),
+        ]);
+        $this->assertDatabaseHas('sessions', ['user_id' => $target->id]);
+
+        // Block → sessions must be deleted
+        $this->actingAs($admin)->post("/admin-root/users/{$target->id}/block");
+        $this->assertDatabaseMissing('sessions', ['user_id' => $target->id]);
+    }
+
+    public function test_update_is_blocked_directly_works(): void
+    {
+        $user = User::factory()->master()->create(['is_blocked' => false]);
+
+        $user->update(['is_blocked' => true]);
+
+        $this->assertTrue($user->fresh()->is_blocked, 'update() must write is_blocked to DB (fillable regression test)');
     }
 }

@@ -48,7 +48,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 #[Fillable([
     'name', 'email', 'password', 'phone',
     'telegram_id', 'telegram_chat_id', 'telegram_auth_token', 'max_id', 'vk_id', 'vk_chat_id', 'avatar_url',
-    'is_master', 'is_bookable', 'is_service_provider', 'admin_can_see_finance',
+    'is_master', 'is_bookable', 'is_service_provider', 'is_blocked', 'admin_can_see_finance',
     'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
