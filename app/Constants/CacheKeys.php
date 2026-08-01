@@ -14,6 +14,8 @@ class CacheKeys
 
     public const MAX_BOOKING_DRAFT = 'max_booking_draft_';
 
+    public const MAX_INVITE_TOKEN = 'max_invite_token_';
+
     public const MAX_AUTH = 'max_auth:';
 
     public const BOT_PENDING = 'bot_pending:';
