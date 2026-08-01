@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\CalendarApiController;
 use App\Http\Controllers\Admin\CalendarController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\PaymentController;
+use App\Http\Controllers\Admin\ServiceCatalogController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Admin\TeamController;
@@ -126,6 +127,11 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/services', [SettingsController::class, 'storeService'])->name('admin.services.store');
     Route::put('/admin/services/{masterService}', [SettingsController::class, 'updateService'])->name('admin.services.update');
     Route::delete('/admin/services/{service}', [SettingsController::class, 'destroyService'])->name('admin.services.destroy');
+
+    Route::get('/admin/catalog', [ServiceCatalogController::class, 'index'])->name('admin.catalog.index');
+    Route::post('/admin/catalog', [ServiceCatalogController::class, 'store'])->name('admin.catalog.store');
+    Route::put('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'update'])->name('admin.catalog.update');
+    Route::delete('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'destroy'])->name('admin.catalog.destroy');
 
     Route::put('/admin/working-hours', [SettingsController::class, 'updateWorkingHours'])->name('admin.working-hours.update');
     Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');

@@ -88,6 +88,7 @@ class HandleInertiaRequests extends Middleware
                     'tariff_name' => $tariffName,
                     'max_masters' => $maxMasters ?? 0,
                     'is_solo' => $user->isSolo(),
+                    'can_manage_team' => $user->role->canManageTeam(),
                     'can_manage_billing' => $user->role->canManageBilling(),
                 ] : null,
             ],

@@ -1,6 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import {
-    CalendarDays, Users, BarChart3, Settings, RefreshCw, X, LogOut, UserPlus,
+    CalendarDays, Users, BarChart3, Settings, RefreshCw, X, LogOut, UserPlus, BookOpen,
 } from 'lucide-react';
 
 const MENU_ITEMS = [
@@ -9,6 +9,7 @@ const MENU_ITEMS = [
     { icon: UserPlus, label: 'Команда', href: '/admin/team' },
     { icon: BarChart3, label: 'Аналитика', href: '/admin/analytics' },
     { icon: Settings, label: 'Настройки профиля', href: '/admin/settings' },
+    { icon: BookOpen, label: 'Каталог услуг', href: '/admin/catalog', ownerOnly: true },
 ];
 
 interface SidebarProps {
@@ -20,9 +21,11 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     const { url, props } = usePage();
     const tariffName = (props as { auth?: { user?: { tariff_name?: string } } })?.auth?.user?.tariff_name || 'Free';
     const maxMasters = (props as { auth?: { user?: { max_masters?: number } } })?.auth?.user?.max_masters ?? 0;
+    const canManageTeam = (props as { auth?: { user?: { can_manage_team?: boolean } } })?.auth?.user?.can_manage_team ?? false;
 
     const visibleMenuItems = MENU_ITEMS.filter(
-        (item) => item.label !== 'Команда' || maxMasters > 1,
+        (item) => (item.label !== 'Команда' || maxMasters > 1)
+            && (!(item as { ownerOnly?: boolean }).ownerOnly || canManageTeam),
     );
 
     function handleLogout() {
