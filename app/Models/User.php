@@ -114,6 +114,27 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasMany(WorkingHour::class);
     }
 
+    public function createDefaultWorkingHours(): void
+    {
+        if ($this->workingHours()->exists()) {
+            return;
+        }
+
+        $defaults = [
+            0 => ['is_working' => false, 'start_time' => null, 'end_time' => null, 'break_start_time' => null, 'break_end_time' => null],
+            1 => ['is_working' => true, 'start_time' => '09:00', 'end_time' => '18:00', 'break_start_time' => '13:00', 'break_end_time' => '14:00'],
+            2 => ['is_working' => true, 'start_time' => '09:00', 'end_time' => '18:00', 'break_start_time' => '13:00', 'break_end_time' => '14:00'],
+            3 => ['is_working' => true, 'start_time' => '09:00', 'end_time' => '18:00', 'break_start_time' => '13:00', 'break_end_time' => '14:00'],
+            4 => ['is_working' => true, 'start_time' => '09:00', 'end_time' => '18:00', 'break_start_time' => '13:00', 'break_end_time' => '14:00'],
+            5 => ['is_working' => true, 'start_time' => '09:00', 'end_time' => '18:00', 'break_start_time' => '13:00', 'break_end_time' => '14:00'],
+            6 => ['is_working' => true, 'start_time' => '10:00', 'end_time' => '15:00', 'break_start_time' => null, 'break_end_time' => null],
+        ];
+
+        foreach ($defaults as $dayOfWeek => $data) {
+            $this->workingHours()->create(array_merge(['day_of_week' => $dayOfWeek], $data));
+        }
+    }
+
     public function blockedTimes(): HasMany
     {
         return $this->hasMany(BlockedTime::class);
