@@ -239,6 +239,11 @@ class SettingsController extends Controller
             $targetMaster = $user;
         }
 
+        $isOwner = $targetMaster->id === $user->id;
+        $isWorkspaceAdmin = $isAdminOrOwner
+            && $targetMaster->workspace_id === $user->workspace_id;
+        abort_unless($isOwner || $isWorkspaceAdmin || $user->is_super_admin, 403);
+
         unset($validated['master_id']);
 
         app(\App\Services\CreateServiceAction::class)->execute($targetMaster, $validated);

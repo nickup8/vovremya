@@ -69,6 +69,8 @@ class ClientController extends Controller
 
     public function store(Request $request)
     {
+        $this->authorize('create', Client::class);
+
         $master = auth()->user();
 
         $validated = $request->validate([

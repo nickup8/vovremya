@@ -24,6 +24,11 @@ class ClientPolicy
         return null;
     }
 
+    public function create(User $user): bool
+    {
+        return true;
+    }
+
     public function view(User $user, Client $client): bool
     {
         if ($client->workspace_id !== null) {
