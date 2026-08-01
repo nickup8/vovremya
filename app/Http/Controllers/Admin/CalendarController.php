@@ -153,6 +153,10 @@ class CalendarController extends Controller
                     'reason' => $bt->reason->value,
                 ]);
 
+            if ($master->is_master && $master->workingHours()->doesntExist()) {
+                $master->createDefaultWorkingHours();
+            }
+
             $workingHours = $master->workingHours()->get();
 
             $clients = Client::forWorkspaceOrMaster($master)
@@ -178,11 +182,13 @@ class CalendarController extends Controller
             $timezoneConfirmed = $master->isTimezoneConfirmed();
         }
 
-        $masters = [];
+        $masters = collect();
         if ($master->role->canManageTeam()) {
             $masters = $master->workspace
                 ? $master->workspace->users()->where('is_master', true)->select('id', 'name')->get()
-                : [];
+                : collect();
+        } else {
+            $masters = collect([['id' => $master->id, 'name' => $master->name]]);
         }
 
         return Inertia::render('admin/calendar', [
