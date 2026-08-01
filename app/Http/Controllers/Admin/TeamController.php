@@ -55,6 +55,8 @@ class TeamController extends Controller
         return Inertia::render('admin/team', [
             'masters' => $masters,
             'max_masters' => $maxMasters,
+            'providers_count' => $workspace->providersCount(),
+            'can_add_provider' => $workspace->canAddProvider(),
             'can_manage_team' => $user->role->canManageTeam(),
             'can_invite_admins' => $user->role->canInviteAdmins(),
         ]);

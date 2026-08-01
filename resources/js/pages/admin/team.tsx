@@ -32,6 +32,8 @@ interface Master {
 interface TeamPageProps extends PageProps {
     masters: Master[];
     max_masters: number | null;
+    providers_count: number;
+    can_add_provider: boolean;
     can_manage_team: boolean;
     can_invite_admins: boolean;
 }
@@ -167,7 +169,7 @@ function MasterCard({
 /* ═══════════════ Main Team Page ═══════════════ */
 
 export default function TeamPage() {
-    const { masters, max_masters, can_manage_team, can_invite_admins, auth } = usePage<TeamPageProps>().props;
+    const { masters, max_masters, providers_count, can_add_provider, can_manage_team, can_invite_admins, auth } = usePage<TeamPageProps>().props;
     const [inviteDialogOpen, setInviteDialogOpen] = useState(false);
     const [inviteLink, setInviteLink] = useState('');
     const [inviteRole, setInviteRole] = useState<'master' | 'admin'>('master');
@@ -177,9 +179,9 @@ export default function TeamPage() {
     const [detachTargetId, setDetachTargetId] = useState<string>('');
     const [detachLoading, setDetachLoading] = useState(false);
 
-    const currentCount = masters.length;
+    const currentCount = providers_count;
     const hasLimit = max_masters !== null && max_masters !== undefined;
-    const isLimitReached = hasLimit && currentCount >= max_masters!;
+    const isLimitReached = hasLimit && !can_add_provider;
 
     const receivers = detachTarget
         ? masters.filter((m) => m.id !== detachTarget.id)
@@ -304,20 +306,27 @@ export default function TeamPage() {
                                         {currentCount}
                                         <span className="text-slate-400 dark:text-zinc-500"> / {max_masters}</span>
                                     </span>
-                                    <span className="text-xs text-slate-400 dark:text-zinc-500">мастеров</span>
+                                    <span className="text-xs text-slate-400 dark:text-zinc-500">мест</span>
                                 </div>
                             )}
                         </div>
 
                         {currentCount > 0 && (
-                            <Button
-                                onClick={handleOpenInvite}
-                                disabled={isLimitReached}
-                                className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl disabled:opacity-50 disabled:shadow-none"
-                            >
-                                <UserPlus className="size-4" />
-                                Пригласить мастера
-                            </Button>
+                            <div>
+                                <Button
+                                    onClick={handleOpenInvite}
+                                    disabled={isLimitReached}
+                                    className="rounded-xl bg-gradient-to-r from-blue-600 to-indigo-600 px-4 py-2 text-sm font-semibold text-white shadow-lg shadow-blue-500/25 transition-all hover:from-blue-700 hover:to-indigo-700 hover:shadow-xl disabled:opacity-50 disabled:shadow-none"
+                                >
+                                    <UserPlus className="size-4" />
+                                    Пригласить мастера
+                                </Button>
+                                {isLimitReached && (
+                                    <p className="mt-1 text-xs text-amber-600 dark:text-amber-400">
+                                        Достигнут лимит мест ({max_masters}). Повысьте тариф, чтобы пригласить больше участников.
+                                    </p>
+                                )}
+                            </div>
                         )}
                     </div>
 
