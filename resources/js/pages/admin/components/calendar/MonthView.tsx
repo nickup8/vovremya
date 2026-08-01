@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { AppointmentStatus } from '@/types/appointment-status';
-import { Appointment } from './types';
+import type { Appointment } from './types';
 import { DAY_NAMES, STATUS_STYLES } from './constants';
 import { dateToKey, isSameDay, getMonthGrid } from './helpers';
 

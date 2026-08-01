@@ -37,6 +37,7 @@ const safeGetItem = (key: string): string | null => {
     } catch {
         // localStorage недоступен (sandbox / incognito)
     }
+
     return null;
 };
 

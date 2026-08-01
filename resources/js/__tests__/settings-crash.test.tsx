@@ -72,6 +72,7 @@ describe.skip('admin/settings.tsx — resilience to broken data', () => {
         const inputs = document.querySelectorAll('input');
         inputs.forEach((input) => {
             const value = input.getAttribute('value');
+
             if (value !== null) {
                 expect(value).not.toContain('undefined');
             }

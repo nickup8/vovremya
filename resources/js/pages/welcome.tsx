@@ -20,6 +20,7 @@ function Glow({ className = '' }: { className?: string }) {
 function ThemeToggle({ className = '' }: { className?: string }) {
     const { resolvedAppearance, updateAppearance } = useAppearance();
     const isDark = resolvedAppearance === 'dark';
+
     return (
         <button
             onClick={() => updateAppearance(isDark ? 'light' : 'dark')}
@@ -319,6 +320,7 @@ function MasterAsClient() {
 
     useEffect(() => {
         const id = setInterval(() => setMode((m) => (m === 'b2b' ? 'b2c' : 'b2b')), 4000);
+
         return () => clearInterval(id);
     }, []);
 

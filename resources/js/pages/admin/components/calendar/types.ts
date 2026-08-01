@@ -1,4 +1,4 @@
-import { AppointmentStatus } from '@/types/appointment-status';
+import type { AppointmentStatus } from '@/types/appointment-status';
 
 export interface Appointment {
     id: string;

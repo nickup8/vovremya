@@ -103,6 +103,7 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                                 ? `${s.title} — ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`
                                                 : (() => {
                                                     const mn = masterNameMap.get(s.user_id) ?? '';
+
                                                     return `${s.title}${mn ? ` — ${mn}` : ''} · ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`;
                                                 })();
 

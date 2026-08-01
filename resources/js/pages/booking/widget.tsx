@@ -52,12 +52,24 @@ function getMonthGrid(year: number, month: number) {
     const daysInMonth = lastDay.getDate();
 
     let startOffset = firstDay.getDay() - 1;
-    if (startOffset < 0) startOffset = 6;
+
+    if (startOffset < 0) {
+startOffset = 6;
+}
 
     const cells: (Date | null)[] = [];
-    for (let i = 0; i < startOffset; i++) cells.push(null);
-    for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
-    while (cells.length % 7 !== 0) cells.push(null);
+
+    for (let i = 0; i < startOffset; i++) {
+cells.push(null);
+}
+
+    for (let d = 1; d <= daysInMonth; d++) {
+cells.push(new Date(year, month, d));
+}
+
+    while (cells.length % 7 !== 0) {
+cells.push(null);
+}
 
     return cells;
 }
@@ -66,6 +78,7 @@ function formatDateKey(d: Date): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
+
     return `${y}-${m}-${day}`;
 }
 
@@ -146,6 +159,7 @@ function StepServices({
             <div className="space-y-2 px-5">
                 {services.map((service) => {
                     const isActive = selected?.id === service.id;
+
                     return (
                         <button
                             key={service.id}
@@ -215,6 +229,7 @@ function StepDate({
 
     const isPast = (d: Date) => {
         const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
+
         return d < t;
     };
 
@@ -224,13 +239,19 @@ function StepDate({
         selectedDate?.toDateString() === d.toDateString();
 
     function prevMonth() {
-        if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); }
-        else { setViewMonth((m) => m - 1); }
+        if (viewMonth === 0) {
+ setViewMonth(11); setViewYear((y) => y - 1); 
+} else {
+ setViewMonth((m) => m - 1); 
+}
     }
 
     function nextMonth() {
-        if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); }
-        else { setViewMonth((m) => m + 1); }
+        if (viewMonth === 11) {
+ setViewMonth(0); setViewYear((y) => y + 1); 
+} else {
+ setViewMonth((m) => m + 1); 
+}
     }
 
     return (
@@ -278,7 +299,9 @@ function StepDate({
                         </div>
                     )}
                     {!loadingDates && cells.map((d, i) => {
-                        if (!d) return <div key={`empty-${i}`} />;
+                        if (!d) {
+return <div key={`empty-${i}`} />;
+}
 
                         const past = isPast(d);
                         const available = isAvailable(d);
@@ -354,6 +377,7 @@ function StepTime({
                     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                         {availableSlots.map((t) => {
                             const active = selectedTime === t;
+
                             return (
                                 <button
                                     key={t}
@@ -534,18 +558,22 @@ export default function Widget() {
         if (studioSlug) {
             return `/studio/${studioSlug}`;
         }
+
         return `/book/${master.master_slug}`;
     }
 
     function buildUrlWithParams(extraParams: Record<string, string>): string {
         const base = getBaseUrl();
         const params = new URLSearchParams(extraParams);
+
         if (studioSlug) {
             params.set('master', master.master_slug);
+
             if (studioService) {
                 params.set('service', studioService);
             }
         }
+
         return `${base}?${params.toString()}`;
     }
 
@@ -584,15 +612,21 @@ export default function Widget() {
     }
 
     function handleNext() {
-        if (step < TOTAL_STEPS) setStep((s) => (s + 1) as Step);
+        if (step < TOTAL_STEPS) {
+setStep((s) => (s + 1) as Step);
+}
     }
 
     function handleBack() {
-        if (step > 1) setStep((s) => (s - 1) as Step);
+        if (step > 1) {
+setStep((s) => (s - 1) as Step);
+}
     }
 
     async function handleSubmit(provider: 'telegram' | 'max') {
-        if (!selectedService || !selectedDate || !selectedTime || loadingProvider) return;
+        if (!selectedService || !selectedDate || !selectedTime || loadingProvider) {
+return;
+}
 
         setLoadingProvider(provider);
         setErrors({});
@@ -624,7 +658,9 @@ export default function Widget() {
                 } else {
                     setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
                 }
+
                 setLoadingProvider(null);
+
                 return;
             }
 

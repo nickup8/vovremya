@@ -189,6 +189,7 @@ export default function TeamPage() {
 
     async function handleGenerateInvite() {
         setLoading(true);
+
         try {
             const response = await fetch('/admin/team/invite', {
                 method: 'POST',
@@ -261,11 +262,14 @@ export default function TeamPage() {
     }
 
     function handleDetach() {
-        if (!detachTarget) return;
+        if (!detachTarget) {
+return;
+}
 
         setDetachLoading(true);
 
         const payload: Record<string, string> = {};
+
         if (detachTarget.has_future_appointments && detachTargetId) {
             payload.target_master_id = detachTargetId;
         }

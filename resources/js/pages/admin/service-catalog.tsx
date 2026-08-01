@@ -204,8 +204,13 @@ export default function ServiceCatalogPage() {
     const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
 
     useEffect(() => {
-        if (flash?.success) toast.success(flash.success);
-        if (flash?.error) toast.error(flash.error);
+        if (flash?.success) {
+toast.success(flash.success);
+}
+
+        if (flash?.error) {
+toast.error(flash.error);
+}
     }, [flash?.success, flash?.error]);
 
     const handleAdd = () => {

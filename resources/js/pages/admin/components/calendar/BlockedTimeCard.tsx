@@ -1,4 +1,4 @@
-import { BlockedTime } from './types';
+import type { BlockedTime } from './types';
 import { MINUTE_HEIGHT } from './constants';
 import { timeToMinutes } from './helpers';
 

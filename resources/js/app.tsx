@@ -1,9 +1,9 @@
 import { createInertiaApp } from '@inertiajs/react';
+import { configureEcho } from '@laravel/echo-react';
+import axios from 'axios';
 import { TooltipProvider } from '@/components/ui/tooltip';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { initializeTheme } from '@/hooks/use-appearance';
-import { configureEcho } from '@laravel/echo-react';
-import axios from 'axios';
 
 // Ensure cookies are sent with every request (session, XSRF-TOKEN)
 axios.defaults.withCredentials = true;

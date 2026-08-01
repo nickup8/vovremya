@@ -1,8 +1,9 @@
 import { MONTHS_RU_GENITIVE } from '@/lib/locale';
-import { Appointment } from './types';
+import type { Appointment } from './types';
 
 export function timeToMinutes(t: string): number {
     const [h, m] = t.split(':').map(Number);
+
     return h * 60 + m;
 }
 
@@ -10,6 +11,7 @@ export function getEndTime(time: string, duration: number): string {
     const total = timeToMinutes(time) + duration;
     const h = Math.floor(total / 60);
     const m = total % 60;
+
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
@@ -18,9 +20,11 @@ export function getWeekDates(center: Date): Date[] {
     const day = start.getDay();
     const diff = day === 0 ? -6 : 1 - day;
     start.setDate(start.getDate() + diff);
+
     return Array.from({ length: 7 }, (_, i) => {
         const d = new Date(start);
         d.setDate(d.getDate() + i);
+
         return d;
     });
 }
@@ -28,9 +32,11 @@ export function getWeekDates(center: Date): Date[] {
 export function formatDateRange(dates: Date[]): string {
     const first = dates[0];
     const last = dates[6];
+
     if (first.getMonth() === last.getMonth()) {
         return `${first.getDate()} – ${last.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]} ${first.getFullYear()}`;
     }
+
     return `${first.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]} – ${last.getDate()} ${MONTHS_RU_GENITIVE[last.getMonth()]} ${first.getFullYear()}`;
 }
 
@@ -45,10 +51,15 @@ export function isSameDay(a: Date, b: Date): boolean {
 export function hasCollision(date: string, startTime: string, durationMinutes: number, appointments: Appointment[]): boolean {
     const start = timeToMinutes(startTime);
     const end = start + durationMinutes;
+
     return appointments.some((a) => {
-        if (a.date !== date) return false;
+        if (a.date !== date) {
+return false;
+}
+
         const aStart = timeToMinutes(a.time);
         const aEnd = aStart + a.duration;
+
         return start < aEnd && end > aStart;
     });
 }
@@ -61,9 +72,14 @@ export function formatGmtOffset(timezone: string): string {
         }).formatToParts(new Date());
         const tzName = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
         const match = tzName.match(/([+-]\d{1,2})(?::?(\d{2}))?/);
-        if (!match) return 'GMT';
+
+        if (!match) {
+return 'GMT';
+}
+
         const hours = parseInt(match[1], 10);
         const mins = match[2] && match[2] !== '00' ? ':' + match[2] : '';
+
         return `GMT${hours >= 0 ? '+' : ''}${hours}${mins}`;
     } catch {
         return 'GMT';
@@ -72,11 +88,14 @@ export function formatGmtOffset(timezone: string): string {
 
 export function masterColor(masterId: string): string {
     let hash = 0;
+
     for (let i = 0; i < masterId.length; i++) {
         hash = masterId.charCodeAt(i) + ((hash << 5) - hash);
         hash |= 0;
     }
+
     const hue = Math.abs(hash) % 360;
+
     return `hsl(${hue}, 65%, 50%)`;
 }
 
@@ -95,6 +114,7 @@ export function getMonthGrid(center: Date): Date[] {
     return Array.from({ length: totalCells }, (_, i) => {
         const d = new Date(gridStart);
         d.setDate(d.getDate() + i);
+
         return d;
     });
 }

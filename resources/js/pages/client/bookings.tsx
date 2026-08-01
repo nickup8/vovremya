@@ -54,6 +54,7 @@ const STATUS_LABELS: Record<AppointmentStatus, string> = {
 
 function formatDate(dateStr: string): string {
     const d = new Date(dateStr);
+
     return d.toLocaleDateString('ru-RU', { day: 'numeric', month: 'long' });
 }
 
@@ -86,7 +87,10 @@ export default function Bookings() {
     const cancelTarget = initialAppointments.find((v) => v.id === cancelId);
 
     function confirmCancel() {
-        if (!cancelId || isProcessing) return;
+        if (!cancelId || isProcessing) {
+return;
+}
+
         setIsProcessing(true);
         router.patch(`/client/my-bookings/appointments/${cancelId}/cancel`, {}, {
             preserveScroll: true,

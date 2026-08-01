@@ -134,8 +134,10 @@ function AvatarCropModal({
             image.onload = () => {
                 const canvas = document.createElement('canvas');
                 const ctx = canvas.getContext('2d');
+
                 if (!ctx) {
                     reject(new Error('Canvas context error'));
+
                     return;
                 }
 
@@ -158,8 +160,10 @@ function AvatarCropModal({
                     (blob) => {
                         if (!blob) {
                             reject(new Error('Canvas пустой'));
+
                             return;
                         }
+
                         const file = new File([blob], 'avatar.jpg', {
                             type: 'image/jpeg',
                         });
@@ -176,7 +180,9 @@ function AvatarCropModal({
     };
 
     const handleApplyCrop = async () => {
-        if (!imageSrc || !croppedAreaPixels) return;
+        if (!imageSrc || !croppedAreaPixels) {
+return;
+}
 
         try {
             setUploading(true);
@@ -323,6 +329,7 @@ function ServiceModal({
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         const payload = masterId ? { ...form.data, master_id: masterId } : form.data;
+
         if (service) {
             router.put(`/admin/services/${service.id}`, payload, {
                 preserveScroll: true,
@@ -451,6 +458,7 @@ const carbonToUi = (carbonDow: number) => (carbonDow + 6) % 7;
 
 function buildHours(workingHours: WorkingHour[]): WorkingHour[] {
     const hours: WorkingHour[] = [];
+
     for (let i = 0; i < 7; i++) {
         const existing = workingHours.find(
             (h) => h.day_of_week === uiToCarbon(i),
@@ -469,6 +477,7 @@ function buildHours(workingHours: WorkingHour[]): WorkingHour[] {
                   },
         );
     }
+
     return hours;
 }
 
@@ -509,9 +518,16 @@ function WorkingHoursCard({
     );
 
     function sanitizeTime(val: unknown): string | null {
-        if (val == null) return null;
+        if (val == null) {
+return null;
+}
+
         const s = String(val).trim();
-        if (s === '' || s === '--:--' || s === '--' || s === ':' || s === '_' || /^[\s\-_:]+$/.test(s)) return null;
+
+        if (s === '' || s === '--:--' || s === '--' || s === ':' || s === '_' || /^[\s\-_:]+$/.test(s)) {
+return null;
+}
+
         return s;
     }
 
@@ -524,6 +540,7 @@ function WorkingHoursCard({
         ...currentData,
         working_hours: currentData.working_hours.map((h: WorkingHour) => {
             const isOff = !h.is_working;
+
             return {
                 ...h,
                 day_of_week: uiToCarbon(h.day_of_week),
@@ -543,7 +560,10 @@ function WorkingHoursCard({
     function toggleDay(dayOfWeek: number) {
         setLocalHours((prev) =>
             prev.map((h) => {
-                if (h.day_of_week !== dayOfWeek) return h;
+                if (h.day_of_week !== dayOfWeek) {
+return h;
+}
+
                 if (!h.is_working) {
                     return {
                         ...h,
@@ -552,6 +572,7 @@ function WorkingHoursCard({
                         end_time: h.end_time ?? '18:00',
                     };
                 }
+
                 return { ...h, is_working: false };
             }),
         );
@@ -766,13 +787,16 @@ function BlockedTimesCard({ masterId }: { masterId?: string }) {
     const [reason, setReason] = useState('Другое');
 
     function handleAdd() {
-        if (!startDate || !endDate) return;
+        if (!startDate || !endDate) {
+return;
+}
 
         const payload: Record<string, unknown> = {
             start_datetime: startDate,
             end_datetime: endDate,
             reason,
         };
+
         if (masterId) {
             payload.master_id = masterId;
         }
@@ -1001,6 +1025,7 @@ export default function SettingsPage() {
     const getTabFromUrl = (): TabValue => {
         const params = new URLSearchParams(window.location.search);
         const tab = params.get('tab');
+
         return VALID_TABS.includes(tab as TabValue) ? (tab as TabValue) : 'profile';
     };
 
@@ -1026,7 +1051,9 @@ export default function SettingsPage() {
     });
 
     useEffect(() => {
-        if (!profile?.id) return;
+        if (!profile?.id) {
+return;
+}
 
         const channelName = `App.Models.User.${profile.id}`;
         const channel = echo< 'reverb' >().private(channelName)
@@ -1059,10 +1086,14 @@ export default function SettingsPage() {
 
     const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
-        if (!file) return;
+
+        if (!file) {
+return;
+}
 
         if (file.size > 5 * 1024 * 1024) {
             alert('Файл слишком большой. Максимальный размер — 5 МБ.');
+
             return;
         }
 
@@ -1145,7 +1176,9 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Profile ═══ */}
                             <TabsContent value="profile">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Профиль сохранён') }); }}
+                                onSubmit={(e) => {
+ e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Профиль сохранён') }); 
+}}
                                 className="space-y-6"
                             >
 
@@ -1326,7 +1359,11 @@ export default function SettingsPage() {
                                                     className="ml-1 shrink-0"
                                                     onClick={() => {
                                                         const slug = profileForm.data.master_slug;
-                                                        if (!slug) return;
+
+                                                        if (!slug) {
+return;
+}
+
                                                         const url = `${window.location.origin}/book/${slug}`;
                                                         navigator.clipboard.writeText(url).then(() => {
                                                             setIsCopied(true);
@@ -1359,7 +1396,10 @@ export default function SettingsPage() {
                                                     size="icon"
                                                     className="ml-1 shrink-0"
                                                     onClick={() => {
-                                                        if (!workspace_slug) return;
+                                                        if (!workspace_slug) {
+return;
+}
+
                                                         const url = `${window.location.origin}/studio/${workspace_slug}`;
                                                         navigator.clipboard.writeText(url).then(() => {
                                                             setIsCopied(true);
@@ -1468,7 +1508,9 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Booking & Payment ═══ */}
                             <TabsContent value="booking">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); }}
+                                onSubmit={(e) => {
+ e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); 
+}}
                                 className="space-y-6"
                             >
 
@@ -1643,7 +1685,9 @@ export default function SettingsPage() {
                             {/* ═══ Tab: Notifications ═══ */}
                             <TabsContent value="notifications">
                             <form
-                                onSubmit={(e) => { e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Уведомления сохранены') }); }}
+                                onSubmit={(e) => {
+ e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Уведомления сохранены') }); 
+}}
                                 className="space-y-6"
                             >
 
@@ -1675,7 +1719,10 @@ export default function SettingsPage() {
                                                 checked={profileForm.data.telegram_notifications}
                                                 disabled={!profile.telegram_chat_id}
                                                 onCheckedChange={(checked) => {
-                                                    if (!profile.telegram_chat_id) return;
+                                                    if (!profile.telegram_chat_id) {
+return;
+}
+
                                                     profileForm.setData('telegram_notifications', checked);
                                                 }}
                                             />
@@ -1720,7 +1767,10 @@ export default function SettingsPage() {
                                                 checked={profileForm.data.max_notifications}
                                                 disabled={!profile.max_id}
                                                 onCheckedChange={(checked) => {
-                                                    if (!profile.max_id) return;
+                                                    if (!profile.max_id) {
+return;
+}
+
                                                     profileForm.setData('max_notifications', checked);
                                                 }}
                                             />

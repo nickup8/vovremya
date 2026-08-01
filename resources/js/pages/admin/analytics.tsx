@@ -119,11 +119,13 @@ function TrendBadge({ value, prevValue, format = 'percent' }: { value: number; p
     if (value === 0) {
         return <span title={tooltipText} className="ml-2 rounded bg-slate-500/10 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-500/20 dark:text-slate-400">0{suffix}</span>;
     }
+
     const isPositive = value > 0;
     const colorClass = isPositive
         ? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
         : 'bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400';
     const arrow = isPositive ? '\u2191' : '\u2193';
+
     return (
         <span title={tooltipText} className={`ml-2 rounded px-1.5 py-0.5 text-xs font-medium ${colorClass}`}>
             {arrow} {Math.abs(value).toLocaleString('ru-RU')}{suffix}
@@ -135,8 +137,12 @@ function TrendBadge({ value, prevValue, format = 'percent' }: { value: number; p
 
 /** Форматирует строку 'YYYY-MM-DD' в локальную дату без сдвига часового пояса */
 function safeFormatDate(dateStr: string): string {
-    if (!dateStr) return '';
+    if (!dateStr) {
+return '';
+}
+
     const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
+
     return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
@@ -145,12 +151,15 @@ function toLocalDateString(d: Date): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
+
     return `${y}-${m}-${day}`;
 }
 
 /** Вычисляет границы периода по его типу и смещению */
 function computePeriodDates(period: string, offset: number): { from: string; to: string } | null {
-    if (period === 'custom') return null;
+    if (period === 'custom') {
+return null;
+}
 
     const now = new Date();
     let start: Date;
@@ -238,7 +247,9 @@ export default function AnalyticsPage() {
     }
 
     function handleCustomApply() {
-        if (! dates.from || ! dates.to) return;
+        if (! dates.from || ! dates.to) {
+return;
+}
 
         router.get('/admin/analytics', {
             period: 'custom',
@@ -256,7 +267,9 @@ export default function AnalyticsPage() {
     }, [activePeriod, periodOffset]);
 
     const presetDateRange = useMemo(() => {
-        if (!computedDates) return null;
+        if (!computedDates) {
+return null;
+}
 
         return `${safeFormatDate(computedDates.from)} — ${safeFormatDate(computedDates.to)}`;
     }, [computedDates]);
@@ -265,10 +278,15 @@ export default function AnalyticsPage() {
         const newOffset = periodOffset + delta;
         setPeriodOffset(newOffset);
 
-        if (activePeriod === 'custom') return;
+        if (activePeriod === 'custom') {
+return;
+}
 
         const bounds = computePeriodDates(activePeriod, newOffset);
-        if (!bounds) return;
+
+        if (!bounds) {
+return;
+}
 
         router.get('/admin/analytics', {
             period: activePeriod,

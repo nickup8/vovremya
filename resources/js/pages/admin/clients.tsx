@@ -28,9 +28,13 @@ const FILTER_TABS: { key: FilterType; label: string }[] = [
 ];
 
 function formatDate(dateStr: string | null): string {
-    if (!dateStr) return '—';
+    if (!dateStr) {
+return '—';
+}
+
     const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
     const d = new Date(dateStr);
+
     return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
 }
 
@@ -201,7 +205,10 @@ export default function ClientsPage() {
     }
 
     function handleToggleBlock(client: Client) {
-        if (isProcessing) return;
+        if (isProcessing) {
+return;
+}
+
         setIsProcessing(true);
         router.post(`/admin/clients/${client.id}/toggle-block`, {}, {
             preserveScroll: true,
@@ -215,7 +222,10 @@ export default function ClientsPage() {
     }
 
     function handleSubmit() {
-        if (!formName.trim() || !formPhone.trim() || isProcessing) return;
+        if (!formName.trim() || !formPhone.trim() || isProcessing) {
+return;
+}
+
         setIsProcessing(true);
 
         const phone = stripPhoneMask(formPhone);

@@ -125,6 +125,7 @@ return prev;
 }
 
                     wsAddedIds.current.add(appointment.id);
+
                     return [...prev, appointment];
                 });
             })
@@ -132,6 +133,7 @@ return prev;
                 setLocalAppointments((prev) => {
                     if (appointment.status === AppointmentStatus.Cancelled) {
                         wsAddedIds.current.delete(appointment.id);
+
                         return prev.filter((a) => a.id !== appointment.id);
                     }
 
@@ -142,6 +144,7 @@ return prev;
                 setLocalAppointments((prev) => {
                     if (appointment.status === AppointmentStatus.Cancelled) {
                         wsAddedIds.current.delete(appointment.id);
+
                         return prev.filter((a) => a.id !== appointment.id);
                     }
 

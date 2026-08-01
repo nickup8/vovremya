@@ -13,6 +13,15 @@ class UserObserver
         }
     }
 
+    public function updated(User $user): void
+    {
+        if ($user->wasChanged('is_master')
+            && $user->is_master
+            && $user->workingHours()->count() === 0) {
+            $this->createDefaultWorkingHours($user);
+        }
+    }
+
     private function createDefaultWorkingHours(User $user): void
     {
         $defaults = [

@@ -1,7 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { Toaster } from '@/components/ui/sonner';
 import { Sun, Moon, LogOut, User, CalendarDays, Home, RefreshCw } from 'lucide-react';
+import { Toaster } from '@/components/ui/sonner';
 import { useAppearance } from '@/hooks/use-appearance';
 
 interface ClientLayoutProps {
@@ -87,6 +87,7 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
             <nav className="fixed inset-x-0 bottom-0 z-30 flex border-t border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900 lg:hidden">
                 {navItems.map((item) => {
                     const isActive = url.startsWith(item.href);
+
                     return (
                         <Link
                             key={item.href}

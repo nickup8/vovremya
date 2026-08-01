@@ -1,4 +1,4 @@
-import { Appointment, AppointmentWithCollision } from './types';
+import type { Appointment, AppointmentWithCollision } from './types';
 import { timeToMinutes } from './helpers';
 
 /**
@@ -7,12 +7,18 @@ import { timeToMinutes } from './helpers';
  * распределяются по колонкам, каждая получает свою ширину.
  */
 export function calculateCollisions(appointments: Appointment[]): AppointmentWithCollision[] {
-    if (appointments.length === 0) return [];
+    if (appointments.length === 0) {
+return [];
+}
 
     // Шаг 1: Сортировка по времени начала, при равенстве — по убыванию длительности
     const sorted = [...appointments].sort((a, b) => {
         const startDiff = timeToMinutes(a.time) - timeToMinutes(b.time);
-        if (startDiff !== 0) return startDiff;
+
+        if (startDiff !== 0) {
+return startDiff;
+}
+
         return b.duration - a.duration;
     });
 
@@ -29,6 +35,7 @@ export function calculateCollisions(appointments: Appointment[]): AppointmentWit
         const overlaps = currentGroup.some((g) => {
             const gStart = timeToMinutes(g.time);
             const gEnd = gStart + g.duration;
+
             return currentStart < gEnd && gStart < currentEnd;
         });
 
@@ -39,6 +46,7 @@ export function calculateCollisions(appointments: Appointment[]): AppointmentWit
             currentGroup = [current];
         }
     }
+
     groups.push(currentGroup);
 
     // Шаг 3: Внутри каждой группы распределяем по колонкам
@@ -54,8 +62,10 @@ export function calculateCollisions(appointments: Appointment[]): AppointmentWit
 
             // Ищем первую свободную колонку
             let placed = false;
+
             for (let col = 0; col < columns.length; col++) {
                 const lastEnd = columns[col][columns[col].length - 1];
+
                 if (apptStart >= lastEnd) {
                     columns[col].push(apptEnd);
                     result.push({ ...appt, colIndex: col, totalCols: 0 });
@@ -73,6 +83,7 @@ export function calculateCollisions(appointments: Appointment[]): AppointmentWit
 
         // Присваиваем totalCols для всех записей в группе
         const totalCols = columns.length;
+
         for (const appt of result) {
             if (group.some((g) => g.id === appt.id)) {
                 appt.totalCols = totalCols;

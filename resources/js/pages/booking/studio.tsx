@@ -38,9 +38,11 @@ function MasterCard({ master, studioSlug, serviceTitle }: { master: Master; stud
 
     function handleClick() {
         const params = new URLSearchParams({ master: master.master_slug });
+
         if (serviceTitle) {
             params.set('service', serviceTitle);
         }
+
         router.visit(`/studio/${studioSlug}?${params.toString()}`);
     }
 

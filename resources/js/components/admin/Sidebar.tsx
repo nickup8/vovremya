@@ -6,7 +6,7 @@ import {
 const MENU_ITEMS = [
     { icon: CalendarDays, label: 'Календарь', href: '/admin/calendar' },
     { icon: Users, label: 'База клиентов', href: '/admin/clients' },
-    { icon: UserPlus, label: 'Команда', href: '/admin/team' },
+    { icon: UserPlus, label: 'Команда', href: '/admin/team', ownerOnly: true },
     { icon: BarChart3, label: 'Аналитика', href: '/admin/analytics' },
     { icon: Settings, label: 'Настройки профиля', href: '/admin/settings' },
     { icon: BookOpen, label: 'Каталог услуг', href: '/admin/catalog', ownerOnly: true },
@@ -20,12 +20,10 @@ interface SidebarProps {
 export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
     const { url, props } = usePage();
     const tariffName = (props as { auth?: { user?: { tariff_name?: string } } })?.auth?.user?.tariff_name || 'Free';
-    const maxMasters = (props as { auth?: { user?: { max_masters?: number } } })?.auth?.user?.max_masters ?? 0;
     const canManageTeam = (props as { auth?: { user?: { can_manage_team?: boolean } } })?.auth?.user?.can_manage_team ?? false;
 
     const visibleMenuItems = MENU_ITEMS.filter(
-        (item) => (item.label !== 'Команда' || maxMasters > 1)
-            && (!(item as { ownerOnly?: boolean }).ownerOnly || canManageTeam),
+        (item) => !(item as { ownerOnly?: boolean }).ownerOnly || canManageTeam,
     );
 
     function handleLogout() {
@@ -56,6 +54,7 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
                 <nav className="space-y-1 p-3">
                     {visibleMenuItems.map((item) => {
                         const isActive = url.startsWith(item.href);
+
                         return (
                             <Link
                                 key={item.label}
@@ -76,7 +75,9 @@ export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
             </div>
             <div className="border-t border-slate-800 p-3 dark:border-zinc-800">
                 <button
-                    onClick={() => { router.post('/switch-to-client'); onMobileClose(); }}
+                    onClick={() => {
+ router.post('/switch-to-client'); onMobileClose(); 
+}}
                     className="flex w-full items-center gap-3 rounded-lg bg-slate-800 px-3 py-2.5 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
                 >
                     <RefreshCw className="size-4 shrink-0 text-slate-400 dark:text-zinc-400" />

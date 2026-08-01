@@ -8,9 +8,9 @@ import {
 } from '@/components/ui/dialog';
 import { formatPhone } from '@/lib/phone';
 import { AppointmentStatus } from '@/types/appointment-status';
-import { Appointment } from './types';
-import { STATUS_STYLES } from './constants';
 import { DAYS_RU_FULL, MONTHS_RU_GENITIVE } from '@/lib/locale';
+import type { Appointment } from './types';
+import { STATUS_STYLES } from './constants';
 import { getEndTime } from './helpers';
 
 interface Props {
@@ -25,6 +25,7 @@ interface Props {
 
 function formatDateLong(dateStr: string): string {
     const d = new Date(dateStr + 'T00:00:00');
+
     return `${DAYS_RU_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS_RU_GENITIVE[d.getMonth()]} ${d.getFullYear()}`;
 }
 

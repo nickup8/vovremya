@@ -1,6 +1,6 @@
 import { useState, useMemo, useEffect } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
-import { User } from 'lucide-react';
+import { User, CalendarDays } from 'lucide-react';
 import { MONTHS_RU } from '@/lib/locale';
 import DateControlPanel from '@/components/calendar/DateControlPanel';
 import {
@@ -45,6 +45,7 @@ export default function CalendarPage() {
         } catch {
             return null;
         }
+
         return null;
     };
 
@@ -254,7 +255,9 @@ continue;
             maxHour = Math.max(maxHour, Math.ceil(endMin / 60));
         }
 
-        if (minHour >= maxHour) {return [];}
+        if (minHour >= maxHour) {
+return [];
+}
 
         minHour = Math.max(0, minHour);
         maxHour = Math.min(24, maxHour);
@@ -371,8 +374,9 @@ continue;
 
                             {/* ─── Calendar Content ─── */}
                             {viewMode !== 'month' && gridHours.length === 0 ? (
-                                <div className="flex items-center justify-center py-20 text-gray-400">
-                                    <div className="h-8 w-8 animate-spin rounded-full border-4 border-gray-300 border-t-indigo-600" />
+                                <div className="flex flex-col items-center justify-center gap-2 py-20 text-gray-400">
+                                    <CalendarDays className="size-10 opacity-40" />
+                                    <p className="text-sm">Рабочие часы не настроены</p>
                                 </div>
                             ) : viewMode === 'day' ? (
                                 <DayView

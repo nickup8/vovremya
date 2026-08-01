@@ -47,6 +47,7 @@ export default function Users() {
 
     const handleExtend = (userId: string) => {
         const days = prompt('Количество дней для продления:', '30');
+
         if (days) {
             router.post(`/admin-root/users/${userId}/extend`, { days: parseInt(days) }, { preserveState: true });
         }
