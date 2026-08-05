@@ -13,7 +13,7 @@ return new class extends Migration
             ADD CONSTRAINT appointments_no_overlap
             EXCLUDE USING gist (
                 master_id WITH =,
-                tsrange(start_time, start_time + (COALESCE(duration, 60) || ' minutes')::interval) WITH &&
+                tsrange(start_time, start_time + (COALESCE(duration, 60) * INTERVAL '1 minute')) WITH &&
             )
             WHERE (status IN ('booked','pending_payment','prepaid','paid'))
         ");
