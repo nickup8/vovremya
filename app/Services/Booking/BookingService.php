@@ -103,7 +103,7 @@ class BookingService
 
         if ($workspace && ! $this->tariffLimitService->canCreateAppointment($workspace)) {
             throw ValidationException::withMessages([
-                'limit' => 'Лимит записей исчерпан. Для продолжения работы перейдите на тариф «Профи».',
+                'limit' => __('booking.limit_reached'),
             ]);
         }
 
