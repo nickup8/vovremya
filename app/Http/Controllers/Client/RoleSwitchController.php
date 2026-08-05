@@ -23,9 +23,25 @@ class RoleSwitchController extends Controller
             return back();
         }
 
+        if (! $user->phone) {
+            return back()->with('error', 'Укажите номер телефона в профиле для входа в режим клиента.');
+        }
+
+        // Ищем существующего клиента по user_id + phone
         $client = Client::where('user_id', $user->id)
             ->where('phone', $user->phone)
             ->first();
+
+        // Если не нашли и есть workspace_id — проверяем partial unique (workspace_id, phone)
+        if (! $client && $user->workspace_id) {
+            $client = Client::where('workspace_id', $user->workspace_id)
+                ->where('phone', $user->phone)
+                ->first();
+
+            if ($client) {
+                $client->update(['user_id' => $user->id]);
+            }
+        }
 
         if (! $client) {
             $client = Client::create([
