@@ -7,7 +7,6 @@ use App\Models\Appointment;
 use App\Models\Subscription;
 use App\Models\Workspace;
 use App\Support\PlanDefaults;
-use Carbon\Carbon;
 use Carbon\CarbonInterface;
 
 class TariffLimitService
@@ -21,8 +20,9 @@ class TariffLimitService
         }
 
         $cycleStart = $this->getCycleStart($workspace);
+        $cycleEnd = $this->getCycleEnd($workspace);
 
-        $usedCount = $this->countAppointmentsInCycle($workspace, $cycleStart);
+        $usedCount = $this->countAppointmentsInCycle($workspace, $cycleStart, $cycleEnd);
 
         return $usedCount < $limit;
     }
@@ -36,8 +36,9 @@ class TariffLimitService
         }
 
         $cycleStart = $this->getCycleStart($workspace);
+        $cycleEnd = $this->getCycleEnd($workspace);
 
-        $usedCount = $this->countAppointmentsInCycle($workspace, $cycleStart);
+        $usedCount = $this->countAppointmentsInCycle($workspace, $cycleStart, $cycleEnd);
 
         return max(0, $limit - $usedCount);
     }
@@ -62,34 +63,26 @@ class TariffLimitService
         }
 
         $cycleStart = $this->getCycleStart($workspace);
+        $cycleEnd = $this->getCycleEnd($workspace);
 
-        return $this->countAppointmentsInCycle($workspace, $cycleStart);
+        return $this->countAppointmentsInCycle($workspace, $cycleStart, $cycleEnd);
     }
 
     public function getCycleStart(?Workspace $workspace): CarbonInterface
     {
-        if (! $workspace || ! $workspace->created_at) {
-            return now()->startOfMonth()->startOfDay();
-        }
+        $tz = $workspace?->settings['timezone'] ?? 'Europe/Moscow';
 
-        $anchorDay = (int) $workspace->created_at->day;
-        $now = now();
-
-        $currentDay = min($anchorDay, $now->daysInMonth);
-        $candidate = Carbon::create($now->year, $now->month, $currentDay, 0, 0, 0);
-
-        if ($candidate <= $now) {
-            return $candidate->startOfDay();
-        }
-
-        $prevMonth = $now->copy()->subMonthNoOverflow();
-        $prevDay = min($anchorDay, $prevMonth->daysInMonth);
-        $candidate = Carbon::create($prevMonth->year, $prevMonth->month, $prevDay, 0, 0, 0);
-
-        return $candidate->startOfDay();
+        return now($tz)->startOfMonth();
     }
 
-    private function countAppointmentsInCycle(?Workspace $workspace, CarbonInterface $cycleStart): int
+    public function getCycleEnd(?Workspace $workspace): CarbonInterface
+    {
+        $tz = $workspace?->settings['timezone'] ?? 'Europe/Moscow';
+
+        return now($tz)->endOfMonth();
+    }
+
+    private function countAppointmentsInCycle(?Workspace $workspace, CarbonInterface $cycleStart, CarbonInterface $cycleEnd): int
     {
         if (! $workspace) {
             return 0;
@@ -105,7 +98,7 @@ class TariffLimitService
                 AppointmentStatus::Paid,
                 AppointmentStatus::NoShow,
             ])
-            ->where('start_time', '>=', $cycleStart)
+            ->whereBetween('start_time', [$cycleStart, $cycleEnd])
             ->count();
     }
 }
