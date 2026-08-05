@@ -523,10 +523,10 @@ class MaxWebhookHandler
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
         $message = __('bot.booking_confirmed', [
-            'service' => $service->title,
+            'service' => $appointment->service_name ?? $service?->title ?? 'Услуга',
             'date' => $date,
             'time' => $time,
-            'price' => $service->price,
+            'price' => $service?->price ?? $appointment->price ?? 0,
         ]);
 
         if ($master->address) {
