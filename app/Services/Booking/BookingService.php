@@ -149,14 +149,11 @@ class BookingService
                 );
             }
 
-            // Resolve legacy Service for FK (service_id NOT NULL on production)
             $legacyService = Service::where('user_id', $master->id)
                 ->where('title', $service->catalog?->title)
                 ->first();
 
-            $serviceIdForFk = $legacyServiceId
-                ?? $legacyService?->id
-                ?? Service::where('user_id', $master->id)->value('id');
+            $serviceIdForFk = $legacyServiceId ?? $legacyService?->id;
 
             $appointment = Appointment::create([
                 'master_id' => $master->id,
