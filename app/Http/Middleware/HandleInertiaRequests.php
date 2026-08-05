@@ -110,6 +110,11 @@ class HandleInertiaRequests extends Middleware
                 'user' => $authUser,
                 'client' => $authClient,
             ],
+            'flash' => [
+                'success' => fn () => $request->session()->get('success'),
+                'error' => fn () => $request->session()->get('error'),
+                'message' => fn () => $request->session()->get('message'),
+            ],
             'tariff_limits' => $tariffLimits,
             'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
