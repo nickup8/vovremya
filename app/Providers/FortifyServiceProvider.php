@@ -24,7 +24,10 @@ class FortifyServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        //
+        // ADR-6: полностью отключаем ВСЕ роуты Fortify (вход только TG/MAX).
+        // Чтобы вернуть email/регистрацию — убрать строку ниже + вернуть
+        // features и routes в config/fortify.php.
+        Fortify::ignoreRoutes();
     }
 
     /**
