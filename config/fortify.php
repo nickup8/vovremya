@@ -17,6 +17,10 @@ return [
 
     'guard' => 'web',
 
+    // ADR-6: роуты Fortify отключены (вход только через TG/MAX).
+    // Чтобы вернуть email/регистрацию — поставить true + вернуть features ниже.
+    'routes' => false,
+
     /*
     |--------------------------------------------------------------------------
     | Fortify Password Broker
@@ -143,14 +147,10 @@ return [
     */
 
     'features' => [
-        /* @chisel-registration */
-        Features::registration(),
-        /* @end-chisel-registration */
-        Features::resetPasswords(),
-        /* @chisel-email-verification */
-        Features::emailVerification(),
-        /* @end-chisel-email-verification */
-
+        // ADR-6: отключено, вход только TG/MAX. Раскомментировать для возврата.
+        // Features::registration(),
+        // Features::resetPasswords(),
+        // Features::emailVerification(),
     ],
 
 ];
