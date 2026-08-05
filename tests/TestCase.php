@@ -19,8 +19,8 @@ abstract class TestCase extends BaseTestCase
     {
         $app = parent::createApplication();
 
-        $app['config']->set('database.default', 'sqlite');
-        $app['config']->set('database.connections.sqlite.database', ':memory:');
+        $app['config']->set('database.default', 'pgsql');
+        $app['config']->set('database.connections.pgsql.database', 'vovremya_test');
         $app['config']->set('broadcasting.default', 'null');
         $app['config']->set('session.driver', 'array');
         $app['config']->set('cache.default', 'array');

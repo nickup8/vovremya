@@ -105,14 +105,14 @@ class ServiceProviderFlagTest extends TestCase
 
     public function test_visible_in_widget_requires_active_master_service(): void
     {
-        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => fake()->uuid()]);
         $master = User::factory()->master()->create([
-            'workspace_id' => $workspace->id,
             'is_master' => true,
             'is_service_provider' => true,
             'master_slug' => 'test-master',
             'role' => UserRole::Master,
         ]);
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
 
         // Без активной услуги — не видим
         $this->assertEquals(0, User::visibleInWidget()->where('id', $master->id)->count());
@@ -136,14 +136,14 @@ class ServiceProviderFlagTest extends TestCase
 
     public function test_visible_in_widget_excludes_owner_without_is_service_provider(): void
     {
-        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => fake()->uuid()]);
         $owner = User::factory()->master()->create([
-            'workspace_id' => $workspace->id,
             'is_master' => true,
             'is_service_provider' => false,
             'master_slug' => 'test-owner',
             'role' => UserRole::Owner,
         ]);
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => $owner->id]);
+        $owner->update(['workspace_id' => $workspace->id]);
 
         $catalog = ServiceCatalog::create([
             'workspace_id' => $workspace->id,
@@ -167,14 +167,14 @@ class ServiceProviderFlagTest extends TestCase
 
     public function test_visible_in_widget_excludes_master_without_slug(): void
     {
-        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => fake()->uuid()]);
         $master = User::factory()->master()->create([
-            'workspace_id' => $workspace->id,
             'is_master' => true,
             'is_service_provider' => true,
             'master_slug' => null,
             'role' => UserRole::Master,
         ]);
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
 
         $catalog = ServiceCatalog::create([
             'workspace_id' => $workspace->id,
