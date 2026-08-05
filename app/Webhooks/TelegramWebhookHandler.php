@@ -6,6 +6,7 @@ use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Enums\UserRole;
+use App\Exceptions\InvalidStatusTransitionException;
 use App\Events\AppointmentCreated;
 use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
@@ -404,7 +405,39 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $this->statusService->transition($appointment, AppointmentStatus::Cancelled);
+        $client = Client::byTelegramId($this->chat->chat_id)->first();
+
+        if (! $client || $appointment->client_id !== $client->id) {
+            Log::warning('[TG] cancelBooking: ownership violation', [
+                'appointment_id' => $appointmentId,
+                'chat_id' => $this->chat?->chat_id,
+                'appointment_client_id' => $appointment->client_id,
+                'resolved_client_id' => $client?->id,
+            ]);
+
+            $this->reply(__('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($appointment->status === AppointmentStatus::Cancelled) {
+            $this->reply(__('bot.booking_cancelled.reply'));
+
+            return;
+        }
+
+        try {
+            $this->statusService->transition($appointment, AppointmentStatus::Cancelled);
+        } catch (InvalidStatusTransitionException $e) {
+            Log::warning('[TG] cancelBooking: invalid transition', [
+                'appointment_id' => $appointmentId,
+                'status' => $appointment->status,
+                'error' => $e->getMessage(),
+            ]);
+            $this->reply(__('bot.errors.appointment_not_found'));
+
+            return;
+        }
 
         try {
             $this->chat->edit($this->messageId)
@@ -417,6 +450,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
             Log::info('[TG] cancelBooking: success', [
                 'appointment_id' => $appointmentId,
+                'client_id' => $client->id,
             ]);
         } catch (Throwable $e) {
             Log::error('[TG] cancelBooking: FAILED', [
