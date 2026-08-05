@@ -2,7 +2,11 @@
 
 namespace Tests\Unit;
 
+use App\Enums\UserRole;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -18,7 +22,6 @@ class ServiceProviderFlagTest extends TestCase
             'email' => fake()->unique()->safeEmail(),
             'password' => bcrypt('password'),
             'is_master' => false,
-            'is_bookable' => true,
             'is_service_provider' => false,
             'admin_can_see_finance' => false,
             'created_at' => now(),
@@ -31,14 +34,12 @@ class ServiceProviderFlagTest extends TestCase
         $user = User::factory()->master()->create([
             'workspace_id' => null,
             'is_master' => true,
-            'is_bookable' => true,
             'is_service_provider' => true,
         ]);
 
         $this->assertDatabaseHas('users', [
             'id' => $user->id,
             'is_master' => true,
-            'is_bookable' => true,
             'is_service_provider' => true,
         ]);
     }
@@ -47,29 +48,12 @@ class ServiceProviderFlagTest extends TestCase
     {
         $user = User::factory()->create([
             'is_master' => false,
-            'is_bookable' => true,
             'is_service_provider' => false,
         ]);
 
         $this->assertDatabaseHas('users', [
             'id' => $user->id,
             'is_master' => false,
-            'is_service_provider' => false,
-        ]);
-    }
-
-    public function test_master_not_bookable_has_is_service_provider_false(): void
-    {
-        $user = User::factory()->create([
-            'is_master' => true,
-            'is_bookable' => false,
-            'is_service_provider' => false,
-        ]);
-
-        $this->assertDatabaseHas('users', [
-            'id' => $user->id,
-            'is_master' => true,
-            'is_bookable' => false,
             'is_service_provider' => false,
         ]);
     }
@@ -84,26 +68,6 @@ class ServiceProviderFlagTest extends TestCase
             'id' => $user->id,
             'admin_can_see_finance' => true,
         ]);
-    }
-
-    public function test_solo_master_can_be_found_by_slug(): void
-    {
-        $master = User::factory()->master()->create([
-            'workspace_id' => null,
-            'is_master' => true,
-            'is_bookable' => true,
-            'is_service_provider' => true,
-            'master_slug' => 'test-solo-slug',
-            'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
-        ]);
-
-        $found = User::where('master_slug', 'test-solo-slug')
-            ->where('is_master', true)
-            ->first();
-
-        $this->assertNotNull($found);
-        $this->assertTrue($found->is_service_provider);
-        $this->assertTrue($found->isSolo());
     }
 
     public function test_new_fields_are_fillable(): void
@@ -129,7 +93,6 @@ class ServiceProviderFlagTest extends TestCase
         $user = User::factory()->master()->create([
             'workspace_id' => null,
             'is_master' => true,
-            'is_bookable' => true,
             'is_service_provider' => true,
             'admin_can_see_finance' => true,
         ]);
@@ -138,5 +101,94 @@ class ServiceProviderFlagTest extends TestCase
         $this->assertIsBool($user->admin_can_see_finance);
         $this->assertTrue($user->is_service_provider);
         $this->assertTrue($user->admin_can_see_finance);
+    }
+
+    public function test_visible_in_widget_requires_active_master_service(): void
+    {
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => fake()->uuid()]);
+        $master = User::factory()->master()->create([
+            'workspace_id' => $workspace->id,
+            'is_master' => true,
+            'is_service_provider' => true,
+            'master_slug' => 'test-master',
+            'role' => UserRole::Master,
+        ]);
+
+        // Без активной услуги — не видим
+        $this->assertEquals(0, User::visibleInWidget()->where('id', $master->id)->count());
+
+        // Создаём каталог + услугу
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Стрижка',
+            'base_price' => 1000,
+            'base_duration' => 30,
+        ]);
+        MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
+        ]);
+
+        // С активной услугой — видим
+        $this->assertEquals(1, User::visibleInWidget()->where('id', $master->id)->count());
+    }
+
+    public function test_visible_in_widget_excludes_owner_without_is_service_provider(): void
+    {
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => fake()->uuid()]);
+        $owner = User::factory()->master()->create([
+            'workspace_id' => $workspace->id,
+            'is_master' => true,
+            'is_service_provider' => false,
+            'master_slug' => 'test-owner',
+            'role' => UserRole::Owner,
+        ]);
+
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Стрижка',
+            'base_price' => 1000,
+            'base_duration' => 30,
+        ]);
+        MasterService::create([
+            'master_id' => $owner->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
+        ]);
+
+        // Owner без is_service_provider — не видим
+        $this->assertEquals(0, User::visibleInWidget()->where('id', $owner->id)->count());
+
+        // Включаем is_service_provider — видим
+        $owner->update(['is_service_provider' => true]);
+        $this->assertEquals(1, User::visibleInWidget()->where('id', $owner->id)->count());
+    }
+
+    public function test_visible_in_widget_excludes_master_without_slug(): void
+    {
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => fake()->uuid()]);
+        $master = User::factory()->master()->create([
+            'workspace_id' => $workspace->id,
+            'is_master' => true,
+            'is_service_provider' => true,
+            'master_slug' => null,
+            'role' => UserRole::Master,
+        ]);
+
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Стрижка',
+            'base_price' => 1000,
+            'base_duration' => 30,
+        ]);
+        MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
+        ]);
+
+        // Без slug — не видим
+        $this->assertEquals(0, User::visibleInWidget()->where('id', $master->id)->count());
     }
 }

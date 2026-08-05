@@ -9,7 +9,6 @@ import { Input } from '@/components/ui/input';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import { Switch } from '@/components/ui/switch';
 import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
 import type { PageProps } from '@/types/app';
@@ -25,7 +24,6 @@ interface Master {
     is_owner: boolean;
     is_current_user: boolean;
     role: 'owner' | 'admin' | 'master';
-    is_bookable: boolean;
     has_future_appointments: boolean;
 }
 
@@ -77,16 +75,13 @@ function MasterCard({
     master,
     canManageTeam,
     onDetach,
-    onToggleBookable,
 }: {
     master: Master;
     canManageTeam: boolean;
     onDetach: (master: Master) => void;
-    onToggleBookable: (master: Master, value: boolean) => void;
 }) {
     const initials = getInitials(master.name);
     const canDetach = canManageTeam && !master.is_owner && !master.is_current_user;
-    const canToggleBookable = canManageTeam && master.is_owner;
 
     return (
         <div className="group overflow-hidden rounded-2xl border border-slate-200/60 bg-white/50 p-5 backdrop-blur-md transition-all hover:border-blue-200 hover:shadow-lg hover:shadow-blue-500/5 dark:border-zinc-700/50 dark:bg-zinc-900/50 dark:hover:border-blue-800/50 dark:hover:shadow-blue-500/5">
@@ -115,11 +110,6 @@ function MasterCard({
                                 Администратор
                             </span>
                         )}
-                        {!master.is_bookable && !master.is_owner && (
-                            <span className="inline-flex items-center gap-1 rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-medium text-slate-500 dark:bg-zinc-800 dark:text-zinc-400">
-                                Скрыт
-                            </span>
-                        )}
                     </div>
                     <div className="mt-2 flex items-center gap-2">
                         {master.telegram_id && (
@@ -138,18 +128,6 @@ function MasterCard({
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-3 sm:flex-nowrap">
-                    {canToggleBookable && (
-                        <div className="flex items-center gap-2">
-                            <Switch
-                                checked={master.is_bookable}
-                                onCheckedChange={(checked) => onToggleBookable(master, checked)}
-                                aria-label="Доступен для записи"
-                            />
-                            <span className="hidden text-xs text-slate-500 dark:text-zinc-400 sm:inline">
-                                Принимаю записи от клиентов
-                            </span>
-                        </div>
-                    )}
                     {canDetach && (
                         <Button
                             variant="ghost"
@@ -232,28 +210,6 @@ export default function TeamPage() {
     function handleOpenDetach(master: Master) {
         setDetachTarget(master);
         setDetachTargetId('');
-    }
-
-    async function handleToggleBookable(master: Master, value: boolean) {
-        try {
-            const response = await fetch('/admin/team/bookable', {
-                method: 'PATCH',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-CSRF-TOKEN': (document.querySelector('meta[name="csrf-token"]') as HTMLMetaElement)?.content || '',
-                    'X-Requested-With': 'XMLHttpRequest',
-                },
-                body: JSON.stringify({ is_bookable: value }),
-            });
-
-            if (response.ok) {
-                router.reload({ only: ['masters'] });
-            } else {
-                toast.error('Не удалось изменить настройку');
-            }
-        } catch {
-            toast.error('Ошибка сети. Попробуйте ещё раз.');
-        }
     }
 
     function handleCloseDetach() {
@@ -345,7 +301,6 @@ return;
                                     master={master}
                                     canManageTeam={can_manage_team}
                                     onDetach={handleOpenDetach}
-                                    onToggleBookable={handleToggleBookable}
                                 />
                             ))}
                         </div>

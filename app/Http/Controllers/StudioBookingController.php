@@ -56,10 +56,7 @@ class StudioBookingController extends Controller
     private function showServicesList(Workspace $workspace): InertiaResponse
     {
         $masters = $workspace->users()
-            ->where('is_master', true)
-            ->where('is_bookable', true)
-            ->whereNotNull('master_slug')
-            ->where('master_slug', '!=', '')
+            ->visibleInWidget()
             ->select('id')
             ->get();
 
@@ -99,10 +96,7 @@ class StudioBookingController extends Controller
     private function showServiceMasters(Workspace $workspace, string $serviceTitle): InertiaResponse|RedirectResponse
     {
         $masters = $workspace->users()
-            ->where('is_master', true)
-            ->where('is_bookable', true)
-            ->whereNotNull('master_slug')
-            ->where('master_slug', '!=', '')
+            ->visibleInWidget()
             ->select('id', 'name', 'master_slug', 'avatar_url', 'specialty')
             ->get();
 
@@ -148,9 +142,7 @@ class StudioBookingController extends Controller
     {
         $master = User::where('workspace_id', $workspace->id)
             ->where('master_slug', $masterSlug)
-            ->where('is_master', true)
-            ->where('is_bookable', true)
-            ->whereNotNull('master_slug')
+            ->visibleInWidget()
             ->first();
 
         if (! $master) {

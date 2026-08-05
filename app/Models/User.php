@@ -6,6 +6,7 @@ use App\Enums\UserRole;
 use App\Traits\SearchableByProvider;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
@@ -28,7 +29,6 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $max_id
  * @property string|null $avatar_url
  * @property bool $is_master
- * @property bool $is_bookable
  * @property bool $is_service_provider
  * @property bool $admin_can_see_finance
  * @property string|null $master_slug
@@ -48,7 +48,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 #[Fillable([
     'name', 'email', 'password', 'phone',
     'telegram_id', 'telegram_chat_id', 'telegram_auth_token', 'max_id', 'vk_id', 'vk_chat_id', 'avatar_url',
-    'is_master', 'is_bookable', 'is_service_provider', 'is_blocked', 'admin_can_see_finance',
+    'is_master', 'is_service_provider', 'is_blocked', 'admin_can_see_finance',
     'master_slug', 'specialty', 'address',
     'telegram_notifications', 'max_notifications',
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
@@ -68,7 +68,6 @@ class User extends Authenticatable implements PasskeyUser
             'password' => 'hashed',
             'two_factor_confirmed_at' => 'datetime',
             'is_master' => 'boolean',
-            'is_bookable' => 'boolean',
             'is_service_provider' => 'boolean',
             'admin_can_see_finance' => 'boolean',
             'role' => UserRole::class,
@@ -196,5 +195,22 @@ class User extends Authenticatable implements PasskeyUser
     public function getReminderHoursBeforeFinal(): int
     {
         return (int) ($this->settings['reminder_hours_before_final'] ?? 3);
+    }
+
+    /**
+     * ADR-1: единое правило видимости мастера в публичном виджете.
+     * Мастер видим, если: is_master + master_slug + ≥1 активная услуга + (не owner/admin ИЛИ is_service_provider).
+     */
+    public function scopeVisibleInWidget(Builder $query): Builder
+    {
+        return $query
+            ->where('is_master', true)
+            ->whereNotNull('master_slug')
+            ->where('master_slug', '!=', '')
+            ->whereHas('masterServices', fn ($q) => $q->where('is_active', true))
+            ->where(function ($q) {
+                $q->whereNotIn('role', [UserRole::Owner, UserRole::Admin])
+                  ->orWhere('is_service_provider', true);
+            });
     }
 }

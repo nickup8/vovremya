@@ -45,7 +45,6 @@ class TeamController extends Controller
                 'is_owner' => $m->id === $workspace->owner_id,
                 'is_current_user' => $m->id === $user->id,
                 'role' => $m->role->value,
-                'is_bookable' => $m->is_bookable,
                 'has_future_appointments' => Appointment::where('master_id', $m->id)
                     ->where('start_time', '>', now())
                     ->whereIn('status', ['booked', 'pending_payment', 'prepaid'])
@@ -176,21 +175,4 @@ class TeamController extends Controller
         return back()->with('success', "Мастер {$removed->name} исключён из студии.");
     }
 
-    public function updateBookable(Request $request): JsonResponse
-    {
-        $user = $request->user();
-
-        abort_unless($user->role === UserRole::Owner, 403, 'Только владелец может управлять видимостью.');
-
-        $validated = $request->validate([
-            'is_bookable' => 'required|boolean',
-        ]);
-
-        $user->update(['is_bookable' => $validated['is_bookable']]);
-
-        return response()->json([
-            'success' => true,
-            'is_bookable' => $user->is_bookable,
-        ]);
-    }
 }

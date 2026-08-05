@@ -21,7 +21,7 @@ class BookingWidgetController extends Controller
     public function show(string $slug, Request $request)
     {
         $master = User::where('master_slug', $slug)
-            ->where('is_master', true)
+            ->visibleInWidget()
             ->firstOrFail();
 
         if (! $master->isSolo()) {
@@ -65,7 +65,7 @@ class BookingWidgetController extends Controller
     public function availableDates(Request $request, string $slug): JsonResponse
     {
         $master = User::where('master_slug', $slug)
-            ->where('is_master', true)
+            ->visibleInWidget()
             ->firstOrFail();
 
         $validated = $request->validate([
@@ -93,7 +93,7 @@ class BookingWidgetController extends Controller
     public function store(Request $request, string $slug): JsonResponse
     {
         $master = User::where('master_slug', $slug)
-            ->where('is_master', true)
+            ->visibleInWidget()
             ->firstOrFail();
 
         $validated = $request->validate([
