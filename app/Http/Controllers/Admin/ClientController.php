@@ -151,7 +151,7 @@ class ClientController extends Controller
 
             $client->appointments()
                 ->whereIn('status', $activeStatuses)
-                ->each(fn (Appointment $appointment) => $this->bookingService->cancel($appointment));
+                ->each(fn (Appointment $appointment) => $this->bookingService->cancel($appointment, auth()->user()));
         }
 
         return back()->with('success', $client->is_blocked

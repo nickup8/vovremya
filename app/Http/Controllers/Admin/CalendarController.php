@@ -299,7 +299,7 @@ class CalendarController extends Controller
                 ], 422);
             }
 
-            $this->bookingService->updateStatus($appointment, $newStatus);
+            $this->bookingService->updateStatus($appointment, $newStatus, auth()->user());
             unset($validated['status']);
         }
 

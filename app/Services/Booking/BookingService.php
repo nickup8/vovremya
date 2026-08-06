@@ -12,6 +12,7 @@ use App\Models\Service;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
+use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
@@ -258,9 +259,9 @@ class BookingService
         ]);
     }
 
-    public function updateStatus(Appointment $appointment, AppointmentStatus $status): Appointment
+    public function updateStatus(Appointment $appointment, AppointmentStatus $status, ?Authenticatable $actor = null): Appointment
     {
-        return $this->statusService->transition($appointment, $status);
+        return $this->statusService->transition($appointment, $status, $actor);
     }
 
     public function confirm(Appointment $appointment): Appointment
@@ -290,9 +291,9 @@ class BookingService
         return $this->statusService->transition($appointment, AppointmentStatus::Paid);
     }
 
-    public function cancel(Appointment $appointment): Appointment
+    public function cancel(Appointment $appointment, ?Authenticatable $actor = null): Appointment
     {
-        return $this->statusService->transition($appointment, AppointmentStatus::Cancelled);
+        return $this->statusService->transition($appointment, AppointmentStatus::Cancelled, $actor);
     }
 
     public function markNoShow(Appointment $appointment): Appointment

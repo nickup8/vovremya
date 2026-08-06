@@ -427,7 +427,7 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         try {
-            $this->statusService->transition($appointment, AppointmentStatus::Cancelled);
+            $this->statusService->transition($appointment, AppointmentStatus::Cancelled, $client);
         } catch (InvalidStatusTransitionException $e) {
             Log::warning('[TG] cancelBooking: invalid transition', [
                 'appointment_id' => $appointmentId,

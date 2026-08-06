@@ -61,7 +61,7 @@ class BookingsController extends Controller
         }
 
         try {
-            $this->bookingService->cancel($appointment);
+            $this->bookingService->cancel($appointment, $client);
         } catch (InvalidStatusTransitionException) {
             return back()->withErrors(['error' => 'Невозможно отменить данную запись']);
         }
