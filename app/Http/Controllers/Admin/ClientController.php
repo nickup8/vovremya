@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
+use App\Exceptions\PastAppointmentException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -151,7 +152,13 @@ class ClientController extends Controller
 
             $client->appointments()
                 ->whereIn('status', $activeStatuses)
-                ->each(fn (Appointment $appointment) => $this->bookingService->cancel($appointment, auth()->user()));
+                ->each(function (Appointment $appointment) {
+                    try {
+                        $this->bookingService->cancel($appointment, auth()->user());
+                    } catch (PastAppointmentException) {
+                        // прошедшая запись — пропускаем, не обрываем блокировку
+                    }
+                });
         }
 
         return back()->with('success', $client->is_blocked

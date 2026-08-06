@@ -7,6 +7,7 @@ use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Enums\UserRole;
 use App\Exceptions\InvalidStatusTransitionException;
+use App\Exceptions\PastAppointmentException;
 use App\Events\AppointmentCreated;
 use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
@@ -428,6 +429,10 @@ class TelegramWebhookHandler extends WebhookHandler
 
         try {
             $this->statusService->transition($appointment, AppointmentStatus::Cancelled, $client);
+        } catch (PastAppointmentException) {
+            $this->reply(__('Нельзя отменить прошедшую запись'));
+
+            return;
         } catch (InvalidStatusTransitionException $e) {
             Log::warning('[TG] cancelBooking: invalid transition', [
                 'appointment_id' => $appointmentId,

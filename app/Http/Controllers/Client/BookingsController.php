@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Client;
 
 use App\Enums\AppointmentStatus;
 use App\Exceptions\InvalidStatusTransitionException;
+use App\Exceptions\PastAppointmentException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Services\Booking\BookingService;
@@ -62,6 +63,8 @@ class BookingsController extends Controller
 
         try {
             $this->bookingService->cancel($appointment, $client);
+        } catch (PastAppointmentException) {
+            return back()->withErrors(['error' => 'Нельзя отменить прошедшую запись']);
         } catch (InvalidStatusTransitionException) {
             return back()->withErrors(['error' => 'Невозможно отменить данную запись']);
         }
