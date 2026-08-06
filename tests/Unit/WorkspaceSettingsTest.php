@@ -2,6 +2,8 @@
 
 namespace Tests\Unit;
 
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -58,8 +60,13 @@ class WorkspaceSettingsTest extends TestCase
         $master = User::factory()->master()->create([
             'workspace_id' => null,
             'master_slug' => 'solo-settings-test',
+            'is_service_provider' => true,
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
+
+        $workspace = Workspace::create(['name' => 'Solo WS', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
+        MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
 
         $response = $this->get("/book/{$master->master_slug}");
 

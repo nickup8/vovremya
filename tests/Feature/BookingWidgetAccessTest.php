@@ -3,6 +3,8 @@
 namespace Tests\Feature;
 
 use App\Enums\SubscriptionStatus;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
@@ -19,6 +21,7 @@ class BookingWidgetAccessTest extends TestCase
         $master = User::factory()->master()->create([
             'workspace_id' => null,
             'master_slug' => 'solo-master',
+            'is_service_provider' => true,
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
 
@@ -41,6 +44,7 @@ class BookingWidgetAccessTest extends TestCase
         $master = User::factory()->master()->create([
             'workspace_id' => $workspace->id,
             'master_slug' => 'employed-master',
+            'is_service_provider' => true,
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
 
@@ -70,6 +74,10 @@ class BookingWidgetAccessTest extends TestCase
     {
         $master = $this->createSoloMaster();
 
+        $ws = Workspace::create(['name' => 'Solo WS', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $ws->id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
+        MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
+
         $response = $this->get("/book/{$master->master_slug}");
 
         $response->assertStatus(200);
@@ -78,6 +86,9 @@ class BookingWidgetAccessTest extends TestCase
     public function test_employed_master_booking_widget_redirects_to_studio(): void
     {
         $master = $this->createEmployedMaster(SubscriptionStatus::Active);
+
+        $catalog = ServiceCatalog::create(['workspace_id' => $master->workspace_id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
+        MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
 
         $response = $this->get("/book/{$master->master_slug}");
 
@@ -88,6 +99,9 @@ class BookingWidgetAccessTest extends TestCase
     public function test_master_widget_revives_when_studio_subscription_expired(): void
     {
         $master = $this->createEmployedMaster(SubscriptionStatus::Expired);
+
+        $catalog = ServiceCatalog::create(['workspace_id' => $master->workspace_id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
+        MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
 
         $response = $this->get("/book/{$master->master_slug}");
 
