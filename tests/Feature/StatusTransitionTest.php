@@ -85,11 +85,11 @@ class StatusTransitionTest extends TestCase
         $this->assertEquals(AppointmentStatus::Paid, $a->fresh()->status);
     }
 
-    public function test_no_show_to_cancelled(): void
+    public function test_no_show_to_cancelled_is_forbidden_by_graph(): void
     {
         $a = $this->makeAppointment(AppointmentStatus::NoShow);
+        $this->expectException(InvalidStatusTransitionException::class);
         $this->statusService->transition($a, AppointmentStatus::Cancelled);
-        $this->assertEquals(AppointmentStatus::Cancelled, $a->fresh()->status);
     }
 
     public function test_no_show_to_no_show_is_noop(): void
