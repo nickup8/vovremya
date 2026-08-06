@@ -15,7 +15,7 @@ enum AppointmentStatus: string
         'booked' => ['no_show', 'paid', 'cancelled'],
         'pending_payment' => ['prepaid', 'cancelled'],
         'prepaid' => ['paid', 'no_show', 'cancelled'],
-        'no_show' => ['booked', 'paid', 'cancelled'],
+        'no_show' => ['booked', 'paid'],
         'paid' => ['no_show'],
         'cancelled' => ['booked'],
     ];
