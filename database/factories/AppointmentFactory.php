@@ -17,8 +17,6 @@ class AppointmentFactory extends Factory
 
     public function definition(): array
     {
-        $service = Service::inRandomOrder()->first() ?? Service::factory()->create();
-
         $start = fake()->dateTimeBetween('-1 week', '+1 week');
         $start->setTime(
             fake()->numberBetween(8, 19),
@@ -28,7 +26,10 @@ class AppointmentFactory extends Factory
         return [
             'master_id' => User::factory()->master()->create()->id,
             'client_id' => null,
-            'service_id' => $service->id,
+            'service_id' => null,
+            'service_name' => fake()->randomElement(['Стрижка', 'Маникюр', 'Окрашивание', 'Педикюр']),
+            'price' => fake()->randomElement([1000, 1500, 2000, 2500, 3000]),
+            'duration' => fake()->randomElement([30, 60, 90, 120]),
             'start_time' => $start,
             'status' => fake()->randomElement(['booked']),
         ];
