@@ -28,6 +28,8 @@ class Appointment extends Model
         'reminder_final_sent',
         'reminder_24h_sent_at',
         'reminder_final_sent_at',
+        'cancelled_at',
+        'cancelled_by',
     ];
 
     protected function casts(): array
@@ -42,6 +44,7 @@ class Appointment extends Model
             'reminder_final_sent' => 'boolean',
             'reminder_24h_sent_at' => 'datetime',
             'reminder_final_sent_at' => 'datetime',
+            'cancelled_at' => 'datetime',
         ];
     }
 
@@ -58,6 +61,11 @@ class Appointment extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class, 'service_id');
+    }
+
+    public function cancelledBy(): BelongsTo
+    {
+        return $this->belongsTo(User::class, 'cancelled_by');
     }
 
     public function toCalendarArray(): array
