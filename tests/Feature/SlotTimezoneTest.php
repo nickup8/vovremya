@@ -4,7 +4,7 @@ namespace Tests\Feature;
 
 use App\Enums\BlockedTimeReason;
 use App\Models\BlockedTime;
-use App\Models\Service;
+use App\Models\MasterService;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
@@ -42,9 +42,8 @@ class SlotTimezoneTest extends TestCase
     {
         $master = $this->createMasterWithWorkingHours('Europe/Moscow');
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $date = Carbon::today()->addDays(3)->toDateString();
@@ -59,9 +58,8 @@ class SlotTimezoneTest extends TestCase
     {
         $master = $this->createMasterWithWorkingHours('UTC');
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $date = Carbon::today()->addDays(3)->toDateString();
@@ -76,9 +74,8 @@ class SlotTimezoneTest extends TestCase
     {
         $master = $this->createMasterWithWorkingHours('Europe/Moscow');
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 30,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 30,
         ]);
 
         $today = Carbon::today();
@@ -98,9 +95,8 @@ class SlotTimezoneTest extends TestCase
     {
         $master = $this->createMasterWithWorkingHours('Europe/Moscow');
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $futureDate = Carbon::tomorrow()->addDays(3)->timezone('Europe/Moscow');
@@ -123,9 +119,8 @@ class SlotTimezoneTest extends TestCase
     {
         $master = $this->createMasterWithWorkingHours('Europe/Moscow');
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $futureDate = Carbon::tomorrow()->addDays(3)->timezone('Europe/Moscow');

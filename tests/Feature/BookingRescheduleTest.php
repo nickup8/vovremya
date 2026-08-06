@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\AppointmentStatus;
-use App\Models\Service;
+use App\Models\MasterService;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Models\Workspace;
@@ -64,9 +64,8 @@ class BookingRescheduleTest extends TestCase
 
         $master = $this->createMasterInWorkspace($workspace);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $appointment = $this->bookingService->createAppointment(
@@ -104,9 +103,8 @@ class BookingRescheduleTest extends TestCase
         $masterA = $this->createMasterInWorkspace($workspace);
         $masterB = $this->createMasterInWorkspace($workspace);
 
-        $service = Service::factory()->create([
-            'user_id' => $masterA->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($masterA)->create([
+            'duration_override' => 60,
         ]);
 
         $appointment = $this->bookingService->createAppointment(
@@ -158,9 +156,8 @@ class BookingRescheduleTest extends TestCase
         $masterA = $this->createMasterInWorkspace($workspaceA);
         $masterB = $this->createMasterInWorkspace($workspaceB);
 
-        $service = Service::factory()->create([
-            'user_id' => $masterA->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($masterA)->create([
+            'duration_override' => 60,
         ]);
 
         $appointment = $this->bookingService->createAppointment(

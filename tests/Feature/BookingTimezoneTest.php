@@ -2,7 +2,7 @@
 
 namespace Tests\Feature;
 
-use App\Models\Service;
+use App\Models\MasterService;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
@@ -40,9 +40,8 @@ class BookingTimezoneTest extends TestCase
     {
         $master = $this->createMasterWithWorkingHours();
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $bookingService = app(BookingService::class);
@@ -65,9 +64,8 @@ class BookingTimezoneTest extends TestCase
     {
         $master = $this->createMasterWithWorkingHours();
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $bookingService = app(BookingService::class);

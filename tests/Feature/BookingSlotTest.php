@@ -6,8 +6,9 @@ use App\Models\Appointment;
 use App\Models\BlockedTime;
 use App\Models\Client;
 use App\Models\MasterService;
-use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -33,16 +34,18 @@ class BookingSlotTest extends TestCase
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
 
-        WorkingHour::updateOrCreate(
-            ['user_id' => $master->id, 'day_of_week' => $dayOfWeek],
-            [
-                'start_time' => '09:00',
-                'end_time' => '18:00',
-                'break_start_time' => '13:00',
-                'break_end_time' => '14:00',
-                'is_working' => true,
-            ],
-        );
+        for ($day = 0; $day <= 6; $day++) {
+            WorkingHour::updateOrCreate(
+                ['user_id' => $master->id, 'day_of_week' => $day],
+                [
+                    'start_time' => '09:00',
+                    'end_time' => '18:00',
+                    'break_start_time' => '13:00',
+                    'break_end_time' => '14:00',
+                    'is_working' => true,
+                ],
+            );
+        }
 
         return $master;
     }
@@ -59,15 +62,14 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $result = $this->bookingService->checkSlot(
             $master,
             $this->tomorrow10amMoscow(),
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('ok', $result['status']);
@@ -80,9 +82,8 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $client = Client::factory()->create(['user_id' => $master->id]);
@@ -90,7 +91,6 @@ class BookingSlotTest extends TestCase
         Appointment::factory()
             ->forMaster($master)
             ->forClient($client)
-            ->withService($service)
             ->booked()
             ->create([
                 'start_time' => $this->tomorrow10amMoscow()->copy()->timezone('UTC'),
@@ -99,7 +99,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $this->tomorrow10amMoscow(),
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -113,9 +113,8 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $tooEarly = $this->tomorrow10amMoscow()->copy()->setTime(7, 0);
@@ -123,7 +122,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $tooEarly,
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -137,9 +136,8 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         // 17:30 + 60мин = 18:30 → за пределами 18:00
@@ -148,7 +146,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $tooLate,
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -162,9 +160,8 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         // 12:30 + 60мин = 13:30 → пересекает обед 13:00–14:00
@@ -173,7 +170,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $lunchOverlap,
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -187,9 +184,8 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $tomorrow = $this->tomorrow10amMoscow()->copy()->startOfDay();
@@ -206,7 +202,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $this->tomorrow10amMoscow(),
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -233,15 +229,14 @@ class BookingSlotTest extends TestCase
             ],
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $result = $this->bookingService->checkSlot(
             $master,
             $this->tomorrow10amMoscow(),
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -255,9 +250,8 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $tomorrow = $this->tomorrow10amMoscow()->copy()->startOfDay();
@@ -279,7 +273,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $dayAfterAt9am,
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -293,9 +287,8 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
         ]);
 
         $tomorrow = $this->tomorrow10amMoscow()->copy()->startOfDay();
@@ -319,7 +312,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $dayAfterAt10am,
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('ok', $result['status']);
@@ -329,7 +322,7 @@ class BookingSlotTest extends TestCase
         $result = $this->bookingService->checkSlot(
             $master,
             $dayAfterAt9am,
-            $service->duration_minutes,
+            $service->effective_duration,
         );
 
         $this->assertSame('error', $result['status']);
@@ -343,9 +336,11 @@ class BookingSlotTest extends TestCase
             $this->tomorrow10amMoscow()->dayOfWeek
         );
 
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Тестовая', 'base_price' => 1000.00, 'base_duration' => 60]);
         $masterService = MasterService::create([
             'master_id' => $master->id,
-            'catalog_id' => null,
+            'catalog_id' => $catalog->id,
             'price_override' => 1000.00,
             'duration_override' => 60,
             'is_custom' => true,
@@ -374,6 +369,7 @@ class BookingSlotTest extends TestCase
             $dayAfter->toDateString(),
         );
 
+        $this->assertNotEmpty($slots, 'Slots must not be empty — otherwise assertNotContains is falsely green');
         $this->assertNotContains('09:00', $slots, '09:00 should be blocked (within multi-day block)');
         $this->assertNotContains('10:00', $slots, '10:00 should be blocked');
         $this->assertNotContains('11:00', $slots, '11:00 should be blocked');

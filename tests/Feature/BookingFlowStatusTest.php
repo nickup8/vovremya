@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Enums\AppointmentStatus;
 use App\Models\MasterService;
 use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
+use App\Models\Workspace;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -52,9 +54,12 @@ class BookingFlowStatusTest extends TestCase
 
     private function createMasterService(User $master, int $durationMinutes = 60): MasterService
     {
+        $workspace = Workspace::create(['name' => fake()->unique()->company(), 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Тестовая', 'base_price' => 1000.00, 'base_duration' => $durationMinutes]);
+
         return MasterService::create([
             'master_id' => $master->id,
-            'catalog_id' => null,
+            'catalog_id' => $catalog->id,
             'price_override' => 1000.00,
             'duration_override' => $durationMinutes,
             'is_custom' => true,

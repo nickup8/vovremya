@@ -3,9 +3,12 @@
 namespace Tests\Feature;
 
 use App\Models\Appointment;
+use App\Models\MasterService;
 use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
+use App\Models\Workspace;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -48,12 +51,7 @@ class AppointmentServiceNameSnapshotTest extends TestCase
     {
         $master = $this->createMasterWithSchedule();
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Стрижка',
-            'price' => 1000.00,
-            'duration_minutes' => 60,
-        ]);
+        $service = MasterService::factory()->forMaster($master)->create();
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->format('Y-m-d');
         $appointment = $this->bookingService->createAppointment(
@@ -64,19 +62,14 @@ class AppointmentServiceNameSnapshotTest extends TestCase
             'admin',
         );
 
-        $this->assertSame('Стрижка', $appointment->service_name);
+        $this->assertSame($service->catalog->title, $appointment->service_name);
     }
 
     public function test_service_name_immutable_after_service_rename(): void
     {
         $master = $this->createMasterWithSchedule();
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Стрижка',
-            'price' => 1000.00,
-            'duration_minutes' => 60,
-        ]);
+        $service = MasterService::factory()->forMaster($master)->create();
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->format('Y-m-d');
         $appointment = $this->bookingService->createAppointment(
@@ -87,16 +80,17 @@ class AppointmentServiceNameSnapshotTest extends TestCase
             'admin',
         );
 
-        $this->assertSame('Стрижка', $appointment->service_name);
+        $originalTitle = $service->catalog->title;
+        $this->assertSame($originalTitle, $appointment->service_name);
 
-        $service->update(['title' => 'Стрижка PRO']);
+        $service->catalog->update(['title' => $originalTitle . ' PRO']);
 
         $appointment->refresh();
 
-        $this->assertSame('Стрижка', $appointment->service_name, 'service_name snapshot must NOT change when service title is updated');
+        $this->assertSame($originalTitle, $appointment->service_name, 'service_name snapshot must NOT change when service title is updated');
 
         $calendar = $appointment->toCalendarArray();
-        $this->assertSame('Стрижка', $calendar['service'], 'toCalendarArray must return snapshot service_name, not new service title');
+        $this->assertSame($originalTitle, $calendar['service'], 'toCalendarArray must return snapshot service_name, not new service title');
     }
 
     public function test_service_name_fallback_when_null(): void
@@ -210,12 +204,9 @@ class AppointmentServiceNameSnapshotTest extends TestCase
             ],
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Массаж',
-            'price' => 2000.00,
-            'duration_minutes' => 120,
-        ]);
+        $workspace = Workspace::create(['name' => 'Solo WS', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Массаж', 'base_price' => 2000.00, 'base_duration' => 120]);
+        $service = MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'price_override' => 2000.00, 'duration_override' => 120, 'is_active' => true]);
 
         $this->assertTrue($master->isSolo());
 

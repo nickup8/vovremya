@@ -3,9 +3,12 @@
 namespace Tests\Unit;
 
 use App\Models\Appointment;
+use App\Models\MasterService;
 use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
+use App\Models\Workspace;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -49,7 +52,7 @@ class AppointmentSnapshotTest extends TestCase
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
 
-        $service = Service::factory()->create([
+        $legacyService = Service::factory()->create([
             'user_id' => $master->id,
             'price' => 1000.00,
             'duration_minutes' => 60,
@@ -57,7 +60,7 @@ class AppointmentSnapshotTest extends TestCase
 
         $appointment = Appointment::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
+            'service_id' => $legacyService->id,
             'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
             'status' => 'booked',
         ]);
@@ -65,10 +68,15 @@ class AppointmentSnapshotTest extends TestCase
         $this->assertNull($appointment->price);
         $this->assertNull($appointment->duration);
 
+        $masterService = MasterService::factory()->forMaster($master)->create([
+            'price_override' => 1000.00,
+            'duration_override' => 60,
+        ]);
+
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->format('Y-m-d');
         $this->bookingService->createAppointment(
             $master,
-            $service,
+            $masterService,
             $tomorrow,
             '11:00',
             'admin',
@@ -84,10 +92,9 @@ class AppointmentSnapshotTest extends TestCase
     {
         $master = $this->createMasterWithSchedule();
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 1500.50,
-            'duration_minutes' => 90,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'price_override' => 1500.50,
+            'duration_override' => 90,
         ]);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->format('Y-m-d');
@@ -107,10 +114,9 @@ class AppointmentSnapshotTest extends TestCase
     {
         $master = $this->createMasterWithSchedule();
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 1000.00,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'price_override' => 1000.00,
+            'duration_override' => 60,
         ]);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->format('Y-m-d');
@@ -124,7 +130,7 @@ class AppointmentSnapshotTest extends TestCase
 
         $this->assertSame('1000.00', $appointment->price);
 
-        $service->update(['price' => 2000.00, 'duration_minutes' => 120]);
+        $service->update(['price_override' => 2000.00, 'duration_override' => 120]);
 
         $appointment->refresh();
 
@@ -179,11 +185,9 @@ class AppointmentSnapshotTest extends TestCase
             ],
         );
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 2000.00,
-            'duration_minutes' => 120,
-        ]);
+        $workspace = Workspace::create(['name' => 'Solo WS', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Соло-стрижка', 'base_price' => 2000.00, 'base_duration' => 120]);
+        $service = MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'price_override' => 2000.00, 'duration_override' => 120, 'is_active' => true]);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->format('Y-m-d');
         $appointment = $this->bookingService->createAppointment(

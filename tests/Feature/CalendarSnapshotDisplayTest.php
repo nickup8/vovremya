@@ -4,9 +4,12 @@ namespace Tests\Feature;
 
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Models\MasterService;
 use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
+use App\Models\Workspace;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -50,12 +53,11 @@ class CalendarSnapshotDisplayTest extends TestCase
         $master = $this->createMasterWithSchedule();
         $client = $this->createClientForMaster($master);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Маникюр',
-            'price' => 1000.00,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'price_override' => 1000.00,
+            'duration_override' => 60,
         ]);
+        $service->catalog->update(['title' => 'Маникюр']);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow');
         $bookingService = app(BookingService::class);
@@ -69,7 +71,7 @@ class CalendarSnapshotDisplayTest extends TestCase
         );
 
         // Rename service after appointment creation
-        $service->update(['title' => 'Маникюр Про']);
+        $service->catalog->update(['title' => 'Маникюр Про']);
 
         $response = $this->actingAs($master, 'web')
             ->getJson(route('admin.calendar.data', [
@@ -89,11 +91,9 @@ class CalendarSnapshotDisplayTest extends TestCase
         $master = $this->createMasterWithSchedule();
         $client = $this->createClientForMaster($master);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Стрижка',
-            'price' => 1000.00,
-            'duration_minutes' => 60,
+        $service = MasterService::factory()->forMaster($master)->create([
+            'price_override' => 1000.00,
+            'duration_override' => 60,
         ]);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow');
@@ -108,7 +108,7 @@ class CalendarSnapshotDisplayTest extends TestCase
         );
 
         // Change price after appointment creation
-        $service->update(['price' => 2000.00]);
+        $service->update(['price_override' => 2000.00]);
 
         $response = $this->actingAs($master, 'web')
             ->getJson(route('admin.calendar.data', [
@@ -128,7 +128,13 @@ class CalendarSnapshotDisplayTest extends TestCase
         $master = $this->createMasterWithSchedule();
         $client = $this->createClientForMaster($master);
 
-        $service = Service::factory()->create([
+        $service = MasterService::factory()->forMaster($master)->create([
+            'price_override' => 500.00,
+            'duration_override' => 30,
+        ]);
+        $service->catalog->update(['title' => 'Брови']);
+        // Legacy Service needed for fallback (toCalendarArray → service?->title)
+        Service::factory()->create([
             'user_id' => $master->id,
             'title' => 'Брови',
             'price' => 500.00,
