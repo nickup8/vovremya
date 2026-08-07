@@ -5,8 +5,10 @@ namespace Tests\Feature;
 use App\Enums\UserRole;
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -41,10 +43,12 @@ class SecurityFixesTest extends TestCase
             'role' => UserRole::Master,
         ]);
 
-        $service = Service::factory()->create(['user_id' => $ownerMaster->id]);
+        $workspace = Workspace::create(['name' => 'WS Owner', 'owner_id' => $ownerMaster->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
+        $ms = MasterService::create(['master_id' => $ownerMaster->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
         $appointment = Appointment::factory()->create([
             'master_id' => $ownerMaster->id,
-            'service_id' => $service->id,
+            'master_service_id' => $ms->id,
             'status' => 'booked',
         ]);
 
@@ -65,10 +69,12 @@ class SecurityFixesTest extends TestCase
 
     public function test_master_can_update_own_appointment(): void
     {
-        $service = Service::factory()->create(['user_id' => $this->master->id]);
+        $workspace = Workspace::create(['name' => 'WS Master', 'owner_id' => $this->master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Маникюр', 'base_price' => 500, 'base_duration' => 30]);
+        $ms = MasterService::create(['master_id' => $this->master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
         $appointment = Appointment::factory()->create([
             'master_id' => $this->master->id,
-            'service_id' => $service->id,
+            'master_service_id' => $ms->id,
             'status' => 'booked',
         ]);
 
@@ -235,11 +241,13 @@ class SecurityFixesTest extends TestCase
         $master = User::factory()->master()->create([
             'master_slug' => 'rate-test-master',
         ]);
-        Service::factory()->create(['user_id' => $master->id]);
+        $workspace = Workspace::create(['name' => 'WS Rate', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
+        $ms = MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
 
         for ($i = 0; $i < 5; $i++) {
             $this->postJson("/book/{$master->master_slug}", [
-                'service_id' => $master->services->first()->id,
+                'service_id' => $ms->id,
                 'date' => now()->addDays(3)->toDateString(),
                 'time' => '10:00',
                 'provider' => 'telegram',
@@ -247,7 +255,7 @@ class SecurityFixesTest extends TestCase
         }
 
         $response = $this->postJson("/book/{$master->master_slug}", [
-            'service_id' => $master->services->first()->id,
+            'service_id' => $ms->id,
             'date' => now()->addDays(3)->toDateString(),
             'time' => '11:00',
             'provider' => 'telegram',

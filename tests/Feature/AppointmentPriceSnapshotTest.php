@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Appointment;
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -12,7 +11,6 @@ use App\Models\Workspace;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AppointmentPriceSnapshotTest extends TestCase
@@ -101,21 +99,14 @@ class AppointmentPriceSnapshotTest extends TestCase
         $this->assertSame(60, $calendar['duration'], 'toCalendarArray must return snapshot duration, not new service duration');
     }
 
-    public function test_fallback_to_service_when_snapshot_null(): void
+    public function test_fallback_returns_defaults_when_no_snapshot_and_no_master_service(): void
     {
         $master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 500.00,
-            'duration_minutes' => 45,
-        ]);
-
         $appointment = Appointment::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
             'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
             'status' => 'booked',
         ]);
@@ -125,44 +116,9 @@ class AppointmentPriceSnapshotTest extends TestCase
 
         $calendar = $appointment->toCalendarArray();
 
-        // No master_service_id → fallback returns defaults
+        // No snapshot and no master_service → defaults
         $this->assertSame(0.0, $calendar['price']);
         $this->assertSame(0, $calendar['duration']);
-    }
-
-    public function test_backfill_fills_existing_appointments(): void
-    {
-        $master = User::factory()->master()->create([
-            'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
-        ]);
-
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 1000.00,
-            'duration_minutes' => 60,
-        ]);
-
-        $appointment = Appointment::create([
-            'master_id' => $master->id,
-            'service_id' => $service->id,
-            'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
-            'status' => 'booked',
-        ]);
-
-        $this->assertNull($appointment->price);
-        $this->assertNull($appointment->duration);
-
-        DB::statement('
-            UPDATE appointments SET
-                price = (SELECT s.price FROM services s WHERE s.id = appointments.service_id),
-                duration = (SELECT s.duration_minutes FROM services s WHERE s.id = appointments.service_id)
-            WHERE service_id IS NOT NULL AND (price IS NULL OR duration IS NULL)
-        ');
-
-        $appointment->refresh();
-
-        $this->assertSame('1000.00', $appointment->price, 'Backfill must set price from service');
-        $this->assertSame(60, $appointment->duration, 'Backfill must set duration from service');
     }
 
     public function test_solo_master_appointment_creation_regression(): void

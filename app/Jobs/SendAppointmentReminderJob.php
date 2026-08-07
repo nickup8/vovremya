@@ -40,7 +40,7 @@ class SendAppointmentReminderJob implements ShouldQueue
             return;
         }
 
-        $appointment = $this->appointment->load(['master', 'service', 'client']);
+        $appointment = $this->appointment->load(['master', 'client']);
 
         if (! $appointment->client) {
             return;

@@ -55,7 +55,7 @@ class AppointmentStatusService
         $appointment->update($updateData);
 
         broadcast(new AppointmentStatusChanged(
-            $appointment->load(['client', 'service']),
+            $appointment->load(['client']),
             $from,
             $to,
         ));

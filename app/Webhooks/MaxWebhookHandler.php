@@ -478,7 +478,7 @@ class MaxWebhookHandler
             'phone' => $phone,
         ]);
 
-        $appointment = Appointment::with(['master', 'service'])
+        $appointment = Appointment::with(['master'])
             ->find($appointmentId);
 
         if (! $appointment) {
@@ -513,7 +513,7 @@ class MaxWebhookHandler
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
 
         broadcast(new AppointmentCreated(
-            $appointment->load(['client', 'service'])
+            $appointment->load(['client'])
         ));
 
         $master = $appointment->master;

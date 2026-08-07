@@ -4,7 +4,6 @@ namespace Tests\Feature\Billing;
 
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Billing\TariffLimitService;
@@ -17,15 +16,10 @@ class TariffLimitTest extends TestCase
 
     private User $master;
 
-    private Service $service;
-
     protected function setUp(): void
     {
         parent::setUp();
         $this->markTestSkipped('Устаревший тест: колонка tariff удалена из users');
-
-        $this->master = User::factory()->master()->create(['tariff' => 'free']);
-        $this->service = Service::factory()->for($this->master)->create(['duration_minutes' => 60]);
 
         for ($day = 0; $day < 7; $day++) {
             WorkingHour::updateOrCreate(
@@ -43,7 +37,7 @@ class TariffLimitTest extends TestCase
             Appointment::factory()
                 ->forMaster($this->master)
                 ->forClient($client)
-                ->withService($this->service)
+                ->withMasterService($this->service)
                 ->booked()
                 ->create([
                     'start_time' => now()->startOfMonth()->addDays($i)->setTime(10, 0),
@@ -75,7 +69,7 @@ class TariffLimitTest extends TestCase
             Appointment::factory()
                 ->forMaster($this->master)
                 ->forClient($client)
-                ->withService($this->service)
+                ->withMasterService($this->service)
                 ->booked()
                 ->create([
                     'start_time' => now()->startOfMonth()->addDays($i)->setTime(10, 0),
@@ -93,7 +87,7 @@ class TariffLimitTest extends TestCase
             Appointment::factory()
                 ->forMaster($this->master)
                 ->forClient($client)
-                ->withService($this->service)
+                ->withMasterService($this->service)
                 ->booked()
                 ->create([
                     'start_time' => now()->startOfMonth()->addDays($i)->setTime(10, 0),
@@ -104,7 +98,7 @@ class TariffLimitTest extends TestCase
             Appointment::factory()
                 ->forMaster($this->master)
                 ->forClient($client)
-                ->withService($this->service)
+                ->withMasterService($this->service)
                 ->cancelled()
                 ->create([
                     'start_time' => now()->startOfMonth()->addDays($i)->setTime(14, 0),

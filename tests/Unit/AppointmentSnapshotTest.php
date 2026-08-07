@@ -4,7 +4,6 @@ namespace Tests\Unit;
 
 use App\Models\Appointment;
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -46,27 +45,9 @@ class AppointmentSnapshotTest extends TestCase
         return $master;
     }
 
-    public function test_backfill_populates_price_and_duration(): void
+    public function test_new_appointment_has_price_and_duration_snapshots(): void
     {
-        $master = User::factory()->master()->create([
-            'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
-        ]);
-
-        $legacyService = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 1000.00,
-            'duration_minutes' => 60,
-        ]);
-
-        $appointment = Appointment::create([
-            'master_id' => $master->id,
-            'service_id' => $legacyService->id,
-            'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
-            'status' => 'booked',
-        ]);
-
-        $this->assertNull($appointment->price);
-        $this->assertNull($appointment->duration);
+        $master = $this->createMasterWithSchedule();
 
         $masterService = MasterService::factory()->forMaster($master)->create([
             'price_override' => 1000.00,
@@ -74,7 +55,7 @@ class AppointmentSnapshotTest extends TestCase
         ]);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->format('Y-m-d');
-        $this->bookingService->createAppointment(
+        $appointment = $this->bookingService->createAppointment(
             $master,
             $masterService,
             $tomorrow,
@@ -83,9 +64,8 @@ class AppointmentSnapshotTest extends TestCase
             null,
         );
 
-        $newAppointment = Appointment::where('id', '!=', $appointment->id)->first();
-        $this->assertNotNull($newAppointment->price);
-        $this->assertNotNull($newAppointment->duration);
+        $this->assertNotNull($appointment->price);
+        $this->assertNotNull($appointment->duration);
     }
 
     public function test_snapshot_is_written_on_creation(): void
@@ -142,28 +122,21 @@ class AppointmentSnapshotTest extends TestCase
         $this->assertSame(60, $calendar['duration']);
     }
 
-    public function test_fallback_to_service_when_snapshot_is_null(): void
+    public function test_fallback_returns_defaults_when_no_snapshot_and_no_master_service(): void
     {
         $master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 500.00,
-            'duration_minutes' => 45,
-        ]);
-
         $appointment = Appointment::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
             'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
             'status' => 'booked',
         ]);
 
         $calendar = $appointment->toCalendarArray();
 
-        // No master_service_id → fallback returns defaults (no live service to fall back to)
+        // No snapshot, no master_service → defaults
         $this->assertSame(0.0, $calendar['price']);
         $this->assertSame(0, $calendar['duration']);
     }

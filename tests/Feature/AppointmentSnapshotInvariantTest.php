@@ -3,8 +3,10 @@
 namespace Tests\Feature;
 
 use App\Models\Appointment;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -40,24 +42,33 @@ class AppointmentSnapshotInvariantTest extends TestCase
         $this->assertSame(0, $appointment->display_duration);
     }
 
-    public function test_snapshot_takes_priority_over_legacy_fk(): void
+    public function test_snapshot_takes_priority_over_master_service(): void
     {
         $master = User::factory()->master()->create();
-        $legacy = Service::factory()->create([
-            'user_id' => $master->id,
+        $workspace = Workspace::create(['name' => 'Test WS', 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $workspace->id,
             'title' => 'СТАРОЕ ИМЯ',
-            'price' => 999,
-            'duration_minutes' => 15,
+            'base_price' => 999,
+            'base_duration' => 15,
+        ]);
+        $ms = MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
         ]);
 
         $appointment = Appointment::factory()->create([
             'master_id' => $master->id,
+            'master_service_id' => $ms->id,
             'service_name' => 'Стрижка',
             'price' => 1500,
             'duration' => 60,
-            'service_id' => $legacy->id,
         ]);
 
+        // Снапшот 'Стрижка' приоритетнее catalog.title 'СТАРОЕ ИМЯ'
         $this->assertSame('Стрижка', $appointment->display_name);
         $this->assertSame(1500.0, $appointment->display_price);
         $this->assertSame(60, $appointment->display_duration);

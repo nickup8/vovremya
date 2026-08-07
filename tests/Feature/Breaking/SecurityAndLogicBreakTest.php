@@ -5,8 +5,10 @@ namespace Tests\Feature\Breaking;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Services\Client\ClientMergeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -38,14 +40,16 @@ class SecurityAndLogicBreakTest extends TestCase
     public function test_calendar_controller_does_not_generate_n_plus_one_queries(): void
     {
         $master = User::factory()->master()->create();
-        $service = Service::factory()->for($master)->create();
+        $workspace = Workspace::create(['name' => 'WS N1', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
+        $ms = MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
 
         for ($i = 0; $i < 20; $i++) {
             $client = Client::factory()->for($master)->create();
             Appointment::factory()
                 ->forMaster($master)
                 ->forClient($client)
-                ->withService($service)
+                ->withMasterService($ms)
                 ->booked()
                 ->create();
         }
@@ -79,13 +83,15 @@ class SecurityAndLogicBreakTest extends TestCase
     public function test_cancelled_appointment_can_be_reactivated_to_booked(): void
     {
         $master = User::factory()->master()->create();
-        $service = Service::factory()->for($master)->create();
+        $workspace = Workspace::create(['name' => 'WS Reactivate', 'owner_id' => $master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Маникюр', 'base_price' => 500, 'base_duration' => 30]);
+        $ms = MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
         $client = Client::factory()->for($master)->create();
 
         $appointment = Appointment::factory()
             ->forMaster($master)
             ->forClient($client)
-            ->withService($service)
+            ->withMasterService($ms)
             ->cancelled()
             ->create();
 

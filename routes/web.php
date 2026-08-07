@@ -11,7 +11,6 @@ use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
-use App\Http\Controllers\BookingStatusController;
 use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
@@ -53,7 +52,6 @@ Route::post('/auth/magic', [MagicLoginController::class, 'login'])
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
 Route::get('/book/{master}/available-dates', [BookingWidgetController::class, 'availableDates'])->name('booking.available-dates');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
-Route::get('/book/status/{id}', [BookingStatusController::class, 'show'])->name('booking.status');
 
 Route::get('/studio/{slug}', [StudioBookingController::class, 'show'])->name('studio.booking');
 

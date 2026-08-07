@@ -50,7 +50,7 @@ class CalendarController extends Controller
                 : collect([$master->id]);
 
             $appointments = Appointment::whereIn('master_id', $masterIds)
-                ->with(['client', 'service', 'master'])
+                ->with(['client', 'master'])
                 ->whereBetween('start_time', [
                     $rangeStart,
                     $rangeEnd,
@@ -119,7 +119,7 @@ class CalendarController extends Controller
             $timezoneConfirmed = $master->isTimezoneConfirmed();
         } else {
             $appointments = $master->masterAppointments()
-                ->with(['client', 'service'])
+                ->with(['client'])
                 ->whereBetween('start_time', [
                     $rangeStart,
                     $rangeEnd,

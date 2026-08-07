@@ -5,7 +5,7 @@ namespace Tests\Feature;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -17,7 +17,7 @@ class CancelUnpaidAppointmentsTest extends TestCase
 
     private User $master;
 
-    private Service $service;
+    private MasterService $masterService;
 
     protected function setUp(): void
     {
@@ -27,9 +27,9 @@ class CancelUnpaidAppointmentsTest extends TestCase
             'deposit_timeout' => 15,
         ]);
 
-        $this->service = Service::factory()->create([
-            'user_id' => $this->master->id,
-        ]);
+        $workspace = \App\Models\Workspace::create(['name' => 'WS Cancel', 'owner_id' => $this->master->id]);
+        $catalog = \App\Models\ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Услуга', 'base_price' => 1000, 'base_duration' => 60]);
+        $this->masterService = MasterService::create(['master_id' => $this->master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
     }
 
     private function createPendingAppointment(int $minutesAgo): Appointment
@@ -39,7 +39,7 @@ class CancelUnpaidAppointmentsTest extends TestCase
         return Appointment::factory()
             ->forMaster($this->master)
             ->forClient($client)
-            ->withService($this->service)
+            ->withMasterService($this->masterService)
             ->create([
                 'status' => AppointmentStatus::PendingPayment,
                 'created_at' => Carbon::now()->subMinutes($minutesAgo),
@@ -71,7 +71,7 @@ class CancelUnpaidAppointmentsTest extends TestCase
         $appointment = Appointment::factory()
             ->forMaster($this->master)
             ->forClient($client)
-            ->withService($this->service)
+            ->withMasterService($this->masterService)
             ->create([
                 'status' => AppointmentStatus::Booked,
                 'created_at' => Carbon::now()->subMinutes(100),
@@ -98,8 +98,13 @@ class CancelUnpaidAppointmentsTest extends TestCase
         $master1 = User::factory()->master()->create(['deposit_timeout' => 10]);
         $master2 = User::factory()->master()->create(['deposit_timeout' => 30]);
 
-        $service1 = Service::factory()->create(['user_id' => $master1->id]);
-        $service2 = Service::factory()->create(['user_id' => $master2->id]);
+        $ws1 = \App\Models\Workspace::create(['name' => 'WS1', 'owner_id' => $master1->id]);
+        $cat1 = \App\Models\ServiceCatalog::create(['workspace_id' => $ws1->id, 'title' => 'Услуга1', 'base_price' => 1000, 'base_duration' => 60]);
+        $ms1 = MasterService::create(['master_id' => $master1->id, 'catalog_id' => $cat1->id, 'is_active' => true]);
+
+        $ws2 = \App\Models\Workspace::create(['name' => 'WS2', 'owner_id' => $master2->id]);
+        $cat2 = \App\Models\ServiceCatalog::create(['workspace_id' => $ws2->id, 'title' => 'Услуга2', 'base_price' => 1000, 'base_duration' => 60]);
+        $ms2 = MasterService::create(['master_id' => $master2->id, 'catalog_id' => $cat2->id, 'is_active' => true]);
 
         $client1 = Client::factory()->create(['user_id' => $master1->id]);
         $client2 = Client::factory()->create(['user_id' => $master2->id]);
@@ -108,7 +113,7 @@ class CancelUnpaidAppointmentsTest extends TestCase
         $appt1 = Appointment::factory()
             ->forMaster($master1)
             ->forClient($client1)
-            ->withService($service1)
+            ->withMasterService($ms1)
             ->create([
                 'status' => AppointmentStatus::PendingPayment,
                 'created_at' => Carbon::now()->subMinutes(15),
@@ -117,7 +122,7 @@ class CancelUnpaidAppointmentsTest extends TestCase
         $appt2 = Appointment::factory()
             ->forMaster($master2)
             ->forClient($client2)
-            ->withService($service2)
+            ->withMasterService($ms2)
             ->create([
                 'status' => AppointmentStatus::PendingPayment,
                 'created_at' => Carbon::now()->subMinutes(15),

@@ -6,8 +6,10 @@ use App\Enums\AppointmentStatus;
 use App\Exceptions\InvalidStatusTransitionException;
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Services\AppointmentStatusService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
@@ -18,7 +20,7 @@ class StatusTransitionTest extends TestCase
 
     private User $master;
 
-    private Service $service;
+    private MasterService $masterService;
 
     private AppointmentStatusService $statusService;
 
@@ -27,7 +29,9 @@ class StatusTransitionTest extends TestCase
         parent::setUp();
 
         $this->master = User::factory()->master()->create();
-        $this->service = Service::factory()->create(['user_id' => $this->master->id]);
+        $workspace = Workspace::create(['name' => 'WS Status', 'owner_id' => $this->master->id]);
+        $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Тест', 'base_price' => 1000, 'base_duration' => 60]);
+        $this->masterService = MasterService::create(['master_id' => $this->master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
         $this->statusService = app(AppointmentStatusService::class);
     }
 
@@ -35,7 +39,7 @@ class StatusTransitionTest extends TestCase
     {
         return Appointment::factory()
             ->forMaster($this->master)
-            ->withService($this->service)
+            ->withMasterService($this->masterService)
             ->create(['status' => $status]);
     }
 

@@ -26,7 +26,7 @@ class SendRemindersCommand extends Command
     {
         $now = Carbon::now();
 
-        $appointments = Appointment::with(['master', 'service', 'client'])
+        $appointments = Appointment::with(['master', 'client'])
             ->where('status', AppointmentStatus::Booked)
             ->whereNull('reminder_24h_sent_at')
             ->whereBetween('start_time', [
@@ -58,7 +58,7 @@ class SendRemindersCommand extends Command
     {
         $now = Carbon::now();
 
-        $appointments = Appointment::with(['master', 'service', 'client'])
+        $appointments = Appointment::with(['master', 'client'])
             ->where('status', AppointmentStatus::Booked)
             ->whereNull('reminder_final_sent_at')
             ->where('start_time', '<=', $now->copy()->addHours(3))

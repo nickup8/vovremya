@@ -200,7 +200,7 @@ class TelegramWebhookHandler extends WebhookHandler
     {
         $appointmentId = str_replace('book_', '', $parameter);
 
-        $appointment = Appointment::with(['master', 'service'])
+        $appointment = Appointment::with(['master'])
             ->find($appointmentId);
 
         if (! $appointment) {
@@ -298,7 +298,7 @@ class TelegramWebhookHandler extends WebhookHandler
     {
         $appointmentId = $this->data->get('id');
 
-        $appointment = Appointment::with(['master', 'service'])->find($appointmentId);
+        $appointment = Appointment::with(['master'])->find($appointmentId);
 
         if (! $appointment) {
             $this->reply(__('bot.errors.appointment_not_found'));
@@ -335,7 +335,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $this->statusService->transition($appointment, AppointmentStatus::Booked);
 
         broadcast(new AppointmentCreated(
-            $appointment->load(['client', 'service'])
+            $appointment->load(['client'])
         ));
 
         $tz = $appointment->master->getTimezone();
@@ -715,7 +715,7 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $appointment = Appointment::with(['master', 'service'])->find($appointmentId);
+        $appointment = Appointment::with(['master'])->find($appointmentId);
 
         if (! $appointment) {
             $this->chat->html(__('bot.errors.appointment_not_found_retry'))->send();
@@ -764,7 +764,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Telegram]);
 
         broadcast(new AppointmentCreated(
-            $appointment->load(['client', 'service'])
+            $appointment->load(['client'])
         ));
 
         // Атомарная блокировка: если уже обработано — выходим

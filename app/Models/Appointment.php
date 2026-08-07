@@ -87,11 +87,6 @@ class Appointment extends Model
         return $this->belongsTo(Client::class, 'client_id');
     }
 
-    public function service(): BelongsTo
-    {
-        return $this->belongsTo(Service::class, 'service_id');
-    }
-
     public function masterService(): BelongsTo
     {
         return $this->belongsTo(MasterService::class, 'master_service_id');

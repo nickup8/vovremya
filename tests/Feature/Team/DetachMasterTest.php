@@ -5,7 +5,8 @@ namespace Tests\Feature\Team;
 use App\Enums\AppointmentStatus;
 use App\Enums\UserRole;
 use App\Models\Appointment;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
@@ -30,7 +31,7 @@ class DetachMasterTest extends TestCase
 
     private TariffPlan $plan;
 
-    private Service $service;
+    private MasterService $service;
 
     protected function setUp(): void
     {
@@ -73,11 +74,16 @@ class DetachMasterTest extends TestCase
             'role' => UserRole::Master,
         ]);
 
-        $this->service = Service::create([
-            'user_id' => $this->master->id,
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $this->workspace->id,
             'title' => 'Тестовая услуга',
-            'price' => 1000,
-            'duration_minutes' => 60,
+            'base_price' => 1000,
+            'base_duration' => 60,
+        ]);
+        $this->service = MasterService::create([
+            'master_id' => $this->master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
         ]);
     }
 
@@ -95,7 +101,7 @@ class DetachMasterTest extends TestCase
         $futureAppointment = Appointment::create([
             'master_id' => $this->master->id,
             'client_id' => null,
-            'service_id' => $this->service->id,
+            'master_service_id' => $this->service->id,
             'start_time' => Carbon::tomorrow(),
             'status' => AppointmentStatus::Booked,
         ]);
@@ -131,7 +137,7 @@ class DetachMasterTest extends TestCase
         Appointment::create([
             'master_id' => $this->master->id,
             'client_id' => null,
-            'service_id' => $this->service->id,
+            'master_service_id' => $this->service->id,
             'start_time' => Carbon::tomorrow(),
             'status' => AppointmentStatus::Booked,
         ]);
@@ -157,7 +163,7 @@ class DetachMasterTest extends TestCase
         $pastAppointment = Appointment::create([
             'master_id' => $this->master->id,
             'client_id' => null,
-            'service_id' => $this->service->id,
+            'master_service_id' => $this->service->id,
             'start_time' => Carbon::yesterday(),
             'status' => AppointmentStatus::Booked,
         ]);
@@ -188,7 +194,7 @@ class DetachMasterTest extends TestCase
             $appointment = Appointment::create([
                 'master_id' => $loopMaster->id,
                 'client_id' => null,
-                'service_id' => $this->service->id,
+                'master_service_id' => $this->service->id,
                 'start_time' => Carbon::tomorrow(),
                 'status' => $status,
             ]);
@@ -243,7 +249,7 @@ class DetachMasterTest extends TestCase
         Appointment::create([
             'master_id' => $this->master->id,
             'client_id' => null,
-            'service_id' => $this->service->id,
+            'master_service_id' => $this->service->id,
             'start_time' => Carbon::tomorrow(),
             'status' => AppointmentStatus::Booked,
         ]);
@@ -268,7 +274,7 @@ class DetachMasterTest extends TestCase
         Appointment::create([
             'master_id' => $this->master->id,
             'client_id' => null,
-            'service_id' => $this->service->id,
+            'master_service_id' => $this->service->id,
             'start_time' => Carbon::tomorrow(),
             'status' => AppointmentStatus::Booked,
         ]);
@@ -283,7 +289,7 @@ class DetachMasterTest extends TestCase
         Appointment::create([
             'master_id' => $this->master->id,
             'client_id' => null,
-            'service_id' => $this->service->id,
+            'master_service_id' => $this->service->id,
             'start_time' => Carbon::tomorrow(),
             'status' => AppointmentStatus::Booked,
         ]);
@@ -331,7 +337,7 @@ class DetachMasterTest extends TestCase
         Appointment::create([
             'master_id' => $this->master->id,
             'client_id' => null,
-            'service_id' => $this->service->id,
+            'master_service_id' => $this->service->id,
             'start_time' => Carbon::tomorrow(),
             'status' => AppointmentStatus::Booked,
         ]);

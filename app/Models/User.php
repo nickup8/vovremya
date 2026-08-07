@@ -88,11 +88,6 @@ class User extends Authenticatable implements PasskeyUser
         return $this->belongsTo(Workspace::class);
     }
 
-    public function services(): HasMany
-    {
-        return $this->hasMany(Service::class);
-    }
-
     public function masterServices(): HasMany
     {
         return $this->hasMany(MasterService::class, 'master_id');

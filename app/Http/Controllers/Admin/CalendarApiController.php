@@ -38,7 +38,7 @@ class CalendarApiController extends Controller
         $utcEnd = Carbon::parse($validated['end'])->endOfDay()->timezone('UTC');
 
         $appointments = Appointment::whereIn('master_id', $masterIds)
-            ->with(['client', 'service', 'master'])
+            ->with(['client', 'master'])
             ->whereBetween('start_time', [$utcStart, $utcEnd])
             ->whereNotNull('client_id')
             ->get()

@@ -162,7 +162,7 @@ class BookingService
 
             if ($clientId !== null) {
                 broadcast(new AppointmentCreated(
-                    $appointment->load(['client', 'service'])
+                    $appointment->load(['client'])
                 ));
             }
 
@@ -371,7 +371,7 @@ class BookingService
                 $this->statusService->transition($locked, AppointmentStatus::Booked);
             }
 
-            $locked->load(['client', 'service']);
+            $locked->load(['client']);
             broadcast(new AppointmentRescheduled($locked, $oldStartTime));
 
             return [

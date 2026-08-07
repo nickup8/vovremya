@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Models\Appointment;
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -12,7 +11,6 @@ use App\Models\Workspace;
 use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class AppointmentServiceNameSnapshotTest extends TestCase
@@ -93,22 +91,14 @@ class AppointmentServiceNameSnapshotTest extends TestCase
         $this->assertSame($originalTitle, $calendar['service'], 'toCalendarArray must return snapshot service_name, not new service title');
     }
 
-    public function test_service_name_fallback_when_null(): void
+    public function test_service_name_fallback_returns_default_when_no_snapshot_and_no_master_service(): void
     {
         $master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Маникюр',
-            'price' => 500.00,
-            'duration_minutes' => 45,
-        ]);
-
         $appointment = Appointment::create([
             'master_id' => $master->id,
-            'service_id' => $service->id,
             'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
             'status' => 'booked',
         ]);
@@ -117,74 +107,8 @@ class AppointmentServiceNameSnapshotTest extends TestCase
 
         $calendar = $appointment->toCalendarArray();
 
-        // No master_service_id → fallback returns default
+        // No snapshot, no master_service → default
         $this->assertSame('Услуга удалена', $calendar['service']);
-    }
-
-    public function test_service_name_fallback_deleted_when_both_null(): void
-    {
-        $master = User::factory()->master()->create([
-            'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
-        ]);
-
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Удалённая',
-            'price' => 300.00,
-            'duration_minutes' => 30,
-        ]);
-
-        $appointment = Appointment::create([
-            'master_id' => $master->id,
-            'service_id' => $service->id,
-            'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
-            'status' => 'booked',
-        ]);
-
-        // Force service_name null (simulates pre-Phase-C record)
-        DB::statement('UPDATE appointments SET service_name = NULL WHERE id = ?', [$appointment->id]);
-        $appointment->refresh();
-        $this->assertNull($appointment->service_name);
-
-        // Simulate deleted service: set relationship to null so service?->title resolves null
-        $appointment->setRelation('service', null);
-
-        $calendar = $appointment->toCalendarArray();
-
-        $this->assertSame('Услуга удалена', $calendar['service'], 'Fallback must return "Услуга удалена" when both snapshot and service are null');
-    }
-
-    public function test_backfill_fills_service_name(): void
-    {
-        $master = User::factory()->master()->create([
-            'settings' => ['timezone' => 'Europe/Moscow', 'timezone_confirmed' => true],
-        ]);
-
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Брови',
-            'price' => 300.00,
-            'duration_minutes' => 30,
-        ]);
-
-        $appointment = Appointment::create([
-            'master_id' => $master->id,
-            'service_id' => $service->id,
-            'start_time' => Carbon::tomorrow('Europe/Moscow')->setTime(10, 0)->utc(),
-            'status' => 'booked',
-        ]);
-
-        $this->assertNull($appointment->service_name);
-
-        DB::statement('
-            UPDATE appointments SET service_name = (
-                SELECT s.title FROM services s WHERE s.id = appointments.service_id
-            ) WHERE service_id IS NOT NULL AND service_name IS NULL
-        ');
-
-        $appointment->refresh();
-
-        $this->assertSame('Брови', $appointment->service_name, 'Backfill must set service_name from service title');
     }
 
     public function test_solo_master_regression(): void

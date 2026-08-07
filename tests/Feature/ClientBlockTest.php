@@ -2,8 +2,10 @@
 
 namespace Tests\Feature;
 
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Models\WorkingHour;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Config;
@@ -17,9 +19,9 @@ class ClientBlockTest extends TestCase
 
     private User $masterB;
 
-    private Service $serviceA;
+    private MasterService $serviceA;
 
-    private Service $serviceB;
+    private MasterService $serviceB;
 
     protected function setUp(): void
     {
@@ -45,15 +47,13 @@ class ClientBlockTest extends TestCase
             }
         }
 
-        $this->serviceA = Service::factory()->create([
-            'user_id' => $this->masterA->id,
-            'duration_minutes' => 60,
-        ]);
+        $wsA = Workspace::create(['name' => 'WS A', 'owner_id' => $this->masterA->id]);
+        $catA = ServiceCatalog::create(['workspace_id' => $wsA->id, 'title' => 'Услуга A', 'base_price' => 1000, 'base_duration' => 60]);
+        $this->serviceA = MasterService::create(['master_id' => $this->masterA->id, 'catalog_id' => $catA->id, 'is_active' => true]);
 
-        $this->serviceB = Service::factory()->create([
-            'user_id' => $this->masterB->id,
-            'duration_minutes' => 60,
-        ]);
+        $wsB = Workspace::create(['name' => 'WS B', 'owner_id' => $this->masterB->id]);
+        $catB = ServiceCatalog::create(['workspace_id' => $wsB->id, 'title' => 'Услуга B', 'base_price' => 1000, 'base_duration' => 60]);
+        $this->serviceB = MasterService::create(['master_id' => $this->masterB->id, 'catalog_id' => $catB->id, 'is_active' => true]);
     }
 
     public function test_blocked_client_cannot_confirm_appointment(): void

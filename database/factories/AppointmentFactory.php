@@ -4,7 +4,7 @@ namespace Database\Factories;
 
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
 use App\Models\User;
 use Illuminate\Database\Eloquent\Factories\Factory;
 
@@ -70,10 +70,10 @@ class AppointmentFactory extends Factory
         ]);
     }
 
-    public function withService(Service $service): static
+    public function withMasterService(MasterService $masterService): static
     {
         return $this->state(fn () => [
-            'service_id' => $service->id,
+            'master_service_id' => $masterService->id,
         ]);
     }
 

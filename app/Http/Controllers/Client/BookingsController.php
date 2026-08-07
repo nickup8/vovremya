@@ -30,7 +30,7 @@ class BookingsController extends Controller
         }
 
         $appointments = Appointment::where('client_id', $client->id)
-            ->with(['master', 'service'])
+            ->with(['master'])
             ->orderByDesc('start_time')
             ->get()
             ->map(fn (Appointment $a) => [
