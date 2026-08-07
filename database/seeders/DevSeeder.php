@@ -4,11 +4,14 @@ namespace Database\Seeders;
 
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use Carbon\Carbon;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 class DevSeeder extends Seeder
 {
@@ -42,20 +45,36 @@ class DevSeeder extends Seeder
                 ]
             );
 
+            // Гарантировать workspace
+            if (! $master->workspace_id) {
+                $workspace = Workspace::firstOrCreate(
+                    ['owner_id' => $master->id],
+                    ['name' => 'Dev Studio']
+                );
+                $master->update(['workspace_id' => $workspace->id]);
+                $master->refresh();
+            }
+
             $serviceData = [
-                ['title' => 'Маникюр', 'price' => 1500, 'duration_minutes' => 60],
-                ['title' => 'Педикюр', 'price' => 2000, 'duration_minutes' => 90],
-                ['title' => 'Покрытие гель-лаком', 'price' => 800, 'duration_minutes' => 45],
-                ['title' => 'Дизайн ногтей', 'price' => 500, 'duration_minutes' => 30],
-                ['title' => 'Снятие покрытия', 'price' => 300, 'duration_minutes' => 30],
+                ['title' => 'Маникюр', 'price' => 1500, 'duration' => 60],
+                ['title' => 'Педикюр', 'price' => 2000, 'duration' => 90],
+                ['title' => 'Покрытие гель-лаком', 'price' => 800, 'duration' => 45],
+                ['title' => 'Дизайн ногтей', 'price' => 500, 'duration' => 30],
+                ['title' => 'Снятие покрытия', 'price' => 300, 'duration' => 30],
             ];
 
             $services = collect();
             foreach ($serviceData as $s) {
-                $services->push(Service::firstOrCreate(
-                    ['user_id' => $master->id, 'title' => $s['title']],
-                    ['price' => $s['price'], 'duration_minutes' => $s['duration_minutes']]
-                ));
+                $catalog = ServiceCatalog::firstOrCreate(
+                    ['workspace_id' => $master->workspace_id, 'title' => $s['title']],
+                    ['base_price' => $s['price'], 'base_duration' => $s['duration'], 'is_active' => true]
+                );
+                $ms = MasterService::firstOrCreate(
+                    ['master_id' => $master->id, 'catalog_id' => $catalog->id],
+                    ['is_active' => true]
+                );
+                $ms->setRelation('catalog', $catalog);
+                $services->push($ms);
             }
 
             $clients = collect();
@@ -78,7 +97,6 @@ class DevSeeder extends Seeder
 
             $statuses = ['paid', 'paid', 'booked', 'booked', 'booked'];
             $clientIds = $clients->pluck('id')->toArray();
-            $serviceIds = $services->pluck('id')->toArray();
             $today = Carbon::today();
 
             $appointments = [];
@@ -87,15 +105,21 @@ class DevSeeder extends Seeder
                 $hour = 9 + ($i % 10);
                 $slot = $today->copy()->subDays($daysBack)->setTime($hour, 0);
 
+                $ms = $services->random();
+
                 $appointments[] = [
-                    'master_id' => $master->id,
-                    'client_id' => $clientIds[array_rand($clientIds)],
-                    'service_id' => $serviceIds[array_rand($serviceIds)],
-                    'start_time' => $slot,
-                    'status' => $statuses[array_rand($statuses)],
-                    'provider' => array_rand(['telegram', 'max']),
-                    'created_at' => $slot->copy()->subDays(rand(1, 3)),
-                    'updated_at' => $slot,
+                    'id'                => Str::uuid7()->toString(),
+                    'master_id'         => $master->id,
+                    'client_id'         => $clientIds[array_rand($clientIds)],
+                    'master_service_id' => $ms->id,
+                    'service_name'      => $ms->catalog->title,
+                    'price'             => $ms->effective_price,
+                    'duration'          => 60, // фиксировано для избежания overlap в сидере
+                    'start_time'        => $slot,
+                    'status'            => $statuses[array_rand($statuses)],
+                    'provider'          => ['telegram', 'max'][array_rand(['telegram', 'max'])],
+                    'created_at'        => $slot->copy()->subDays(rand(1, 3)),
+                    'updated_at'        => $slot,
                 ];
             }
 
@@ -108,7 +132,7 @@ class DevSeeder extends Seeder
 
         $this->command->info('Dev data seeded:');
         $this->command->info("  Master: {$master->name} (ID: {$master->id})");
-        $this->command->info('  Services: '.Service::where('user_id', $master->id)->count());
+        $this->command->info('  Services: '.MasterService::where('master_id', $master->id)->count());
         $this->command->info('  Clients: '.Client::where('user_id', $master->id)->count());
         $this->command->info('  Appointments: '.Appointment::where('master_id', $master->id)->count());
     }
