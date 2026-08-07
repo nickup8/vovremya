@@ -23,7 +23,7 @@ class ClientProfileController extends Controller
             ->select(
                 DB::raw('COUNT(*) as total_bookings'),
                 DB::raw('SUM(CASE WHEN status = ? THEN 1 ELSE 0 END) as completed_bookings'),
-                DB::raw('(SELECT COALESCE(SUM(s.price), 0) FROM appointments a2 JOIN services s ON a2.service_id = s.id WHERE a2.client_id = ? AND a2.status = ?) as ltv'),
+                DB::raw('(SELECT COALESCE(SUM(a2.price), 0) FROM appointments a2 WHERE a2.client_id = ? AND a2.status = ?) as ltv'),
             )
             ->addBinding([$AppointmentStatus = AppointmentStatus::Paid->value, $client->id, $AppointmentStatus], 'select')
             ->first();
@@ -31,7 +31,6 @@ class ClientProfileController extends Controller
         $nextAppointment = Appointment::where('client_id', $client->id)
             ->whereIn('status', [AppointmentStatus::Booked, AppointmentStatus::PendingPayment, AppointmentStatus::Prepaid])
             ->where('start_time', '>=', now())
-            ->with('service')
             ->orderBy('start_time')
             ->first();
 

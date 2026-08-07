@@ -210,7 +210,6 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $service = $appointment->service;
         $master = $appointment->master;
         $tz = $master->getTimezone();
 
@@ -339,7 +338,6 @@ class TelegramWebhookHandler extends WebhookHandler
             $appointment->load(['client', 'service'])
         ));
 
-        $service = $appointment->service;
         $tz = $appointment->master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
@@ -779,7 +777,6 @@ class TelegramWebhookHandler extends WebhookHandler
         // Уведомляем мастера
         $phone = $client->phone ?? __('bot.fallback.phone');
         $clientName = $client->name ?? __('bot.fallback.client_name');
-        $service = $appointment->service;
         $tz = $appointment->master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');

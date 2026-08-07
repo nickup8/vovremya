@@ -7,11 +7,13 @@ use App\Events\AppointmentRescheduled;
 use App\Events\AppointmentStatusChanged;
 use App\Listeners\FlushAvailabilityCache;
 use App\Models\BlockedTime;
+use App\Models\MasterService;
 use App\Models\Service;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Observers\BlockedTimeObserver;
+use App\Observers\MasterServiceObserver;
 use App\Observers\ServiceObserver;
 use App\Observers\SubscriptionObserver;
 use App\Observers\UserObserver;
@@ -44,6 +46,7 @@ class AppServiceProvider extends ServiceProvider
         WorkingHour::observe(WorkingHourObserver::class);
         BlockedTime::observe(BlockedTimeObserver::class);
         Service::observe(ServiceObserver::class);
+        MasterService::observe(MasterServiceObserver::class);
         Subscription::observe(SubscriptionObserver::class);
 
         // Flush availability cache on any appointment change

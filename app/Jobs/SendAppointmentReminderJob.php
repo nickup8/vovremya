@@ -120,7 +120,6 @@ class SendAppointmentReminderJob implements ShouldQueue
     private function buildMessage(Appointment $appointment, string $provider): string
     {
         $master = $appointment->master;
-        $service = $appointment->service;
         $time = $appointment->start_time->timezone($master->getTimezone())->format('H:i');
         $address = $master->address ?? __('bot.fallback.address');
         $hours = $this->type === 'final'

@@ -110,8 +110,7 @@ class BookingService
         $endDateTime = $startDateTime->copy()->addMinutes($service->effective_duration);
 
         return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source) {
-            $conflict = Appointment::with('service')
-                ->where('master_id', $master->id)
+            $conflict = Appointment::where('master_id', $master->id)
                 ->whereIn('status', [
                     AppointmentStatus::Booked,
                     AppointmentStatus::PendingPayment,
@@ -123,7 +122,7 @@ class BookingService
                 ->get()
                 ->contains(function (Appointment $existing) use ($startDateTime, $endDateTime) {
                     $existingEnd = $existing->start_time->copy()->addMinutes(
-                        $existing->duration ?? $existing->service?->duration_minutes ?? 60
+                        $existing->display_duration ?: 60
                     );
 
                     return $startDateTime->lt($existingEnd) && $existing->start_time->lt($endDateTime);
@@ -233,7 +232,7 @@ class BookingService
     {
         $master = $appointment->master;
         $startDateTime = Carbon::parse($appointment->start_time);
-        $durationMinutes = $appointment->duration ?? $appointment->service?->duration_minutes ?? 60;
+        $durationMinutes = $appointment->display_duration ?: 60;
 
         $breakIntersection = $this->availabilityService->checkBreakIntersection(
             $master,
@@ -327,7 +326,7 @@ class BookingService
                 $master = $originalMaster;
             }
 
-            $durationMinutes = $locked->duration ?? $locked->service?->duration_minutes ?? 60;
+            $durationMinutes = $locked->display_duration ?: 60;
             $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
 
             $check = $this->checkSlot(

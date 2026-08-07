@@ -14,7 +14,7 @@ class AnalyticsService
     {
         $completed = $this->getCompleted($appointments);
 
-        $revenue = (float) $completed->sum(fn ($app) => $app->service ? $app->service->price : 0);
+        $revenue = (float) $completed->sum(fn ($app) => $app->display_price);
         $totalVisits = $completed->count();
         $avgCheck = $totalVisits > 0 ? round($revenue / $totalVisits, 2) : 0;
 
@@ -27,8 +27,8 @@ class AnalyticsService
 
         $cancelled = $appointments->filter(fn ($app) => $app->status === AppointmentStatus::Cancelled);
         $noShows = $appointments->filter(fn ($app) => $app->status === AppointmentStatus::NoShow);
-        $lostRevenue = (float) $cancelled->sum(fn ($app) => $app->service ? $app->service->price : 0)
-            + (float) $noShows->sum(fn ($app) => $app->service ? $app->service->price : 0);
+        $lostRevenue = (float) $cancelled->sum(fn ($app) => $app->display_price)
+            + (float) $noShows->sum(fn ($app) => $app->display_price);
 
         return [
             'revenue' => $revenue,
@@ -52,7 +52,7 @@ class AnalyticsService
             AppointmentStatus::Paid,
             AppointmentStatus::Booked,
         ]));
-        $bookedMinutes = (int) $occupied->sum(fn ($app) => $app->service ? $app->service->duration_minutes : 0);
+        $bookedMinutes = (int) $occupied->sum(fn ($app) => $app->display_duration);
 
         $start = Carbon::parse($startDate)->startOfDay();
         $end = Carbon::parse($endDate)->endOfDay();

@@ -45,7 +45,6 @@ class AnalyticsController extends Controller
         }
 
         $appointments = Appointment::whereIn('master_id', $masterIds)
-            ->with('service')
             ->whereBetween('start_time', [
                 ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00',
                 ($dateTo ?? Carbon::now()->toDateString()).' 23:59:59',
@@ -65,7 +64,6 @@ class AnalyticsController extends Controller
 
         [$prevStart, $prevEnd] = $this->getPreviousPeriodDates($period, $dateFrom, $dateTo);
         $prevAppointments = Appointment::whereIn('master_id', $masterIds)
-            ->with('service')
             ->whereBetween('start_time', [
                 $prevStart->startOfDay()->toDateTimeString(),
                 $prevEnd->endOfDay()->toDateTimeString(),
@@ -147,7 +145,7 @@ class AnalyticsController extends Controller
             $group = $grouped->get($key, collect());
             $data[] = [
                 'label' => $labels[$i] ?? $key,
-                'value' => (float) $group->sum(fn ($app) => $app->service ? $app->service->price : 0),
+                'value' => (float) $group->sum(fn ($app) => $app->display_price),
                 'count' => $group->count(),
             ];
         }
@@ -251,7 +249,7 @@ class AnalyticsController extends Controller
             return [];
         }
 
-        $grouped = $completed->groupBy(fn ($app) => $app->service_name ?? $app->service?->title ?? 'Услуга удалена');
+        $grouped = $completed->groupBy(fn ($app) => $app->display_name);
         $totalCount = $completed->count();
 
         $stats = $grouped->map(function ($apps, $serviceName) use ($totalCount) {

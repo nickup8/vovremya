@@ -516,7 +516,6 @@ class MaxWebhookHandler
             $appointment->load(['client', 'service'])
         ));
 
-        $service = $appointment->service;
         $master = $appointment->master;
         $tz = $master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');

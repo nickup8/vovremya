@@ -14,8 +14,6 @@ class MasterNotificationService
     {
         $master = $appointment->master;
         $client = $appointment->client;
-        $service = $appointment->service;
-
         $clientName = $client?->name ?? __('bot.fallback.client_name');
         $serviceName = $appointment->display_name;
         $time = $appointment->start_time->format('d.m.Y H:i');

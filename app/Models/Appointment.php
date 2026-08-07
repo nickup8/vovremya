@@ -54,7 +54,7 @@ class Appointment extends Model
     {
         return Attribute::make(
             get: fn () => $this->service_name
-                ?? $this->service?->title
+                ?? $this->masterService?->catalog?->title
                 ?? 'Услуга удалена',
         );
     }
@@ -63,7 +63,7 @@ class Appointment extends Model
     {
         return Attribute::make(
             get: fn () => (int) ($this->duration
-                ?? $this->service?->duration_minutes
+                ?? $this->masterService?->effective_duration
                 ?? 0),
         );
     }
@@ -72,7 +72,7 @@ class Appointment extends Model
     {
         return Attribute::make(
             get: fn () => (float) ($this->price
-                ?? $this->service?->price
+                ?? $this->masterService?->effective_price
                 ?? 0),
         );
     }

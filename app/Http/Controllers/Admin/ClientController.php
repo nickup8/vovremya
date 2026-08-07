@@ -29,7 +29,6 @@ class ClientController extends Controller
         $perPage = (int) $request->query('per_page', 20);
 
         $clients = Client::forWorkspaceOrMaster($user)
-            ->with(['appointments.service'])
             ->withCount(['appointments as total_bookings' => function ($q) {
                 $q->where('status', '!=', AppointmentStatus::Cancelled);
             }])
@@ -41,7 +40,7 @@ class ClientController extends Controller
             ->map(function (Client $client) {
                 $ltv = $client->appointments
                     ->where('status', AppointmentStatus::Paid)
-                    ->sum(fn ($a) => $a->service?->price ?? 0);
+                    ->sum(fn ($a) => $a->display_price);
 
                 return [
                     'id' => $client->id,

@@ -125,8 +125,9 @@ class AppointmentPriceSnapshotTest extends TestCase
 
         $calendar = $appointment->toCalendarArray();
 
-        $this->assertSame(500.0, $calendar['price'], 'Fallback must return service price when snapshot is null');
-        $this->assertSame(45, $calendar['duration'], 'Fallback must return service duration when snapshot is null');
+        // No master_service_id → fallback returns defaults
+        $this->assertSame(0.0, $calendar['price']);
+        $this->assertSame(0, $calendar['duration']);
     }
 
     public function test_backfill_fills_existing_appointments(): void

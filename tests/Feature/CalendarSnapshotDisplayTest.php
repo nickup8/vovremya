@@ -160,8 +160,8 @@ class CalendarSnapshotDisplayTest extends TestCase
 
         $appointments = $response->json('appointments');
         $this->assertNotEmpty($appointments);
-        // With no snapshot and no legacy service_id, fallback shows default
-        $this->assertSame('Услуга удалена', $appointments[0]['service']);
-        $this->assertEquals(0.0, $appointments[0]['price']);
+        // No snapshot → fallback to masterService catalog title
+        $this->assertSame('Брови', $appointments[0]['service']);
+        $this->assertEquals(500.0, $appointments[0]['price']);
     }
 }

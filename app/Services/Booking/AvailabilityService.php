@@ -274,13 +274,12 @@ class AvailabilityService
         $appointments = Appointment::where('master_id', $master->id)
             ->whereIn('status', $blockingStatuses)
             ->whereBetween('start_time', [$utcStart, $utcEnd])
-            ->with('service')
             ->get();
 
         $grouped = [];
         foreach ($appointments as $a) {
             $start = Carbon::parse($a->start_time)->timezone($tz);
-            $duration = $a->duration ?? $a->service?->duration_minutes ?? 60;
+            $duration = $a->display_duration ?: 60;
             $dateKey = $start->format('Y-m-d');
 
             $grouped[$dateKey][] = [
@@ -417,12 +416,11 @@ class AvailabilityService
             ->whereIn('status', $blockingStatuses)
             ->whereBetween('start_time', [$utcStart, $utcEnd])
             ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
-            ->with('service')
             ->get();
 
         return $appointments->map(function (Appointment $a) use ($tz) {
             $start = Carbon::parse($a->start_time)->timezone($tz);
-            $duration = $a->duration ?? $a->service?->duration_minutes ?? 60;
+            $duration = $a->display_duration ?: 60;
 
             return [
                 'start' => $start,

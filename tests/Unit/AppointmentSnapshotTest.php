@@ -163,8 +163,9 @@ class AppointmentSnapshotTest extends TestCase
 
         $calendar = $appointment->toCalendarArray();
 
-        $this->assertSame(500.0, $calendar['price']);
-        $this->assertSame(45, $calendar['duration']);
+        // No master_service_id → fallback returns defaults (no live service to fall back to)
+        $this->assertSame(0.0, $calendar['price']);
+        $this->assertSame(0, $calendar['duration']);
     }
 
     public function test_solo_master_creates_appointment_with_snapshot(): void

@@ -117,7 +117,8 @@ class AppointmentServiceNameSnapshotTest extends TestCase
 
         $calendar = $appointment->toCalendarArray();
 
-        $this->assertSame('Маникюр', $calendar['service'], 'Fallback must return service title when service_name snapshot is null');
+        // No master_service_id → fallback returns default
+        $this->assertSame('Услуга удалена', $calendar['service']);
     }
 
     public function test_service_name_fallback_deleted_when_both_null(): void
