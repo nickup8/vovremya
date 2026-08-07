@@ -20,7 +20,6 @@ class AppointmentSnapshotInvariantTest extends TestCase
             'service_name' => 'Стрижка',
             'price' => 1500,
             'duration' => 60,
-            'service_id' => null,
         ]);
 
         $this->assertSame('Стрижка', $appointment->display_name);
@@ -34,7 +33,6 @@ class AppointmentSnapshotInvariantTest extends TestCase
             'service_name' => null,
             'price' => null,
             'duration' => null,
-            'service_id' => null,
         ]);
 
         $this->assertSame('Услуга удалена', $appointment->display_name);
@@ -80,7 +78,6 @@ class AppointmentSnapshotInvariantTest extends TestCase
             'service_name' => 'Маникюр',
             'price' => 2000,
             'duration' => 90,
-            'service_id' => null,
         ]);
 
         $calendar = $appointment->toCalendarArray();

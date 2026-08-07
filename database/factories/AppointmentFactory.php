@@ -26,7 +26,6 @@ class AppointmentFactory extends Factory
         return [
             'master_id' => User::factory()->master()->create()->id,
             'client_id' => null,
-            'service_id' => null,
             'service_name' => fake()->randomElement(['Стрижка', 'Маникюр', 'Окрашивание', 'Педикюр']),
             'price' => fake()->randomElement([1000, 1500, 2000, 2500, 3000]),
             'duration' => fake()->randomElement([30, 60, 90, 120]),
