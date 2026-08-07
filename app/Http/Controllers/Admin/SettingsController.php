@@ -6,7 +6,6 @@ use App\Enums\BlockedTimeReason;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedTime;
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -266,18 +265,6 @@ class SettingsController extends Controller
             'duration_minutes' => 'required|integer|min:1',
             'price'            => 'required|numeric|min:0',
         ]);
-
-        $oldTitle = $masterService->catalog?->title;
-
-        if ($oldTitle !== null) {
-            Service::where('user_id', $masterService->master_id)
-                ->where('title', $oldTitle)
-                ->update([
-                    'title'            => $validated['title'],
-                    'price'            => $validated['price'],
-                    'duration_minutes' => $validated['duration_minutes'],
-                ]);
-        }
 
         $masterService->update([
             'price_override'    => $validated['price'],

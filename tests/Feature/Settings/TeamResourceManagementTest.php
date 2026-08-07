@@ -4,7 +4,7 @@ namespace Tests\Feature\Settings;
 
 use App\Models\BlockedTime;
 use App\Models\MasterService;
-use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\CreateServiceAction;
@@ -89,9 +89,11 @@ class TeamResourceManagementTest extends TestCase
             ]);
 
         $response->assertRedirect();
-        $this->assertDatabaseHas('services', [
-            'user_id' => $this->staff1->id,
+        $this->assertDatabaseHas('service_catalog', [
             'title' => 'Маникюр',
+        ]);
+        $this->assertDatabaseHas('master_service', [
+            'master_id' => $this->staff1->id,
         ]);
     }
 
@@ -121,17 +123,21 @@ class TeamResourceManagementTest extends TestCase
             ]);
 
         $response->assertRedirect();
-        $this->assertDatabaseHas('services', [
-            'user_id' => $this->staff1->id,
+        $this->assertDatabaseHas('service_catalog', [
             'title' => 'Стрижка',
+        ]);
+        $this->assertDatabaseHas('master_service', [
+            'master_id' => $this->staff1->id,
         ]);
     }
 
     public function test_admin_updates_staff1s_service(): void
     {
-        $service = Service::factory()->create(['user_id' => $this->staff1->id]);
-        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
-        $masterService = MasterService::where('master_id', $this->staff1->id)->first();
+        $masterService = app(CreateServiceAction::class)->execute($this->staff1, [
+            'title' => 'Стрижка',
+            'price' => 800,
+            'duration_minutes' => 45,
+        ]);
 
         $response = $this->actingAs($this->adminA)
             ->put("/admin/services/{$masterService->id}", [
@@ -141,17 +147,20 @@ class TeamResourceManagementTest extends TestCase
             ]);
 
         $response->assertRedirect();
-        $this->assertDatabaseHas('services', [
-            'id' => $service->id,
-            'title' => 'Обновлённая стрижка',
+        $this->assertDatabaseHas('master_service', [
+            'id' => $masterService->id,
+            'price_override' => '1200.00',
+            'duration_override' => 60,
         ]);
     }
 
     public function test_admin_deletes_staff1s_service(): void
     {
-        $service = Service::factory()->create(['user_id' => $this->staff1->id]);
-        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
-        $masterService = MasterService::where('master_id', $this->staff1->id)->first();
+        $masterService = app(CreateServiceAction::class)->execute($this->staff1, [
+            'title' => 'Стрижка',
+            'price' => 800,
+            'duration_minutes' => 45,
+        ]);
 
         $response = $this->actingAs($this->adminA)
             ->delete("/admin/services/{$masterService->id}");
@@ -175,9 +184,11 @@ class TeamResourceManagementTest extends TestCase
 
     public function test_admin_cannot_update_service_from_other_workspace(): void
     {
-        $service = Service::factory()->create(['user_id' => $this->masterB->id]);
-        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
-        $masterService = MasterService::where('master_id', $this->masterB->id)->first();
+        $masterService = app(CreateServiceAction::class)->execute($this->masterB, [
+            'title' => 'Чужая',
+            'price' => 500,
+            'duration_minutes' => 30,
+        ]);
 
         $response = $this->actingAs($this->adminA)
             ->put("/admin/services/{$masterService->id}", [
@@ -191,9 +202,11 @@ class TeamResourceManagementTest extends TestCase
 
     public function test_admin_cannot_delete_service_from_other_workspace(): void
     {
-        $service = Service::factory()->create(['user_id' => $this->masterB->id]);
-        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
-        $masterService = MasterService::where('master_id', $this->masterB->id)->first();
+        $masterService = app(CreateServiceAction::class)->execute($this->masterB, [
+            'title' => 'Чужая',
+            'price' => 500,
+            'duration_minutes' => 30,
+        ]);
 
         $response = $this->actingAs($this->adminA)
             ->delete("/admin/services/{$masterService->id}");
@@ -213,9 +226,11 @@ class TeamResourceManagementTest extends TestCase
             ]);
 
         $response->assertRedirect();
-        $this->assertDatabaseHas('services', [
-            'user_id' => $this->staff2->id,
+        $this->assertDatabaseHas('service_catalog', [
             'title' => 'Колорирование',
+        ]);
+        $this->assertDatabaseHas('master_service', [
+            'master_id' => $this->staff2->id,
         ]);
     }
 

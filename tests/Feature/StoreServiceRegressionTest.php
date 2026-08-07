@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
@@ -40,7 +39,6 @@ class StoreServiceRegressionTest extends TestCase
         $response->assertRedirect();
         $response->assertSessionHas('success');
 
-        $this->assertSame(1, Service::count());
         $this->assertSame(1, ServiceCatalog::count());
         $this->assertSame(1, MasterService::count());
     }
@@ -62,9 +60,6 @@ class StoreServiceRegressionTest extends TestCase
 
         $response->assertRedirect();
         $response->assertSessionHas('success');
-
-        $service = Service::first();
-        $this->assertSame($master2->id, $service->user_id);
 
         $ms = MasterService::first();
         $this->assertSame($master2->id, $ms->master_id);

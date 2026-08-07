@@ -3,7 +3,6 @@
 namespace Tests\Feature;
 
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
@@ -27,28 +26,26 @@ class CreateServiceActionTest extends TestCase
         return $master;
     }
 
-    public function test_single_master_creates_triple_records(): void
+    public function test_creates_catalog_and_master_service(): void
     {
         $master = $this->createMasterWithWorkspace();
 
-        $service = app(CreateServiceAction::class)->execute($master, [
+        $ms = app(CreateServiceAction::class)->execute($master, [
             'title' => 'Стрижка',
             'price' => 1500,
             'duration_minutes' => 60,
         ]);
 
-        $this->assertSame(1, Service::count());
+        $this->assertInstanceOf(MasterService::class, $ms);
         $this->assertSame(1, ServiceCatalog::count());
         $this->assertSame(1, MasterService::count());
 
-        $this->assertSame($master->id, $service->user_id);
-
         $catalog = ServiceCatalog::first();
         $this->assertSame($master->workspace_id, $catalog->workspace_id);
+        $this->assertSame('Стрижка', $catalog->title);
         $this->assertSame('1500.00', $catalog->base_price);
         $this->assertSame(60, $catalog->base_duration);
 
-        $ms = MasterService::first();
         $this->assertSame($master->id, $ms->master_id);
         $this->assertSame($catalog->id, $ms->catalog_id);
         $this->assertNull($ms->price_override);
@@ -64,7 +61,6 @@ class CreateServiceActionTest extends TestCase
         $action->execute($master, $data);
         $action->execute($master, $data);
 
-        $this->assertSame(2, Service::count());
         $this->assertSame(1, ServiceCatalog::count());
         $this->assertSame(1, MasterService::count());
     }
@@ -91,18 +87,16 @@ class CreateServiceActionTest extends TestCase
     {
         $master = $this->createMasterWithWorkspace();
 
-        app(CreateServiceAction::class)->execute($master, [
+        $ms = app(CreateServiceAction::class)->execute($master, [
             'title' => 'Педикюр',
             'price' => 2000,
             'duration_minutes' => 45,
         ]);
 
-        $ms = MasterService::first();
         $catalog = ServiceCatalog::first();
 
         $this->assertNull($ms->price_override);
         $this->assertSame('2000.00', $catalog->base_price);
-        // Наследование: price_override ?? base_price = 2000
         $this->assertSame('2000.00', $ms->price_override ?? $catalog->base_price);
     }
 
@@ -110,18 +104,6 @@ class CreateServiceActionTest extends TestCase
     {
         $master = $this->createMasterWithWorkspace();
 
-        // Создаём запись ДО вызова execute — она НЕ должна исчезнуть
-        // если транзакция откатится (не захватит её)
-        Service::create([
-            'user_id' => $master->id,
-            'title' => 'Pre-existing',
-            'price' => 100,
-            'duration_minutes' => 30,
-        ]);
-
-        $this->assertSame(1, Service::count());
-
-        // Подменяем DB::transaction — пропускаем callback, сразу бросаем
         \Illuminate\Support\Facades\DB::shouldReceive('transaction')
             ->once()
             ->andThrow(new \RuntimeException('Simulated DB failure'));
@@ -136,23 +118,20 @@ class CreateServiceActionTest extends TestCase
             // ожидаемо
         }
 
-        // Pre-existing запись на месте (транзакция не захватила её),
-        // новая запись НЕ создана (transaction callback не выполнился)
-        $this->assertSame(1, Service::count());
-        $this->assertSame('Pre-existing', Service::first()->title);
+        $this->assertSame(0, ServiceCatalog::count());
+        $this->assertSame(0, MasterService::count());
     }
 
-    public function test_returns_legacy_service(): void
+    public function test_throws_when_workspace_missing(): void
     {
-        $master = $this->createMasterWithWorkspace();
+        $master = User::factory()->master()->create(['workspace_id' => null]);
 
-        $result = app(CreateServiceAction::class)->execute($master, [
-            'title' => 'Стрижка',
-            'price' => 1500,
-            'duration_minutes' => 60,
+        $this->expectException(\RuntimeException::class);
+
+        app(CreateServiceAction::class)->execute($master, [
+            'title' => 'Test',
+            'price' => 100,
+            'duration_minutes' => 30,
         ]);
-
-        $this->assertInstanceOf(Service::class, $result);
-        $this->assertSame('Стрижка', $result->title);
     }
 }
