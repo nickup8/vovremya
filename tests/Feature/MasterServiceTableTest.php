@@ -3,7 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\MasterService;
-use App\Models\Service;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Schema;
@@ -38,16 +38,15 @@ class MasterServiceTableTest extends TestCase
     public function test_can_create_link_with_override(): void
     {
         $master = User::factory()->master()->create();
-        $service = Service::factory()->create(['user_id' => $master->id]);
+        $catalog = ServiceCatalog::factory()->create();
 
-        // Confirm IDs are UUIDs (matching production schema)
+        // Confirm ID is UUID (matching production schema)
         $this->assertIsString($master->id);
         $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $master->id);
-        $this->assertMatchesRegularExpression('/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i', $service->id);
 
         $link = MasterService::create([
             'master_id' => $master->id,
-            'catalog_id' => null,
+            'catalog_id' => $catalog->id,
             'price_override' => 1500.00,
             'duration_override' => 60,
             'is_active' => true,
@@ -62,10 +61,11 @@ class MasterServiceTableTest extends TestCase
     public function test_nullable_override_defaults(): void
     {
         $master = User::factory()->master()->create();
+        $catalog = ServiceCatalog::factory()->create();
 
         $link = MasterService::create([
             'master_id' => $master->id,
-            'catalog_id' => null,
+            'catalog_id' => $catalog->id,
             'is_active' => true,
         ]);
 
@@ -78,13 +78,7 @@ class MasterServiceTableTest extends TestCase
     {
         $master = User::factory()->master()->create();
 
-        $catalog = \App\Models\ServiceCatalog::create([
-            'workspace_id' => null,
-            'title' => 'Test Service',
-            'category' => 'general',
-            'base_price' => 1000.00,
-            'base_duration' => 60,
-        ]);
+        $catalog = \App\Models\ServiceCatalog::factory()->create();
 
         MasterService::create([
             'master_id' => $master->id,
