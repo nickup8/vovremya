@@ -37,10 +37,10 @@ class ClientProfileController extends Controller
 
         $nextAppointmentData = $nextAppointment ? [
             'id' => $nextAppointment->id,
-            'service' => $nextAppointment->service?->title ?? 'Услуга',
+            'service' => $nextAppointment->display_name,
             'date' => $nextAppointment->start_time->format('d.m.Y'),
             'time' => $nextAppointment->start_time->format('H:i'),
-            'price' => (float) ($nextAppointment->service?->price ?? 0),
+            'price' => $nextAppointment->display_price,
             'master_name' => $master->name,
         ] : null;
 

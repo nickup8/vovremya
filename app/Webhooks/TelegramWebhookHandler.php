@@ -216,7 +216,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
-        $serviceName = $service?->title ?? __('bot.fallback.service_name');
+        $serviceName = $appointment->display_name;
         $masterName = $master->name ?? __('bot.fallback.master_name');
 
         $details = __('bot.booking_details', [
@@ -345,10 +345,10 @@ class TelegramWebhookHandler extends WebhookHandler
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
         $confirmedText = __('bot.booking_confirmed', [
-            'service' => $service?->title,
+            'service' => $appointment->display_name,
             'date' => $date,
             'time' => $time,
-            'price' => $service?->price ?? 0,
+            'price' => $appointment->display_price,
         ]);
 
         if ($appointment->master->address) {
@@ -374,7 +374,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 ->sendToMaster($appointment->master, __('bot.master.new_booking', [
                     'client' => $clientName,
                     'phone' => $phone,
-                    'service' => $service?->title,
+                    'service' => $appointment->display_name,
                     'date' => $date,
                     'time' => $time,
                 ]));
@@ -787,7 +787,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $masterNotification = __('bot.master.new_booking', [
             'client' => $clientName,
             'phone' => $phone,
-            'service' => $service?->title,
+            'service' => $appointment->display_name,
             'date' => $date,
             'time' => $time,
         ]);
@@ -806,10 +806,10 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         $message = __('bot.booking_confirmed', [
-            'service' => $service->title,
+            'service' => $appointment->display_name,
             'date' => $date,
             'time' => $time,
-            'price' => $service->price ?? 0,
+            'price' => $appointment->display_price,
         ]);
 
         if ($appointment->master->address) {

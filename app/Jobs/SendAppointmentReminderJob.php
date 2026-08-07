@@ -131,7 +131,7 @@ class SendAppointmentReminderJob implements ShouldQueue
 
         $template = __("notifications.{$key}", [
             'master' => $master->name,
-            'service' => $appointment->service_name ?? $service?->title ?? 'Услуга',
+            'service' => $appointment->display_name,
             'time' => $time,
             'address' => $address,
             'hours' => $hours,

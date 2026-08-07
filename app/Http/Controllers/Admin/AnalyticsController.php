@@ -251,16 +251,15 @@ class AnalyticsController extends Controller
             return [];
         }
 
-        $grouped = $completed->groupBy('service_id');
+        $grouped = $completed->groupBy(fn ($app) => $app->service_name ?? $app->service?->title ?? 'Услуга удалена');
         $totalCount = $completed->count();
 
-        $stats = $grouped->map(function ($apps, $serviceId) use ($totalCount) {
-            $service = $apps->first()->service;
+        $stats = $grouped->map(function ($apps, $serviceName) use ($totalCount) {
             $count = $apps->count();
-            $revenue = (float) $apps->sum(fn ($app) => $app->service ? $app->service->price : 0);
+            $revenue = (float) $apps->sum(fn ($app) => $app->display_price);
 
             return [
-                'name' => $service?->title ?? 'Услуга #'.$serviceId,
+                'name' => $serviceName,
                 'count' => $count,
                 'revenue' => $revenue,
                 'percent' => $totalCount > 0 ? round(($count / $totalCount) * 100) : 0,

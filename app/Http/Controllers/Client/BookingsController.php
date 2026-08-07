@@ -37,10 +37,10 @@ class BookingsController extends Controller
                 'id' => $a->id,
                 'master_name' => $a->master->name,
                 'master_specialty' => $a->master->specialty,
-                'service' => $a->service?->title,
+                'service' => $a->display_name,
                 'date' => $a->start_time->format('Y-m-d'),
                 'time' => $a->start_time->format('H:i'),
-                'price' => (float) ($a->service?->price ?? 0),
+                'price' => $a->display_price,
                 'status' => $a->status,
             ]);
 

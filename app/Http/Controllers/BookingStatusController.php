@@ -32,7 +32,7 @@ class BookingStatusController extends Controller
                 'created_at' => $appointment->created_at->toISOString(),
                 'service' => [
                     'id' => $appointment->service?->id,
-                    'title' => $appointment->service?->title,
+                    'title' => $appointment->display_name,
                 ],
                 'master' => [
                     'id' => $appointment->master->id,
