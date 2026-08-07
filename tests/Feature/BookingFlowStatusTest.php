@@ -4,7 +4,6 @@ namespace Tests\Feature;
 
 use App\Enums\AppointmentStatus;
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -139,10 +138,7 @@ class BookingFlowStatusTest extends TestCase
             'booking_flow_type' => 'prepayment_custom',
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'duration_minutes' => 60,
-        ]);
+        $service = $this->createMasterService($master, 60);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow')->setTime(10, 0);
 

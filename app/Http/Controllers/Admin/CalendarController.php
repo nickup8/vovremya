@@ -7,7 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
@@ -101,15 +101,18 @@ class CalendarController extends Controller
                     'phone' => $c->phone,
                 ]);
 
-            $services = Service::whereIn('user_id', $masterIds)
+            $services = MasterService::whereIn('master_id', $masterIds)
+                ->where('is_active', true)
+                ->with('catalog')
                 ->get()
-                ->map(fn (Service $s) => [
+                ->map(fn (MasterService $s) => [
                     'id' => $s->id,
-                    'title' => $s->title,
-                    'duration_minutes' => $s->duration_minutes,
-                    'price' => (float) $s->price,
-                    'user_id' => $s->user_id,
-                ]);
+                    'title' => $s->catalog?->title ?? '—',
+                    'duration_minutes' => $s->effective_duration,
+                    'price' => (float) $s->effective_price,
+                    'master_id' => $s->master_id,
+                ])
+                ->filter(fn ($s) => $s['title'] !== '—');
 
             $slotInterval = $master->slot_interval ?? 30;
             $timezone = $master->getTimezone();
@@ -167,15 +170,18 @@ class CalendarController extends Controller
                     'phone' => $c->phone,
                 ]);
 
-            $services = $master->services()
+            $services = MasterService::where('master_id', $master->id)
+                ->where('is_active', true)
+                ->with('catalog')
                 ->get()
-                ->map(fn (Service $s) => [
+                ->map(fn (MasterService $s) => [
                     'id' => $s->id,
-                    'title' => $s->title,
-                    'duration_minutes' => $s->duration_minutes,
-                    'price' => (float) $s->price,
-                    'user_id' => $s->user_id,
-                ]);
+                    'title' => $s->catalog?->title ?? '—',
+                    'duration_minutes' => $s->effective_duration,
+                    'price' => (float) $s->effective_price,
+                    'master_id' => $s->master_id,
+                ])
+                ->filter(fn ($s) => $s['title'] !== '—');
 
             $slotInterval = $master->slot_interval ?? 30;
             $timezone = $master->getTimezone();
@@ -215,7 +221,7 @@ class CalendarController extends Controller
 
         $validated = $request->validate([
             'client_id' => 'required|exists:clients,id',
-            'service_id' => 'required|exists:services,id',
+            'service_id' => 'required|exists:master_service,id',
             'date' => 'required|date_format:Y-m-d|after_or_equal:today',
             'time' => 'required|date_format:H:i',
             'ignore_warnings' => 'sometimes|boolean',
@@ -225,22 +231,22 @@ class CalendarController extends Controller
         $client = Client::findOrFail($validated['client_id']);
         $this->authorize('view', $client);
 
-        $service = Service::findOrFail($validated['service_id']);
+        $masterService = MasterService::findOrFail($validated['service_id']);
 
         // Проверка принадлежности услуги мастерам текущего workspace (защита от IDOR)
         $workspaceMasterIds = $master->workspace
             ? $master->workspace->users()->pluck('id')->all()
             : [$master->id];
 
-        if (! in_array($service->user_id, $workspaceMasterIds, true)) {
+        if (! in_array($masterService->master_id, $workspaceMasterIds, true)) {
             abort(403, 'У вас нет прав на использование этой услуги.');
         }
 
-        $targetMaster = User::find($service->user_id);
+        $targetMaster = User::find($masterService->master_id);
 
         $result = $this->bookingService->createManualAppointment(
             $targetMaster,
-            $service,
+            $masterService,
             $validated['date'],
             $validated['time'],
             $validated['ignore_warnings'] ?? false,

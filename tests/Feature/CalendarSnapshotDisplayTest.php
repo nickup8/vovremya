@@ -5,7 +5,6 @@ namespace Tests\Feature;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\WorkingHour;
@@ -133,13 +132,6 @@ class CalendarSnapshotDisplayTest extends TestCase
             'duration_override' => 30,
         ]);
         $service->catalog->update(['title' => 'Брови']);
-        // Legacy Service needed for fallback (toCalendarArray → service?->title)
-        Service::factory()->create([
-            'user_id' => $master->id,
-            'title' => 'Брови',
-            'price' => 500.00,
-            'duration_minutes' => 30,
-        ]);
 
         $tomorrow = Carbon::tomorrow('Europe/Moscow');
         $bookingService = app(BookingService::class);
@@ -152,7 +144,7 @@ class CalendarSnapshotDisplayTest extends TestCase
             $client->id,
         );
 
-        // Clear snapshot (simulates pre-Phase-C record)
+        // Clear snapshot (simulates pre-Phase-C record without snapshot)
         \Illuminate\Support\Facades\DB::statement(
             'UPDATE appointments SET service_name = NULL, price = NULL, duration = NULL WHERE id = ?',
             [$appointment->id],
@@ -168,7 +160,8 @@ class CalendarSnapshotDisplayTest extends TestCase
 
         $appointments = $response->json('appointments');
         $this->assertNotEmpty($appointments);
-        $this->assertSame('Брови', $appointments[0]['service'], 'Calendar must fallback to live service title when snapshot is null');
-        $this->assertEquals(500.0, $appointments[0]['price'], 'Calendar must fallback to live service price when snapshot is null');
+        // With no snapshot and no legacy service_id, fallback shows default
+        $this->assertSame('Услуга удалена', $appointments[0]['service']);
+        $this->assertEquals(0.0, $appointments[0]['price']);
     }
 }

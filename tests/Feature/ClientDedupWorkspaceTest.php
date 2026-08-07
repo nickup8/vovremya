@@ -4,7 +4,8 @@ namespace Tests\Feature;
 
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -52,10 +53,19 @@ class ClientDedupWorkspaceTest extends TestCase
             'name' => 'Общий клиент',
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $masterB->id,
-            'price' => 1000.00,
-            'duration_minutes' => 60,
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Стрижка',
+            'base_price' => 1000.00,
+            'base_duration' => 60,
+        ]);
+        $service = MasterService::create([
+            'master_id' => $masterB->id,
+            'catalog_id' => $catalog->id,
+            'price_override' => 1000.00,
+            'duration_override' => 60,
+            'is_active' => true,
+            'status' => 'approved',
         ]);
 
         $response = $this->actingAs($masterA, 'web')
@@ -70,7 +80,7 @@ class ClientDedupWorkspaceTest extends TestCase
 
         $this->assertDatabaseHas('appointments', [
             'client_id' => $client->id,
-            'service_id' => $service->id,
+            'master_service_id' => $service->id,
         ]);
 
         $this->assertSame(1, Client::where('phone', '+79001112233')->count());
@@ -147,10 +157,22 @@ class ClientDedupWorkspaceTest extends TestCase
             'name' => 'Solo клиент',
         ]);
 
-        $service = Service::factory()->create([
-            'user_id' => $master->id,
-            'price' => 500.00,
-            'duration_minutes' => 30,
+        $workspace = Workspace::create(['name' => 'Solo WS', 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $workspace->id,
+            'title' => 'Маникюр',
+            'base_price' => 500.00,
+            'base_duration' => 30,
+        ]);
+        $service = MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'price_override' => 500.00,
+            'duration_override' => 30,
+            'is_active' => true,
+            'status' => 'approved',
         ]);
 
         $response = $this->actingAs($master, 'web')
@@ -165,7 +187,7 @@ class ClientDedupWorkspaceTest extends TestCase
 
         $this->assertDatabaseHas('appointments', [
             'client_id' => $client->id,
-            'service_id' => $service->id,
+            'master_service_id' => $service->id,
         ]);
 
         $this->assertSame(1, Client::where('phone', '+79001112233')->count());

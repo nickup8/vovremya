@@ -8,7 +8,6 @@ use App\Events\AppointmentCreated;
 use App\Events\AppointmentRescheduled;
 use App\Models\Appointment;
 use App\Models\MasterService;
-use App\Models\Service;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
@@ -98,7 +97,6 @@ class BookingService
         ?string $clientId = null,
         ?AppointmentStatus $status = null,
         ?AppointmentSource $source = null,
-        ?string $legacyServiceId = null,
     ): Appointment {
         $workspace = $master->workspace;
 
@@ -111,7 +109,7 @@ class BookingService
         $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
         $endDateTime = $startDateTime->copy()->addMinutes($service->effective_duration);
 
-        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source, $legacyServiceId) {
+        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source) {
             $conflict = Appointment::with('service')
                 ->where('master_id', $master->id)
                 ->whereIn('status', [
@@ -150,19 +148,13 @@ class BookingService
                 );
             }
 
-            $legacyService = Service::where('user_id', $master->id)
-                ->where('title', $service->catalog?->title)
-                ->first();
-
-            $serviceIdForFk = $legacyServiceId ?? $legacyService?->id;
-
             $appointment = Appointment::create([
                 'master_id' => $master->id,
                 'client_id' => $clientId,
-                'service_id' => $serviceIdForFk,
+                'master_service_id' => $service->id,
                 'price' => $service->effective_price,
                 'duration' => $service->effective_duration,
-                'service_name' => $service->catalog?->title ?? $legacyService?->title ?? '',
+                'service_name' => $service->catalog?->title ?? '',
                 'start_time' => $startDateTime,
                 'status' => $appointmentStatus,
                 'provider' => $provider,
@@ -181,7 +173,7 @@ class BookingService
 
     public function createManualAppointment(
         User $master,
-        Service $service,
+        MasterService $service,
         string $date,
         string $time,
         bool $ignoreWarnings = false,
@@ -193,7 +185,7 @@ class BookingService
         $check = $this->checkSlot(
             $master,
             $startDateTime,
-            $service->duration_minutes,
+            $service->effective_duration,
             'master',
             $confirmOutsideHours,
         );
@@ -215,48 +207,21 @@ class BookingService
             ];
         }
 
-        $masterService = $this->resolveMasterService($master, $service);
-
         $appointment = $this->createAppointment(
             $master,
-            $masterService,
+            $service,
             $date,
             $time,
             'admin',
             $clientId,
             AppointmentStatus::Booked,
             AppointmentSource::Admin,
-            $service->id,
         );
 
         return [
             'success' => true,
             'appointment' => $appointment,
         ];
-    }
-
-    private function resolveMasterService(User $master, Service $service): MasterService
-    {
-        $catalog = $master->workspace
-            ? $master->workspace->serviceCatalog()->where('title', $service->title)->first()
-            : null;
-
-        if ($catalog) {
-            return MasterService::firstOrCreate(
-                ['master_id' => $master->id, 'catalog_id' => $catalog->id],
-                ['price_override' => null, 'duration_override' => null],
-            );
-        }
-
-        return new MasterService([
-            'master_id' => $master->id,
-            'catalog_id' => null,
-            'price_override' => $service->price,
-            'duration_override' => $service->duration_minutes,
-            'is_custom' => true,
-            'status' => 'approved',
-            'is_active' => true,
-        ]);
     }
 
     public function updateStatus(Appointment $appointment, AppointmentStatus $status, ?Authenticatable $actor = null): Appointment

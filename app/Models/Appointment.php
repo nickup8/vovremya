@@ -18,6 +18,7 @@ class Appointment extends Model
         'master_id',
         'client_id',
         'service_id',
+        'master_service_id',
         'price',
         'duration',
         'start_time',
@@ -89,6 +90,11 @@ class Appointment extends Model
     public function service(): BelongsTo
     {
         return $this->belongsTo(Service::class, 'service_id');
+    }
+
+    public function masterService(): BelongsTo
+    {
+        return $this->belongsTo(MasterService::class, 'master_service_id');
     }
 
     public function cancelledBy(): BelongsTo
