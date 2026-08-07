@@ -150,12 +150,14 @@ class TeamResourceManagementTest extends TestCase
     public function test_admin_deletes_staff1s_service(): void
     {
         $service = Service::factory()->create(['user_id' => $this->staff1->id]);
+        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
+        $masterService = MasterService::where('master_id', $this->staff1->id)->first();
 
         $response = $this->actingAs($this->adminA)
-            ->delete("/admin/services/{$service->id}");
+            ->delete("/admin/services/{$masterService->id}");
 
         $response->assertRedirect();
-        $this->assertDatabaseMissing('services', ['id' => $service->id]);
+        $this->assertDatabaseMissing('master_service', ['id' => $masterService->id]);
     }
 
     public function test_admin_cannot_create_service_for_master_from_other_workspace(): void
@@ -190,12 +192,14 @@ class TeamResourceManagementTest extends TestCase
     public function test_admin_cannot_delete_service_from_other_workspace(): void
     {
         $service = Service::factory()->create(['user_id' => $this->masterB->id]);
+        app(CreateServiceAction::class)->syncCatalogAndMaster($service);
+        $masterService = MasterService::where('master_id', $this->masterB->id)->first();
 
         $response = $this->actingAs($this->adminA)
-            ->delete("/admin/services/{$service->id}");
+            ->delete("/admin/services/{$masterService->id}");
 
         $response->assertStatus(403);
-        $this->assertDatabaseHas('services', ['id' => $service->id]);
+        $this->assertDatabaseHas('master_service', ['id' => $masterService->id]);
     }
 
     public function test_owner_creates_service_for_staff2(): void

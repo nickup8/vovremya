@@ -287,11 +287,11 @@ class SettingsController extends Controller
         return back()->with('success', 'Услуга обновлена');
     }
 
-    public function destroyService(Service $service)
+    public function destroyService(MasterService $masterService)
     {
-        $this->authorize('delete', $service);
+        $this->authorize('delete', $masterService);
 
-        $service->delete();
+        $masterService->delete();
 
         return back()->with('success', 'Услуга удалена');
     }
