@@ -3,6 +3,7 @@
 use App\Http\Controllers\Admin\AnalyticsController;
 use App\Http\Controllers\Admin\CalendarApiController;
 use App\Http\Controllers\Admin\CalendarController;
+use App\Http\Controllers\Admin\CatalogAssignController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ServiceCatalogController;
@@ -131,6 +132,8 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'update'])->name('admin.catalog.update');
     Route::delete('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'destroy'])->name('admin.catalog.destroy');
     Route::post('/admin/catalog/{catalog}/toggle-active', [ServiceCatalogController::class, 'toggleActive'])->name('admin.catalog.toggle-active');
+    Route::post('/admin/catalog/{catalog}/assign/{master}', [CatalogAssignController::class, 'assign'])->name('admin.catalog.assign');
+    Route::delete('/admin/catalog/{catalog}/assign/{master}', [CatalogAssignController::class, 'detach'])->name('admin.catalog.detach');
 
     Route::put('/admin/working-hours', [SettingsController::class, 'updateWorkingHours'])->name('admin.working-hours.update');
     Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');

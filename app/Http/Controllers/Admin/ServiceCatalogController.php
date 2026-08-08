@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\MasterService;
 use App\Models\ServiceCatalog;
+use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -17,13 +18,31 @@ class ServiceCatalogController extends Controller
     {
         $this->authorize('viewAny', ServiceCatalog::class);
 
-        $items = ServiceCatalog::where('workspace_id', auth()->user()->workspace_id)
-            ->withCount('masterServices')
-            ->orderBy('title')
+        $workspaceId = auth()->user()->workspace_id;
+
+        $masters = User::where('workspace_id', $workspaceId)
+            ->where('is_master', true)
+            ->select('id', 'name')
+            ->orderBy('name')
             ->get();
+
+        $mastersCount = $masters->count();
+
+        $items = ServiceCatalog::where('workspace_id', $workspaceId)
+            ->withCount('masterServices')
+            ->with(['masterServices' => fn ($q) => $q->where('is_active', true)])
+            ->orderBy('title')
+            ->get()
+            ->each(function ($item) use ($mastersCount) {
+                $item->setAttribute('assigned_master_ids', $item->masterServices->pluck('master_id'));
+                $item->setAttribute('is_unassigned', $mastersCount >= 2 && $item->masterServices->isEmpty());
+                $item->unsetRelation('masterServices');
+            });
 
         return Inertia::render('admin/service-catalog', [
             'catalog' => $items,
+            'masters' => $masters,
+            'mastersCount' => $mastersCount,
         ]);
     }
 
