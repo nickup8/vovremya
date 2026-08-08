@@ -4,8 +4,10 @@ namespace Database\Seeders;
 
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Database\Seeder;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Str;
@@ -22,51 +24,44 @@ class DemoDataSeeder extends Seeder
             return;
         }
 
-        $services = Service::where('user_id', $master->id)->get();
+        if (! $master->workspace_id) {
+            $ws = Workspace::firstOrCreate(
+                ['owner_id' => $master->id],
+                ['name' => "{$master->name} Studio"]
+            );
+            $master->update(['workspace_id' => $ws->id]);
+            $master->refresh();
+        }
 
-        if ($services->isEmpty()) {
-            $services = collect([
-                Service::create([
-                    'user_id' => $master->id,
-                    'title' => 'Стрижка мужская',
-                    'price' => 1500.00,
-                    'duration_minutes' => 30,
-                ]),
-                Service::create([
-                    'user_id' => $master->id,
-                    'title' => 'Окрашивание',
-                    'price' => 3500.00,
-                    'duration_minutes' => 120,
-                ]),
-                Service::create([
-                    'user_id' => $master->id,
-                    'title' => 'Маникюр',
-                    'price' => 2000.00,
-                    'duration_minutes' => 60,
-                ]),
-                Service::create([
-                    'user_id' => $master->id,
-                    'title' => 'Педикюр',
-                    'price' => 2500.00,
-                    'duration_minutes' => 60,
-                ]),
-                Service::create([
-                    'user_id' => $master->id,
-                    'title' => 'Коррекция ресниц',
-                    'price' => 1200.00,
-                    'duration_minutes' => 45,
-                ]),
-            ]);
+        $serviceData = [
+            ['title' => 'Стрижка мужская', 'price' => 1500, 'duration' => 30],
+            ['title' => 'Окрашивание', 'price' => 3500, 'duration' => 120],
+            ['title' => 'Маникюр', 'price' => 2000, 'duration' => 60],
+            ['title' => 'Педикюр', 'price' => 2500, 'duration' => 60],
+            ['title' => 'Коррекция ресниц', 'price' => 1200, 'duration' => 45],
+        ];
+
+        $services = collect();
+        foreach ($serviceData as $s) {
+            $catalog = ServiceCatalog::firstOrCreate(
+                ['workspace_id' => $master->workspace_id, 'title' => $s['title']],
+                ['base_price' => $s['price'], 'base_duration' => $s['duration'], 'is_active' => true]
+            );
+            $ms = MasterService::firstOrCreate(
+                ['master_id' => $master->id, 'catalog_id' => $catalog->id],
+                ['is_active' => true]
+            );
+            $ms->setRelation('catalog', $catalog);
+            $services->push($ms);
         }
 
         $clients = $this->createClients($master->id);
-        $servicesArray = $services->toArray();
 
-        $this->createAppointments($master->id, $clients, $servicesArray);
+        $this->createAppointments($master->id, $clients, $services);
 
         $this->command->info('Demo-данные созданы:');
         $this->command->info("  Мастер: {$master->name} (ID: {$master->id})");
-        $this->command->info("  Услуги: {$services->count()} шт.");
+        $this->command->info('  Услуги: '.MasterService::where('master_id', $master->id)->count().' шт.');
         $this->command->info("  Клиенты: {$clients->count()} шт.");
         $this->command->info('  Визиты: 100 шт. (распределены по времени)');
     }
@@ -108,69 +103,78 @@ class DemoDataSeeder extends Seeder
         return $clients;
     }
 
-    private function createAppointments(string $masterId, $clients, array $services): void
+    private function createAppointments(string $masterId, $clients, $services): void
     {
         $statuses = ['paid', 'paid', 'paid', 'paid', 'booked', 'booked', 'booked', 'booked', 'cancelled'];
         $clientIds = $clients->pluck('id')->toArray();
-        $serviceIds = array_column($services, 'id');
-        $serviceDurations = array_column($services, 'duration_minutes');
 
         $today = Carbon::today();
 
-        // Непересекающиеся интервалы для каждого дня
+        // 2-часовые зазоры — duration=60 не пересекается
         $dailySchedule = [
             ['hour' => 9, 'minute' => 0],
-            ['hour' => 10, 'minute' => 30],
-            ['hour' => 12, 'minute' => 0],
-            ['hour' => 14, 'minute' => 0],
-            ['hour' => 16, 'minute' => 0],
-            ['hour' => 17, 'minute' => 30],
+            ['hour' => 11, 'minute' => 0],
+            ['hour' => 13, 'minute' => 0],
+            ['hour' => 15, 'minute' => 0],
+            ['hour' => 17, 'minute' => 0],
+            ['hour' => 19, 'minute' => 0],
         ];
 
         $slots = [];
 
-        // 10 записей на сегодня — по расписанию
-        for ($i = 0; $i < min(10, count($dailySchedule)); $i++) {
-            $slot = $dailySchedule[$i];
-            $slots[] = $today->copy()->setTime($slot['hour'], $slot['minute']);
+        // 1) Вчера — 6 слотов (избегаем конфликт с TestDataSeeder на сегодня)
+        $yesterday = $today->copy()->subDay();
+        foreach ($dailySchedule as $t) {
+            $slots[] = $yesterday->copy()->setTime($t['hour'], $t['minute']);
         }
 
-        // 30 записей на эту неделю — по дням с непересекающимися интервалами
-        $daysOfWeek = range(1, 7);
-        $todayDow = $today->dayOfWeekIso;
-        for ($i = 0; $i < 30; $i++) {
-            $dayIdx = $i % 7;
-            $slotIdx = intdiv($i, 7) % count($dailySchedule);
-            $slot = $dailySchedule[$slotIdx];
-            $daysBack = ($todayDow - $daysOfWeek[$dayIdx]);
-            if ($daysBack < 0) {
-                $daysBack += 7;
+        // 2) Прошлая неделя — по одному слоту на (день, время), начиная со вчерашнего дня
+        //    Уникальные комбинации daysBack + timeIndex → без дубликатов
+        $weekSlots = [];
+        for ($d = 2; $d <= 7; $d++) {
+            for ($t = 0; $t < count($dailySchedule); $t++) {
+                $weekSlots[] = [$d, $t];
             }
-            $slots[] = $today->copy()->subDays($daysBack)->setTime($slot['hour'], $slot['minute']);
+        }
+        // Добавляем дополнительные дни, если нужно больше 30
+        for ($d = 8; count($weekSlots) < 30; $d++) {
+            for ($t = 0; $t < count($dailySchedule) && count($weekSlots) < 30; $t++) {
+                $weekSlots[] = [$d, $t];
+            }
+        }
+        foreach (array_slice($weekSlots, 0, 30) as [$daysBack, $timeIdx]) {
+            $t = $dailySchedule[$timeIdx];
+            $slots[] = $today->copy()->subDays($daysBack)->setTime($t['hour'], $t['minute']);
         }
 
-        // 40 записей за прошлые месяцы
-        for ($i = 0; $i < 40; $i++) {
-            $daysBack = 8 + ($i * 2);
-            $slotIdx = $i % count($dailySchedule);
-            $slot = $dailySchedule[$slotIdx];
-            $slots[] = $today->copy()->subDays($daysBack)->setTime($slot['hour'], $slot['minute']);
+        // 3) Прошлые месяцы — 40 записей, по одному на (день, время)
+        $monthSlots = [];
+        for ($d = 9; count($monthSlots) < 40; $d += 2) {
+            for ($t = 0; $t < count($dailySchedule) && count($monthSlots) < 40; $t++) {
+                $monthSlots[] = [$d, $t];
+            }
+        }
+        foreach ($monthSlots as [$daysBack, $timeIdx]) {
+            $t = $dailySchedule[$timeIdx];
+            $slots[] = $today->copy()->subDays($daysBack)->setTime($t['hour'], $t['minute']);
         }
 
-        // 20 старых записей
-        for ($i = 0; $i < 20; $i++) {
-            $daysBack = 61 + ($i * 15);
-            $slotIdx = $i % count($dailySchedule);
-            $slot = $dailySchedule[$slotIdx];
-            $slots[] = $today->copy()->subDays($daysBack)->setTime($slot['hour'], $slot['minute']);
+        // 4) Старые записи — 20 штук, по одному на (день, время)
+        $oldSlots = [];
+        for ($d = 61; count($oldSlots) < 20; $d += 15) {
+            for ($t = 0; $t < count($dailySchedule) && count($oldSlots) < 20; $t++) {
+                $oldSlots[] = [$d, $t];
+            }
         }
-
-        $slots = collect($slots)->shuffle();
+        foreach ($oldSlots as [$daysBack, $timeIdx]) {
+            $t = $dailySchedule[$timeIdx];
+            $slots[] = $today->copy()->subDays($daysBack)->setTime($t['hour'], $t['minute']);
+        }
 
         $appointments = [];
 
         foreach ($slots as $index => $slot) {
-            $serviceIndex = $index % count($serviceIds);
+            $ms = $services[$index % $services->count()];
             $clientId = $clientIds[array_rand($clientIds)];
             $status = $statuses[array_rand($statuses)];
             $provider = ['telegram', 'max'][array_rand(['telegram', 'max'])];
@@ -179,7 +183,10 @@ class DemoDataSeeder extends Seeder
                 'id' => Str::uuid7()->toString(),
                 'master_id' => $masterId,
                 'client_id' => $clientId,
-                'service_id' => $serviceIds[$serviceIndex],
+                'master_service_id' => $ms->id,
+                'service_name' => $ms->catalog->title,
+                'price' => $ms->effective_price,
+                'duration' => 60,
                 'start_time' => $slot,
                 'status' => $status,
                 'provider' => $provider,

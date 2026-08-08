@@ -2,13 +2,16 @@
 
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Models\Service;
+use App\Models\MasterService;
+use App\Models\ServiceCatalog;
 use App\Models\User;
+use App\Models\Workspace;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 
 Route::prefix('dev')->middleware(['web'])->group(function () {
     Route::get('/impersonate/{userId}', function (string $userId): JsonResponse|RedirectResponse {
@@ -54,23 +57,35 @@ Route::prefix('dev')->middleware(['web'])->group(function () {
                 ]
             );
 
-            $serviceTitles = [
-                ['title' => 'Маникюр', 'price' => 1500, 'duration_minutes' => 60],
-                ['title' => 'Педикюр', 'price' => 2000, 'duration_minutes' => 90],
-                ['title' => 'Покрытие гель-лаком', 'price' => 800, 'duration_minutes' => 45],
-                ['title' => 'Дизайн ногтей', 'price' => 500, 'duration_minutes' => 30],
-                ['title' => 'Снятие покрытия', 'price' => 300, 'duration_minutes' => 30],
+            if (! $master->workspace_id) {
+                $ws = Workspace::firstOrCreate(
+                    ['owner_id' => $master->id],
+                    ['name' => "{$master->name} Studio"]
+                );
+                $master->update(['workspace_id' => $ws->id]);
+                $master->refresh();
+            }
+
+            $serviceData = [
+                ['title' => 'Маникюр', 'price' => 1500, 'duration' => 60],
+                ['title' => 'Педикюр', 'price' => 2000, 'duration' => 90],
+                ['title' => 'Покрытие гель-лаком', 'price' => 800, 'duration' => 45],
+                ['title' => 'Дизайн ногтей', 'price' => 500, 'duration' => 30],
+                ['title' => 'Снятие покрытия', 'price' => 300, 'duration' => 30],
             ];
 
             $services = collect();
-            foreach ($serviceTitles as $s) {
-                $services->push(Service::firstOrCreate(
-                    ['user_id' => $master->id, 'title' => $s['title']],
-                    [
-                        'price' => $s['price'],
-                        'duration_minutes' => $s['duration_minutes'],
-                    ]
-                ));
+            foreach ($serviceData as $s) {
+                $catalog = ServiceCatalog::firstOrCreate(
+                    ['workspace_id' => $master->workspace_id, 'title' => $s['title']],
+                    ['base_price' => $s['price'], 'base_duration' => $s['duration'], 'is_active' => true]
+                );
+                $ms = MasterService::firstOrCreate(
+                    ['master_id' => $master->id, 'catalog_id' => $catalog->id],
+                    ['is_active' => true]
+                );
+                $ms->setRelation('catalog', $catalog);
+                $services->push($ms);
             }
 
             $clients = collect();
@@ -88,7 +103,6 @@ Route::prefix('dev')->middleware(['web'])->group(function () {
             if ($existingCount < 50) {
                 $statuses = ['paid', 'paid', 'booked', 'booked', 'booked'];
                 $clientIds = $clients->pluck('id')->toArray();
-                $serviceIds = $services->pluck('id')->toArray();
                 $today = Carbon::today();
 
                 $slots = [];
@@ -101,13 +115,18 @@ Route::prefix('dev')->middleware(['web'])->group(function () {
 
                 $appointments = [];
                 foreach ($slots as $index => $slot) {
+                    $ms = $services->random();
                     $appointments[] = [
+                        'id' => Str::uuid7()->toString(),
                         'master_id' => $master->id,
                         'client_id' => $clientIds[array_rand($clientIds)],
-                        'service_id' => $serviceIds[array_rand($serviceIds)],
+                        'master_service_id' => $ms->id,
+                        'service_name' => $ms->catalog->title,
+                        'price' => $ms->effective_price,
+                        'duration' => 60,
                         'start_time' => $slot,
                         'status' => $statuses[array_rand($statuses)],
-                        'provider' => array_rand(['telegram', 'max']),
+                        'provider' => ['telegram', 'max'][array_rand(['telegram', 'max'])],
                         'created_at' => $slot->copy()->subDays(rand(1, 3)),
                         'updated_at' => $slot,
                     ];
@@ -126,7 +145,7 @@ Route::prefix('dev')->middleware(['web'])->group(function () {
             'ok' => true,
             'master_id' => $master->id,
             'master_slug' => $master->master_slug,
-            'services' => Service::where('user_id', $master->id)->count(),
+            'services' => MasterService::where('master_id', $master->id)->count(),
             'clients' => Client::where('user_id', $master->id)->count(),
             'appointments' => Appointment::where('master_id', $master->id)->count(),
             'impersonate_url' => "/dev/impersonate/{$master->id}",
