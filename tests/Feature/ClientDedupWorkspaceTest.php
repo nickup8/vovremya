@@ -8,6 +8,8 @@ use App\Models\MasterService;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\WorkingHour;
+use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -67,6 +69,18 @@ class ClientDedupWorkspaceTest extends TestCase
             'is_active' => true,
             'status' => 'approved',
         ]);
+
+        $dayOfWeek = Carbon::tomorrow('Europe/Moscow')->dayOfWeek;
+        WorkingHour::updateOrCreate(
+            ['user_id' => $masterB->id, 'day_of_week' => $dayOfWeek],
+            [
+                'start_time' => '09:00',
+                'end_time' => '18:00',
+                'break_start_time' => '13:00',
+                'break_end_time' => '14:00',
+                'is_working' => true,
+            ],
+        );
 
         $response = $this->actingAs($masterA, 'web')
             ->postJson(route('admin.calendar.store'), [
@@ -175,6 +189,18 @@ class ClientDedupWorkspaceTest extends TestCase
             'status' => 'approved',
         ]);
 
+        $dayOfWeek = Carbon::tomorrow('Europe/Moscow')->dayOfWeek;
+        WorkingHour::updateOrCreate(
+            ['user_id' => $master->id, 'day_of_week' => $dayOfWeek],
+            [
+                'start_time' => '09:00',
+                'end_time' => '18:00',
+                'break_start_time' => '13:00',
+                'break_end_time' => '14:00',
+                'is_working' => true,
+            ],
+        );
+
         $response = $this->actingAs($master, 'web')
             ->postJson(route('admin.calendar.store'), [
                 'client_id' => $client->id,
@@ -182,7 +208,6 @@ class ClientDedupWorkspaceTest extends TestCase
                 'date' => now()->addDay()->format('Y-m-d'),
                 'time' => '10:00',
             ]);
-
         $response->assertStatus(302);
 
         $this->assertDatabaseHas('appointments', [
