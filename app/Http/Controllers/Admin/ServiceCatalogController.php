@@ -118,6 +118,15 @@ class ServiceCatalogController extends Controller
         return back()->with('success', "Услуга «{$catalog->title}» обновлена.");
     }
 
+    public function toggleActive(ServiceCatalog $catalog): RedirectResponse
+    {
+        $this->authorize('update', $catalog);
+
+        $catalog->update(['is_active' => ! $catalog->is_active]);
+
+        return back();
+    }
+
     public function destroy(ServiceCatalog $catalog): RedirectResponse
     {
         $this->authorize('delete', $catalog);

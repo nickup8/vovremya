@@ -281,15 +281,19 @@ toast.error(flash.error);
                                                 {item.category && <> · {item.category}</>}
                                             </p>
                                         </div>
-                                        <span
-                                            className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                router.post(`/admin/catalog/${item.id}/toggle-active`, {}, { preserveScroll: true })
+                                            }
+                                            className={`inline-flex cursor-pointer items-center rounded-full px-2 py-0.5 text-xs font-medium transition-colors hover:opacity-80 ${
                                                 item.is_active
                                                     ? 'bg-green-50 text-green-700 dark:bg-green-900/30 dark:text-green-400'
                                                     : 'bg-slate-100 text-slate-500 dark:bg-zinc-800 dark:text-zinc-400'
                                             }`}
                                         >
                                             {item.is_active ? 'Активна' : 'Скрыта'}
-                                        </span>
+                                        </button>
                                         {item.master_services_count > 0 && (
                                             <span className="text-xs text-slate-400 dark:text-zinc-500">
                                                 · {item.master_services_count}{' '}
