@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\MasterService;
 use App\Models\ServiceCatalog;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -46,7 +47,7 @@ class ServiceCatalogController extends Controller
             return back()->withErrors(['title' => 'Услуга с таким названием уже есть в каталоге.']);
         }
 
-        ServiceCatalog::create([
+        $catalog = ServiceCatalog::create([
             'workspace_id' => auth()->user()->workspace_id,
             'title' => $validated['title'],
             'category' => $validated['category'] ?? null,
@@ -54,6 +55,20 @@ class ServiceCatalogController extends Controller
             'base_duration' => $validated['base_duration'],
             'is_active' => $validated['is_active'] ?? true,
         ]);
+
+        // E-catalog SPLIT: автоназначение услуги единственному мастеру workspace.
+        // mastersCount()===1 → фактический одиночка (или студия с одним мастером) → назначаем ЕМУ.
+        // >=2 → услуга ждёт распределения (E-assign). 0 → назначать некому.
+        $workspace = auth()->user()->workspace;
+        if ($workspace && $workspace->mastersCount() === 1) {
+            $theOnlyMaster = $workspace->users()->where('is_master', true)->first();
+            if ($theOnlyMaster) {
+                MasterService::firstOrCreate(
+                    ['master_id' => $theOnlyMaster->id, 'catalog_id' => $catalog->id],
+                    ['is_active' => true]
+                );
+            }
+        }
 
         Log::info('Catalog service created', [
             'admin_id' => auth()->id(),

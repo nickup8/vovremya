@@ -9,7 +9,7 @@ class ServiceCatalogPolicy
 {
     public function viewAny(User $user): bool
     {
-        return true;
+        return $user->role->canManageTeam();
     }
 
     public function view(User $user, ServiceCatalog $catalog): bool
