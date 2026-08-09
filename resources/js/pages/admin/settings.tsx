@@ -969,6 +969,7 @@ export default function SettingsPage() {
         selectedMasterId: rawSelectedMasterId,
         workspace_slug,
     } = usePage<PageProps>().props;
+    const canManageTeam = (auth?.user?.can_manage_team as boolean) ?? false;
     const profile = rawProfile || {
         id: '',
         name: '',
@@ -1830,15 +1831,17 @@ return;
                                             Управление услугами и ценами
                                         </p>
                                     </div>
-                                    <Button
-                                        type="button"
-                                        size="sm"
-                                        className="bg-blue-600 text-white hover:bg-blue-700"
-                                        onClick={handleAddService}
-                                    >
-                                        <Plus className="size-3.5" />
-                                        Добавить
-                                    </Button>
+                                    {canManageTeam && (
+                                        <Button
+                                            type="button"
+                                            size="sm"
+                                            className="bg-blue-600 text-white hover:bg-blue-700"
+                                            onClick={handleAddService}
+                                        >
+                                            <Plus className="size-3.5" />
+                                            Добавить
+                                        </Button>
+                                    )}
                                 </div>
                                 <div className="space-y-2">
                                     {services.length === 0 ? (

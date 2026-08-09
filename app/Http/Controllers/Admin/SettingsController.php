@@ -220,6 +220,15 @@ class SettingsController extends Controller
     public function storeService(Request $request)
     {
         $user = auth()->user();
+
+        // E-U5: услуги централизованы — создаёт только owner/admin (одиночка = owner
+        // своего workspace). Мастер студии услуги не создаёт (бизнес-правило 4.2).
+        abort_unless(
+            $user->role->canManageTeam() || $user->is_super_admin,
+            403,
+            'Услуги создаёт только владелец или администратор.'
+        );
+
         $isAdminOrOwner = $user->role->canManageTeam();
 
         $validated = $request->validate([
