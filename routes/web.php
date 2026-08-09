@@ -3,13 +3,11 @@
 use App\Http\Controllers\Admin\AnalyticsController;
 use App\Http\Controllers\Admin\CalendarApiController;
 use App\Http\Controllers\Admin\CalendarController;
-use App\Http\Controllers\Admin\CatalogAssignController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ServiceCatalogController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SuperAdminController;
-use App\Http\Controllers\Admin\TeamController;
 use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingWidgetController;
@@ -18,7 +16,6 @@ use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\Client\ClientProfileController;
 use App\Http\Controllers\Client\RoleSwitchController;
 use App\Http\Controllers\ClientModeController;
-use App\Http\Controllers\StudioBookingController;
 use App\Http\Controllers\Webhook\PaymentWebhookController;
 use App\Http\Controllers\Webhook\TelegraphWebhookController;
 use App\Http\Controllers\WebhookController;
@@ -53,8 +50,6 @@ Route::post('/auth/magic', [MagicLoginController::class, 'login'])
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
 Route::get('/book/{master}/available-dates', [BookingWidgetController::class, 'availableDates'])->name('booking.available-dates');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
-
-Route::get('/studio/{slug}', [StudioBookingController::class, 'show'])->name('studio.booking');
 
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->middleware('throttle:60,1')->name('webhooks.telegram');
 Route::post('/webhooks/telegram/bypass', [WebhookController::class, 'handleBypass'])->middleware('throttle:60,1')->name('webhooks.telegram.bypass');
@@ -132,21 +127,13 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'update'])->name('admin.catalog.update');
     Route::delete('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'destroy'])->name('admin.catalog.destroy');
     Route::post('/admin/catalog/{catalog}/toggle-active', [ServiceCatalogController::class, 'toggleActive'])->name('admin.catalog.toggle-active');
-    Route::post('/admin/catalog/{catalog}/assign/{master}', [CatalogAssignController::class, 'assign'])->name('admin.catalog.assign');
-    Route::delete('/admin/catalog/{catalog}/assign/{master}', [CatalogAssignController::class, 'detach'])->name('admin.catalog.detach');
 
     Route::put('/admin/working-hours', [SettingsController::class, 'updateWorkingHours'])->name('admin.working-hours.update');
     Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');
     Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
 
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
-
-    Route::get('/admin/team', [TeamController::class, 'index'])->name('admin.team');
-    Route::post('/admin/team/invite', [TeamController::class, 'generateInvite'])->name('admin.team.invite');
-    Route::post('/admin/team/{master}/detach', [TeamController::class, 'detach'])->name('admin.team.detach');
 });
-
-Route::get('/invite', [TeamController::class, 'showInvitePage'])->name('team.invite.page');
 
 Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
 
