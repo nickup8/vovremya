@@ -28,12 +28,16 @@ class BookingWidgetController extends Controller
             return redirect('/studio/'.$master->workspace->slug, 302);
         }
 
-        $master->load(['masterServices' => fn ($q) => $q->with('catalog')->where('is_active', true)]);
+        $master->load(['masterServices' => fn ($q) => $q->with('catalog')
+            ->where('is_active', true)
+            ->whereHas('catalog', fn ($c) => $c->where('is_active', true))]);
 
         $selectedServiceId = $request->query('service_id');
         $selectedDate = $request->query('date') ?? Carbon::today()->toDateString();
 
-        $service = $selectedServiceId ? $master->masterServices()->find($selectedServiceId) : null;
+        $service = $selectedServiceId
+            ? $master->masterServices->firstWhere('id', $selectedServiceId)
+            : null;
 
         $availableSlots = $this->bookingService->getAvailableSlots(
             $master,
@@ -74,9 +78,12 @@ class BookingWidgetController extends Controller
             'month' => 'required|integer|min:1|max:12',
         ]);
 
-        $service = MasterService::find($validated['service_id']);
+        $service = $master->masterServices()
+            ->where('is_active', true)
+            ->whereHas('catalog', fn ($c) => $c->where('is_active', true))
+            ->find($validated['service_id']);
 
-        if (! $service || $service->master_id !== $master->id) {
+        if (! $service) {
             return response()->json(['dates' => []]);
         }
 
@@ -103,10 +110,16 @@ class BookingWidgetController extends Controller
             'provider' => 'required|in:telegram,max,admin',
         ]);
 
-        $service = MasterService::findOrFail($validated['service_id']);
+        $service = $master->masterServices()
+            ->where('is_active', true)
+            ->whereHas('catalog', fn ($c) => $c->where('is_active', true))
+            ->find($validated['service_id']);
 
-        if ($service->master_id !== $master->id) {
-            return response()->json(['message' => 'Услуга не найдена.'], 404);
+        if (! $service) {
+            return response()->json([
+                'message' => 'Эта услуга больше недоступна для записи.',
+                'errors' => ['service_id' => 'Эта услуга больше недоступна для записи.'],
+            ], 422);
         }
 
         $isAvailable = $this->bookingService->validateSlot(

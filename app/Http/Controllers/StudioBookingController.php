@@ -63,6 +63,7 @@ class StudioBookingController extends Controller
         $masterIds = $masters->pluck('id');
 
         $catalogs = ServiceCatalog::where('workspace_id', $workspace->id)
+            ->where('is_active', true)
             ->whereHas('masterServices', fn ($q) => $q
                 ->whereIn('master_id', $masterIds)->where('is_active', true))
             ->with(['masterServices' => fn ($q) => $q
@@ -104,7 +105,9 @@ class StudioBookingController extends Controller
 
         $masterServices = MasterService::whereIn('master_id', $masterIds)
             ->where('is_active', true)
-            ->whereHas('catalog', fn ($q) => $q->where('title', $serviceTitle))
+            ->whereHas('catalog', fn ($q) => $q
+                ->where('title', $serviceTitle)
+                ->where('is_active', true))
             ->with('catalog')
             ->get()
             ->keyBy('master_id');
@@ -149,7 +152,9 @@ class StudioBookingController extends Controller
             abort(404, 'Мастер не найден в студии.');
         }
 
-        $master->load(['masterServices' => fn ($q) => $q->with('catalog')->where('is_active', true)]);
+        $master->load(['masterServices' => fn ($q) => $q->with('catalog')
+            ->where('is_active', true)
+            ->whereHas('catalog', fn ($c) => $c->where('is_active', true))]);
 
         $serviceTitle = $request->query('service');
         $selectedServiceId = $request->query('service_id');
@@ -166,7 +171,9 @@ class StudioBookingController extends Controller
             }
         }
 
-        $service = $selectedServiceId ? $master->masterServices()->find($selectedServiceId) : null;
+        $service = $selectedServiceId
+            ? $master->masterServices->firstWhere('id', $selectedServiceId)
+            : null;
 
         $availableSlots = $this->bookingService->getAvailableSlots(
             $master,

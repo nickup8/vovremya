@@ -202,7 +202,9 @@ class User extends Authenticatable implements PasskeyUser
             ->where('is_master', true)
             ->whereNotNull('master_slug')
             ->where('master_slug', '!=', '')
-            ->whereHas('masterServices', fn ($q) => $q->where('is_active', true))
+            ->whereHas('masterServices', fn ($q) => $q
+                ->where('is_active', true)
+                ->whereHas('catalog', fn ($c) => $c->where('is_active', true)))
             ->where(function ($q) {
                 $q->whereNotIn('role', [UserRole::Owner, UserRole::Admin])
                   ->orWhere('is_service_provider', true);
