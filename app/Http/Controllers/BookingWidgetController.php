@@ -24,10 +24,6 @@ class BookingWidgetController extends Controller
             ->visibleInWidget()
             ->firstOrFail();
 
-        if (! $master->isSolo()) {
-            return redirect('/studio/'.$master->workspace->slug, 302);
-        }
-
         $master->load(['masterServices' => fn ($q) => $q->with('catalog')
             ->where('is_active', true)
             ->whereHas('catalog', fn ($c) => $c->where('is_active', true))]);
