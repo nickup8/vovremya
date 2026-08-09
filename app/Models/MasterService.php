@@ -19,14 +19,10 @@ class MasterService extends Model
         'catalog_id',
         'price_override',
         'duration_override',
-        'is_custom',
-        'status',
         'is_active',
     ];
 
     protected $attributes = [
-        'is_custom' => false,
-        'status' => 'approved',
         'is_active' => true,
     ];
 
@@ -35,7 +31,6 @@ class MasterService extends Model
         return [
             'price_override' => 'decimal:2',
             'duration_override' => 'integer',
-            'is_custom' => 'boolean',
             'is_active' => 'boolean',
         ];
     }

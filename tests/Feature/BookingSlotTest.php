@@ -343,8 +343,6 @@ class BookingSlotTest extends TestCase
             'catalog_id' => $catalog->id,
             'price_override' => 1000.00,
             'duration_override' => 60,
-            'is_custom' => true,
-            'status' => 'approved',
             'is_active' => true,
         ]);
 

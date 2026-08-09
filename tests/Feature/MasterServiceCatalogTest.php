@@ -129,30 +129,4 @@ class MasterServiceCatalogTest extends TestCase
 
         $this->assertSame(2, $catalog->masterServices()->count());
     }
-
-    public function test_status_defaults_approved(): void
-    {
-        $owner = $this->createWorkspaceWithOwner();
-        $catalog = $this->createCatalog($owner->workspace);
-
-        $ms = MasterService::create([
-            'master_id' => $owner->id,
-            'catalog_id' => $catalog->id,
-        ]);
-
-        $this->assertSame('approved', $ms->status);
-    }
-
-    public function test_is_custom_defaults_false(): void
-    {
-        $owner = $this->createWorkspaceWithOwner();
-        $catalog = $this->createCatalog($owner->workspace);
-
-        $ms = MasterService::create([
-            'master_id' => $owner->id,
-            'catalog_id' => $catalog->id,
-        ]);
-
-        $this->assertFalse($ms->is_custom);
-    }
 }

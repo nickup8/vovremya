@@ -21,8 +21,6 @@ class MasterServiceFactory extends Factory
             'master_id' => User::factory()->master(),
             'catalog_id' => ServiceCatalog::factory(),
             'is_active' => true,
-            'status' => 'approved',
-            'is_custom' => false,
         ];
     }
 

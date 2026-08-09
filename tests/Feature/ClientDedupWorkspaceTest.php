@@ -67,7 +67,6 @@ class ClientDedupWorkspaceTest extends TestCase
             'price_override' => 1000.00,
             'duration_override' => 60,
             'is_active' => true,
-            'status' => 'approved',
         ]);
 
         $dayOfWeek = Carbon::tomorrow('Europe/Moscow')->dayOfWeek;
@@ -186,7 +185,6 @@ class ClientDedupWorkspaceTest extends TestCase
             'price_override' => 500.00,
             'duration_override' => 30,
             'is_active' => true,
-            'status' => 'approved',
         ]);
 
         $dayOfWeek = Carbon::tomorrow('Europe/Moscow')->dayOfWeek;

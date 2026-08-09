@@ -49,7 +49,6 @@ class CreateServiceActionTest extends TestCase
         $this->assertSame($master->id, $ms->master_id);
         $this->assertSame($catalog->id, $ms->catalog_id);
         $this->assertNull($ms->price_override);
-        $this->assertSame('approved', $ms->status);
     }
 
     public function test_catalog_idempotent_same_title(): void
