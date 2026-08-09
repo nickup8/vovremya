@@ -6,10 +6,9 @@ import {
 const MENU_ITEMS = [
     { icon: CalendarDays, label: 'Календарь', href: '/admin/calendar' },
     { icon: Users, label: 'База клиентов', href: '/admin/clients' },
-    { icon: UserPlus, label: 'Команда', href: '/admin/team', ownerOnly: true },
     { icon: BarChart3, label: 'Аналитика', href: '/admin/analytics' },
     { icon: Settings, label: 'Настройки профиля', href: '/admin/settings' },
-    { icon: BookOpen, label: 'Каталог услуг', href: '/admin/catalog', ownerOnly: true },
+    { icon: BookOpen, label: 'Каталог услуг', href: '/admin/catalog' },
 ];
 
 interface SidebarProps {
