@@ -4,14 +4,11 @@ namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
-use App\Enums\UserRole;
 use App\Events\AppointmentCreated;
 use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
-use App\Models\Workspace;
-use App\Models\WorkspaceInvite;
 use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
 use App\Services\Notification\MasterNotificationService;
@@ -114,12 +111,6 @@ class MaxWebhookHandler
             return;
         }
 
-        if (str_starts_with($startParam, 'inv_')) {
-            $this->handleInviteStart($userId, str_replace('inv_', '', $startParam));
-
-            return;
-        }
-
         if (str_starts_with($startParam, 'book_')) {
             $this->handleBookingStart($userId, $startParam);
 
@@ -183,12 +174,6 @@ class MaxWebhookHandler
             if (! empty($param)) {
                 if (str_starts_with($param, 'auth_')) {
                     $this->handleAuthStart($userId, $param);
-
-                    return;
-                }
-
-                if (str_starts_with($param, 'inv_')) {
-                    $this->handleInviteStart($userId, str_replace('inv_', '', $param));
 
                     return;
                 }
@@ -348,14 +333,11 @@ class MaxWebhookHandler
             }
         }
 
-        // Determine flow: invite, auth, or booking
-        $inviteToken = Cache::pull(CacheKeys::MAX_INVITE_TOKEN.$userId);
+        // Determine flow: auth or booking
         $loginToken = Cache::get(CacheKeys::MAX_CHAT_TOKEN.$userId);
         $draftAppointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
 
-        if ($inviteToken) {
-            $this->handleInviteContact($userId, $contactUserId, $phone, $firstName, $lastName, $inviteToken);
-        } elseif ($loginToken) {
+        if ($loginToken) {
             $this->handleAuthContact($userId, $contactUserId, $phone, $firstName, $lastName, $loginToken);
         } elseif ($draftAppointmentId) {
             $this->handleBookingContact($userId, $contactUserId, $phone, $firstName, $lastName, $draftAppointmentId);
@@ -558,224 +540,6 @@ class MaxWebhookHandler
             ]));
 
         Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
-    }
-
-    /**
-     * Handle invite start: /start inv_TOKEN
-     *
-     * Validates invite token, stores it in cache, requests contact from user.
-     * User creation is deferred to handleInviteContact after phone is received.
-     */
-    private function handleInviteStart(string $userId, string $token): void
-    {
-        $invite = WorkspaceInvite::where('token', $token)
-            ->where('expires_at', '>', now())
-            ->first();
-
-        if (! $invite) {
-            $this->sendMessage($userId, '❌ Ссылка-приглашение недействительна или просрочена.');
-
-            return;
-        }
-
-        Cache::put(
-            CacheKeys::MAX_INVITE_TOKEN.$userId,
-            $token,
-            config('booking.token_ttl'),
-        );
-
-        Log::info('[MAX] invite_start cache stored', [
-            'user_id' => $userId,
-            'token' => $token,
-        ]);
-
-        $this->sendMessage($userId, __('bot.contact_request.invite'), [
-            [
-                'type' => 'inline_keyboard',
-                'payload' => [
-                    'buttons' => [
-                        [
-                            [
-                                'type' => 'request_contact',
-                                'text' => __('bot.buttons.share_phone'),
-                            ],
-                        ],
-                    ],
-                ],
-            ],
-        ]);
-    }
-
-    /**
-     * Handle contact in invite flow.
-     *
-     * Ported from TelegramWebhookHandler::handleInviteContact with MAX adaptations:
-     * - telegram_id → max_id
-     * - telegram_notifications → max_notifications
-     * - $this->chat->html()->send() → $this->sendMessage()
-     * - syncTelegramAvatar → removed (no avatar API in MAX)
-     * - Cache::pull for invite token already done in handleContact
-     */
-    private function handleInviteContact(
-        string $userId,
-        string $contactUserId,
-        string $phone,
-        string $firstName,
-        string $lastName,
-        string $inviteToken,
-    ): void {
-        $fullName = trim($firstName.' '.$lastName);
-
-        Log::info('[MAX] handleInviteContact()', [
-            'user_id' => $userId,
-            'phone' => $phone,
-        ]);
-
-        if (empty($phone)) {
-            $this->sendMessage($userId, __('bot.errors.phone_detection_failed'));
-
-            return;
-        }
-
-        $invite = WorkspaceInvite::where('token', $inviteToken)
-            ->where('expires_at', '>', now())
-            ->first();
-
-        if (! $invite) {
-            $this->sendMessage($userId, '❌ Ссылка-приглашение недействительна или просрочена.');
-
-            return;
-        }
-
-        $user = User::where('max_id', $userId)->first();
-
-        if (! $user) {
-            $user = User::where('phone', $phone)->first();
-
-            if ($user && $user->max_id && $user->max_id !== $userId) {
-                $this->sendMessage($userId, '❌ Этот номер телефона уже привязан к другому MAX-аккаунту.');
-
-                return;
-            }
-        }
-
-        if ($user && $user->workspace_id && $user->workspace_id !== $invite->workspace_id) {
-            $currentWs = $user->workspace;
-            $isSoloOwner = $currentWs
-                && $currentWs->owner_id === $user->id
-                && $currentWs->users()->count() <= 1;
-
-            if (! $isSoloOwner) {
-                $this->sendMessage($userId, '❌ Вы уже состоите в другой команде.');
-
-                return;
-            }
-        }
-
-        if ($user && $user->id === $invite->workspace->owner_id) {
-            $this->sendMessage($userId, '❌ Вы уже являетесь владельцем этой студии.');
-
-            return;
-        }
-
-        // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
-        if (($invite->role ?? UserRole::Master) === UserRole::Master
-            && $invite->workspace
-            && $invite->workspace->activeSubscription()
-            && ! $invite->workspace->canAddProvider()) {
-            $this->sendMessage($userId, '❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.');
-
-            return;
-        }
-
-        if (! $user) {
-            $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name').' '.$phone;
-
-            $slug = app(SlugService::class)->generate(null, $firstName, $lastName);
-
-            try {
-                $user = User::create([
-                    'name' => $baseName,
-                    'phone' => $phone,
-                    'max_id' => $userId,
-                    'max_notifications' => true,
-                    'is_master' => true,
-                    'master_slug' => $slug,
-                    'workspace_id' => $invite->workspace_id,
-                ]);
-                $user->role = $invite->role ?? UserRole::Master;
-                $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
-                $user->save();
-
-                Log::info('[MAX] handleInviteContact: user created', ['user_id' => $user->id]);
-            } catch (UniqueConstraintViolationException $e) {
-                Log::info('[MAX] handleInviteContact: user already created by parallel request');
-                $user = User::where('max_id', $userId)->first()
-                    ?? User::where('phone', $phone)->firstOrFail();
-            }
-        } else {
-            // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
-            if (($invite->role ?? UserRole::Master) === UserRole::Master
-                && $invite->workspace
-                && $invite->workspace->activeSubscription()
-                && ! $invite->workspace->canAddProvider()) {
-                $this->sendMessage($userId, '❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.');
-
-                return;
-            }
-
-            $oldWorkspaceId = $user->workspace_id;
-
-            $updateData = [
-                'max_id' => $userId,
-                'max_notifications' => true,
-                'name' => $fullName !== '' ? $fullName : $user->name,
-                'workspace_id' => $invite->workspace_id,
-                'is_master' => true,
-            ];
-
-            if (empty($user->master_slug)) {
-                $slug = app(SlugService::class)->generate(null, $firstName, $lastName);
-                $updateData['master_slug'] = $slug;
-            }
-
-            $user->update($updateData);
-            $user->role = $invite->role ?? UserRole::Master;
-            $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
-            $user->save();
-
-            if ($oldWorkspaceId && $oldWorkspaceId !== $invite->workspace_id) {
-                try {
-                    $oldWs = Workspace::find($oldWorkspaceId);
-                    if ($oldWs && $oldWs->owner_id === $user->id && $oldWs->users()->count() === 0) {
-                        $oldWs->delete();
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to clean up old personal workspace', [
-                        'workspace_id' => $oldWorkspaceId,
-                        'user_id' => $user->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            Log::info('[MAX] handleInviteContact: existing user updated', ['user_id' => $user->id]);
-        }
-
-        $invite->delete();
-
-        try {
-            $this->sendMessage($userId, '✅ Вы успешно добавлены в команду! Теперь вы можете управлять своими записями.');
-        } catch (\Throwable $e) {
-            Log::error('[MAX] handleInviteContact: confirmation FAILED', [
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        Log::info('[MAX] handleInviteContact: success', [
-            'user_id' => $user->id,
-            'user_id_max' => $userId,
-        ]);
     }
 
     /**

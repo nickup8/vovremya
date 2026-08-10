@@ -5,7 +5,6 @@ namespace App\Webhooks;
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
-use App\Enums\UserRole;
 use App\Exceptions\InvalidStatusTransitionException;
 use App\Exceptions\PastAppointmentException;
 use App\Events\AppointmentCreated;
@@ -13,7 +12,6 @@ use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
-use App\Models\WorkspaceInvite;
 use App\Services\AppointmentStatusService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
@@ -46,40 +44,6 @@ class TelegramWebhookHandler extends WebhookHandler
             'parameter' => $parameter,
             'bot_id' => $this->bot->id,
         ]);
-
-        if ($parameter && str_starts_with($parameter, 'inv_')) {
-            $token = str_replace('inv_', '', $parameter);
-            $invite = WorkspaceInvite::where('token', $token)
-                ->where('expires_at', '>', now())
-                ->first();
-
-            if (! $invite) {
-                $this->chat->html('❌ Ссылка-приглашение недействительна или просрочена.')->send();
-
-                return;
-            }
-
-            Cache::put('inv_token_'.$chatId, $token, now()->addMinutes(30));
-
-            $message = 'Для присоединения к команде салона, пожалуйста, поделитесь номером телефона, нажав на кнопку ниже.';
-
-            $keyboard = ReplyKeyboard::make()
-                ->button(__('bot.buttons.share_phone'))->requestContact()
-                ->resize()
-                ->oneTime();
-
-            try {
-                $this->chat->html($message)
-                    ->replyKeyboard($keyboard)
-                    ->send();
-            } catch (Throwable $e) {
-                Log::error('[TG] start(inv_) send FAILED', [
-                    'error' => $e->getMessage(),
-                ]);
-            }
-
-            return;
-        }
 
         if (empty($parameter)) {
             Log::info('[TG] start() sending welcome');
@@ -492,15 +456,6 @@ class TelegramWebhookHandler extends WebhookHandler
     {
         $chatId = $this->chat->chat_id;
 
-        // Проверяем флоу инвайта
-        $invToken = Cache::pull('inv_token_'.$chatId);
-
-        if ($invToken) {
-            $this->handleInviteContact($contact, $chatId, $invToken);
-
-            return;
-        }
-
         // Проверяем флоу бронирования
         $draftAppointmentId = Cache::pull(CacheKeys::TG_BOOKING_DRAFT.$chatId);
 
@@ -520,176 +475,6 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         Log::info('[TG] handleContact: no active flow', ['chat_id' => $chatId]);
-    }
-
-    /**
-     * Обработка контакта в флоу инвайта
-     */
-    private function handleInviteContact(array $contact, string $chatId, string $invToken): void
-    {
-        $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
-        $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
-        $firstName = $contact['first_name'] ?? '';
-        $lastName = $contact['last_name'] ?? '';
-        $fullName = trim($firstName.' '.$lastName);
-
-        Log::info('[TG] handleInviteContact()', [
-            'chat_id' => $chatId,
-            'phone' => $phone,
-        ]);
-
-        if (empty($phone)) {
-            $this->chat->html(__('bot.errors.phone_detection_failed'))->send();
-
-            return;
-        }
-
-        $invite = WorkspaceInvite::where('token', $invToken)
-            ->where('expires_at', '>', now())
-            ->first();
-
-        if (! $invite) {
-            $this->chat->html('❌ Ссылка-приглашение недействительна или просрочена.')->send();
-            Cache::forget('inv_token_'.$chatId);
-
-            return;
-        }
-
-        $user = User::where('telegram_id', $telegramId)->first();
-
-        if (! $user) {
-            $user = User::where('phone', $phone)->first();
-
-            if ($user && $user->telegram_id && $user->telegram_id !== $telegramId) {
-                $this->chat->html('❌ Этот номер телефона уже привязан к другому Telegram-аккаунту.')->send();
-                Cache::forget('inv_token_'.$chatId);
-
-                return;
-            }
-        }
-
-        if ($user && $user->workspace_id && $user->workspace_id !== $invite->workspace_id) {
-            $currentWs = $user->workspace;
-            $isSoloOwner = $currentWs
-                && $currentWs->owner_id === $user->id
-                && $currentWs->users()->count() <= 1;
-
-            if (! $isSoloOwner) {
-                $this->chat->html('❌ Вы уже состоите в другой команде.')->send();
-                Cache::forget('inv_token_'.$chatId);
-
-                return;
-            }
-        }
-
-        if ($user && $user->id === $invite->workspace->owner_id) {
-            $this->chat->html('❌ Вы уже являетесь владельцем этой студии.')->send();
-            Cache::forget('inv_token_'.$chatId);
-
-            return;
-        }
-
-        // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
-        if (($invite->role ?? UserRole::Master) === UserRole::Master
-            && $invite->workspace
-            && $invite->workspace->activeSubscription()
-            && ! $invite->workspace->canAddProvider()) {
-            $this->chat->html('❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.')->send();
-            Cache::forget('inv_token_'.$chatId);
-
-            return;
-        }
-
-        if (! $user) {
-            $baseName = $fullName !== '' ? $fullName : __('bot.fallback.master_name').' '.$phone;
-
-            $username = $this->request->input('message.from.username');
-            $slug = app(SlugService::class)->generate($username, $firstName, $lastName);
-
-            $user = User::create([
-                'name' => $baseName,
-                'phone' => $phone,
-                'telegram_id' => $telegramId,
-                'telegram_notifications' => true,
-                'is_master' => true,
-                'master_slug' => $slug,
-                'workspace_id' => $invite->workspace_id,
-            ]);
-            $user->role = $invite->role ?? UserRole::Master;
-            $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
-            $user->save();
-
-            Log::info('[TG] handleInviteContact: user created', ['user_id' => $user->id]);
-        } else {
-            // Лимит мест провайдеров: мастер ест место, одиночка без подписки не блокируется.
-            if (($invite->role ?? UserRole::Master) === UserRole::Master
-                && $invite->workspace
-                && $invite->workspace->activeSubscription()
-                && ! $invite->workspace->canAddProvider()) {
-                $this->chat->html('❌ В студии закончились места по тарифу. Попросите владельца освободить место или повысить тариф, затем перейдите по ссылке снова.')->send();
-                Cache::forget('inv_token_'.$chatId);
-
-                return;
-            }
-
-            $oldWorkspaceId = $user->workspace_id;
-
-            $updateData = [
-                'telegram_id' => $telegramId,
-                'telegram_notifications' => true,
-                'name' => $fullName !== '' ? $fullName : $user->name,
-                'workspace_id' => $invite->workspace_id,
-                'is_master' => true,
-            ];
-
-            if (empty($user->master_slug)) {
-                $username = $this->request->input('message.from.username');
-                $slug = app(SlugService::class)->generate($username, $firstName, $lastName);
-                $updateData['master_slug'] = $slug;
-            }
-
-            $user->update($updateData);
-            $user->role = $invite->role ?? UserRole::Master;
-            $user->is_service_provider = ($invite->role ?? UserRole::Master) === UserRole::Master;
-            $user->save();
-
-            if ($oldWorkspaceId && $oldWorkspaceId !== $invite->workspace_id) {
-                try {
-                    $oldWs = \App\Models\Workspace::find($oldWorkspaceId);
-                    if ($oldWs && $oldWs->owner_id === $user->id && $oldWs->users()->count() === 0) {
-                        $oldWs->delete();
-                    }
-                } catch (\Throwable $e) {
-                    Log::warning('Failed to clean up old personal workspace', [
-                        'workspace_id' => $oldWorkspaceId,
-                        'user_id' => $user->id,
-                        'error' => $e->getMessage(),
-                    ]);
-                }
-            }
-
-            Log::info('[TG] handleInviteContact: existing user updated', ['user_id' => $user->id]);
-        }
-
-        $this->syncTelegramAvatar($user, $telegramId);
-
-        $invite->delete();
-        Cache::forget('inv_token_'.$chatId);
-
-        try {
-            $this->chat->html('✅ Вы успешно добавлены в команду! Теперь вы можете управлять своими записями.')
-                ->removeReplyKeyboard()
-                ->send();
-        } catch (Throwable $e) {
-            Log::error('[TG] handleInviteContact: confirmation FAILED', [
-                'error' => $e->getMessage(),
-            ]);
-        }
-
-        Log::info('[TG] handleInviteContact: success', [
-            'user_id' => $user->id,
-            'chat_id' => $chatId,
-        ]);
     }
 
     /**
