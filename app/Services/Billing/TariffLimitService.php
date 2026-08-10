@@ -11,7 +11,7 @@ use Carbon\CarbonInterface;
 
 class TariffLimitService
 {
-    public function canCreateAppointment(Workspace $workspace, ?Subscription $subscription = null): bool
+    public function canCreateAppointment(Workspace $workspace, ?Subscription $subscription = null, ?CarbonInterface $forDate = null): bool
     {
         $limit = $this->getMonthlyLimit($workspace, $subscription);
 
@@ -19,8 +19,8 @@ class TariffLimitService
             return true;
         }
 
-        $cycleStart = $this->getCycleStart($workspace);
-        $cycleEnd = $this->getCycleEnd($workspace);
+        $cycleStart = $this->getCycleStart($workspace, $forDate);
+        $cycleEnd = $this->getCycleEnd($workspace, $forDate);
 
         $usedCount = $this->countAppointmentsInCycle($workspace, $cycleStart, $cycleEnd);
 
@@ -68,18 +68,20 @@ class TariffLimitService
         return $this->countAppointmentsInCycle($workspace, $cycleStart, $cycleEnd);
     }
 
-    public function getCycleStart(?Workspace $workspace): CarbonInterface
+    public function getCycleStart(?Workspace $workspace, ?CarbonInterface $forDate = null): CarbonInterface
     {
         $tz = $workspace?->settings['timezone'] ?? 'Europe/Moscow';
+        $base = $forDate ? $forDate->copy()->setTimezone($tz) : now($tz);
 
-        return now($tz)->startOfMonth();
+        return $base->startOfMonth();
     }
 
-    public function getCycleEnd(?Workspace $workspace): CarbonInterface
+    public function getCycleEnd(?Workspace $workspace, ?CarbonInterface $forDate = null): CarbonInterface
     {
         $tz = $workspace?->settings['timezone'] ?? 'Europe/Moscow';
+        $base = $forDate ? $forDate->copy()->setTimezone($tz) : now($tz);
 
-        return now($tz)->endOfMonth();
+        return $base->endOfMonth();
     }
 
     private function countAppointmentsInCycle(?Workspace $workspace, CarbonInterface $cycleStart, CarbonInterface $cycleEnd): int

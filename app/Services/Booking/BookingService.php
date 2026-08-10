@@ -100,14 +100,14 @@ class BookingService
     ): Appointment {
         $workspace = $master->workspace;
 
-        if ($workspace && ! $this->tariffLimitService->canCreateAppointment($workspace)) {
+        $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
+        $endDateTime = $startDateTime->copy()->addMinutes($service->effective_duration);
+
+        if ($workspace && ! $this->tariffLimitService->canCreateAppointment($workspace, null, $startDateTime)) {
             throw ValidationException::withMessages([
                 'limit' => __('booking.limit_reached'),
             ]);
         }
-
-        $startDateTime = Carbon::parse($date.' '.$time, $master->getTimezone())->utc();
-        $endDateTime = $startDateTime->copy()->addMinutes($service->effective_duration);
 
         return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source) {
             $conflict = Appointment::where('master_id', $master->id)
