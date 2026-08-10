@@ -55,14 +55,28 @@ class BillingService
 
             $price = $this->calculatePrice($plan, $periodMonths);
 
+            $now = Carbon::now();
+            $currentSub = $master->workspace?->activeSubscription();
+
+            $isSamePlanExtension = $currentSub
+                && $currentSub->tariff_plan_id === $plan->id
+                && $currentSub->expires_at !== null
+                && $currentSub->expires_at->isFuture();
+
+            $startsAt = $isSamePlanExtension
+                ? $currentSub->expires_at->copy()
+                : $now->copy();
+
+            $expiresAt = $startsAt->copy()->addMonths($periodMonths);
+
             $subscription = Subscription::create([
                 'workspace_id' => $master->workspace_id,
                 'tariff_plan_id' => $plan->id,
                 'period_months' => $periodMonths,
                 'amount_paid' => $price['final'],
                 'status' => 'pending',
-                'starts_at' => Carbon::now(),
-                'expires_at' => Carbon::now()->copy()->addMonths($periodMonths),
+                'starts_at' => $startsAt,
+                'expires_at' => $expiresAt,
             ]);
 
             $paymentResult = $this->gateway->createPayment($subscription, $price['final']);
