@@ -33,7 +33,13 @@ interface AuthUser {
 
 interface PageProps {
     plans: Plan[];
-    current: { tariff: string | null; tariff_name: string | null };
+    current: {
+        tariff: string | null;
+        tariff_name: string | null;
+        is_paid?: boolean;
+        expires_at?: string | null;
+        days_left?: number;
+    };
     auth?: { user?: AuthUser };
     tariff_limits?: { total: number | null; used: number } | null;
     [key: string]: unknown;
@@ -76,6 +82,16 @@ export default function BillingPage() {
                         <h2 className="text-lg font-semibold text-slate-900 dark:text-zinc-100">
                             Текущий тариф: {current.tariff_name ?? '—'}
                         </h2>
+                        {current.is_paid && current.expires_at && (
+                            <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                Оплачено до {new Date(current.expires_at).toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' })}
+                                {typeof current.days_left === 'number' && (
+                                    current.days_left > 0
+                                        ? ` · осталось ${current.days_left} дн.`
+                                        : ' · истекает сегодня'
+                                )}
+                            </p>
+                        )}
                         {tariffLimits?.total !== null && tariffLimits?.total !== undefined ? (
                             <div className="mt-3 space-y-2">
                                 <p className="text-sm text-slate-600 dark:text-zinc-400">
@@ -247,7 +263,18 @@ function TariffCard({ plan, currentCode }: { plan: Plan; currentCode: string | n
                     {loading ? 'Перенаправление…' : 'Оплатить'}
                 </Button>
             )}
-            {isCurrent && (
+            {isCurrent && isPaid && (
+                <Button
+                    size="lg"
+                    variant="outline"
+                    className="w-full"
+                    disabled={loading}
+                    onClick={handleCheckout}
+                >
+                    {loading ? 'Перенаправление…' : 'Продлить'}
+                </Button>
+            )}
+            {isCurrent && !isPaid && (
                 <p className="text-center text-sm font-medium text-slate-500 dark:text-zinc-400">
                     Ваш текущий тариф
                 </p>

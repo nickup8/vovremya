@@ -46,6 +46,9 @@ class PaymentController extends Controller
             'current' => [
                 'tariff' => $activeSub?->tariffPlan?->code ?? 'start',
                 'tariff_name' => $activeSub?->tariffPlan?->name ?? 'Старт',
+                'is_paid' => ($activeSub?->tariffPlan?->price_monthly ?? 0) > 0,
+                'expires_at' => $activeSub?->expires_at?->toIso8601String(),
+                'days_left' => $activeSub?->daysLeft() ?? 0,
             ],
         ]);
     }
