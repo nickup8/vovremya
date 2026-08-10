@@ -82,7 +82,7 @@ no-overlap) не тронут. Проверка «одиночка жив» пр
   дни не сгорели. UI обновился: «Оплачено до 21.08.2027».
 
 **Бэклог волны P (⏳):**
-- ⏳ **P1.1c** — checkout плодит pending-дубли при повторных нажатиях «Продлить» (нет переиспользования/отмены незавершённых). Решения: отменять старые pending workspace при новом checkout / переиспользовать / крон-чистка pending старше N часов.
+- ⏳ **P1.1c** — checkout плодит pending-дубли при повторных нажатиях «Продлить» (нет переиспользования/отмены незавершённых). Решения: отменять старые pending workspace при новом checkout / переиспользовать / крон-чистка pending старше N часов. | ✅ `0d91a03`
 - ⏳ **P1.x** — у карточки Старт нет CTA: решить, нужна ли кнопка «Перейти на Старт» (downgrade).
 - ⏳ **dev-удобство** — нет artisan-команды активации mock-оплаты; сейчас нужен ручной curl-webhook. Кандидат: `php artisan payment:mock-confirm {payment_id}`.
 
@@ -105,6 +105,31 @@ getCycleStart(ws) → 2026-08-01..08-31 (текущий); getCycleStart(ws, 5 д
 Нюанс (не баг): у части workspace settings.timezone = null → цикл падает в дефолт Europe/Moscow;
 на логику месяца не влияет, но для точности края месяца стоит заполнять settings.timezone.
 
+P1.1c (устойчивость подписок и платёжных вебхуков) — ✅ задеплоено и проверено (10.08.2026).
+Коммит `805d93d`..`0d91a03`. Устранено накопление «висячих» pending-подписок и защищены
+вебхуки от повторной обработки. Реализация по индустриальным практикам (Stripe/ЮKassa).
+Три слоя:
+• **Supersede при повторном checkout** — `BillingService::subscribe()`: перед созданием новой
+  подписки прежние pending этого workspace помечаются `'failed'` (внутри `DB::transaction`).
+  Двойной клик «Оплатить»/«Продлить» больше не плодит дубли — активной остаётся последняя.
+• **Автоочистка брошенных платежей** — новая команда `subscriptions:cleanup-pending`
+  (`app/Console/Commands/CleanupPendingSubscriptions.php`): bulk-update pending→failed для
+  записей старше порога. Порог в `config/booking.php` ключ `cleanup_pending_subscription_hours`
+  (env `BILLING_CLEANUP_PENDING_HOURS`, дефолт 2 часа). Крон в `routes/console.php`:
+  `hourly()->withoutOverlapping()`.
+• **Guard терминальных подписок в вебхуке** — `PaymentWebhookController::handle()`: перед сменой
+  статуса проверяет `in_array($subscription->status, ['pending','active'])`. Если подписка уже
+  терминальна (failed/expired/refunded) — игнорирует запоздалый/дублирующий `'paid'`,
+  пишет `Log::warning('...ignoring update for terminal subscription...')` и возвращает `ok:true`.
+  Однонаправленный state machine — отменённая подписка не «оживает».
+Enum SubscriptionStatus НЕ расширялся (используется `'failed'`); миграций нет; провайдер mock
+не тронут. Тесты: 6 passed, 0 failed.
+Проверено на проде вживую (все 3 фикса):
+— Supersede: двойной клик → в БД предыдущий pending стал `'failed'`, остался 1 pending.
+— Крон: состаренный pending (>2ч) → `subscriptions:cleanup-pending` → «Cleaned up 1» → `'failed'`.
+— Guard: `POST /webhooks/payment` по failed-записи → HTTP 200 `{"ok":true}`, статус остался
+  `'failed'`, в лог упал warning «ignoring update for terminal subscription».
+
 ---
 
 ## Бэклог реализации ТЗ (следующие волны)
@@ -121,4 +146,4 @@ getCycleStart(ws) → 2026-08-01..08-31 (текущий); getCycleStart(ws, 5 д
 
 ---
 
-*Последнее обновление журнала: 10.08.2026 — 7.1-B: лимит записей по месяцу визита (сцена 7.1 закрыта).*
+*Последнее обновление журнала: 10.08.2026 — P1.1c: устойчивость подписок и вебхуков (supersede + крон-чистка + guard).*
