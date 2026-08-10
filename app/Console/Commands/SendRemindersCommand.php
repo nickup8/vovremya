@@ -61,7 +61,7 @@ class SendRemindersCommand extends Command
         $appointments = Appointment::with(['master', 'client'])
             ->where('status', AppointmentStatus::Booked)
             ->whereNull('reminder_final_sent_at')
-            ->where('start_time', '<=', $now->copy()->addHours(3))
+            ->where('start_time', '<=', $now->copy()->addHours(12))
             ->get();
 
         $dispatched = 0;
