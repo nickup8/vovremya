@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { usePage } from '@inertiajs/react';
-import { Menu, Sun, Moon, Monitor } from 'lucide-react';
+import { usePage, Link } from '@inertiajs/react';
+import { Menu, Sun, Moon, Monitor, CreditCard } from 'lucide-react';
 import type { ReactNode } from 'react';
 import { Toaster } from '@/components/ui/sonner';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
@@ -46,6 +46,7 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
     const tariffName = auth?.user?.tariff_name || 'Free';
     const avatarUrl = auth?.user?.avatar_url ?? undefined;
     const initials = getInitials(userName);
+    const canBilling = auth?.user?.can_manage_billing === true;
 
     const limitTotal = tariff_limits?.total;
     const limitUsed = tariff_limits?.used ?? 0;
@@ -73,6 +74,16 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                     </div>
                     <div className="flex items-center gap-2">
                         {headerActions}
+                        {canBilling && (
+                            <Link
+                                href="/admin/billing"
+                                title="Тарифы и оплата"
+                                className="hidden items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:flex dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+                            >
+                                <CreditCard className="size-4" />
+                                <span>Тариф</span>
+                            </Link>
+                        )}
                         <ThemeToggle />
                         {limitTotal !== null && limitTotal !== undefined && (
                             <div className={`hidden items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium sm:flex ${
