@@ -69,6 +69,14 @@ class BillingService
 
             $expiresAt = $startsAt->copy()->addMonths($periodMonths);
 
+            // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
+            // (supersede on new intent — не плодим дубли при повторных кликах)
+            if ($master->workspace_id) {
+                Subscription::where('workspace_id', $master->workspace_id)
+                    ->where('status', 'pending')
+                    ->update(['status' => 'failed']);
+            }
+
             $subscription = Subscription::create([
                 'workspace_id' => $master->workspace_id,
                 'tariff_plan_id' => $plan->id,

@@ -56,6 +56,18 @@ class PaymentWebhookController extends Controller
             return response()->json(['error' => 'Invalid subscription status'], 400);
         }
 
+        // P1.1c: не оживляем терминальные подписки (failed/expired/refunded) запоздалым webhook.
+        // Однонаправленный state machine: активировать/менять можно только из pending или active.
+        if (! in_array($subscription->status, ['pending', 'active'], true)) {
+            Log::warning('Payment webhook: ignoring update for terminal subscription', [
+                'payment_id' => $paymentId,
+                'current_status' => $subscription->status,
+                'incoming' => $rawStatus,
+            ]);
+
+            return response()->json(['ok' => true]);
+        }
+
         $subscription->update(['status' => $parsedStatus]);
 
         if ($rawStatus === 'paid') {

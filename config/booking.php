@@ -10,6 +10,8 @@ return [
 
     'cleanup_draft_threshold' => env('BOOKING_CLEANUP_DRAFT_THRESHOLD', 15),
 
+    'cleanup_pending_subscription_hours' => env('BILLING_CLEANUP_PENDING_HOURS', 2),
+
     'free_monthly_limit' => env('BOOKING_FREE_MONTHLY_LIMIT', 30),
 
 ];

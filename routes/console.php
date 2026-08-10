@@ -7,3 +7,4 @@ Schedule::command('appointments:cancel-unpaid')->everyMinute()->withoutOverlappi
 Schedule::command('appointments:cleanup-drafts')->everyFiveMinutes()->withoutOverlapping();
 Schedule::command('subscriptions:check-expirations')->dailyAt('00:00');
 Schedule::command('subscriptions:check-limits')->hourly()->withoutOverlapping();
+Schedule::command('subscriptions:cleanup-pending')->hourly()->withoutOverlapping();
