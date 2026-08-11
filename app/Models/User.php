@@ -55,6 +55,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'slot_interval', 'workspace_id',
     'settings',
     'pdn_consent_at', 'pdn_consent_version',
+    'cancellation_deadline_hours',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
@@ -82,6 +83,7 @@ class User extends Authenticatable implements PasskeyUser
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
             'settings' => 'array',
+            'cancellation_deadline_hours' => 'integer',
         ];
     }
 
