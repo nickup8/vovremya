@@ -720,18 +720,28 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         foreach ($appointments as $appointment) {
-            $tz = $appointment->master->getTimezone();
-            $when = $appointment->start_time->timezone($tz)->format('d.m.Y H:i');
+            try {
+                $tz = $appointment->master?->getTimezone();
+                $when = $appointment->start_time->timezone($tz ?? config('app.timezone'))->format('d.m.Y H:i');
 
-            $text = "📅 <b>{$appointment->display_name}</b>\n🕒 {$when}";
+                $text = "📅 <b>{$appointment->display_name}</b>\n🕒 {$when}";
 
-            $this->chat->html($text)
-                ->keyboard(Keyboard::make()->row([
-                    Button::make('❌ Отменить')
-                        ->action('confirmCancelAppointment')
-                        ->param('id', $appointment->id),
-                ]))
-                ->send();
+                $this->chat->html($text)
+                    ->keyboard(Keyboard::make()->row([
+                        Button::make('❌ Отменить')
+                            ->action('confirmCancelAppointment')
+                            ->param('id', $appointment->id),
+                    ]))
+                    ->send();
+
+                Log::info('[TG] myBookings: item sent', ['appointment_id' => $appointment->id]);
+            } catch (\Throwable $e) {
+                Log::error('[TG] myBookings: item FAILED', [
+                    'appointment_id' => $appointment->id,
+                    'error' => $e->getMessage(),
+                    'class' => get_class($e),
+                ]);
+            }
         }
     }
 
