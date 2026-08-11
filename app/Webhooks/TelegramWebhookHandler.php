@@ -12,6 +12,7 @@ use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
+use Illuminate\Database\Eloquent\Model;
 use App\Services\AppointmentStatusService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
@@ -208,6 +209,14 @@ class TelegramWebhookHandler extends WebhookHandler
         if ($client) {
             $this->syncClientTelegramAvatar($client, $chatId);
 
+            // Устаревшее/отсутствующее согласие — показываем барьер ДО подтверждения
+            if ($this->needsPdnConsent($client)) {
+                Cache::put(CacheKeys::TG_BOOKING_DRAFT.$chatId, $appointment->id, config('booking.draft_ttl'));
+                $this->sendConsentBarrier('book');
+
+                return;
+            }
+
             // Постоянный клиент — предлагаем подтверждение через Inline-кнопки
             $keyboard = Keyboard::make()
                 ->row([
@@ -238,18 +247,11 @@ class TelegramWebhookHandler extends WebhookHandler
                 ]);
             }
         } else {
-            // Клиент новый — запрашиваем контакт
+            // Клиент новый — сохраняем черновик и показываем барьер согласия
             Cache::put(CacheKeys::TG_BOOKING_DRAFT.$chatId, $appointmentId, config('booking.draft_ttl'));
 
-            // Проверка: клиент уже дал согласие актуальной версии?
-            $consentOk = $client // тут $client === null (ветка нового), проверяем повторный визит по telegram_id
-                ? false
-                : (bool) Client::byTelegramId($chatId)
-                    ->where('user_id', $appointment->master_id)
-                    ->where('pdn_consent_version', config('legal.version'))
-                    ->exists();
-
-            if (! $consentOk) {
+            // Новый клиент по telegram_id — актуального согласия заведомо нет
+            if ($this->needsPdnConsent(null)) {
                 $this->sendConsentBarrier('book');
 
                 return;
@@ -316,6 +318,15 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $this->syncClientTelegramAvatar($client, $this->chat->chat_id);
 
+        // Последний рубеж: без актуального согласия ПДн не финализируем — показываем барьер.
+        if ($this->needsPdnConsent($client)) {
+            Cache::forget($lockKey); // снимаем блокировку, чтобы после согласия можно было подтвердить
+            Cache::put(CacheKeys::TG_BOOKING_DRAFT.$this->chat->chat_id, $appointment->id, config('booking.draft_ttl'));
+            $this->sendConsentBarrier('book');
+
+            return;
+        }
+
         $appointment->update([
             'client_id' => $client->id,
             'source' => AppointmentSource::Telegram,
@@ -379,6 +390,17 @@ class TelegramWebhookHandler extends WebhookHandler
     }
 
     /**
+     * Требуется ли барьер согласия ПДн:
+     * нет согласия ИЛИ версия устарела относительно config('legal.version').
+     */
+    private function needsPdnConsent(?Model $subject): bool
+    {
+        return $subject === null
+            || empty($subject->pdn_consent_at)
+            || $subject->pdn_consent_version !== config('legal.version');
+    }
+
+    /**
      * Рисует экран согласия ПДн с inline-кнопками.
      * $flow: 'book' (клиент) | 'auth' (мастер).
      */
@@ -420,7 +442,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $chatId = $this->chat->chat_id;
         $flow = $this->data->get('flow');
 
-        // Кладём версию согласия в кэш (перенесётся в БД при получении контакта).
+        // Кладём версию согласия в кэш (перенесётся в БД при получении контакта — для нового клиента/мастера).
         Cache::put(
             CacheKeys::TG_CONSENT_PENDING.$chatId,
             config('legal.version'),
@@ -429,19 +451,76 @@ class TelegramWebhookHandler extends WebhookHandler
 
         Log::info('[TG] consent accepted', ['flow' => $flow, 'chat_id' => $chatId]);
 
+        // Поток мастера (auth) — как прежде: просим контакт.
         if ($flow === 'auth') {
-            $message = __('bot.consent.after_accept_master');
-        } else {
-            $message = __('bot.consent.after_accept_client');
+            $keyboard = ReplyKeyboard::make()
+                ->button(__('bot.buttons.share_phone'))->requestContact()
+                ->resize()
+                ->oneTime();
+
+            try {
+                $this->chat->html(__('bot.consent.after_accept_master'))
+                    ->replyKeyboard($keyboard)
+                    ->send();
+            } catch (\Throwable $e) {
+                Log::error('[TG] acceptConsent send FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
+            }
+
+            return;
         }
 
+        // Поток записи (book): проверяем — существующий ли это клиент (контакт уже есть).
+        $appointmentId = Cache::get(CacheKeys::TG_BOOKING_DRAFT.$chatId);
+        $appointment = $appointmentId ? Appointment::find($appointmentId) : null;
+
+        $client = $appointment
+            ? Client::byTelegramId($chatId)->where('user_id', $appointment->master_id)->first()
+            : null;
+
+        if ($client) {
+            // Вариант 1 (мягкий): контакт уже есть — записываем согласие в БД,
+            // повторно телефон НЕ просим, показываем кнопку «Подтвердить».
+            $client->update([
+                'pdn_consent_at' => now(),
+                'pdn_consent_version' => Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId) ?? config('legal.version'),
+            ]);
+
+            Log::info('[TG] consent accepted → existing client, showing confirm button', [
+                'client_id' => $client->id,
+                'appointment_id' => $appointmentId,
+            ]);
+
+            $keyboard = Keyboard::make()
+                ->row([
+                    Button::make(__('bot.buttons.confirm_booking'))
+                        ->action('confirmBooking')
+                        ->param('id', $appointment->id),
+                ])
+                ->row([
+                    Button::make(__('bot.buttons.cancel'))
+                        ->action('cancelBooking')
+                        ->param('id', $appointment->id),
+                ]);
+
+            try {
+                $this->chat->html(__('bot.consent.after_accept_client_returning'))
+                    ->keyboard($keyboard)
+                    ->send();
+            } catch (\Throwable $e) {
+                Log::error('[TG] acceptConsent confirm button FAILED', ['error' => $e->getMessage()]);
+            }
+
+            return;
+        }
+
+        // Новый клиент — записи в БД ещё нет, просим контакт (согласие перенесётся при создании Client).
         $keyboard = ReplyKeyboard::make()
             ->button(__('bot.buttons.share_phone'))->requestContact()
             ->resize()
             ->oneTime();
 
         try {
-            $this->chat->html($message)
+            $this->chat->html(__('bot.consent.after_accept_client'))
                 ->replyKeyboard($keyboard)
                 ->send();
         } catch (\Throwable $e) {
