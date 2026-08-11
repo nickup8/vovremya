@@ -361,7 +361,7 @@ class BookingService
 
             $oldStartTime = $locked->start_time->toIso8601String();
 
-            $updateData = ['start_time' => $startDateTime];
+            $updateData = ['start_time' => $startDateTime, 'client_confirmed_at' => null];
             if ($newMasterId) {
                 $updateData['master_id'] = $newMasterId;
             }

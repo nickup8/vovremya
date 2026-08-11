@@ -31,6 +31,7 @@ class Appointment extends Model
         'reminder_final_sent_at',
         'cancelled_at',
         'cancelled_by',
+        'client_confirmed_at',
     ];
 
     protected function casts(): array
@@ -46,6 +47,7 @@ class Appointment extends Model
             'reminder_24h_sent_at' => 'datetime',
             'reminder_final_sent_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'client_confirmed_at' => 'datetime',
         ];
     }
 
@@ -112,6 +114,7 @@ class Appointment extends Model
             'time' => $this->start_time->timezone($tz)->format('H:i'),
             'date' => $this->start_time->timezone($tz)->format('Y-m-d'),
             'status' => $this->status,
+            'client_confirmed_at' => $this->client_confirmed_at?->toIso8601String(),
         ];
     }
 }

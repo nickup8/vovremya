@@ -58,6 +58,7 @@ class CalendarApiController extends Controller
                     'status' => $a->status,
                     'master_id' => $a->master_id,
                     'master_name' => $a->master?->name ?? 'Мастер',
+                    'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                 ];
             });
 

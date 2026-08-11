@@ -390,6 +390,85 @@ class TelegramWebhookHandler extends WebhookHandler
     }
 
     /**
+     * Callback кнопки «✅ Подтверждаю» из напоминания за 24ч.
+     * Пишет client_confirmed_at, уведомляет мастера, обновляет календарь в реалтайме.
+     */
+    public function confirmVisit(): void
+    {
+        $appointmentId = $this->data->get('id');
+
+        $appointment = Appointment::with(['master', 'client'])->find($appointmentId);
+
+        if (! $appointment) {
+            $this->reply(__('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        // Владелец записи — клиент этого мастера по telegram_id
+        $client = Client::byTelegramId($this->chat->chat_id)
+            ->where('user_id', $appointment->master_id)
+            ->first();
+
+        if (! $client || $appointment->client_id !== $client->id) {
+            Log::warning('[TG] confirmVisit: ownership violation', [
+                'appointment_id' => $appointmentId,
+                'chat_id' => $this->chat?->chat_id,
+            ]);
+            $this->reply(__('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        // Подтверждать можно только активную (Booked) запись
+        if ($appointment->status !== AppointmentStatus::Booked) {
+            $this->reply(__('bot.visit_confirm.not_available'));
+
+            return;
+        }
+
+        // Защита от повторного нажатия
+        if ($appointment->client_confirmed_at !== null) {
+            $this->reply(__('bot.visit_confirm.already'));
+
+            return;
+        }
+
+        $appointment->update(['client_confirmed_at' => now()]);
+
+        Log::info('[TG] confirmVisit: success', [
+            'appointment_id' => $appointmentId,
+            'client_id' => $client->id,
+        ]);
+
+        // Real-time обновление календаря мастера
+        broadcast(new \App\Events\AppointmentVisitConfirmed(
+            $appointment->fresh()->load(['client'])
+        ));
+
+        // Обновляем исходное сообщение (убираем кнопку) + отвечаем клиенту
+        try {
+            $this->chat->deleteKeyboard($this->messageId)->send();
+        } catch (Throwable $e) {
+            Log::error('[TG] confirmVisit: deleteKeyboard FAILED', ['error' => $e->getMessage()]);
+        }
+
+        $this->reply(__('bot.visit_confirm.client_thanks'));
+
+        // Уведомляем мастера
+        $tz = $appointment->master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
+
+        app(MasterNotificationService::class)
+            ->sendToMaster($appointment->master, __('bot.master.visit_confirmed', [
+                'client' => $client->name ?? __('bot.fallback.client_name'),
+                'date' => $date,
+                'time' => $time,
+            ]));
+    }
+
+    /**
      * Требуется ли барьер согласия ПДн:
      * нет согласия ИЛИ версия устарела относительно config('legal.version').
      */

@@ -88,11 +88,25 @@ class SendAppointmentReminderJob implements ShouldQueue
         $text = $this->buildMessage($appointment, 'telegram');
 
         try {
-            $response = Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
+            $payload = [
                 'chat_id' => $client->telegram_id,
                 'text' => $text,
                 'parse_mode' => 'HTML',
-            ]);
+            ];
+
+            // Кнопка «Подтверждаю» — только в напоминании за 24 часа
+            if ($this->type === '24h') {
+                $button = \DefStudio\Telegraph\Keyboard\Button::make(__('bot.buttons.confirm_visit'))
+                    ->action('confirmVisit')
+                    ->param('id', $appointment->id)
+                    ->toArray();
+
+                $payload['reply_markup'] = [
+                    'inline_keyboard' => [[$button]],
+                ];
+            }
+
+            $response = Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
 
             if ($response->failed()) {
                 throw new \Exception('TG API failed: '.$response->body());
