@@ -68,6 +68,17 @@ class TelegramWebhookHandler extends WebhookHandler
 
             Log::info('[TG] start(auth_) cache stored', ['login_token' => $loginToken]);
 
+            // Проверка: мастер уже дал согласие актуальной версии?
+            $existingMaster = User::where('telegram_id', $chatId)->first();
+            $consentOk = $existingMaster
+                && $existingMaster->pdn_consent_version === config('legal.version');
+
+            if (! $consentOk) {
+                $this->sendConsentBarrier('auth');
+
+                return;
+            }
+
             $message = __('bot.contact_request.auth');
 
             $keyboard = ReplyKeyboard::make()
@@ -230,6 +241,20 @@ class TelegramWebhookHandler extends WebhookHandler
             // Клиент новый — запрашиваем контакт
             Cache::put(CacheKeys::TG_BOOKING_DRAFT.$chatId, $appointmentId, config('booking.draft_ttl'));
 
+            // Проверка: клиент уже дал согласие актуальной версии?
+            $consentOk = $client // тут $client === null (ветка нового), проверяем повторный визит по telegram_id
+                ? false
+                : (bool) Client::byTelegramId($chatId)
+                    ->where('user_id', $appointment->master_id)
+                    ->where('pdn_consent_version', config('legal.version'))
+                    ->exists();
+
+            if (! $consentOk) {
+                $this->sendConsentBarrier('book');
+
+                return;
+            }
+
             $contactMessage = $details."\n\n"
                 .__('bot.contact_request.booking');
 
@@ -350,6 +375,77 @@ class TelegramWebhookHandler extends WebhookHandler
                 'error' => $e->getMessage(),
                 'exception' => $e,
             ]);
+        }
+    }
+
+    /**
+     * Рисует экран согласия ПДн с inline-кнопками.
+     * $flow: 'book' (клиент) | 'auth' (мастер).
+     */
+    private function sendConsentBarrier(string $flow): void
+    {
+        $text = $flow === 'auth'
+            ? __('bot.consent.master_text')
+            : __('bot.consent.client_text');
+
+        $keyboard = Keyboard::make()
+            ->row([
+                Button::make(__('bot.consent.button_accept'))
+                    ->action('acceptConsent')
+                    ->param('flow', $flow),
+            ])
+            ->row([
+                Button::make(__('bot.consent.button_offer'))
+                    ->url(config('legal.offer_url')),
+                Button::make(__('bot.consent.button_privacy'))
+                    ->url(config('legal.privacy_url')),
+            ]);
+
+        try {
+            $this->chat->html($text)
+                ->keyboard($keyboard)
+                ->send();
+
+            Log::info('[TG] consent barrier sent', ['flow' => $flow, 'chat_id' => $this->chat->chat_id]);
+        } catch (\Throwable $e) {
+            Log::error('[TG] consent barrier FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
+        }
+    }
+
+    /**
+     * Callback кнопки «Принимаю». Пишет факт согласия в кэш и ведёт к запросу контакта.
+     */
+    public function acceptConsent(): void
+    {
+        $chatId = $this->chat->chat_id;
+        $flow = $this->data->get('flow');
+
+        // Кладём версию согласия в кэш (перенесётся в БД при получении контакта).
+        Cache::put(
+            CacheKeys::TG_CONSENT_PENDING.$chatId,
+            config('legal.version'),
+            config('booking.draft_ttl'),
+        );
+
+        Log::info('[TG] consent accepted', ['flow' => $flow, 'chat_id' => $chatId]);
+
+        if ($flow === 'auth') {
+            $message = __('bot.consent.after_accept_master');
+        } else {
+            $message = __('bot.consent.after_accept_client');
+        }
+
+        $keyboard = ReplyKeyboard::make()
+            ->button(__('bot.buttons.share_phone'))->requestContact()
+            ->resize()
+            ->oneTime();
+
+        try {
+            $this->chat->html($message)
+                ->replyKeyboard($keyboard)
+                ->send();
+        } catch (\Throwable $e) {
+            Log::error('[TG] acceptConsent send FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
         }
     }
 
@@ -523,13 +619,23 @@ class TelegramWebhookHandler extends WebhookHandler
                 'phone' => $phone,
                 'telegram_id' => $telegramId,
                 'auth_token' => Client::generateAuthToken(),
+                'pdn_consent_at' => now(),
+                'pdn_consent_version' => Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId) ?? config('legal.version'),
             ]);
 
             Log::info('[TG] handleBookingContact: client created', ['client_id' => $client->id]);
         } else {
-            // Обновляем telegram_id если нужно
+            $clientUpdates = [];
             if ($client->telegram_id !== $telegramId) {
-                $client->update(['telegram_id' => $telegramId]);
+                $clientUpdates['telegram_id'] = $telegramId;
+            }
+            $pendingConsent = Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId);
+            if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
+                $clientUpdates['pdn_consent_at'] = now();
+                $clientUpdates['pdn_consent_version'] = $pendingConsent;
+            }
+            if ($clientUpdates) {
+                $client->update($clientUpdates);
             }
 
             Log::info('[TG] handleBookingContact: existing client', ['client_id' => $client->id]);
@@ -670,6 +776,8 @@ class TelegramWebhookHandler extends WebhookHandler
                 'master_slug' => $slug,
                 'specialty' => null,
                 'address' => null,
+                'pdn_consent_at' => now(),
+                'pdn_consent_version' => Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId) ?? config('legal.version'),
             ]);
 
             if (! $user->workspace_id) {
@@ -692,6 +800,12 @@ class TelegramWebhookHandler extends WebhookHandler
             $fullName = trim($firstName.' '.$lastName);
             if ($fullName !== '' && $user->name !== $fullName) {
                 $updates['name'] = $fullName;
+            }
+
+            $pendingConsent = Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId);
+            if ($pendingConsent && $user->pdn_consent_version !== $pendingConsent) {
+                $updates['pdn_consent_at'] = now();
+                $updates['pdn_consent_version'] = $pendingConsent;
             }
 
             if (! empty($updates)) {

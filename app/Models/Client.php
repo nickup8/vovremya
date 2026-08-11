@@ -28,6 +28,8 @@ class Client extends Authenticatable
         'name',
         'avatar_url',
         'auth_token',
+        'pdn_consent_at',
+        'pdn_consent_version',
         'is_blocked',
         'notes',
     ];
@@ -41,6 +43,7 @@ class Client extends Authenticatable
         return [
             'is_personal' => 'boolean',
             'is_blocked' => 'boolean',
+            'pdn_consent_at' => 'datetime',
         ];
     }
 

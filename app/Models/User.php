@@ -54,6 +54,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'soft_deposit', 'deposit_timeout', 'deposit_percent',
     'slot_interval', 'workspace_id',
     'settings',
+    'pdn_consent_at', 'pdn_consent_version',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
@@ -77,6 +78,7 @@ class User extends Authenticatable implements PasskeyUser
             'slot_interval' => 'integer',
             'is_super_admin' => 'boolean',
             'is_blocked' => 'boolean',
+            'pdn_consent_at' => 'datetime',
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
             'settings' => 'array',
