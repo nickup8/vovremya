@@ -55,6 +55,12 @@ class TelegramWebhookHandler extends WebhookHandler
 
             Log::info('[TG] start() welcome sent', ['ok' => $result !== null]);
 
+            $this->chat->html('Управление записями:')
+                ->keyboard(Keyboard::make()->row([
+                    Button::make('📋 Мои записи')->action('myBookings'),
+                ]))
+                ->send();
+
             return;
         }
 
@@ -677,6 +683,175 @@ class TelegramWebhookHandler extends WebhookHandler
             Log::error('[TG] cancelBooking: FAILED', [
                 'error' => $e->getMessage(),
                 'exception' => $e,
+            ]);
+        }
+    }
+
+    /**
+     * Кнопка «Мои записи»: показать будущие активные записи клиента.
+     */
+    public function myBookings(): void
+    {
+        $client = Client::byTelegramId($this->chat->chat_id)->first();
+
+        if (! $client) {
+            $this->chat->html('У вас пока нет предстоящих записей.')->send();
+
+            return;
+        }
+
+        $appointments = Appointment::with(['master'])
+            ->where('client_id', $client->id)
+            ->where('status', AppointmentStatus::Booked)
+            ->where('start_time', '>', now())
+            ->orderBy('start_time')
+            ->get();
+
+        if ($appointments->isEmpty()) {
+            $this->chat->html('У вас пока нет предстоящих записей.')->send();
+
+            return;
+        }
+
+        foreach ($appointments as $appointment) {
+            $tz = $appointment->master->getTimezone();
+            $when = $appointment->start_time->timezone($tz)->format('d.m.Y H:i');
+
+            $text = "📅 <b>{$appointment->display_name}</b>\n🕒 {$when}";
+
+            $this->chat->html($text)
+                ->keyboard(Keyboard::make()->row([
+                    Button::make('❌ Отменить')
+                        ->action('confirmCancelAppointment')
+                        ->param('id', $appointment->id),
+                ]))
+                ->send();
+        }
+    }
+
+    /**
+     * Шаг подтверждения отмены: «Точно отменить?» да/нет.
+     */
+    public function confirmCancelAppointment(): void
+    {
+        $appointmentId = $this->data->get('id');
+
+        $appointment = Appointment::with(['master'])->find($appointmentId);
+        $client = Client::byTelegramId($this->chat->chat_id)->first();
+
+        if (! $appointment || ! $client || $appointment->client_id !== $client->id) {
+            $this->reply(__('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($appointment->status !== AppointmentStatus::Booked || $appointment->start_time <= now()) {
+            $this->reply('Эту запись уже нельзя отменить.');
+
+            return;
+        }
+
+        $tz = $appointment->master->getTimezone();
+        $when = $appointment->start_time->timezone($tz)->format('d.m.Y H:i');
+
+        $this->chat->html("Точно отменить запись на <b>{$when}</b>?")
+            ->keyboard(Keyboard::make()->row([
+                Button::make('✅ Да, отменить')
+                    ->action('cancelAppointment')
+                    ->param('id', $appointment->id),
+                Button::make('↩️ Нет')
+                    ->action('myBookings'),
+            ]))
+            ->send();
+    }
+
+    /**
+     * Реальная отмена записи клиентом: проверка владельца, дедлайна мастера,
+     * переход в Cancelled + уведомление мастеру.
+     */
+    public function cancelAppointment(): void
+    {
+        $appointmentId = $this->data->get('id');
+
+        $appointment = Appointment::with(['master'])->find($appointmentId);
+        $client = Client::byTelegramId($this->chat->chat_id)->first();
+
+        if (! $appointment || ! $client || $appointment->client_id !== $client->id) {
+            Log::warning('[TG] cancelAppointment: ownership violation', [
+                'appointment_id' => $appointmentId,
+                'chat_id' => $this->chat?->chat_id,
+            ]);
+            $this->reply(__('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($appointment->status !== AppointmentStatus::Booked || $appointment->start_time <= now()) {
+            $this->reply('Эту запись уже нельзя отменить.');
+
+            return;
+        }
+
+        // Дедлайн отмены, заданный мастером (часы). null/0 = без ограничения.
+        $deadlineHours = $appointment->master->cancellation_deadline_hours;
+
+        if ($deadlineHours !== null && $deadlineHours > 0) {
+            $limit = $appointment->start_time->copy()->subHours($deadlineHours);
+
+            if (now() >= $limit) {
+                $this->chat->html(
+                    "Отменить запись онлайн можно не позднее чем за {$deadlineHours} ч до визита. "
+                    .'Пожалуйста, свяжитесь с мастером напрямую.'
+                )->send();
+
+                return;
+            }
+        }
+
+        // Отмена — тем же способом, что и cancelBooking (актор = клиент).
+        try {
+            $this->statusService->transition($appointment, AppointmentStatus::Cancelled, $client);
+        } catch (PastAppointmentException) {
+            $this->reply('Нельзя отменить прошедшую запись.');
+
+            return;
+        } catch (InvalidStatusTransitionException $e) {
+            Log::warning('[TG] cancelAppointment: invalid transition', [
+                'appointment_id' => $appointmentId,
+                'status' => $appointment->status,
+                'error' => $e->getMessage(),
+            ]);
+            $this->reply(__('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        // Уведомление мастеру об отмене клиентом.
+        $tz = $appointment->master->getTimezone();
+        $when = $appointment->start_time->timezone($tz)->format('d.m.Y H:i');
+
+        app(MasterNotificationService::class)->sendToMaster(
+            $appointment->master,
+            "❌ Клиент отменил запись:\n💇 {$appointment->display_name}\n🕒 {$when}"
+        );
+
+        // Обновляем сообщение + отвечаем клиенту.
+        try {
+            $this->chat->edit($this->messageId)
+                ->html('✅ Запись отменена.')
+                ->send();
+
+            $this->chat->deleteKeyboard($this->messageId)->send();
+
+            $this->reply('Запись отменена.');
+
+            Log::info('[TG] cancelAppointment: success', [
+                'appointment_id' => $appointmentId,
+                'client_id' => $client->id,
+            ]);
+        } catch (Throwable $e) {
+            Log::error('[TG] cancelAppointment: FAILED', [
+                'error' => $e->getMessage(),
             ]);
         }
     }
