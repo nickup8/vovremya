@@ -11,6 +11,7 @@ use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingWidgetController;
+use App\Http\Controllers\LegalController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\Client\ClientProfileController;
@@ -50,6 +51,9 @@ Route::post('/auth/magic', [MagicLoginController::class, 'login'])
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
 Route::get('/book/{master}/available-dates', [BookingWidgetController::class, 'availableDates'])->name('booking.available-dates');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
+
+Route::get('/offer', [LegalController::class, 'offer'])->name('legal.offer');
+Route::get('/privacy', [LegalController::class, 'privacy'])->name('legal.privacy');
 
 Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])->middleware('throttle:60,1')->name('webhooks.telegram');
 Route::post('/webhooks/telegram/bypass', [WebhookController::class, 'handleBypass'])->middleware('throttle:60,1')->name('webhooks.telegram.bypass');
