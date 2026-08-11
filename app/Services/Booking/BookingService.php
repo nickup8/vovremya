@@ -12,7 +12,6 @@ use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
 use App\Services\Notification\ClientNotificationService;
-use App\Services\Notification\MasterNotificationService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -399,7 +398,8 @@ class BookingService
     }
 
     /**
-     * Уведомить клиента и мастера о переносе записи (Telegram/MAX).
+     * Уведомить клиента о переносе записи (Telegram/MAX).
+     * Канал — по источнику записи, зеркалит логику напоминаний.
      * Ошибки отправки логируются, но не пробрасываются.
      */
     private function sendRescheduleNotifications(Appointment $appointment): void
@@ -409,38 +409,19 @@ class BookingService
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        // Клиенту
-        $client = $appointment->client;
-        if ($client && ! empty($client->telegram_id)) {
-            try {
-                app(ClientNotificationService::class)->sendToClient(
-                    $client,
-                    __('bot.client.rescheduled', [
-                        'service' => $appointment->display_name,
-                        'date' => $date,
-                        'time' => $time,
-                    ]),
-                );
-            } catch (\Throwable $e) {
-                \Illuminate\Support\Facades\Log::error('[reschedule] client notify failed', [
-                    'appointment_id' => $appointment->id,
-                    'error' => $e->getMessage(),
-                ]);
-            }
-        }
-
-        // Мастеру
+        // Уведомляем только клиента (мастер сам перенёс — ему уведомление не нужно).
+        // Канал — по источнику записи, зеркалит логику напоминаний.
         try {
-            app(MasterNotificationService::class)->sendToMaster(
-                $master,
-                __('bot.master.rescheduled', [
-                    'client' => $client?->name ?? __('bot.fallback.client_name'),
+            app(ClientNotificationService::class)->sendToClientBySource(
+                $appointment,
+                __('bot.client.rescheduled', [
+                    'service' => $appointment->display_name,
                     'date' => $date,
                     'time' => $time,
                 ]),
             );
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('[reschedule] master notify failed', [
+            \Illuminate\Support\Facades\Log::error('[reschedule] client notify failed', [
                 'appointment_id' => $appointment->id,
                 'error' => $e->getMessage(),
             ]);
