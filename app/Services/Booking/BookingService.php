@@ -11,6 +11,8 @@ use App\Models\MasterService;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
+use App\Services\Notification\ClientNotificationService;
+use App\Services\Notification\MasterNotificationService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
@@ -309,7 +311,7 @@ class BookingService
         bool $confirmOutsideHours = false,
         ?string $newMasterId = null,
     ): array {
-        return DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId) {
+        $result = DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId) {
             $locked = Appointment::where('id', $appointment->id)->lockForUpdate()->first();
 
             $originalMaster = $locked->master;
@@ -378,7 +380,7 @@ class BookingService
                 $this->statusService->transition($locked, AppointmentStatus::Booked);
             }
 
-            $locked->load(['client']);
+            $locked->load(['client', 'master']);
             broadcast(new AppointmentRescheduled($locked, $oldStartTime));
 
             return [
@@ -386,5 +388,62 @@ class BookingService
                 'appointment' => $locked,
             ];
         });
+
+        // Уведомления о переносе — ПОСЛЕ коммита транзакции.
+        // Падение мессенджера не должно откатывать сам перенос.
+        if (($result['success'] ?? false) === true) {
+            $this->sendRescheduleNotifications($result['appointment']);
+        }
+
+        return $result;
+    }
+
+    /**
+     * Уведомить клиента и мастера о переносе записи (Telegram/MAX).
+     * Ошибки отправки логируются, но не пробрасываются.
+     */
+    private function sendRescheduleNotifications(Appointment $appointment): void
+    {
+        $master = $appointment->master;
+        $tz = $master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
+
+        // Клиенту
+        $client = $appointment->client;
+        if ($client && ! empty($client->telegram_id)) {
+            try {
+                app(ClientNotificationService::class)->sendToClient(
+                    $client,
+                    __('bot.client.rescheduled', [
+                        'service' => $appointment->display_name,
+                        'date' => $date,
+                        'time' => $time,
+                    ]),
+                );
+            } catch (\Throwable $e) {
+                \Illuminate\Support\Facades\Log::error('[reschedule] client notify failed', [
+                    'appointment_id' => $appointment->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        // Мастеру
+        try {
+            app(MasterNotificationService::class)->sendToMaster(
+                $master,
+                __('bot.master.rescheduled', [
+                    'client' => $client?->name ?? __('bot.fallback.client_name'),
+                    'date' => $date,
+                    'time' => $time,
+                ]),
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::error('[reschedule] master notify failed', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 }
