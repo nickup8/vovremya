@@ -106,7 +106,12 @@ class SendAppointmentReminderJob implements ShouldQueue
                 ];
             }
 
-            $response = Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
+            $response = Http::retry(3, 500, function ($exception) {
+                return $exception instanceof \Illuminate\Http\Client\ConnectionException;
+            }, throw: false)
+                ->connectTimeout(5)
+                ->timeout(15)
+                ->post("https://api.telegram.org/bot{$token}/sendMessage", $payload);
 
             if ($response->failed()) {
                 throw new \Exception('TG API failed: '.$response->body());

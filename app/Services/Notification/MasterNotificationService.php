@@ -56,11 +56,16 @@ class MasterNotificationService
         }
 
         try {
-            $response = Http::timeout(10)->post("https://api.telegram.org/bot{$token}/sendMessage", [
-                'chat_id' => $chatId,
-                'text' => $text,
-                'parse_mode' => 'HTML',
-            ]);
+            $response = Http::retry(3, 500, function ($exception) {
+                return $exception instanceof \Illuminate\Http\Client\ConnectionException;
+            }, throw: false)
+                ->connectTimeout(5)
+                ->timeout(15)
+                ->post("https://api.telegram.org/bot{$token}/sendMessage", [
+                    'chat_id' => $chatId,
+                    'text' => $text,
+                    'parse_mode' => 'HTML',
+                ]);
 
             if ($response->failed()) {
                 throw new \Exception('TG API failed: '.$response->body());

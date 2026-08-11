@@ -40,6 +40,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
+        // Force IPv4 для всех исходящих HTTP (битый IPv6 egress к api.telegram.org
+        // вызывал спорадический cURL 28). Покрывает и telegraph, и сырые Http::post.
+        \Illuminate\Support\Facades\Http::globalOptions([
+            'connect_timeout' => 5,
+            'force_ip_resolve' => 'v4',
+        ]);
+
         User::observe(UserObserver::class);
         WorkingHour::observe(WorkingHourObserver::class);
         BlockedTime::observe(BlockedTimeObserver::class);
