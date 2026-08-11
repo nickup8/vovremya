@@ -49,6 +49,22 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                 opacity: isDragging ? 0.4 : undefined,
             }}
         >
+            {isConfirmed && (
+                <span
+                    className="absolute right-1 top-1 z-20 flex size-3.5 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm"
+                    title="Клиент подтвердил визит"
+                >
+                    <Check className="size-2.5" strokeWidth={3} />
+                </span>
+            )}
+            {isAwaiting && (
+                <span
+                    className="absolute right-1 top-1 z-20 flex size-3.5 items-center justify-center rounded-full bg-zinc-300 text-zinc-600 shadow-sm"
+                    title="Ожидает подтверждения"
+                >
+                    <Clock className="size-2.5" strokeWidth={2.5} />
+                </span>
+            )}
             <div className="flex h-full flex-col justify-between">
                 <div>
                     <p className="font-mono text-[10px] opacity-75">
@@ -59,22 +75,6 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                             <AvatarImage src={appointment.client_avatar_url ?? undefined} className="object-cover" />
                             <AvatarFallback className="text-[8px]">{getInitials(appointment.client_name)}</AvatarFallback>
                         </Avatar>
-                        {isConfirmed && (
-                            <span
-                                className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white"
-                                title="Клиент подтвердил визит"
-                            >
-                                <Check className="size-2.5" strokeWidth={3} />
-                            </span>
-                        )}
-                        {isAwaiting && (
-                            <span
-                                className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-zinc-300 text-zinc-600"
-                                title="Ожидает подтверждения"
-                            >
-                                <Clock className="size-2.5" strokeWidth={2.5} />
-                            </span>
-                        )}
                         <p className="truncate text-xs font-semibold leading-tight">
                             {appointment.client_name}
                         </p>
