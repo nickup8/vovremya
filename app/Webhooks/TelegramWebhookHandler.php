@@ -692,7 +692,11 @@ class TelegramWebhookHandler extends WebhookHandler
      */
     public function myBookings(): void
     {
+        Log::info('[TG] myBookings: entered', ['chat_id' => $this->chat->chat_id]);
+
         $client = Client::byTelegramId($this->chat->chat_id)->first();
+
+        Log::info('[TG] myBookings: client lookup', ['found' => (bool) $client, 'client_id' => $client?->id]);
 
         if (! $client) {
             $this->chat->html('У вас пока нет предстоящих записей.')->send();
@@ -706,6 +710,8 @@ class TelegramWebhookHandler extends WebhookHandler
             ->where('start_time', '>', now())
             ->orderBy('start_time')
             ->get();
+
+        Log::info('[TG] myBookings: appointments', ['count' => $appointments->count()]);
 
         if ($appointments->isEmpty()) {
             $this->chat->html('У вас пока нет предстоящих записей.')->send();
