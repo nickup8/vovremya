@@ -115,6 +115,7 @@ class Appointment extends Model
             'date' => $this->start_time->timezone($tz)->format('Y-m-d'),
             'status' => $this->status,
             'client_confirmed_at' => $this->client_confirmed_at?->toIso8601String(),
+            'reminder_24h_sent_at' => $this->reminder_24h_sent_at?->toIso8601String(),
         ];
     }
 }

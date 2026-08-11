@@ -86,19 +86,6 @@ return 'GMT';
     }
 }
 
-export function masterColor(masterId: string): string {
-    let hash = 0;
-
-    for (let i = 0; i < masterId.length; i++) {
-        hash = masterId.charCodeAt(i) + ((hash << 5) - hash);
-        hash |= 0;
-    }
-
-    const hue = Math.abs(hash) % 360;
-
-    return `hsl(${hue}, 65%, 50%)`;
-}
-
 export function getMonthGrid(center: Date): Date[] {
     const year = center.getFullYear();
     const month = center.getMonth();

@@ -13,6 +13,8 @@ export interface Appointment {
     status: AppointmentStatus;
     master_id?: string;
     master_name?: string;
+    client_confirmed_at?: string | null;
+    reminder_24h_sent_at?: string | null;
 }
 
 export interface BlockedTime {

@@ -2,25 +2,28 @@ import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
+import { Check, Clock } from 'lucide-react';
 import type { AppointmentWithCollision } from './types';
 import { STATUS_STYLES } from './constants';
-import { timeToMinutes, getEndTime, masterColor } from './helpers';
+import { timeToMinutes, getEndTime } from './helpers';
 import { MINUTE_HEIGHT } from './constants';
 
 interface Props {
     appointment: AppointmentWithCollision;
     onClick: () => void;
     dayStartHour: number;
-    showMasterDot?: boolean;
 }
 
-export function AppointmentCard({ appointment, onClick, dayStartHour, showMasterDot }: Props) {
+export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
     const startMinutes = timeToMinutes(appointment.time) - dayStartHour * 60;
     const top = startMinutes * MINUTE_HEIGHT;
     const height = appointment.duration * MINUTE_HEIGHT;
     const styles = STATUS_STYLES[appointment.status];
     const endTime = getEndTime(appointment.time, appointment.duration);
     const showPrice = appointment.duration >= 45;
+
+    const isConfirmed = !!appointment.client_confirmed_at;
+    const isAwaiting = !isConfirmed && !!appointment.reminder_24h_sent_at;
 
     const { colIndex, totalCols } = appointment;
     const widthPercent = 100 / totalCols;
@@ -56,12 +59,21 @@ export function AppointmentCard({ appointment, onClick, dayStartHour, showMaster
                             <AvatarImage src={appointment.client_avatar_url ?? undefined} className="object-cover" />
                             <AvatarFallback className="text-[8px]">{getInitials(appointment.client_name)}</AvatarFallback>
                         </Avatar>
-                        {showMasterDot && appointment.master_id && (
+                        {isConfirmed && (
                             <span
-                                className="size-1.5 shrink-0 rounded-full"
-                                style={{ backgroundColor: masterColor(appointment.master_id) }}
-                                title={appointment.master_name ?? undefined}
-                            />
+                                className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-emerald-500 text-white"
+                                title="Клиент подтвердил визит"
+                            >
+                                <Check className="size-2.5" strokeWidth={3} />
+                            </span>
+                        )}
+                        {isAwaiting && (
+                            <span
+                                className="flex size-3.5 shrink-0 items-center justify-center rounded-full bg-zinc-300 text-zinc-600"
+                                title="Ожидает подтверждения"
+                            >
+                                <Clock className="size-2.5" strokeWidth={2.5} />
+                            </span>
                         )}
                         <p className="truncate text-xs font-semibold leading-tight">
                             {appointment.client_name}

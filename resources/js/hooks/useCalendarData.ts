@@ -150,12 +150,18 @@ return prev;
 
                     return prev.map((a) => (a.id === appointment.id ? appointment : a));
                 });
+            })
+            .listen('.AppointmentVisitConfirmed', (appointment: Appointment) => {
+                setLocalAppointments((prev) =>
+                    prev.map((a) => (a.id === appointment.id ? appointment : a)),
+                );
             });
 
         return () => {
             channel.stopListening('.AppointmentCreated');
             channel.stopListening('.AppointmentStatusChanged');
             channel.stopListening('.AppointmentRescheduled');
+            channel.stopListening('.AppointmentVisitConfirmed');
             echo<'reverb'>().leave(channelName);
         };
     }, [authUserId]);

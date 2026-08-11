@@ -74,6 +74,7 @@ class CalendarController extends Controller
                         'master_id' => $a->master_id,
                         'master_name' => $a->master?->name ?? 'Мастер',
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
+                        'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
                     ];
                 });
 
@@ -142,6 +143,7 @@ class CalendarController extends Controller
                         'date' => $a->start_time->timezone($tz)->format('Y-m-d'),
                         'status' => $a->status,
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
+                        'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
                     ];
                 });
 

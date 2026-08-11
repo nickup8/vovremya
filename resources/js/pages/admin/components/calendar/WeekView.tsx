@@ -321,7 +321,6 @@ return;
                                             appointment={appt}
                                             onClick={() => onAppointmentClick(appt)}
                                             dayStartHour={DAY_START_HOUR}
-                                            showMasterDot={selectedMasterId === 'all'}
                                         />
                                     ))}
                                     {isToday(date) && (
