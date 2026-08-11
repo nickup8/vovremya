@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { Head } from '@inertiajs/react';
+import { Head, Link } from '@inertiajs/react';
 import axios from 'axios';
 import { MessageCircle, ArrowRight, Loader2, RotateCcw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -341,7 +341,10 @@ export default function Choose({ telegramBotName, maxBotName }: PageProps) {
                     </div>
 
                     <p className="mt-8 text-center text-xs text-stone-400 dark:text-stone-500">
-                        Нажимая кнопку, вы соглашаетесь с условиями сервиса
+                        Нажимая кнопку, вы соглашаетесь с{' '}
+                        <Link href="/offer" target="_blank" className="underline hover:text-stone-600 dark:hover:text-stone-300">Публичной офертой</Link>{' '}
+                        и{' '}
+                        <Link href="/privacy" target="_blank" className="underline hover:text-stone-600 dark:hover:text-stone-300">Политикой обработки персональных данных</Link>
                     </p>
                 </div>
             </div>

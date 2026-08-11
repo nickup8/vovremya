@@ -773,6 +773,12 @@ return;
                     </div>
                 )}
             </div>
+
+            <p className="mt-6 text-center text-xs text-gray-400">
+                <Link href="/offer" target="_blank" className="hover:text-gray-600">Оферта</Link>
+                <span className="mx-1">·</span>
+                <Link href="/privacy" target="_blank" className="hover:text-gray-600">Политика конфиденциальности</Link>
+            </p>
         </>
     );
 }
