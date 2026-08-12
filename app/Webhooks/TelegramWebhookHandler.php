@@ -19,6 +19,7 @@ use App\Services\SlugService;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\Button;
 use DefStudio\Telegraph\Keyboard\Keyboard;
+use DefStudio\Telegraph\Keyboard\ReplyButton;
 use DefStudio\Telegraph\Keyboard\ReplyKeyboard;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -49,17 +50,19 @@ class TelegramWebhookHandler extends WebhookHandler
         if (empty($parameter)) {
             Log::info('[TG] start() sending welcome');
 
-            $result = $this->chat->html(
-                __('bot.welcome')
-            )->send();
+            $menu = ReplyKeyboard::make()
+                ->row([
+                    ReplyButton::make('📋 Мои записи'),
+                    ReplyButton::make('👤 Личный кабинет'),
+                ])
+                ->resize()
+                ->persistent();
+
+            $result = $this->chat->html(__('bot.welcome'))
+                ->replyKeyboard($menu)
+                ->send();
 
             Log::info('[TG] start() welcome sent', ['ok' => $result !== null]);
-
-            $this->chat->html('Управление записями:')
-                ->keyboard(Keyboard::make()->row([
-                    Button::make('📋 Мои записи')->action('myBookings'),
-                ]))
-                ->send();
 
             return;
         }
@@ -1270,9 +1273,45 @@ class TelegramWebhookHandler extends WebhookHandler
         }
     }
 
+    protected function openClientCabinet(): void
+    {
+        $client = Client::where('telegram_id', $this->chat->chat_id)->first();
+
+        if (! $client) {
+            $this->chat->html('Личный кабинет доступен после первой записи. Запишитесь через мастера, и кабинет откроется автоматически.')->send();
+
+            return;
+        }
+
+        $token = Client::generateAuthToken();
+        $client->update(['auth_token' => $token]);
+
+        $url = route('client.login', ['token' => $token]);
+
+        $this->chat->html('Нажмите кнопку ниже, чтобы открыть личный кабинет:')
+            ->keyboard(Keyboard::make()->row([
+                Button::make('Открыть кабинет 🚀')->url($url),
+            ]))
+            ->send();
+    }
+
     protected function handleChatMessage(Stringable $text): void
     {
-        Log::info('[TG] handleChatMessage', ['text' => $text->toString()]);
+        $msg = $text->toString();
+
+        if ($msg === '📋 Мои записи') {
+            $this->myBookings();
+
+            return;
+        }
+
+        if ($msg === '👤 Личный кабинет') {
+            $this->openClientCabinet();
+
+            return;
+        }
+
+        Log::info('[TG] handleChatMessage', ['text' => $msg]);
         $this->reply(__('bot.errors.use_site_button'));
     }
 
