@@ -855,9 +855,18 @@ class TelegramWebhookHandler extends WebhookHandler
             $limit = $appointment->start_time->copy()->subHours($deadlineHours);
 
             if (now() >= $limit) {
+                $master = $appointment->master;
+                $contact = 'Пожалуйста, свяжитесь с мастером напрямую.';
+
+                if ($master && ! empty($master->phone)) {
+                    $masterName = e($master->name);
+                    $masterPhone = e($master->phone);
+                    $contact = "Пожалуйста, свяжитесь с мастером напрямую:\n{$masterName} — {$masterPhone}";
+                }
+
                 $this->chat->html(
                     "Отменить запись онлайн можно не позднее чем за {$deadlineHours} ч до визита. "
-                    .'Пожалуйста, свяжитесь с мастером напрямую.'
+                    .$contact
                 )->send();
 
                 return;
