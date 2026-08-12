@@ -726,13 +726,15 @@ class TelegramWebhookHandler extends WebhookHandler
 
                 $text = "📅 <b>{$appointment->display_name}</b>\n🕒 {$when}";
 
-                $this->chat->html($text)
+                $chat = $this->chat;
+                $apptId = $appointment->id;
+                $this->sendWithRetry(fn () => $chat->html($text)
                     ->keyboard(Keyboard::make()->row([
                         Button::make('❌ Отменить')
                             ->action('confirmCancelAppointment')
-                            ->param('id', $appointment->id),
+                            ->param('id', $apptId),
                     ]))
-                    ->send();
+                    ->send());
 
                 Log::info('[TG] myBookings: item sent', ['appointment_id' => $appointment->id]);
             } catch (\Throwable $e) {
@@ -741,6 +743,25 @@ class TelegramWebhookHandler extends WebhookHandler
                     'error' => $e->getMessage(),
                     'class' => get_class($e),
                 ]);
+            }
+        }
+    }
+
+    private function sendWithRetry(callable $send, int $tries = 4): void
+    {
+        $delays = [300000, 600000, 1200000]; // мкс
+
+        for ($i = 0; $i < $tries; $i++) {
+            try {
+                $send();
+
+                return;
+            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+                if ($i === $tries - 1) {
+                    throw $e;
+                }
+
+                usleep($delays[$i] ?? 1200000);
             }
         }
     }
