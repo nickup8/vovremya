@@ -85,6 +85,7 @@ class SettingsController extends Controller
                 'soft_deposit' => $user->soft_deposit,
                 'deposit_timeout' => $user->deposit_timeout,
                 'deposit_percent' => $user->deposit_percent,
+                'cancellation_deadline_hours' => $user->cancellation_deadline_hours,
                 'slot_interval' => $user->slot_interval,
                 'telegram_notifications' => $user->telegram_notifications,
                 'max_notifications' => $user->max_notifications,
@@ -138,6 +139,7 @@ class SettingsController extends Controller
             'booking_flow_type' => ['nullable', Rule::in(['free_verification', 'prepayment_custom'])],
             'custom_prepayment_message' => ['nullable', 'string', 'max:1000'],
             'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([0, 1, 2, 3, 12])],
+            'cancellation_deadline_hours' => 'nullable|integer|min:1|max:168',
         ];
 
         $sentFields = $request->only(array_keys($allRules));

@@ -50,6 +50,7 @@ interface Profile {
     deposit_timeout: number;
     deposit_percent: number;
     slot_interval: number;
+    cancellation_deadline_hours: number | null;
     telegram_notifications: boolean;
     max_notifications: boolean;
     timezone: string;
@@ -1083,6 +1084,7 @@ return;
         reminder_hours_before_final: profile.reminder_hours_before_final,
         deposit_timeout: profile.deposit_timeout?.toString() || '15',
         deposit_percent: profile.deposit_percent?.toString() || '30',
+        cancellation_deadline_hours: profile.cancellation_deadline_hours?.toString() || '',
     });
 
     const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1622,6 +1624,33 @@ return;
                                         <SelectItem value="12">За 12 часов</SelectItem>
                                     </SelectContent>
                                 </Select>
+                            </div>
+
+                            {/* ═══ Card: Дедлайн отмены онлайн ═══ */}
+                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
+                                    Ограничение отмены онлайн
+                                </h3>
+                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
+                                    За сколько часов до визита клиент уже не может отменить запись в боте. Пусто — без ограничения.
+                                </p>
+
+                                <Input
+                                    type="number"
+                                    min={1}
+                                    max={168}
+                                    placeholder="Например, 24"
+                                    className="w-full"
+                                    value={bookingFlowForm.data.cancellation_deadline_hours}
+                                    onChange={(e) =>
+                                        bookingFlowForm.setData('cancellation_deadline_hours', e.target.value)
+                                    }
+                                />
+                                {bookingFlowForm.errors.cancellation_deadline_hours && (
+                                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">
+                                        {bookingFlowForm.errors.cancellation_deadline_hours}
+                                    </p>
+                                )}
                             </div>
 
                             <div className="flex justify-end gap-2">
