@@ -724,7 +724,19 @@ class TelegramWebhookHandler extends WebhookHandler
                 $tz = $appointment->master?->getTimezone();
                 $when = $appointment->start_time->timezone($tz ?? config('app.timezone'))->format('d.m.Y H:i');
 
-                $text = "📅 <b>{$appointment->display_name}</b>\n🕒 {$when}";
+                $masterName = $appointment->master?->name ?? __('bot.fallback.master_name');
+
+                $text = "📅 <b>{$appointment->display_name}</b>\n"
+                    . "👤 Мастер: {$masterName}\n"
+                    . "🕒 {$when}";
+
+                if ($appointment->display_price) {
+                    $text .= "\n💰 " . number_format((float) $appointment->display_price, 0, '.', ' ') . " ₽";
+                }
+
+                if (! empty($appointment->master?->address)) {
+                    $text .= "\n📍 " . $appointment->master->address;
+                }
 
                 $chat = $this->chat;
                 $apptId = $appointment->id;
