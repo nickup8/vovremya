@@ -22,7 +22,11 @@ use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Http;
 use Illuminate\Support\ServiceProvider;
+use GuzzleHttp\Middleware;
+use GuzzleHttp\Exception\ConnectException;
+use Psr\Http\Message\RequestInterface;
 use Illuminate\Validation\Rules\Password;
 
 class AppServiceProvider extends ServiceProvider
@@ -40,12 +44,19 @@ class AppServiceProvider extends ServiceProvider
      */
     public function boot(): void
     {
-        // Force IPv4 для всех исходящих HTTP (битый IPv6 egress к api.telegram.org
-        // вызывал спорадический cURL 28). Покрывает и telegraph, и сырые Http::post.
-        \Illuminate\Support\Facades\Http::globalOptions([
-            'connect_timeout' => 5,
-            'force_ip_resolve' => 'v4',
+        Http::globalOptions([
+            'connect_timeout' => 3,
+            'timeout' => 20,
         ]);
+
+        Http::globalMiddleware(Middleware::retry(
+            function (int $retries, RequestInterface $request, $response = null, ?\Throwable $exception = null): bool {
+                return $retries < 5 && $exception instanceof ConnectException;
+            },
+            function (int $retries): int {
+                return (int) (300 * (2 ** ($retries - 1)));
+            }
+        ));
 
         User::observe(UserObserver::class);
         WorkingHour::observe(WorkingHourObserver::class);
