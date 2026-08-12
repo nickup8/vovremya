@@ -25,7 +25,7 @@ class ClientAuthController extends Controller
         $client = Client::where('auth_token', $token)->first();
 
         if (! $client) {
-            return redirect()->route('home')->with('error', 'Ссылка недействительна или уже использована.');
+            return redirect()->route('client.login.expired');
         }
 
         Auth::guard('client')->login($client);
@@ -45,5 +45,13 @@ class ClientAuthController extends Controller
         $request->session()->regenerateToken();
 
         return redirect()->route('home');
+    }
+
+    /**
+     * Страница-заглушка: магик-ссылка устарела/уже использована.
+     */
+    public function linkExpired(): \Inertia\Response
+    {
+        return \Inertia\Inertia::render('client/LinkExpired');
     }
 }

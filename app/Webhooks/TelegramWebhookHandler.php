@@ -1283,16 +1283,31 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
+        // Гасим предыдущую кнопку «Открыть кабинет», если она была
+        if ($client->cabinet_message_id) {
+            try {
+                $this->chat->deleteKeyboard((int) $client->cabinet_message_id)->send();
+            } catch (\Throwable $e) {
+                Log::info('[TG] openClientCabinet: deleteKeyboard skipped', ['error' => $e->getMessage()]);
+            }
+        }
+
         $token = Client::generateAuthToken();
         $client->update(['auth_token' => $token]);
 
         $url = route('client.login', ['token' => $token]);
 
-        $this->chat->html('Нажмите кнопку ниже, чтобы открыть личный кабинет:')
+        $response = $this->chat->html('Нажмите кнопку ниже, чтобы открыть личный кабинет:')
             ->keyboard(Keyboard::make()->row([
                 Button::make('Открыть кабинет 🚀')->url($url),
             ]))
             ->send();
+
+        $messageId = $response->telegraphMessageId();
+
+        if ($messageId !== null) {
+            $client->update(['cabinet_message_id' => $messageId]);
+        }
     }
 
     protected function handleChatMessage(Stringable $text): void

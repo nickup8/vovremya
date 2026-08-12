@@ -92,6 +92,7 @@ if (app()->environment('local')) {
 }
 
 Route::get('/client/auth/{token}', [ClientAuthController::class, 'loginByToken'])->name('client.login');
+Route::get('/client/link-expired', [ClientAuthController::class, 'linkExpired'])->name('client.login.expired');
 Route::post('/client/logout', [ClientAuthController::class, 'logout'])->name('client.logout');
 
 if (app()->environment('local')) {

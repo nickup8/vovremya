@@ -28,6 +28,7 @@ class Client extends Authenticatable
         'name',
         'avatar_url',
         'auth_token',
+        'cabinet_message_id',
         'pdn_consent_at',
         'pdn_consent_version',
         'is_blocked',
