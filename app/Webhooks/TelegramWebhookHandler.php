@@ -861,15 +861,12 @@ class TelegramWebhookHandler extends WebhookHandler
                 if ($master && ! empty($master->phone)) {
                     $masterName = e($master->name);
 
-                    // Только цифры для tel: href
                     $digits = preg_replace('/\D+/', '', (string) $master->phone);
 
                     // Нормализация российских номеров: 8XXXXXXXXXX -> 7XXXXXXXXXX
                     if (strlen($digits) === 11 && $digits[0] === '8') {
                         $digits = '7'.substr($digits, 1);
                     }
-
-                    $telHref = e('+'.$digits);
 
                     // Красивое отображение для 11-значного российского номера: +7 920 041-25-41
                     if (strlen($digits) === 11) {
@@ -883,7 +880,7 @@ class TelegramWebhookHandler extends WebhookHandler
                     }
                     $displaySafe = e($display);
 
-                    $contact = "Пожалуйста, свяжитесь с мастером напрямую:\n{$masterName} — <a href=\"tel:{$telHref}\">{$displaySafe}</a>";
+                    $contact = "Пожалуйста, свяжитесь с мастером напрямую:\n{$masterName} — <code>{$displaySafe}</code>";
                 }
 
                 $this->chat->html(
