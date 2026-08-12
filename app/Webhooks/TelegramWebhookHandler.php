@@ -731,7 +731,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 $this->sendWithRetry(fn () => $chat->html($text)
                     ->keyboard(Keyboard::make()->row([
                         Button::make('❌ Отменить')
-                            ->action('confirmCancelAppointment')
+                            ->action('confirmCancel')
                             ->param('id', $apptId),
                     ]))
                     ->send());
@@ -753,7 +753,14 @@ class TelegramWebhookHandler extends WebhookHandler
 
         for ($i = 0; $i < $tries; $i++) {
             try {
-                $send();
+                $response = $send();
+
+                if ($response instanceof \DefStudio\Telegraph\Client\TelegraphResponse
+                    && ! $response->telegraphOk()) {
+                    throw new \Exception(
+                        'Telegram API error: ' . ($response->json('description') ?? 'unknown')
+                    );
+                }
 
                 return;
             } catch (\Illuminate\Http\Client\ConnectionException $e) {
@@ -769,7 +776,7 @@ class TelegramWebhookHandler extends WebhookHandler
     /**
      * Шаг подтверждения отмены: «Точно отменить?» да/нет.
      */
-    public function confirmCancelAppointment(): void
+    public function confirmCancel(): void
     {
         $appointmentId = $this->data->get('id');
 
@@ -794,7 +801,7 @@ class TelegramWebhookHandler extends WebhookHandler
         $this->chat->html("Точно отменить запись на <b>{$when}</b>?")
             ->keyboard(Keyboard::make()->row([
                 Button::make('✅ Да, отменить')
-                    ->action('cancelAppointment')
+                    ->action('doCancel')
                     ->param('id', $appointment->id),
                 Button::make('↩️ Нет')
                     ->action('myBookings'),
@@ -806,7 +813,7 @@ class TelegramWebhookHandler extends WebhookHandler
      * Реальная отмена записи клиентом: проверка владельца, дедлайна мастера,
      * переход в Cancelled + уведомление мастеру.
      */
-    public function cancelAppointment(): void
+    public function doCancel(): void
     {
         $appointmentId = $this->data->get('id');
 
