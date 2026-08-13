@@ -19,4 +19,6 @@ class CacheKeys
     public const BOT_PENDING = 'bot_pending:';
 
     public const TG_CONSENT_PENDING = 'tg_consent_pending:';
+
+    public const MAX_CONSENT_PENDING = 'max_consent_pending:';
 }

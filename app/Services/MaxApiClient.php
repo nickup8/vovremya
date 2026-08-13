@@ -103,10 +103,10 @@ class MaxApiClient
         }
     }
 
-    public function sendMessage(string $chatId, string $text, array $extra = []): bool
+    public function sendMessage(string $chatId, string $text, array $extra = []): ?string
     {
         if (! $this->configured) {
-            return false;
+            return null;
         }
 
         $payload = array_merge(['text' => $text], $extra);
@@ -129,16 +129,136 @@ class MaxApiClient
                     'body' => $response->body(),
                 ]);
 
-                return false;
+                return null;
             }
 
-            return true;
+            $mid = $response->json('message.body.mid');
+
+            return $mid ? (string) $mid : null;
         } catch (\Exception $e) {
             Log::error('[MAX] sendMessage exception', [
                 'chat_id' => $chatId,
                 'error' => $e->getMessage(),
                 'exception' => $e,
             ]);
+
+            return null;
+        }
+    }
+
+    public function editMessage(string $messageId, string $text, array $extra = []): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        $payload = array_merge(['text' => $text], $extra);
+
+        try {
+            $response = Http::withoutVerifying()
+                ->withHeaders(['Authorization' => $this->token])
+                ->withQueryParameters(['message_id' => $messageId])
+                ->timeout(10)
+                ->put(rtrim($this->apiUrl, '/').'/messages', $payload);
+
+            Log::info('[MAX] editMessage', [
+                'message_id' => $messageId,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::error('[MAX] editMessage exception', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    public function deleteKeyboard(string $messageId): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        try {
+            $response = Http::withoutVerifying()
+                ->withHeaders(['Authorization' => $this->token])
+                ->withQueryParameters(['message_id' => $messageId])
+                ->timeout(10)
+                ->put(rtrim($this->apiUrl, '/').'/messages', ['attachments' => []]);
+
+            Log::info('[MAX] deleteKeyboard', [
+                'message_id' => $messageId,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::error('[MAX] deleteKeyboard exception', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    public function answerCallbackWithMessage(string $callbackId, string $text, array $extra = []): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        $message = array_merge(['text' => $text], $extra);
+        $body = ['message' => $message];
+
+        try {
+            $response = Http::withoutVerifying()
+                ->withHeaders(['Authorization' => $this->token])
+                ->withQueryParameters(['callback_id' => $callbackId])
+                ->timeout(10)
+                ->post(rtrim($this->apiUrl, '/').'/answers', $body);
+
+            Log::info('[MAX] answerCallbackWithMessage', [
+                'callback_id' => $callbackId,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::error('[MAX] answerCallbackWithMessage exception', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Register bot commands via PATCH /me/commands.
+     * Authorization via Authorization header (same as other endpoints).
+     */
+    public function setCommands(array $commands): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        $body = ['commands' => $commands];
+
+        try {
+            $response = Http::withoutVerifying()
+                ->withHeaders(['Authorization' => $this->token])
+                ->timeout(10)
+                ->patch(rtrim($this->apiUrl, '/').'/me/commands', $body);
+
+            Log::info('[MAX] setCommands', [
+                'count' => count($commands),
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::error('[MAX] setCommands exception', ['error' => $e->getMessage()]);
 
             return false;
         }
