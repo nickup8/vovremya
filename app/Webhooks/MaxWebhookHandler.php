@@ -14,6 +14,7 @@ use App\Services\MaxApiClient;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
+use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -204,15 +205,22 @@ class MaxWebhookHandler
     {
         Log::info('[MAX] callback FULL payload', ['payload' => $payload]);
 
-        $callback   = $payload['callback'] ?? [];
+        $callback = $payload['callback'] ?? [];
         $callbackId = (string) ($callback['callback_id'] ?? '');
-        $data       = (string) ($callback['payload'] ?? '');
+        $data = (string) ($callback['payload'] ?? '');
 
         Log::info('[MAX] callback received', [
-            'user_id'     => $userId,
+            'user_id' => $userId,
             'callback_id' => $callbackId,
-            'data'        => $data,
+            'data' => $data,
         ]);
+
+        if (str_starts_with($data, 'pdn_')) {
+            $flow = substr($data, 4);
+            $this->acceptMaxConsent($userId, $callbackId, $flow);
+
+            return;
+        }
 
         if ($callbackId !== '') {
             $this->maxApi->answerCallback($callbackId);
@@ -241,6 +249,13 @@ class MaxWebhookHandler
             'user_id' => $userId,
             'login_token' => $loginToken,
         ]);
+
+        $subject = User::where('max_id', $userId)->first();
+        if ($this->needsMaxPdnConsent($subject)) {
+            $this->sendMaxConsentBarrier($userId, 'auth');
+
+            return;
+        }
 
         $this->sendMessage($userId, __('bot.contact_request.auth'), [
             [
@@ -277,6 +292,13 @@ class MaxWebhookHandler
             'user_id' => $userId,
             'appointment_id' => $appointmentId,
         ]);
+
+        $subject = Client::findByMaxId($userId);
+        if ($this->needsMaxPdnConsent($subject)) {
+            $this->sendMaxConsentBarrier($userId, 'book');
+
+            return;
+        }
 
         $this->sendMessage($userId, __('bot.contact_request.booking'), [
             [
@@ -397,6 +419,8 @@ class MaxWebhookHandler
                     'max_notifications' => true,
                     'is_master' => true,
                     'master_slug' => $slug,
+                    'pdn_consent_at' => now(),
+                    'pdn_consent_version' => Cache::pull(CacheKeys::MAX_CONSENT_PENDING.$userId) ?? config('legal.version'),
                 ]);
 
                 if (! $user->workspace_id) {
@@ -424,6 +448,12 @@ class MaxWebhookHandler
             $fullName = trim($firstName.' '.$lastName);
             if ($fullName !== '' && $user->name !== $fullName) {
                 $updates['name'] = $fullName;
+            }
+
+            $pendingConsent = Cache::pull(CacheKeys::MAX_CONSENT_PENDING.$userId);
+            if ($pendingConsent && $user->pdn_consent_version !== $pendingConsent) {
+                $updates['pdn_consent_at'] = now();
+                $updates['pdn_consent_version'] = $pendingConsent;
             }
 
             if (! empty($updates)) {
@@ -492,6 +522,14 @@ class MaxWebhookHandler
         // Link max_id to client
         if (empty($client->max_id)) {
             $this->clientMergeService->linkProvider($client, 'max', $userId);
+        }
+
+        // Persist PDN consent
+        $pendingConsent = Cache::pull(CacheKeys::MAX_CONSENT_PENDING.$userId);
+        if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
+            $client->pdn_consent_at = now();
+            $client->pdn_consent_version = $pendingConsent;
+            $client->save();
         }
 
         if ($client->isBlocked()) {
@@ -604,5 +642,95 @@ class MaxWebhookHandler
         }
 
         $this->maxApi->sendMessage($userId, $text, $extra);
+    }
+
+    private function needsMaxPdnConsent(?Model $subject): bool
+    {
+        return $subject === null
+            || empty($subject->pdn_consent_at)
+            || $subject->pdn_consent_version !== config('legal.version');
+    }
+
+    private function sendMaxConsentBarrier(string $userId, string $flow): void
+    {
+        $text = $flow === 'auth'
+            ? __('bot.consent.master_text')
+            : __('bot.consent.client_text');
+
+        $attachments = [[
+            'type' => 'inline_keyboard',
+            'payload' => [
+                'buttons' => [
+                    [
+                        [
+                            'type' => 'callback',
+                            'text' => __('bot.consent.button_accept'),
+                            'payload' => 'pdn_'.$flow,
+                        ],
+                    ],
+                    [
+                        [
+                            'type' => 'link',
+                            'text' => __('bot.consent.button_offer'),
+                            'url' => config('legal.offer_url'),
+                        ],
+                        [
+                            'type' => 'link',
+                            'text' => __('bot.consent.button_privacy'),
+                            'url' => config('legal.privacy_url'),
+                        ],
+                    ],
+                ],
+            ],
+        ]];
+
+        try {
+            $this->sendMessage($userId, $text, $attachments);
+
+            Log::info('[MAX] consent barrier sent', ['flow' => $flow, 'user_id' => $userId]);
+        } catch (\Throwable $e) {
+            Log::error('[MAX] consent barrier FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
+        }
+    }
+
+    private function acceptMaxConsent(string $userId, string $callbackId, string $flow): void
+    {
+        Cache::put(
+            CacheKeys::MAX_CONSENT_PENDING.$userId,
+            config('legal.version'),
+            config('booking.draft_ttl'),
+        );
+
+        Log::info('[MAX] consent accepted', ['flow' => $flow, 'user_id' => $userId]);
+
+        $text = $flow === 'auth'
+            ? __('bot.contact_request.auth')
+            : __('bot.contact_request.booking');
+
+        $attachments = [[
+            'type' => 'inline_keyboard',
+            'payload' => [
+                'buttons' => [
+                    [
+                        [
+                            'type' => 'request_contact',
+                            'text' => __('bot.buttons.share_phone'),
+                        ],
+                    ],
+                ],
+            ],
+        ]];
+
+        try {
+            $ok = $this->maxApi->answerCallbackWithMessage($callbackId, $text, ['attachments' => $attachments]);
+            if (! $ok) {
+                $this->maxApi->answerCallback($callbackId);
+                $this->sendMessage($userId, $text, $attachments);
+            }
+        } catch (\Throwable $e) {
+            Log::error('[MAX] acceptMaxConsent FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
+            $this->maxApi->answerCallback($callbackId);
+            $this->sendMessage($userId, $text, $attachments);
+        }
     }
 }
