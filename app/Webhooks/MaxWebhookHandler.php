@@ -199,6 +199,8 @@ class MaxWebhookHandler
      */
     private function handleCallback(array $payload, string $userId): void
     {
+        Log::info('[MAX] callback FULL payload', ['payload' => $payload]);
+
         $callbackData = $payload['callback_data'] ?? $payload['data']['callback_data'] ?? '';
 
         Log::info('[MAX] callback received', [

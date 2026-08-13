@@ -141,6 +141,15 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
 });
 
+Route::get('/max/diag/send-test-button', function (\Illuminate\Http\Request $request) {
+    abort_unless($request->query('secret') === config('services.max.secret_token'), 403);
+    $chatId = $request->query('chat_id');
+    abort_if(empty($chatId), 400, 'chat_id required');
+    $ok = app(\App\Services\MaxApiClient::class)->sendCallbackTestButton($chatId);
+
+    return response()->json(['sent' => $ok]);
+});
+
 Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
 
 Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function () {

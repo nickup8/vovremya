@@ -27,6 +27,53 @@ class MaxApiClient
         }
     }
 
+    public function sendCallbackTestButton(string $chatId): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        $payload = [
+            'text' => 'Тест callback-кнопки. Нажмите кнопку ниже.',
+            'attachments' => [[
+                'type' => 'inline_keyboard',
+                'payload' => [
+                    'buttons' => [[
+                        [
+                            'type' => 'callback',
+                            'text' => 'ТЕСТ callback',
+                            'payload' => 'diag_test_123',
+                        ],
+                    ]],
+                ],
+            ]],
+        ];
+
+        try {
+            $response = Http::withoutVerifying()
+                ->withHeaders([
+                    'Authorization' => $this->token,
+                ])
+                ->withQueryParameters(['user_id' => $chatId])
+                ->timeout(10)
+                ->post(rtrim($this->apiUrl, '/').'/messages', $payload);
+
+            Log::info('[MAX] callback-test raw response', [
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $response->successful();
+        } catch (\Exception $e) {
+            Log::error('[MAX] sendCallbackTestButton exception', [
+                'chat_id' => $chatId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
     public function sendMessage(string $chatId, string $text, array $extra = []): bool
     {
         if (! $this->configured) {
