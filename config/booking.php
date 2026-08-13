@@ -6,6 +6,8 @@ return [
 
     'draft_ttl' => env('BOOKING_DRAFT_TTL', 900),
 
+    'initdata_ttl' => (int) env('BOOKING_INITDATA_TTL', 3600),
+
     'default_timezone' => env('BOOKING_DEFAULT_TIMEZONE', 'Europe/Moscow'),
 
     'cleanup_draft_threshold' => env('BOOKING_CLEANUP_DRAFT_THRESHOLD', 15),
