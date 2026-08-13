@@ -27,17 +27,17 @@ class MaxInitDataVerifier
         }
 
         // 1. Разбить по '&' на пары key=value
-        $pairs = explode('&', $initData);
+        $rawPairs = explode('&', $initData);
 
-        if (empty($pairs)) {
+        if (empty($rawPairs)) {
             return null;
         }
 
-        $paramsRaw = [];
+        $params = [];
         $hash = null;
         $hashCount = 0;
 
-        foreach ($pairs as $pair) {
+        foreach ($rawPairs as $pair) {
             $eqPos = strpos($pair, '=');
 
             if ($eqPos === false) {
@@ -47,7 +47,7 @@ class MaxInitDataVerifier
             $key = substr($pair, 0, $eqPos);
             $value = substr($pair, $eqPos + 1);
 
-            // 2. Ключ 'hash' должен встречаться ровно один раз
+            // 2. Ключ 'hash' исключаем из launch_params
             if ($key === 'hash') {
                 $hash = $value;
                 $hashCount++;
@@ -55,7 +55,8 @@ class MaxInitDataVerifier
                 continue;
             }
 
-            $paramsRaw[$key] = $value;
+            // urldecode ДО подписи — эталон MAX (декодированные значения)
+            $params[$key] = urldecode($value);
         }
 
         // 3. Проверить что hash ровно один
@@ -65,13 +66,13 @@ class MaxInitDataVerifier
             return null;
         }
 
-        // 4. Отсортировать по ключу (используя ЗАКОДИРОВАННЫЕ значения для launch_params)
-        ksort($paramsRaw);
+        // 4. Отсортировать по ключу
+        ksort($params);
 
-        // 5. Сформировать launch_params из закодированных пар
+        // 5. Сформировать launch_params из декодированных пар
         $pairsSorted = [];
 
-        foreach ($paramsRaw as $key => $value) {
+        foreach ($params as $key => $value) {
             $pairsSorted[] = $key.'='.$value;
         }
 
@@ -88,13 +89,6 @@ class MaxInitDataVerifier
             Log::warning('[MAX] initData verify: подпись не совпадает');
 
             return null;
-        }
-
-        // Подпись валидна — декодируем значения для извлечения данных
-        $params = [];
-
-        foreach ($paramsRaw as $key => $value) {
-            $params[$key] = urldecode($value);
         }
 
         // Проверка свежести

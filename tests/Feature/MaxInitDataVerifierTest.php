@@ -20,53 +20,46 @@ class MaxInitDataVerifierTest extends TestCase
     }
 
     /**
-     * Генерирует валидную initData строку (как это делает MAX Mini App).
+     * Генерирует валидную initData строку (как это делает клиент MAX).
+     *
+     * Подпись считается по ДЕКОДИРОВАННЫМ значениям (эталон MAX).
+     * В итоговую строку значения записываются в ЗАКОДИРОВАННОМ виде (urlencode).
      */
     private function generateInitData(array $extraParams = [], ?string $token = null, ?int $authDate = null): string
     {
         $token = $token ?? $this->testToken;
         $authDate = $authDate ?? time();
 
-        // Используем ASCII-only имена: json_encode экранирует кириллицу (\u0422),
-        // что ломает HMAC из-за несовпадения байт при urldecode→json_decode→json_encode.
-        // Реальный MAX шлёт UTF-8, но для теста достаточно ASCII.
+        // Исходные декодированные пары
         $params = array_merge([
             'auth_date' => (string) $authDate,
             'user' => json_encode(['id' => 8039166, 'first_name' => 'Test', 'last_name' => 'Tester']),
             'start_param' => 'book_42',
         ], $extraParams);
 
-        // Убираем null-значения (模拟 отсутствие параметра)
+        // Убираем null-значения (отсутствие параметра)
         $params = array_filter($params, fn ($v) => $v !== null);
 
-        // urlencode значения
-        $encoded = [];
-
-        foreach ($params as $key => $value) {
-            $encoded[$key] = urlencode((string) $value);
-        }
-
         // Сортировка по ключу
-        ksort($encoded);
+        ksort($params);
 
-        // Собрать пары для подписи (без hash)
+        // Подпись считаем по ДЕКОДИРОВАННЫМ значениям (эталон MAX)
         $pairsForSign = [];
 
-        foreach ($encoded as $key => $value) {
+        foreach ($params as $key => $value) {
             $pairsForSign[] = $key.'='.$value;
         }
 
         $launchParams = implode("\n", $pairsForSign);
 
-        // Вычислить hash
         $secretKey = hash_hmac('sha256', $token, 'WebAppData', true);
         $hash = hash_hmac('sha256', $launchParams, $secretKey, false);
 
-        // Собрать финальную строку (не urlencoded, как в реальном initData)
+        // В итоговую строку — ЗАКОДИРОВАННЫЕ значения (как приходит по URL)
         $pairsFinal = [];
 
         foreach ($params as $key => $value) {
-            $pairsFinal[] = $key.'='.urlencode((string) $value);
+            $pairsFinal[] = $key.'='.urlencode($value);
         }
 
         $pairsFinal[] = 'hash='.$hash;
@@ -89,6 +82,63 @@ class MaxInitDataVerifierTest extends TestCase
         $this->assertSame('book_42', $result->startParam);
         $this->assertNull($result->chatId);
         $this->assertArrayHasKey('user', $result->raw);
+    }
+
+    public function test_valid_init_data_with_cyrillic_and_spaces(): void
+    {
+        // Анти-регресс: кириллица и пробелы в first_name.
+        // Старая реализация (хеширование по закодированным значениям) тут бы сломалась,
+        // т.к. urlencode('Тест Тестовић') != 'Тест Тестовић'.
+        $initData = $this->generateInitData([
+            'user' => json_encode(['id' => 555, 'first_name' => 'Тест Тестовић']),
+        ]);
+
+        $result = app(MaxInitDataVerifier::class)->verify($initData);
+
+        $this->assertNotNull($result);
+        $this->assertSame('555', $result->userId);
+
+        $userObj = json_decode($result->raw['user'], true);
+        $this->assertSame('Тест Тестовић', $userObj['first_name']);
+    }
+
+    public function test_decoded_vs_encoded_signature_differs(): void
+    {
+        // Анти-регресс: подпись по закодированным значениям ≠ подпись по декодированным.
+        // Это гарантирует, что urldecode ДО подписи — не нуловая операция.
+        $params = [
+            'auth_date' => (string) time(),
+            'user' => json_encode(['id' => 1, 'first_name' => 'Иван']), // кириллица
+        ];
+
+        ksort($params);
+
+        // Подпись по декодированным (правильно)
+        $pairsDecoded = [];
+        foreach ($params as $k => $v) {
+            $pairsDecoded[] = $k.'='.$v;
+        }
+
+        $lpDecoded = implode("\n", $pairsDecoded);
+        $sk = hash_hmac('sha256', $this->testToken, 'WebAppData', true);
+        $hashDecoded = hash_hmac('sha256', $lpDecoded, $sk, false);
+
+        // Подпись по закодированным (неправильно — старая реализация)
+        $encoded = [];
+        foreach ($params as $k => $v) {
+            $encoded[$k] = urlencode($v);
+        }
+
+        $pairsEncoded = [];
+        foreach ($encoded as $k => $v) {
+            $pairsEncoded[] = $k.'='.$v;
+        }
+
+        $lpEncoded = implode("\n", $pairsEncoded);
+        $hashEncoded = hash_hmac('sha256', $lpEncoded, $sk, false);
+
+        // Хеши ДОЛЖНЫ различаться — иначе тест бессмысленен
+        $this->assertNotSame($hashDecoded, $hashEncoded, 'Подпись по encoded и decoded должна различаться для кириллицы');
     }
 
     public function test_valid_init_data_with_chat(): void
@@ -119,7 +169,6 @@ class MaxInitDataVerifierTest extends TestCase
     public function test_invalid_signature_returns_null(): void
     {
         $initData = $this->generateInitData();
-        // Подменяем hash
         $initData = preg_replace('/hash=[a-f0-9]+/', 'hash=0000000000000000000000000000000000000000000000000000000000000000', $initData);
 
         $result = app(MaxInitDataVerifier::class)->verify($initData);
@@ -129,7 +178,7 @@ class MaxInitDataVerifierTest extends TestCase
 
     public function test_expired_auth_date_returns_null(): void
     {
-        $oldAuthDate = time() - 7200; // 2 часа назад, TTL = 3600
+        $oldAuthDate = time() - 7200;
         $initData = $this->generateInitData(authDate: $oldAuthDate);
 
         $result = app(MaxInitDataVerifier::class)->verify($initData);
@@ -200,6 +249,23 @@ class MaxInitDataVerifierTest extends TestCase
             ]);
     }
 
+    public function test_ping_with_cyrillic_returns_200(): void
+    {
+        $initData = $this->generateInitData([
+            'user' => json_encode(['id' => 777, 'first_name' => 'Тест Тестовић']),
+        ]);
+
+        $response = $this->getJson('/api/miniapp/ping', [
+            'X-Max-Init-Data' => $initData,
+        ]);
+
+        $response->assertOk()
+            ->assertJson([
+                'ok' => true,
+                'user_id' => '777',
+            ]);
+    }
+
     public function test_ping_with_invalid_signature_returns_401(): void
     {
         $initData = $this->generateInitData();
@@ -261,4 +327,6 @@ class MaxInitDataVerifierTest extends TestCase
                 'start_param' => null,
             ]);
     }
+
+    // TODO: заменить на реальный golden vector из initData от MAX после первого запуска на устройстве
 }
