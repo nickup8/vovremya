@@ -4,6 +4,7 @@ namespace App\Services;
 
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentStatusChanged;
+use App\Exceptions\CancellationNotAllowedException;
 use App\Exceptions\InvalidStatusTransitionException;
 use App\Exceptions\PastAppointmentException;
 use App\Models\Appointment;
@@ -31,12 +32,12 @@ class AppointmentStatusService
                 && $to === AppointmentStatus::Booked);                     // п.2: воскрешение
 
         if ($isGatedTransition && $appointment->start_time->isPast()) {
-            $isSystem     = $actor === null;                              // крон/artisan
+            $isSystem = $actor === null;                              // крон/artisan
             $isSuperAdmin = $actor instanceof User
                             && $actor->isSuperAdmin();
 
             if (! $isSystem && ! $isSuperAdmin) {
-                throw new PastAppointmentException();
+                throw new PastAppointmentException;
             }
         }
         // === /ADR-9 ===
@@ -68,5 +69,26 @@ class AppointmentStatusService
         ]);
 
         return $appointment;
+    }
+
+    /**
+     * Проверяет, можно ли отменить запись. Бросает исключение при невозможности.
+     * Ничего не отменяет и не шлёт сообщений — только проверяет.
+     */
+    public function assertCanCancel(Appointment $appointment): void
+    {
+        if ($appointment->status !== AppointmentStatus::Booked || $appointment->start_time->isPast()) {
+            throw new CancellationNotAllowedException('not_cancellable');
+        }
+
+        $deadlineHours = $appointment->master->cancellation_deadline_hours;
+
+        if ($deadlineHours !== null && $deadlineHours > 0) {
+            $limit = $appointment->start_time->copy()->subHours($deadlineHours);
+
+            if (now()->gte($limit)) {
+                throw new CancellationNotAllowedException('deadline_passed', $deadlineHours);
+            }
+        }
     }
 }

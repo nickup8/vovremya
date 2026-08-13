@@ -45,6 +45,7 @@ return [
         'limit_reached' => '❌ Достигнут лимит записей!',
         'subscription_expiring' => '⏳ Через :days истекает подписка',
         'visit_confirmed' => "✅ Клиент подтвердил визит\n\n👤 :client\n📅 :date в :time",
+        'client_cancelled' => "❌ Клиент отменил запись:\n💇 :service\n🕒 :when",
     ],
 
     // ─── Привязка каналов ───

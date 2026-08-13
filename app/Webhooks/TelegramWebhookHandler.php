@@ -5,22 +5,27 @@ namespace App\Webhooks;
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Events\AppointmentCreated;
+use App\Events\AppointmentVisitConfirmed;
+use App\Events\UserChannelsUpdated;
+use App\Exceptions\CancellationNotAllowedException;
 use App\Exceptions\InvalidStatusTransitionException;
 use App\Exceptions\PastAppointmentException;
-use App\Events\AppointmentCreated;
-use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
-use Illuminate\Database\Eloquent\Model;
 use App\Services\AppointmentStatusService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
+use App\Services\WorkspaceService;
+use DefStudio\Telegraph\Client\TelegraphResponse;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\Button;
 use DefStudio\Telegraph\Keyboard\Keyboard;
 use DefStudio\Telegraph\Keyboard\ReplyButton;
 use DefStudio\Telegraph\Keyboard\ReplyKeyboard;
+use Illuminate\Database\Eloquent\Model;
+use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
@@ -451,7 +456,7 @@ class TelegramWebhookHandler extends WebhookHandler
         ]);
 
         // Real-time обновление календаря мастера
-        broadcast(new \App\Events\AppointmentVisitConfirmed(
+        broadcast(new AppointmentVisitConfirmed(
             $appointment->fresh()->load(['client'])
         ));
 
@@ -517,7 +522,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 ->send();
 
             Log::info('[TG] consent barrier sent', ['flow' => $flow, 'chat_id' => $this->chat->chat_id]);
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error('[TG] consent barrier FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
         }
     }
@@ -550,7 +555,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 $this->chat->html(__('bot.consent.after_accept_master'))
                     ->replyKeyboard($keyboard)
                     ->send();
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error('[TG] acceptConsent send FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
             }
 
@@ -594,7 +599,7 @@ class TelegramWebhookHandler extends WebhookHandler
                 $this->chat->html(__('bot.consent.after_accept_client_returning'))
                     ->keyboard($keyboard)
                     ->send();
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error('[TG] acceptConsent confirm button FAILED', ['error' => $e->getMessage()]);
             }
 
@@ -611,7 +616,7 @@ class TelegramWebhookHandler extends WebhookHandler
             $this->chat->html(__('bot.consent.after_accept_client'))
                 ->replyKeyboard($keyboard)
                 ->send();
-        } catch (\Throwable $e) {
+        } catch (Throwable $e) {
             Log::error('[TG] acceptConsent send FAILED', ['error' => $e->getMessage(), 'flow' => $flow]);
         }
     }
@@ -730,15 +735,15 @@ class TelegramWebhookHandler extends WebhookHandler
                 $masterName = $appointment->master?->name ?? __('bot.fallback.master_name');
 
                 $text = "📅 <b>{$appointment->display_name}</b>\n"
-                    . "👤 Мастер: {$masterName}\n"
-                    . "🕒 {$when}";
+                    ."👤 Мастер: {$masterName}\n"
+                    ."🕒 {$when}";
 
                 if ($appointment->display_price) {
-                    $text .= "\n💰 " . number_format((float) $appointment->display_price, 0, '.', ' ') . " ₽";
+                    $text .= "\n💰 ".number_format((float) $appointment->display_price, 0, '.', ' ').' ₽';
                 }
 
                 if (! empty($appointment->master?->address)) {
-                    $text .= "\n📍 " . $appointment->master->address;
+                    $text .= "\n📍 ".$appointment->master->address;
                 }
 
                 $chat = $this->chat;
@@ -752,7 +757,7 @@ class TelegramWebhookHandler extends WebhookHandler
                     ->send());
 
                 Log::info('[TG] myBookings: item sent', ['appointment_id' => $appointment->id]);
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::error('[TG] myBookings: item FAILED', [
                     'appointment_id' => $appointment->id,
                     'error' => $e->getMessage(),
@@ -770,15 +775,15 @@ class TelegramWebhookHandler extends WebhookHandler
             try {
                 $response = $send();
 
-                if ($response instanceof \DefStudio\Telegraph\Client\TelegraphResponse
+                if ($response instanceof TelegraphResponse
                     && ! $response->telegraphOk()) {
                     throw new \Exception(
-                        'Telegram API error: ' . ($response->json('description') ?? 'unknown')
+                        'Telegram API error: '.($response->json('description') ?? 'unknown')
                     );
                 }
 
                 return;
-            } catch (\Illuminate\Http\Client\ConnectionException $e) {
+            } catch (ConnectionException $e) {
                 if ($i === $tries - 1) {
                     throw $e;
                 }
@@ -845,19 +850,14 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        if ($appointment->status !== AppointmentStatus::Booked || $appointment->start_time <= now()) {
-            $this->reply('Эту запись уже нельзя отменить.');
-
-            return;
-        }
-
-        // Дедлайн отмены, заданный мастером (часы). null/0 = без ограничения.
-        $deadlineHours = $appointment->master->cancellation_deadline_hours;
-
-        if ($deadlineHours !== null && $deadlineHours > 0) {
-            $limit = $appointment->start_time->copy()->subHours($deadlineHours);
-
-            if (now() >= $limit) {
+        try {
+            $this->statusService->assertCanCancel($appointment);
+        } catch (CancellationNotAllowedException $e) {
+            if ($e->getReason() === 'not_cancellable') {
+                $this->reply('Эту запись уже нельзя отменить.');
+            } else {
+                // deadline_passed
+                $deadlineHours = $e->getDeadlineHours();
                 $master = $appointment->master;
                 $contact = 'Пожалуйста, свяжитесь с мастером напрямую.';
 
@@ -890,9 +890,9 @@ class TelegramWebhookHandler extends WebhookHandler
                     "Отменить запись онлайн можно не позднее чем за {$deadlineHours} ч до визита. "
                     .$contact
                 )->send();
-
-                return;
             }
+
+            return;
         }
 
         // Отмена — тем же способом, что и cancelBooking (актор = клиент).
@@ -919,7 +919,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
         app(MasterNotificationService::class)->sendToMaster(
             $appointment->master,
-            "❌ Клиент отменил запись:\n💇 {$appointment->display_name}\n🕒 {$when}"
+            __('bot.master.client_cancelled', ['service' => $appointment->display_name, 'when' => $when])
         );
 
         // Обновляем сообщение + отвечаем клиенту.
@@ -1201,7 +1201,7 @@ class TelegramWebhookHandler extends WebhookHandler
             ]);
 
             if (! $user->workspace_id) {
-                app(\App\Services\WorkspaceService::class)->createForUser($user);
+                app(WorkspaceService::class)->createForUser($user);
                 $user->refresh();
             }
 
@@ -1287,7 +1287,7 @@ class TelegramWebhookHandler extends WebhookHandler
         if ($client->cabinet_message_id) {
             try {
                 $this->chat->deleteKeyboard((int) $client->cabinet_message_id)->send();
-            } catch (\Throwable $e) {
+            } catch (Throwable $e) {
                 Log::info('[TG] openClientCabinet: deleteKeyboard skipped', ['error' => $e->getMessage()]);
             }
         }
