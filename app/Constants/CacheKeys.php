@@ -21,4 +21,6 @@ class CacheKeys
     public const TG_CONSENT_PENDING = 'tg_consent_pending:';
 
     public const MAX_CONSENT_PENDING = 'max_consent_pending:';
+
+    public const MAX_UPDATE_DEDUP = 'max_update_dedup:';
 }

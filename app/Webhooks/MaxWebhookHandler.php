@@ -68,6 +68,33 @@ class MaxWebhookHandler
             return;
         }
 
+        // Дедупликация входящих вебхуков: MAX может прислать одно событие повторно.
+        // Гасим повторную обработку, чтобы не плодить исходящие запросы (лимит 30 rps → 429).
+        $eventId = match ($updateType) {
+            'message_created' => $payload['message']['body']['mid'] ?? null,
+            'message_callback' => $payload['callback']['callback_id'] ?? null,
+            'bot_started' => isset($payload['timestamp'])
+                ? 'bot_started_'.$userId.'_'.($payload['payload']
+                    ?? $payload['start_param']
+                    ?? $payload['data']['start_param']
+                    ?? '').'_'.$payload['timestamp']
+                : null,
+            default => null,
+        };
+
+        if ($eventId !== null) {
+            $dedupKey = CacheKeys::MAX_UPDATE_DEDUP.$eventId;
+            if (! Cache::add($dedupKey, true, 60)) {
+                Log::info('[MAX] duplicate webhook skipped', [
+                    'update_type' => $updateType,
+                    'event_id' => $eventId,
+                    'user_id' => $userId,
+                ]);
+
+                return;
+            }
+        }
+
         try {
             match ($updateType) {
                 'bot_started' => $this->handleBotStarted($payload, $userId),
