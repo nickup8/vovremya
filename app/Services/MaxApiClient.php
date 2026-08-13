@@ -74,6 +74,37 @@ class MaxApiClient
         }
     }
 
+    public function answerCallback(string $callbackId, ?string $notification = null): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        $body = [];
+        if ($notification !== null) {
+            $body['notification'] = $notification;
+        }
+
+        try {
+            $response = Http::withoutVerifying()
+                ->withHeaders(['Authorization' => $this->token])
+                ->withQueryParameters(['callback_id' => $callbackId])
+                ->timeout(10)
+                ->post(rtrim($this->apiUrl, '/').'/answers', $body);
+
+            Log::info('[MAX] answerCallback', [
+                'status' => $response->status(),
+                'body'   => $response->body(),
+            ]);
+
+            return $response->successful();
+        } catch (\Throwable $e) {
+            Log::error('[MAX] answerCallback exception', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
     public function sendMessage(string $chatId, string $text, array $extra = []): bool
     {
         if (! $this->configured) {

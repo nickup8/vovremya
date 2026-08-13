@@ -47,6 +47,9 @@ class MaxWebhookHandler
         if ($updateType === 'message_created') {
             $chatId = (string) ($payload['message']['recipient']['chat_id'] ?? $payload['chat_id'] ?? '');
             $userId = (string) ($payload['message']['sender']['user_id'] ?? $payload['user']['user_id'] ?? '');
+        } elseif ($updateType === 'message_callback') {
+            $chatId = (string) ($payload['message']['recipient']['chat_id'] ?? '');
+            $userId = (string) ($payload['callback']['user']['user_id'] ?? '');
         } else {
             $chatId = (string) ($payload['chat_id'] ?? '');
             $userId = (string) ($payload['user']['user_id'] ?? '');
@@ -201,15 +204,19 @@ class MaxWebhookHandler
     {
         Log::info('[MAX] callback FULL payload', ['payload' => $payload]);
 
-        $callbackData = $payload['callback_data'] ?? $payload['data']['callback_data'] ?? '';
+        $callback   = $payload['callback'] ?? [];
+        $callbackId = (string) ($callback['callback_id'] ?? '');
+        $data       = (string) ($callback['payload'] ?? '');
 
         Log::info('[MAX] callback received', [
-            'user_id' => $userId,
-            'data' => $callbackData,
+            'user_id'     => $userId,
+            'callback_id' => $callbackId,
+            'data'        => $data,
         ]);
 
-        // Delegate to existing WebhookController logic
-        // This will be handled by the controller's handleCallback method
+        if ($callbackId !== '') {
+            $this->maxApi->answerCallback($callbackId);
+        }
     }
 
     /**
