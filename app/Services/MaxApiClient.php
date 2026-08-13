@@ -74,16 +74,14 @@ class MaxApiClient
         }
     }
 
-    public function answerCallback(string $callbackId, ?string $notification = null): bool
+    public function answerCallback(string $callbackId, string $notification = ''): bool
     {
         if (! $this->configured) {
             return false;
         }
 
-        $body = [];
-        if ($notification !== null) {
-            $body['notification'] = $notification;
-        }
+        // MAX не принимает пустое тело {}; поле notification обязательно.
+        $body = ['notification' => $notification];
 
         try {
             $response = Http::withoutVerifying()
