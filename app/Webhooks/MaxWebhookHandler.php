@@ -4,7 +4,9 @@ namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
+use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
+use App\Events\AppointmentVisitConfirmed;
 use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -245,6 +247,13 @@ class MaxWebhookHandler
         if (str_starts_with($data, 'pdn_')) {
             $flow = substr($data, 4);
             $this->acceptMaxConsent($userId, $callbackId, $flow);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'cv_')) {
+            $appointmentId = substr($data, 3);
+            $this->confirmMaxVisit($userId, $callbackId, $appointmentId);
 
             return;
         }
@@ -759,5 +768,73 @@ class MaxWebhookHandler
             $this->maxApi->answerCallback($callbackId);
             $this->sendMessage($userId, $text, $attachments);
         }
+    }
+
+    private function confirmMaxVisit(string $userId, string $callbackId, string $appointmentId): void
+    {
+        $appointment = Appointment::with(['master', 'client'])->find($appointmentId);
+
+        if (! $appointment) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        $client = Client::byMaxId($userId)
+            ->where('user_id', $appointment->master_id)
+            ->first();
+
+        if (! $client || $appointment->client_id !== $client->id) {
+            Log::warning('[MAX] confirmMaxVisit: ownership violation', [
+                'user_id' => $userId,
+                'appointment_id' => $appointmentId,
+            ]);
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($appointment->status !== AppointmentStatus::Booked) {
+            $this->maxApi->answerCallback($callbackId, __('bot.visit_confirm.not_available'));
+
+            return;
+        }
+
+        if ($appointment->client_confirmed_at !== null) {
+            $this->maxApi->answerCallback($callbackId, __('bot.visit_confirm.already'));
+
+            return;
+        }
+
+        $appointment->update(['client_confirmed_at' => now()]);
+
+        Log::info('[MAX] confirmMaxVisit: success', [
+            'user_id' => $userId,
+            'appointment_id' => $appointmentId,
+        ]);
+
+        broadcast(new AppointmentVisitConfirmed(
+            $appointment->fresh()->load(['client'])
+        ));
+
+        $ok = $this->maxApi->answerCallbackWithMessage(
+            $callbackId,
+            __('bot.visit_confirm.client_thanks')
+        );
+        if (! $ok) {
+            $this->maxApi->answerCallback($callbackId);
+            $this->sendMessage($userId, __('bot.visit_confirm.client_thanks'));
+        }
+
+        $tz = $appointment->master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
+
+        app(MasterNotificationService::class)
+            ->sendToMaster($appointment->master, __('bot.master.visit_confirmed', [
+                'client' => $client->name ?? __('bot.fallback.client_name'),
+                'date' => $date,
+                'time' => $time,
+            ]));
     }
 }

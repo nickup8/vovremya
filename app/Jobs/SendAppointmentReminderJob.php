@@ -7,6 +7,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\MaxApiClient;
+use DefStudio\Telegraph\Keyboard\Button;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Foundation\Bus\Dispatchable;
@@ -96,7 +97,7 @@ class SendAppointmentReminderJob implements ShouldQueue
 
             // Кнопка «Подтверждаю» — только в напоминании за 24 часа
             if ($this->type === '24h') {
-                $button = \DefStudio\Telegraph\Keyboard\Button::make(__('bot.buttons.confirm_visit'))
+                $button = Button::make(__('bot.buttons.confirm_visit'))
                     ->action('confirmVisit')
                     ->param('id', $appointment->id)
                     ->toArray();
@@ -128,7 +129,26 @@ class SendAppointmentReminderJob implements ShouldQueue
     {
         $text = $this->buildMessage($appointment, 'max');
 
-        if (! app(MaxApiClient::class)->sendMessage($client->max_id, $text)) {
+        $extra = [];
+        if ($this->type === '24h') {
+            $extra['attachments'] = [[
+                'type' => 'inline_keyboard',
+                'payload' => [
+                    'buttons' => [
+                        [
+                            [
+                                'type' => 'callback',
+                                'text' => __('bot.buttons.confirm_visit'),
+                                'payload' => 'cv_'.$appointment->id,
+                            ],
+                        ],
+                    ],
+                ],
+            ]];
+        }
+
+        $mid = app(MaxApiClient::class)->sendMessage($client->max_id, $text, $extra);
+        if ($mid === null) {
             throw new \Exception('MAX API failed to send reminder');
         }
     }
