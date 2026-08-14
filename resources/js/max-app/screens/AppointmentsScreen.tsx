@@ -86,7 +86,7 @@ export function AppointmentsScreen() {
 
     // Экран «Запись отменена»
     if (cancelPhase === 'done') {
-        return <CancelSuccess onClose={handleBackToList} />;
+        return <CancelSuccess masterSlug={targetAppointment?.master?.master_slug} onClose={handleBackToList} />;
     }
 
     if (loading) {

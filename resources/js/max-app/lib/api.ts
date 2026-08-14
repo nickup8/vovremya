@@ -8,7 +8,7 @@ export interface Appointment {
     status: string;
     start_at: string;
     start_at_human: string;
-    master: { name: string; address: string | null; phone: string | null } | null;
+    master: { name: string; address: string | null; phone: string | null; master_slug: string | null } | null;
     can_cancel: boolean;
 }
 

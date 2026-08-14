@@ -1,4 +1,5 @@
 import { Button, Typography } from '@maxhub/max-ui';
+import { openLink } from '../lib/maxBridge';
 
 interface CancelOverlayProps {
     service: string;
@@ -47,23 +48,43 @@ export function CancelOverlay({ service, onConfirm, onCancel, loading, error }: 
 }
 
 interface CancelSuccessProps {
+    masterSlug?: string | null;
     onClose: () => void;
 }
 
 /** Экран успешной отмены */
-export function CancelSuccess({ onClose }: CancelSuccessProps) {
+export function CancelSuccess({ masterSlug, onClose }: CancelSuccessProps) {
+    const handleBookAgain = () => {
+        if (masterSlug) {
+            // Открываем виджет записи во внешнем браузере
+            openLink(`${window.location.origin}/book/${masterSlug}`);
+        }
+    };
+
     return (
         <div className="screen-center">
             <Typography.Title>Запись отменена</Typography.Title>
             <Typography.Body className="overlay-success-text">
                 Вы больше не записаны на этот приём
             </Typography.Body>
+
+            {masterSlug && (
+                <Button
+                    size="medium"
+                    variant="primary"
+                    stretched
+                    onClick={handleBookAgain}
+                    style={{ marginTop: 16 }}
+                >
+                    Записаться снова
+                </Button>
+            )}
             <Button
                 size="medium"
                 variant="secondary"
                 stretched
                 onClick={onClose}
-                style={{ marginTop: 16 }}
+                style={{ marginTop: 8 }}
             >
                 К записям
             </Button>

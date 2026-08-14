@@ -37,6 +37,7 @@ class AppointmentResource extends JsonResource
                 'name' => $master->name,
                 'address' => $master->address,
                 'phone' => $master->phone,
+                'master_slug' => $master->master_slug,
             ] : null,
             'can_cancel' => $canCancel,
         ];
