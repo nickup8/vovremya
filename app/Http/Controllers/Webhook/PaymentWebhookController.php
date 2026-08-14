@@ -70,24 +70,6 @@ class PaymentWebhookController extends Controller
 
         $subscription->update(['status' => $parsedStatus]);
 
-        if ($rawStatus === 'paid') {
-            $this->activateSubscription($subscription);
-        }
-
         return response()->json(['ok' => true]);
-    }
-
-    private function activateSubscription(Subscription $subscription): void
-    {
-        $plan = $subscription->tariffPlan;
-
-        if (! $plan) {
-            Log::warning('Payment webhook: tariff plan not found', ['subscription_id' => $subscription->id]);
-
-            return;
-        }
-
-        // Activation is done through Subscription status (active) + expires_at.
-        // No need to write to users table — tariff is read via workspace->activeSubscription().
     }
 }
