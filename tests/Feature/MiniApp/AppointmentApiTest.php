@@ -255,6 +255,36 @@ class AppointmentApiTest extends TestCase
         $this->assertSame('not_cancellable', $response->json('error'));
     }
 
+    public function test_cancel_succeeds_even_if_master_notification_fails(): void
+    {
+        $maxId = '111222333';
+        $master = User::factory()->master()->create(['cancellation_deadline_hours' => null]);
+        $client = Client::factory()->create(['max_id' => $maxId, 'user_id' => $master->id]);
+
+        $appointment = Appointment::factory()->booked()->forMaster($master)->forClient($client)->create([
+            'start_time' => now()->addDays(3),
+        ]);
+
+        // мок: уведомление бросает исключение
+        $this->mock(MasterNotificationService::class, function ($mock) {
+            $mock->shouldReceive('sendToMaster')->andThrow(new \RuntimeException('bot down'));
+        });
+
+        $response = $this->postJson(
+            "/api/miniapp/appointments/{$appointment->id}/cancel",
+            [],
+            $this->authHeaders($maxId)
+        );
+
+        // отмена прошла, несмотря на падение уведомления
+        $response->assertOk()->assertJson(['ok' => true]);
+
+        $this->assertDatabaseHas('appointments', [
+            'id' => $appointment->id,
+            'status' => 'cancelled',
+        ]);
+    }
+
     // ═══════════════════════════════════════════
     // PROFILE — ПРОФИЛЬ
     // ═══════════════════════════════════════════

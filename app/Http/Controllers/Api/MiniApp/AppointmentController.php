@@ -86,18 +86,25 @@ class AppointmentController extends Controller
         // отмена (актор — строка клиента этой записи)
         app(BookingService::class)->cancel($appointment, $appointment->client);
 
-        // уведомление мастеру
-        $when = $appointment->start_time
-            ->timezone($appointment->master->getTimezone())
-            ->format('d.m.Y H:i');
+        // уведомление мастеру (best effort: сбой не должен заваливать уже совершённую отмену)
+        try {
+            $when = $appointment->start_time
+                ->timezone($appointment->master?->getTimezone() ?? 'UTC')
+                ->format('d.m.Y H:i');
 
-        app(MasterNotificationService::class)->sendToMaster(
-            $appointment->master,
-            __('bot.master.client_cancelled', [
-                'service' => $appointment->display_name,
-                'when' => $when,
-            ])
-        );
+            app(MasterNotificationService::class)->sendToMaster(
+                $appointment->master,
+                __('bot.master.client_cancelled', [
+                    'service' => $appointment->display_name,
+                    'when' => $when,
+                ])
+            );
+        } catch (\Throwable $e) {
+            \Illuminate\Support\Facades\Log::warning('MiniApp: не удалось уведомить мастера об отмене', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         return response()->json(['ok' => true]);
     }
