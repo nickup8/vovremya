@@ -1,7 +1,7 @@
 import { Button, CellHeader, CellList, CellSimple, Spinner, Typography } from '@maxhub/max-ui';
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { cancelAppointment, getAppointments, type Appointment } from '../lib/api';
-import { haptic } from '../lib/maxBridge';
+import { backButton, haptic } from '../lib/maxBridge';
 import { useAsync } from '../lib/useAsync';
 import { CancelOverlay, CancelSuccess } from './CancelOverlay';
 
@@ -83,6 +83,20 @@ export function AppointmentsScreen() {
         setCancelError(null);
         reload();
     }, [reload]);
+
+    // BackButton: показываем при открытом оверлее (confirm/error), скрываем при loading/idle/done
+    useEffect(() => {
+        const dismissable = cancelPhase === 'confirm' || cancelPhase === 'error';
+        if (dismissable) {
+            backButton.show();
+            backButton.onClick(handleCancelDismiss);
+            return () => {
+                backButton.offClick(handleCancelDismiss);
+                backButton.hide();
+            };
+        }
+        backButton.hide();
+    }, [cancelPhase, handleCancelDismiss]);
 
     // Экран «Запись отменена»
     if (cancelPhase === 'done') {

@@ -12,7 +12,7 @@ interface CancelOverlayProps {
 /** Кастомная модалка подтверждения отмены записи (в MAX UI нет Modal) */
 export function CancelOverlay({ service, onConfirm, onCancel, loading, error }: CancelOverlayProps) {
     return (
-        <div className="overlay-backdrop" onClick={onCancel}>
+        <div className="overlay-backdrop" onClick={loading ? undefined : onCancel}>
             <div className="overlay-card" onClick={(e) => e.stopPropagation()}>
                 <Typography.Title>Отменить запись?</Typography.Title>
                 <Typography.Body className="overlay-service">{service}</Typography.Body>
