@@ -16,8 +16,8 @@ html {
 body {
     min-height: 100vh;
     min-height: 100dvh;
-    background: #f5f5f5;
-    color: #1a1a1a;
+    background: var(--max-background, #f5f5f5);
+    color: var(--max-text, #1a1a1a);
 }
 
 #max-root {
@@ -33,7 +33,7 @@ body {
     min-height: 100dvh;
     padding: 24px;
     text-align: center;
-    color: #666;
+    color: var(--max-text-secondary, #666);
     font-size: 16px;
     line-height: 1.5;
 }
@@ -49,19 +49,59 @@ body {
     position: sticky;
     top: 0;
     z-index: 10;
-    background: #fff;
+    background: var(--max-background-secondary, #fff);
     padding: 16px;
-    font-size: 18px;
-    font-weight: 600;
     text-align: center;
-    border-bottom: 1px solid #e5e5e5;
+    border-bottom: 1px solid var(--max-separator, #e5e5e5);
 }
 
 .app-body {
     flex: 1;
+    overflow-y: auto;
+    padding-bottom: 64px;
+}
+
+/* Таб-бар */
+.tab-bar {
+    position: fixed;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    z-index: 10;
     display: flex;
+    justify-content: space-around;
+    background: var(--max-background-secondary, #fff);
+    border-top: 1px solid var(--max-separator, #e5e5e5);
+    padding: 8px 0;
+    padding-bottom: max(8px, env(safe-area-inset-bottom));
+}
+
+.tab-item {
+    flex: 1;
+    text-align: center;
+    font-size: 13px;
+    opacity: 0.6;
+    transition: opacity 0.15s;
+}
+
+.tab-item--active {
+    opacity: 1;
+    font-weight: 600;
+}
+
+/* Центрированный экран (loading / error / empty) */
+.screen-center {
+    display: flex;
+    flex-direction: column;
     align-items: center;
     justify-content: center;
-    color: #999;
-    font-size: 14px;
+    min-height: 60vh;
+    padding: 24px;
+    text-align: center;
+    color: var(--max-text-secondary, #666);
+}
+
+/* Экран с данными */
+.screen-content {
+    padding: 8px 0;
 }
