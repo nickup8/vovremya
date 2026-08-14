@@ -1,6 +1,6 @@
 import { ToolButton, Typography } from '@maxhub/max-ui';
-import { useState } from 'react';
-import { getInitData, isInsideMax } from './lib/maxBridge';
+import { useEffect, useState } from 'react';
+import { backButton, getInitData, isInsideMax } from './lib/maxBridge';
 import { AppointmentsScreen } from './screens/AppointmentsScreen';
 import { HistoryScreen } from './screens/HistoryScreen';
 import { ProfileScreen } from './screens/ProfileScreen';
@@ -31,6 +31,11 @@ const TITLES: Record<Screen, string> = {
 /** Каркас приложения с таб-навигацией */
 function AppShell() {
     const [screen, setScreen] = useState<Screen>('appointments');
+
+    // BackButton: скрыт на основных табах (нет куда "назад")
+    useEffect(() => {
+        backButton.hide();
+    }, [screen]);
 
     return (
         <div className="app-shell">

@@ -105,3 +105,57 @@ body {
 .screen-content {
     padding: 8px 0;
 }
+
+/* Карточка записи с кнопкой отмены */
+.appointment-card {
+    position: relative;
+}
+
+.appointment-card-actions {
+    display: flex;
+    justify-content: flex-end;
+    padding: 0 16px 10px;
+}
+
+/* Оверлей подтверждения отмены */
+.overlay-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 100;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgba(0, 0, 0, 0.45);
+    padding: 24px;
+}
+
+.overlay-card {
+    background: var(--max-background-secondary, #fff);
+    border-radius: 16px;
+    padding: 24px;
+    width: 100%;
+    max-width: 320px;
+    text-align: center;
+}
+
+.overlay-service {
+    margin-top: 8px;
+    color: var(--max-text-secondary, #666);
+}
+
+.overlay-error {
+    margin-top: 12px;
+    color: #e53935;
+}
+
+.overlay-success-text {
+    margin-top: 8px;
+    color: var(--max-text-secondary, #666);
+}
+
+.overlay-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 20px;
+}
