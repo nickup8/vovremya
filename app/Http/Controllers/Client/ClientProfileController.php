@@ -40,7 +40,7 @@ class ClientProfileController extends Controller
             'date' => $nextAppointment->start_time->format('d.m.Y'),
             'time' => $nextAppointment->start_time->format('H:i'),
             'price' => $nextAppointment->display_price,
-            'master_name' => $master->name,
+            'master_name' => $master?->name,
         ] : null;
 
         return Inertia::render('client/profile', [
@@ -50,10 +50,10 @@ class ClientProfileController extends Controller
                 'phone' => $client->phone,
             ],
             'master' => [
-                'name' => $master->name,
-                'specialty' => $master->specialty,
-                'address' => $master->address,
-                'master_slug' => $master->master_slug,
+                'name' => $master?->name,
+                'specialty' => $master?->specialty,
+                'address' => $master?->address,
+                'master_slug' => $master?->master_slug,
             ],
             'stats' => [
                 'total_bookings' => (int) $stats->total_bookings,

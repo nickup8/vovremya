@@ -45,6 +45,7 @@ class AnalyticsController extends Controller
         }
 
         $appointments = Appointment::whereIn('master_id', $masterIds)
+            ->with(['masterService.catalog'])
             ->whereBetween('start_time', [
                 ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00',
                 ($dateTo ?? Carbon::now()->toDateString()).' 23:59:59',

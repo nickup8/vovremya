@@ -77,10 +77,11 @@ class SuperAdminController extends Controller
             ->with(['workspace.subscriptions.tariffPlan']);
 
         if ($search = $request->query('search')) {
-            $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                    ->orWhere('phone', 'like', "%{$search}%")
-                    ->orWhere('email', 'like', "%{$search}%");
+            $safe = '%'.addcslashes($search, '%_').'%';
+            $query->where(function ($q) use ($safe) {
+                $q->where('name', 'like', $safe)
+                    ->orWhere('phone', 'like', $safe)
+                    ->orWhere('email', 'like', $safe);
             });
         }
 

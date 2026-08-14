@@ -29,6 +29,7 @@ class ClientController extends Controller
         $perPage = (int) $request->query('per_page', 20);
 
         $clients = Client::forWorkspaceOrMaster($user)
+            ->with(['appointments' => fn ($q) => $q->where('status', AppointmentStatus::Paid)])
             ->withCount(['appointments as total_bookings' => function ($q) {
                 $q->where('status', '!=', AppointmentStatus::Cancelled);
             }])
