@@ -172,10 +172,6 @@ class SettingsController extends Controller
 
     public function updateAvatar(Request $request)
     {
-        \Log::info('Avatar upload request received', [
-            'files' => $request->allFiles(),
-            'has_file' => $request->hasFile('avatar'),
-        ]);
 
         if (! $request->hasFile('avatar')) {
             return response()->json(['message' => 'Файл не найден в запросе'], 400);
@@ -198,8 +194,6 @@ class SettingsController extends Controller
             $user->update([
                 'avatar_url' => '/storage/'.$path,
             ]);
-
-            \Log::info('Avatar uploaded successfully', ['path' => $path]);
 
             return response()->json(['success' => true, 'avatar_url' => '/storage/'.$path]);
         }

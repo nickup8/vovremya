@@ -15,7 +15,7 @@ use Illuminate\Support\Str;
 
 Route::prefix('dev')->middleware(['web'])->group(function () {
     Route::get('/impersonate/{userId}', function (string $userId): JsonResponse|RedirectResponse {
-        if (app()->isProduction()) {
+        if (! app()->environment('local')) {
             abort(404);
         }
 
@@ -31,7 +31,7 @@ Route::prefix('dev')->middleware(['web'])->group(function () {
     })->name('dev.impersonate');
 
     Route::get('/seed-test-data', function (): JsonResponse {
-        if (app()->isProduction()) {
+        if (! app()->environment('local')) {
             abort(404);
         }
 

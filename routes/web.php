@@ -76,7 +76,7 @@ if (app()->environment('local')) {
             return 'Бот не найден в базе.';
         }
 
-        $url = 'https://catchy-suitably-hacked.ngrok-free.dev/webhooks/telegram/bypass';
+        $url = config('services.telegram.dev_webhook_url', 'https://localhost/webhooks/telegram/bypass');
         $secretToken = config('services.telegram.secret_token');
 
         $registration = $bot->registerWebhook()->url($url);
