@@ -91,6 +91,9 @@ if (app()->environment('local')) {
     });
 }
 
+// MINI-APP MAX — standalone SPA (не Inertia, авторизация через initData на API)
+Route::get('/max-app', fn () => view('max-app'))->name('max-app');
+
 Route::get('/client/auth/{token}', [ClientAuthController::class, 'loginByToken'])->name('client.login');
 Route::get('/client/link-expired', [ClientAuthController::class, 'linkExpired'])->name('client.login.expired');
 Route::post('/client/logout', [ClientAuthController::class, 'logout'])->name('client.logout');
