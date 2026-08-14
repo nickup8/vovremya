@@ -50,7 +50,7 @@ class CalendarController extends Controller
                 : collect([$master->id]);
 
             $appointments = Appointment::whereIn('master_id', $masterIds)
-                ->with(['client', 'master'])
+                ->with(['client', 'master', 'masterService.catalog'])
                 ->whereBetween('start_time', [
                     $rangeStart,
                     $rangeEnd,
@@ -120,17 +120,17 @@ class CalendarController extends Controller
             $timezone = $master->getTimezone();
             $timezoneConfirmed = $master->isTimezoneConfirmed();
         } else {
+            $tz = $master->getTimezone();
+
             $appointments = $master->masterAppointments()
-                ->with(['client'])
+                ->with(['client', 'masterService.catalog'])
                 ->whereBetween('start_time', [
                     $rangeStart,
                     $rangeEnd,
                 ])
                 ->whereNotNull('client_id')
                 ->get()
-                ->map(function (Appointment $a) use ($master) {
-                    $tz = $master->getTimezone();
-
+                ->map(function (Appointment $a) use ($tz) {
                     return [
                         'id' => $a->id,
                         'client_name' => $a->client?->name ?? 'Клиент не указан',
