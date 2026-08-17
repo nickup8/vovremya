@@ -78,10 +78,19 @@ class BookingService
         );
 
         if ($breakIntersection) {
+            if ($role === 'client') {
+                return [
+                    'status' => 'error',
+                    'error' => 'break_intersection',
+                    'message' => "Запись пересекается с обеденным перерывом ({$breakIntersection['break_start']}–{$breakIntersection['break_end']}).",
+                    'break_info' => $breakIntersection,
+                ];
+            }
+
             return [
-                'status' => 'error',
+                'status' => 'warning',
                 'error' => 'break_intersection',
-                'message' => "Запись пересекается с обеденным перерывом ({$breakIntersection['break_start']}–{$breakIntersection['break_end']}).",
+                'message' => "Запись пересекается с обеденным перерывом ({$breakIntersection['break_start']}–{$breakIntersection['break_end']}). Всё равно создать?",
                 'break_info' => $breakIntersection,
             ];
         }
@@ -191,11 +200,15 @@ class BookingService
         );
 
         if ($check['status'] === 'warning') {
-            return [
-                'success' => false,
-                'error' => $check['error'],
-                'message' => $check['message'],
-            ];
+            if ($ignoreWarnings) {
+                // пользователь подтвердил предупреждение — создаём запись
+            } else {
+                return [
+                    'success' => false,
+                    'error' => $check['error'],
+                    'message' => $check['message'],
+                ];
+            }
         }
 
         if ($check['status'] === 'error') {
@@ -340,24 +353,24 @@ class BookingService
             );
 
             if ($check['status'] === 'warning') {
-                return [
-                    'success' => false,
-                    'error' => $check['error'],
-                    'message' => $check['message'],
-                ];
-            }
-
-            if ($check['status'] === 'error') {
-                if ($ignoreWarnings && $check['error'] === 'break_intersection') {
-                    // пользователь подтвердил обед — пропускаем, сохраняем с новым временем
+                if ($ignoreWarnings) {
+                    // пользователь подтвердил предупреждение — продолжаем перенос
                 } else {
                     return [
                         'success' => false,
                         'error' => $check['error'],
                         'message' => $check['message'],
-                        'break_info' => $check['break_info'] ?? null,
                     ];
                 }
+            }
+
+            if ($check['status'] === 'error') {
+                return [
+                    'success' => false,
+                    'error' => $check['error'],
+                    'message' => $check['message'],
+                    'break_info' => $check['break_info'] ?? null,
+                ];
             }
 
             $oldStartTime = $locked->start_time->toIso8601String();

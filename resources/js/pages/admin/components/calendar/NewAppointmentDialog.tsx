@@ -49,7 +49,7 @@ interface Props {
 export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated }: Props) {
     const masterNameMap = new Map(masters.map((m) => [m.id, m.name]));
     const visibleServices = preselectedMasterId
-        ? services.filter((s) => s.user_id === preselectedMasterId)
+        ? services.filter((s) => s.master_id === preselectedMasterId)
         : services;
 
     return (
@@ -102,7 +102,7 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                             const label = preselectedMasterId
                                                 ? `${s.title} — ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`
                                                 : (() => {
-                                                    const mn = masterNameMap.get(s.user_id) ?? '';
+                                                    const mn = masterNameMap.get(s.master_id) ?? '';
 
                                                     return `${s.title}${mn ? ` — ${mn}` : ''} · ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`;
                                                 })();
