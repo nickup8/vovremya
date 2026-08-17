@@ -14,10 +14,10 @@ use App\Services\Billing\TariffLimitService;
 use App\Services\Notification\ClientNotificationService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Carbon;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
-use PDOException;
 
 class BookingService
 {
@@ -168,8 +168,8 @@ class BookingService
                     'provider' => $provider,
                     'source' => $source,
                 ]);
-            } catch (PDOException $e) {
-                if ($e->getCode() === '23P01') {
+            } catch (QueryException $e) {
+                if ($e->getPrevious()?->getCode() === '23P01') {
                     throw ValidationException::withMessages([
                         'time' => 'Это время уже занято, выберите другой слот.',
                     ]);
@@ -331,96 +331,98 @@ class BookingService
         bool $confirmOutsideHours = false,
         ?string $newMasterId = null,
     ): array {
-        $result = DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId) {
-            $locked = Appointment::where('id', $appointment->id)->lockForUpdate()->first();
+        try {
+            $result = DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId) {
+                $locked = Appointment::where('id', $appointment->id)->lockForUpdate()->first();
 
-            $originalMaster = $locked->master;
+                $originalMaster = $locked->master;
 
-            if ($newMasterId) {
-                $newMaster = User::findOrFail($newMasterId);
+                if ($newMasterId) {
+                    $newMaster = User::findOrFail($newMasterId);
 
-                if ($newMaster->workspace_id !== $originalMaster->workspace_id) {
-                    abort(403, 'Мастер из другого воркспейса');
+                    if ($newMaster->workspace_id !== $originalMaster->workspace_id) {
+                        abort(403, 'Мастер из другого воркспейса');
+                    }
+
+                    $master = $newMaster;
+                } else {
+                    $master = $originalMaster;
                 }
 
-                $master = $newMaster;
-            } else {
-                $master = $originalMaster;
-            }
+                $durationMinutes = $locked->display_duration ?: 60;
+                $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
 
-            $durationMinutes = $locked->display_duration ?: 60;
-            $startDateTime = Carbon::parse($newDate.' '.$newTime, $master->getTimezone())->utc();
+                $check = $this->checkSlot(
+                    $master,
+                    $startDateTime,
+                    $durationMinutes,
+                    'master',
+                    $confirmOutsideHours,
+                    $locked->id,
+                );
 
-            $check = $this->checkSlot(
-                $master,
-                $startDateTime,
-                $durationMinutes,
-                'master',
-                $confirmOutsideHours,
-                $locked->id,
-            );
+                if ($check['status'] === 'warning') {
+                    if ($ignoreWarnings) {
+                        // пользователь подтвердил предупреждение — продолжаем перенос
+                    } else {
+                        return [
+                            'success' => false,
+                            'error' => $check['error'],
+                            'message' => $check['message'],
+                        ];
+                    }
+                }
 
-            if ($check['status'] === 'warning') {
-                if ($ignoreWarnings) {
-                    // пользователь подтвердил предупреждение — продолжаем перенос
-                } else {
+                if ($check['status'] === 'error') {
                     return [
                         'success' => false,
                         'error' => $check['error'],
                         'message' => $check['message'],
+                        'break_info' => $check['break_info'] ?? null,
                     ];
                 }
-            }
 
-            if ($check['status'] === 'error') {
+                $oldStartTime = $locked->start_time->toIso8601String();
+
+                $updateData = [
+                    'start_time' => $startDateTime,
+                    'client_confirmed_at' => null,
+                    'reminder_24h_sent_at' => null,
+                    'reminder_final_sent_at' => null,
+                    'reminder_24h_sent' => false,
+                    'reminder_final_sent' => false,
+                ];
+                if ($newMasterId) {
+                    $updateData['master_id'] = $newMasterId;
+                }
+
+                $locked->update($updateData);
+
+                if ($locked->status === AppointmentStatus::NoShow) {
+                    $this->statusService->transition($locked, AppointmentStatus::Booked);
+                }
+
+                $locked->load(['client', 'master']);
+                broadcast(new AppointmentRescheduled($locked, $oldStartTime));
+
+                return [
+                    'success' => true,
+                    'appointment' => $locked,
+                ];
+            });
+        } catch (QueryException $e) {
+            // 23P01 = PostgreSQL exclusion constraint violation (appointments_no_overlap).
+            // Exception вышла из transaction callback → Laravel выполнил rollback.
+            if ($e->getPrevious()?->getCode() === '23P01') {
                 return [
                     'success' => false,
-                    'error' => $check['error'],
-                    'message' => $check['message'],
-                    'break_info' => $check['break_info'] ?? null,
+                    'error' => 'slot_taken',
+                    'message' => 'Это время уже занято другим переносом.',
                 ];
             }
 
-            $oldStartTime = $locked->start_time->toIso8601String();
-
-            $updateData = [
-                'start_time' => $startDateTime,
-                'client_confirmed_at' => null,
-                'reminder_24h_sent_at' => null,
-                'reminder_final_sent_at' => null,
-                'reminder_24h_sent' => false,
-                'reminder_final_sent' => false,
-            ];
-            if ($newMasterId) {
-                $updateData['master_id'] = $newMasterId;
-            }
-
-            try {
-                $locked->update($updateData);
-            } catch (PDOException $e) {
-                if ($e->getCode() === '23P01') {
-                    return [
-                        'success' => false,
-                        'error' => 'slot_taken',
-                        'message' => 'Это время уже занято другим переносом.',
-                    ];
-                }
-
-                throw $e;
-            }
-
-            if ($locked->status === AppointmentStatus::NoShow) {
-                $this->statusService->transition($locked, AppointmentStatus::Booked);
-            }
-
-            $locked->load(['client', 'master']);
-            broadcast(new AppointmentRescheduled($locked, $oldStartTime));
-
-            return [
-                'success' => true,
-                'appointment' => $locked,
-            ];
-        });
+            throw $e;
+        }
 
         // Уведомления о переносе — ПОСЛЕ коммита транзакции.
         // Падение мессенджера не должно откатывать сам перенос.
