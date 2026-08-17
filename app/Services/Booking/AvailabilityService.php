@@ -414,7 +414,11 @@ class AvailabilityService
 
         $appointments = Appointment::where('master_id', $master->id)
             ->whereIn('status', $blockingStatuses)
-            ->whereBetween('start_time', [$utcStart, $utcEnd])
+            ->where('start_time', '<', $utcEnd)
+            ->whereRaw(
+                "start_time + (COALESCE(duration, 60) * INTERVAL '1 minute') > ?",
+                [$utcStart],
+            )
             ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
             ->get();
 

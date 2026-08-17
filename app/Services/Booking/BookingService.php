@@ -17,6 +17,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
+use PDOException;
 
 class BookingService
 {
@@ -127,16 +128,13 @@ class BookingService
                     AppointmentStatus::Prepaid,
                     AppointmentStatus::Paid,
                 ])
-                ->whereDate('start_time', $startDateTime->toDateString())
+                ->where('start_time', '<', $endDateTime)
+                ->whereRaw(
+                    "start_time + (COALESCE(duration, 60) * INTERVAL '1 minute') > ?",
+                    [$startDateTime],
+                )
                 ->lockForUpdate()
-                ->get()
-                ->contains(function (Appointment $existing) use ($startDateTime, $endDateTime) {
-                    $existingEnd = $existing->start_time->copy()->addMinutes(
-                        $existing->display_duration ?: 60
-                    );
-
-                    return $startDateTime->lt($existingEnd) && $existing->start_time->lt($endDateTime);
-                });
+                ->exists();
 
             if ($conflict) {
                 abort(422, 'Это время уже занято, выберите другой слот.');
@@ -157,18 +155,28 @@ class BookingService
                 );
             }
 
-            $appointment = Appointment::create([
-                'master_id' => $master->id,
-                'client_id' => $clientId,
-                'master_service_id' => $service->id,
-                'price' => $service->effective_price,
-                'duration' => $service->effective_duration,
-                'service_name' => $service->catalog?->title ?? '',
-                'start_time' => $startDateTime,
-                'status' => $appointmentStatus,
-                'provider' => $provider,
-                'source' => $source,
-            ]);
+            try {
+                $appointment = Appointment::create([
+                    'master_id' => $master->id,
+                    'client_id' => $clientId,
+                    'master_service_id' => $service->id,
+                    'price' => $service->effective_price,
+                    'duration' => $service->effective_duration,
+                    'service_name' => $service->catalog?->title ?? '',
+                    'start_time' => $startDateTime,
+                    'status' => $appointmentStatus,
+                    'provider' => $provider,
+                    'source' => $source,
+                ]);
+            } catch (PDOException $e) {
+                if ($e->getCode() === '23P01') {
+                    throw ValidationException::withMessages([
+                        'time' => 'Это время уже занято, выберите другой слот.',
+                    ]);
+                }
+
+                throw $e;
+            }
 
             if ($clientId !== null) {
                 broadcast(new AppointmentCreated(
@@ -386,7 +394,20 @@ class BookingService
             if ($newMasterId) {
                 $updateData['master_id'] = $newMasterId;
             }
-            $locked->update($updateData);
+
+            try {
+                $locked->update($updateData);
+            } catch (PDOException $e) {
+                if ($e->getCode() === '23P01') {
+                    return [
+                        'success' => false,
+                        'error' => 'slot_taken',
+                        'message' => 'Это время уже занято другим переносом.',
+                    ];
+                }
+
+                throw $e;
+            }
 
             if ($locked->status === AppointmentStatus::NoShow) {
                 $this->statusService->transition($locked, AppointmentStatus::Booked);
