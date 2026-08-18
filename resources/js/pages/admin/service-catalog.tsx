@@ -10,11 +10,6 @@ import AdminLayout from '@/layouts/AdminLayout';
 
 /* ═══════════════ Types ═══════════════ */
 
-interface Master {
-    id: string;
-    name: string;
-}
-
 interface CatalogItem {
     id: string;
     title: string;
@@ -23,14 +18,10 @@ interface CatalogItem {
     base_duration: number;
     is_active: boolean;
     master_services_count: number;
-    assigned_master_ids: string[];
-    is_unassigned: boolean;
 }
 
 interface PageProps {
     catalog: CatalogItem[];
-    masters: Master[];
-    mastersCount: number;
     auth?: { user?: { name?: string; [key: string]: unknown } };
     flash?: { success?: string; error?: string };
     errors?: Record<string, string>;
@@ -208,7 +199,7 @@ function CatalogModal({
 /* ═══════════════ Page ═══════════════ */
 
 export default function ServiceCatalogPage() {
-    const { catalog, masters, mastersCount, auth, flash } = usePage<PageProps>().props;
+    const { catalog, auth, flash } = usePage<PageProps>().props;
     const [modalOpen, setModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
 
@@ -309,42 +300,7 @@ toast.error(flash.error);
                                                 {item.master_services_count === 1 ? 'мастер' : 'мастеров'}
                                             </span>
                                         )}
-                                        {item.is_unassigned && (
-                                            <span className="inline-flex items-center rounded-full bg-amber-50 px-2 py-0.5 text-xs font-medium text-amber-700 dark:bg-amber-900/30 dark:text-amber-400">
-                                                ⚠ не распределена
-                                            </span>
-                                        )}
-                                        {mastersCount >= 2 && (
-                                            <div className="flex flex-wrap gap-1.5">
-                                                {masters.map((master) => {
-                                                    const assigned = item.assigned_master_ids.includes(master.id);
-                                                    return (
-                                                        <label
-                                                            key={master.id}
-                                                            className={`inline-flex cursor-pointer items-center gap-1 rounded-full px-2 py-0.5 text-xs font-medium transition-colors ${
-                                                                assigned
-                                                                    ? 'bg-blue-50 text-blue-700 hover:bg-blue-100 dark:bg-blue-900/30 dark:text-blue-400 dark:hover:bg-blue-900/50'
-                                                                    : 'bg-slate-100 text-slate-500 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700'
-                                                            }`}
-                                                        >
-                                                            <input
-                                                                type="checkbox"
-                                                                className="sr-only"
-                                                                checked={assigned}
-                                                                onChange={() => {
-                                                                    if (assigned) {
-                                                                        router.delete(`/admin/catalog/${item.id}/assign/${master.id}`, { preserveScroll: true });
-                                                                    } else {
-                                                                        router.post(`/admin/catalog/${item.id}/assign/${master.id}`, {}, { preserveScroll: true });
-                                                                    }
-                                                                }}
-                                                            />
-                                                            {master.name}
-                                                        </label>
-                                                    );
-                                                })}
-                                            </div>
-                                        )}
+
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">
