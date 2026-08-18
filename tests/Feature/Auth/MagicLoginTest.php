@@ -128,7 +128,7 @@ class MagicLoginTest extends TestCase
         Cache::flush();
 
         $lastStatus = null;
-        for ($i = 0; $i < 11; $i++) {
+        for ($i = 0; $i < 31; $i++) {
             $lastStatus = $this->get('/auth/magic?token=x')->status();
         }
 
