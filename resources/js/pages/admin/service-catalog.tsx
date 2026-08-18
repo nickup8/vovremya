@@ -17,7 +17,7 @@ interface CatalogItem {
     base_price: number;
     base_duration: number;
     is_active: boolean;
-    master_services_count: number;
+    master_services_exists: boolean;
 }
 
 interface PageProps {
@@ -294,12 +294,6 @@ toast.error(flash.error);
                                         >
                                             {item.is_active ? 'Активна' : 'Скрыта'}
                                         </button>
-                                        {item.master_services_count > 0 && (
-                                            <span className="text-xs text-slate-400 dark:text-zinc-500">
-                                                · {item.master_services_count}{' '}
-                                                {item.master_services_count === 1 ? 'мастер' : 'мастеров'}
-                                            </span>
-                                        )}
 
                                     </div>
                                     <div className="flex items-center gap-2">
@@ -313,7 +307,7 @@ toast.error(flash.error);
                                         >
                                             <Pencil className="size-3.5" />
                                         </button>
-                                        {item.master_services_count > 0 ? (
+                                        {item.master_services_exists ? (
                                             <span
                                                 className="rounded p-1.5 text-slate-300 dark:text-zinc-600"
                                                 title="Используется мастерами, удалить нельзя"
