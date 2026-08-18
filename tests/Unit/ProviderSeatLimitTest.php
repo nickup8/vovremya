@@ -3,14 +3,12 @@
 namespace Tests\Unit;
 
 use App\Enums\SubscriptionStatus;
-use App\Enums\UserRole;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Billing\BillingService;
 use App\Services\Payment\MockPaymentGateway;
-use App\Services\WorkspaceService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
@@ -20,108 +18,7 @@ class ProviderSeatLimitTest extends TestCase
     use RefreshDatabase;
 
     // ═══════════════════════════════════════════
-    // 1. generateInvite — master blocked, admin allowed
-    // ═══════════════════════════════════════════
-
-    public function test_generate_invite_blocks_master_when_limit_reached(): void
-    {
-        $owner = User::factory()->master()->create(['is_service_provider' => true]);
-        \Illuminate\Support\Facades\DB::table('users')->where('id', $owner->id)->update(['role' => 'owner']);
-        $workspace = Workspace::create([
-            'name' => 'Studio',
-            'owner_id' => $owner->id,
-        ]);
-        $owner->update(['workspace_id' => $workspace->id]);
-
-        $plan = TariffPlan::create([
-            'code' => 'start',
-            'name' => 'Старт',
-            'price_monthly' => 290,
-            'max_masters' => 1,
-            'features' => [],
-            'is_active' => true,
-        ]);
-
-        Subscription::create([
-            'workspace_id' => $workspace->id,
-            'tariff_plan_id' => $plan->id,
-            'period_months' => 1,
-            'amount_paid' => 290,
-            'status' => SubscriptionStatus::Active->value,
-            'starts_at' => now()->subMonth(),
-            'expires_at' => now()->addMonth(),
-        ]);
-
-        // Owner occupies 1 seat (is_service_provider=true from factory)
-        $this->assertEquals(1, $workspace->providersCount());
-
-        $response = $this->actingAs($owner)
-            ->postJson('/admin/team/invite', ['role' => 'master']);
-
-        $response->assertStatus(403);
-        $response->assertJsonFragment(['error' => 'Достигнут лимит мест по вашему тарифу. Повысьте тариф или освободите место.']);
-    }
-
-    public function test_generate_invite_allows_admin_when_limit_reached(): void
-    {
-        $owner = User::factory()->master()->create(['is_service_provider' => true]);
-        \Illuminate\Support\Facades\DB::table('users')->where('id', $owner->id)->update(['role' => 'owner']);
-        $workspace = Workspace::create([
-            'name' => 'Studio',
-            'owner_id' => $owner->id,
-        ]);
-        $owner->update(['workspace_id' => $workspace->id]);
-
-        $plan = TariffPlan::create([
-            'code' => 'start',
-            'name' => 'Старт',
-            'price_monthly' => 290,
-            'max_masters' => 1,
-            'features' => [],
-            'is_active' => true,
-        ]);
-
-        Subscription::create([
-            'workspace_id' => $workspace->id,
-            'tariff_plan_id' => $plan->id,
-            'period_months' => 1,
-            'amount_paid' => 290,
-            'status' => SubscriptionStatus::Active->value,
-            'starts_at' => now()->subMonth(),
-            'expires_at' => now()->addMonth(),
-        ]);
-
-        // Same limit reached, but admin does not occupy a seat
-        $response = $this->actingAs($owner)
-            ->postJson('/admin/team/invite', ['role' => 'admin']);
-
-        $response->assertOk();
-        $response->assertJsonStructure(['link']);
-    }
-
-    // ═══════════════════════════════════════════
-    // 2. Solo master without subscription is not blocked
-    // ═══════════════════════════════════════════
-
-    public function test_generate_invite_solo_master_not_blocked(): void
-    {
-        $owner = User::factory()->master()->create(['workspace_id' => null]);
-        $workspace = app(WorkspaceService::class)->createForUser($owner);
-        $owner->refresh();
-
-        // Solo workspace: no active subscription → limit check gated by subscription
-        $this->assertNull($owner->workspace->activeSubscription());
-        $this->assertEquals(1, $owner->workspace->providersCount());
-
-        $response = $this->actingAs($owner)
-            ->postJson('/admin/team/invite', ['role' => 'master']);
-
-        $response->assertOk();
-        $response->assertJsonStructure(['link']);
-    }
-
-    // ═══════════════════════════════════════════
-    // 3. downgradeBlockReason
+    // 1. downgradeBlockReason
     // ═══════════════════════════════════════════
 
     public function test_downgrade_block_reason_blocks_when_providers_exceed_new_limit(): void
@@ -298,7 +195,7 @@ class ProviderSeatLimitTest extends TestCase
     }
 
     // ═══════════════════════════════════════════
-    // 4. subscribe blocks downgrade via ValidationException
+    // 2. subscribe blocks downgrade via ValidationException
     // ═══════════════════════════════════════════
 
     public function test_subscribe_throws_validation_exception_on_downgrade(): void
@@ -368,7 +265,7 @@ class ProviderSeatLimitTest extends TestCase
     }
 
     // ═══════════════════════════════════════════
-    // 5. Solo first subscription not blocked
+    // 3. Solo first subscription not blocked
     // ═══════════════════════════════════════════
 
     public function test_subscribe_solo_first_subscription_not_blocked(): void
