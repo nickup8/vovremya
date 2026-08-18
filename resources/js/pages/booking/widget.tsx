@@ -35,8 +35,6 @@ interface PageProps {
     selectedDate: string;
     selectedServiceId: string | null;
     maxBotName: string | null;
-    studioSlug?: string;
-    studioService?: string;
     preselectedServiceId?: string | null;
     [key: string]: unknown;
 }
@@ -84,23 +82,11 @@ function formatDateKey(d: Date): string {
 
 /* ═══════════════ Master Profile ═══════════════ */
 
-function MasterProfileHeader({ master, studioSlug, studioService }: { master: Master; studioSlug?: string; studioService?: string }) {
+function MasterProfileHeader({ master }: { master: Master }) {
     const initials = getInitials(master.name);
 
     return (
         <div className="border-b border-stone-200/50 bg-white/50 px-5 py-4 dark:border-stone-800/50 dark:bg-stone-900/30">
-            {studioSlug && (
-                <Link
-                    href={studioService
-                        ? `/studio/${studioSlug}?service=${encodeURIComponent(studioService)}`
-                        : `/studio/${studioSlug}`
-                    }
-                    className="mb-3 inline-flex items-center gap-1.5 text-xs font-medium text-stone-500 transition-colors hover:text-stone-700 dark:text-stone-400 dark:hover:text-stone-200"
-                >
-                    <ArrowLeft className="size-3" />
-                    {studioService ? 'Мастера услуги' : 'Все мастера студии'}
-                </Link>
-            )}
             <div className="flex items-center gap-3.5">
                 {master.avatar_url ? (
                     <img
@@ -521,7 +507,7 @@ type Step = 1 | 2 | 3 | 4 | 5;
 const TOTAL_STEPS = 4;
 
 export default function Widget() {
-    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, studioSlug, studioService, preselectedServiceId } = usePage<PageProps>().props;
+    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, preselectedServiceId } = usePage<PageProps>().props;
     const pageProps = usePage<{ errors: Record<string, string> }>().props;
     const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
 
@@ -553,28 +539,10 @@ export default function Widget() {
         (step === 2 && selectedDate !== null) ||
         (step === 3 && selectedTime !== null);
 
-    // Helper to build base URL for widget requests (preserves ?master and ?service in studio mode)
-    function getBaseUrl(): string {
-        if (studioSlug) {
-            return `/studio/${studioSlug}`;
-        }
-
-        return `/book/${master.master_slug}`;
-    }
-
     function buildUrlWithParams(extraParams: Record<string, string>): string {
-        const base = getBaseUrl();
         const params = new URLSearchParams(extraParams);
 
-        if (studioSlug) {
-            params.set('master', master.master_slug);
-
-            if (studioService) {
-                params.set('service', studioService);
-            }
-        }
-
-        return `${base}?${params.toString()}`;
+        return `/book/${master.master_slug}?${params.toString()}`;
     }
 
     // Загрузка слотов при входе на шаг 3
@@ -599,7 +567,7 @@ export default function Widget() {
                 },
             });
         }
-    }, [step, selectedDate, selectedService, master.master_slug, studioSlug]);
+    }, [step, selectedDate, selectedService, master.master_slug]);
 
     function handleSelectService(service: Service) {
         setSelectedService(service);
@@ -681,17 +649,7 @@ return;
 
             <div className="mx-auto flex min-h-screen max-w-md flex-col bg-[#FAF8F5] dark:bg-[#121110]">
                 <div className="flex items-center justify-between border-b border-stone-200/50 px-5 py-4 dark:border-stone-800/50">
-                    {studioSlug ? (
-                        <Link
-                            href={studioService
-                                ? `/studio/${studioSlug}?service=${encodeURIComponent(studioService)}`
-                                : `/studio/${studioSlug}`
-                            }
-                            className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
-                        >
-                            <ArrowLeft className="size-5 text-stone-600 dark:text-stone-400" />
-                        </Link>
-                    ) : step > 1 && step <= TOTAL_STEPS ? (
+                    {step > 1 && step <= TOTAL_STEPS ? (
                         <button
                             onClick={handleBack}
                             className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
@@ -716,7 +674,7 @@ return;
                     </div>
                 )}
 
-                {showHeader && <MasterProfileHeader master={master} studioSlug={studioSlug} studioService={studioService} />}
+                {showHeader && <MasterProfileHeader master={master} />}
 
                 {step === 1 && (
                     <StepServices
