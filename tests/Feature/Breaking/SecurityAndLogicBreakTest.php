@@ -11,6 +11,7 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Client\ClientMergeService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
@@ -44,6 +45,8 @@ class SecurityAndLogicBreakTest extends TestCase
         $catalog = ServiceCatalog::create(['workspace_id' => $workspace->id, 'title' => 'Стрижка', 'base_price' => 1000, 'base_duration' => 60]);
         $ms = MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
 
+        $base = Carbon::tomorrow($master->timezone ?? 'Europe/Moscow')->setTime(8, 0)->utc();
+
         for ($i = 0; $i < 20; $i++) {
             $client = Client::factory()->for($master)->create();
             Appointment::factory()
@@ -51,7 +54,10 @@ class SecurityAndLogicBreakTest extends TestCase
                 ->forClient($client)
                 ->withMasterService($ms)
                 ->booked()
-                ->create();
+                ->create([
+                    'start_time' => $base->copy()->addMinutes($i * 45),
+                    'duration' => 30,
+                ]);
         }
 
         $this->actingAs($master);
@@ -88,12 +94,17 @@ class SecurityAndLogicBreakTest extends TestCase
         $ms = MasterService::create(['master_id' => $master->id, 'catalog_id' => $catalog->id, 'is_active' => true]);
         $client = Client::factory()->for($master)->create();
 
+        $futureStart = Carbon::tomorrow($master->timezone ?? 'Europe/Moscow')->setTime(10, 0)->utc();
+
         $appointment = Appointment::factory()
             ->forMaster($master)
             ->forClient($client)
             ->withMasterService($ms)
             ->cancelled()
-            ->create();
+            ->create([
+                'start_time' => $futureStart,
+                'duration' => 30,
+            ]);
 
         $this->actingAs($master);
 
