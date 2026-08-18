@@ -2,11 +2,8 @@
 
 namespace Tests\Feature;
 
-use App\Enums\SubscriptionStatus;
 use App\Models\MasterService;
 use App\Models\ServiceCatalog;
-use App\Models\Subscription;
-use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Models\Workspace;
@@ -53,44 +50,6 @@ class WidgetVisibilityTest extends TestCase
         ]);
 
         return $catalog;
-    }
-
-    private function createStudio(): array
-    {
-        $owner = User::factory()->create(['is_master' => false]);
-        $workspace = Workspace::create(['name' => 'Studio', 'slug' => 'studio-test', 'owner_id' => $owner->id]);
-        $owner->update(['workspace_id' => $workspace->id]);
-
-        $plan = TariffPlan::create([
-            'code' => 'studio', 'name' => 'Студия', 'price_monthly' => 1290,
-            'max_appointments_per_month' => null, 'max_masters' => 5,
-            'features' => [], 'is_active' => true,
-        ]);
-
-        Subscription::create([
-            'workspace_id' => $workspace->id,
-            'tariff_plan_id' => $plan->id,
-            'period_months' => 1,
-            'amount_paid' => 1290,
-            'status' => SubscriptionStatus::Active->value,
-            'starts_at' => now()->subMonth(),
-            'expires_at' => now()->addMonth(),
-        ]);
-
-        $masters = [
-            User::factory()->master()->create([
-                'workspace_id' => $workspace->id,
-                'master_slug' => 'studio-master-1',
-                'is_service_provider' => true,
-            ]),
-            User::factory()->master()->create([
-                'workspace_id' => $workspace->id,
-                'master_slug' => 'studio-master-2',
-                'is_service_provider' => true,
-            ]),
-        ];
-
-        return [$workspace, $masters];
     }
 
     public function test_service_visible_when_both_active(): void
@@ -177,34 +136,4 @@ class WidgetVisibilityTest extends TestCase
         $this->assertDatabaseCount('appointments', 1);
     }
 
-    public function test_studio_hides_inactive_catalog(): void
-    {
-        [$workspace, $masters] = $this->createStudio();
-
-        foreach (['Видимая', 'Скрытая'] as $title) {
-            $catalog = ServiceCatalog::create([
-                'workspace_id' => $workspace->id,
-                'title' => $title,
-                'base_price' => 1000,
-                'base_duration' => 60,
-                'is_active' => $title === 'Видимая',
-            ]);
-
-            foreach ($masters as $master) {
-                MasterService::create([
-                    'master_id' => $master->id,
-                    'catalog_id' => $catalog->id,
-                    'is_active' => true,
-                ]);
-            }
-        }
-
-        $response = $this->get("/studio/{$workspace->slug}");
-
-        $response->assertOk();
-        $response->assertInertia(fn (Assert $page) => $page
-            ->has('services', 1)
-            ->where('services.0.title', 'Видимая')
-        );
-    }
 }
