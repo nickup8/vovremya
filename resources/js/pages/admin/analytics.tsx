@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     Download, Calendar, ChevronLeft, ChevronRight,
-    Wallet, Gauge, TrendingDown, TrendingUp, CalendarDays, AlertTriangle,
+    Gauge, TrendingDown, TrendingUp, CalendarDays, AlertTriangle,
 } from 'lucide-react';
 import AdminLayout from '@/layouts/AdminLayout';
 import { Button } from '@/components/ui/button';
@@ -32,13 +32,6 @@ interface ChartPoint {
     percent: number;
 }
 
-interface ServiceStat {
-    name: string;
-    count: number;
-    revenue: number;
-    percent: number;
-}
-
 interface AuthUser {
     name: string;
     tariff_name?: string;
@@ -50,7 +43,6 @@ interface PageProps {
     trends: Record<string, number>;
     prev_metrics: Record<string, number>;
     chartData: ChartPoint[];
-    serviceStats: ServiceStat[];
     activePeriod: string;
     dateFrom: string | null;
     dateTo: string | null;
@@ -206,7 +198,6 @@ export default function AnalyticsPage() {
     const trends = props.trends || { revenue: 0, avg_check: 0, utilization: 0 };
     const prev_metrics = props.prev_metrics || { revenue: 0, avg_check: 0, utilization: 0 };
     const chartData = props.chartData || [];
-    const serviceStats = props.serviceStats || [];
     const activePeriod = props.activePeriod || 'week';
     const auth = props.auth;
 
@@ -242,7 +233,7 @@ export default function AnalyticsPage() {
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo'],
         });
     }
 
@@ -258,7 +249,7 @@ return;
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo'],
         });
     }
 
@@ -295,7 +286,7 @@ return;
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'serviceStats', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo'],
         });
     }, [periodOffset, activePeriod]);
 

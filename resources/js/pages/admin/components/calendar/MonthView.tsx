@@ -1,7 +1,7 @@
 import { useMemo } from 'react';
 import { AppointmentStatus } from '@/types/appointment-status';
 import type { Appointment } from './types';
-import { DAY_NAMES, STATUS_STYLES } from './constants';
+import { DAY_NAMES } from './constants';
 import { dateToKey, isSameDay, getMonthGrid } from './helpers';
 
 interface Props {

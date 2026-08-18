@@ -1,6 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import type { ReactNode } from 'react';
-import { Sun, Moon, LogOut, User, CalendarDays, Home, RefreshCw } from 'lucide-react';
+import { Sun, Moon, LogOut, CalendarDays, Home, RefreshCw } from 'lucide-react';
 import { Toaster } from '@/components/ui/sonner';
 import { useAppearance } from '@/hooks/use-appearance';
 

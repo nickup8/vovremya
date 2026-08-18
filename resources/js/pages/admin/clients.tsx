@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import {
     Search, Plus,
     Users, Phone, Send, MessageCircle,
-    CalendarPlus, Pencil, AlertTriangle, ShieldCheck,
+    CalendarPlus, Pencil, ShieldCheck,
     ShieldOff, Shield, ChevronLeft, ChevronRight,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
@@ -15,7 +15,7 @@ import AdminLayout from '@/layouts/AdminLayout';
 import { getInitials } from '@/lib/utils';
 import { PhoneInput } from '@/components/PhoneInput';
 import { formatPhone, stripPhoneMask } from '@/lib/phone';
-import type { Client, AuthUser, Paginated, PageProps } from '@/types/app';
+import type { Client, Paginated, PageProps } from '@/types/app';
 
 /* ═══════════════ Helpers ═══════════════ */
 

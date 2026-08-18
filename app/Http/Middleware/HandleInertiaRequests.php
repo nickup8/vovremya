@@ -33,10 +33,8 @@ class HandleInertiaRequests extends Middleware
         $authUser = null;
         $authClient = null;
 
-        $tariffCode = null;
         $tariffName = 'Free';
         $tariffLimits = null;
-        $maxMasters = 0;
 
         if ($user instanceof User) {
             if ($user->workspace) {
@@ -70,9 +68,7 @@ class HandleInertiaRequests extends Middleware
                     ];
                 }
 
-                $tariffCode = $tariffData['code'];
                 $tariffName = $tariffData['name'];
-                $maxMasters = $tariffData['max_masters'];
                 $total = $tariffData['total'];
 
                 $tariffLimits = [
@@ -84,12 +80,8 @@ class HandleInertiaRequests extends Middleware
             $authUser = [
                 'id' => $user->id,
                 'name' => $user->name,
-                'email' => $user->email,
-                'tariff' => $tariffCode,
                 'avatar_url' => $user->avatar_url,
                 'tariff_name' => $tariffName,
-                'max_masters' => $maxMasters,
-                'is_solo' => $user->isSolo(),
                 'can_manage_team' => $user->role->canManageTeam(),
                 'can_manage_billing' => $user->role->canManageBilling(),
             ];
@@ -104,7 +96,6 @@ class HandleInertiaRequests extends Middleware
 
         return [
             ...parent::share($request),
-            'name' => config('app.name'),
             'appVersion' => config('app.version'),
             'auth' => [
                 'user' => $authUser,
@@ -116,7 +107,6 @@ class HandleInertiaRequests extends Middleware
                 'message' => fn () => $request->session()->get('message'),
             ],
             'tariff_limits' => $tariffLimits,
-            'sidebarOpen' => ! $request->hasCookie('sidebar_state') || $request->cookie('sidebar_state') === 'true',
         ];
     }
 }

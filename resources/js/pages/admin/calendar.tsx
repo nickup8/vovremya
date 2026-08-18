@@ -422,7 +422,6 @@ return [];
                                     getBlockedTimesForDay={getBlockedTimesForDay}
                                     isToday={isToday}
                                     timezone={timezone}
-                                    selectedMasterId={selectedMasterId}
                                     onRescheduleByDrag={rescheduleByDrag}
                                 />
                             )}

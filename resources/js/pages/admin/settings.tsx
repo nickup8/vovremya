@@ -8,7 +8,6 @@ import {
     Pencil,
     Plus,
     Trash2,
-    X,
     Clock,
     Copy,
     Check,
@@ -98,7 +97,6 @@ interface PageProps {
     auth?: { user?: AuthUser };
     masters?: { id: string; name: string }[];
     selectedMasterId?: string;
-    workspace_slug?: string | null;
     [key: string]: unknown;
 }
 
@@ -455,7 +453,6 @@ const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
 const SLOT_INTERVALS = [15, 30, 60];
 
 const uiToCarbon = (uiIndex: number) => (uiIndex + 1) % 7;
-const carbonToUi = (carbonDow: number) => (carbonDow + 6) % 7;
 
 function buildHours(workingHours: WorkingHour[]): WorkingHour[] {
     const hours: WorkingHour[] = [];
@@ -968,7 +965,6 @@ export default function SettingsPage() {
         auth,
         masters: rawMasters,
         selectedMasterId: rawSelectedMasterId,
-        workspace_slug,
     } = usePage<PageProps>().props;
     const canManageTeam = (auth?.user?.can_manage_team as boolean) ?? false;
     const profile = rawProfile || {

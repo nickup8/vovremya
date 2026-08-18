@@ -13,7 +13,7 @@ import { AppointmentCard } from './AppointmentCard';
 import { BlockedTimeCard } from './BlockedTimeCard';
 import { BreakZone } from './BreakZone';
 import { HOUR_HEIGHT, MINUTE_HEIGHT } from './constants';
-import { timeToMinutes, getEndTime, formatGmtOffset } from './helpers';
+import { getEndTime, formatGmtOffset } from './helpers';
 import { calculateCollisions } from './collision';
 
 interface DayViewProps {

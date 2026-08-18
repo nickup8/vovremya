@@ -103,7 +103,6 @@ class AnalyticsController extends Controller
             'trends' => $trends,
             'prev_metrics' => $prevMetricsAbsolute,
             'chartData' => $chartData,
-            'serviceStats' => $serviceStats,
             'activePeriod' => $period,
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,

@@ -1,6 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import {
-    CalendarDays, Users, BarChart3, Settings, RefreshCw, X, LogOut, UserPlus, BookOpen,
+    CalendarDays, Users, BarChart3, Settings, RefreshCw, X, LogOut, BookOpen,
 } from 'lucide-react';
 
 const MENU_ITEMS = [

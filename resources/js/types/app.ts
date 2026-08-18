@@ -38,15 +38,11 @@ export interface Paginated<T> {
 export interface AuthUser {
     id: string;
     name: string;
-    email: string | null;
-    tariff: string;
     tariff_name: string;
 }
 
 export interface PageProps {
     auth?: { user?: AuthUser };
-    name?: string;
     appVersion?: string;
-    sidebarOpen?: boolean;
     [key: string]: unknown;
 }
