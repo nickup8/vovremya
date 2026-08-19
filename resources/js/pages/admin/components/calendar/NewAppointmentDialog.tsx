@@ -46,8 +46,7 @@ interface Props {
     onClientCreated: (client: ClientOption) => void;
 }
 
-export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated }: Props) {
-    const masterNameMap = new Map(masters.map((m) => [m.id, m.name]));
+export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated }: Props) {
     const visibleServices = preselectedMasterId
         ? services.filter((s) => s.master_id === preselectedMasterId)
         : services;
@@ -95,24 +94,14 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                 <SelectContent>
                                     {visibleServices.length === 0 ? (
                                         <SelectItem value="" disabled>
-                                            У мастера нет услуг
+                                            Нет доступных услуг
                                         </SelectItem>
                                     ) : (
-                                        visibleServices.map((s) => {
-                                            const label = preselectedMasterId
-                                                ? `${s.title} — ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`
-                                                : (() => {
-                                                    const mn = masterNameMap.get(s.master_id) ?? '';
-
-                                                    return `${s.title}${mn ? ` — ${mn}` : ''} · ${s.duration_minutes} мин, ${s.price.toLocaleString('ru-RU')} ₽`;
-                                                })();
-
-                                            return (
-                                                <SelectItem key={s.id} value={String(s.id)}>
-                                                    {label}
-                                                </SelectItem>
-                                            );
-                                        })
+                                        visibleServices.map((s) => (
+                                            <SelectItem key={s.id} value={String(s.id)}>
+                                                {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
+                                            </SelectItem>
+                                        ))
                                     )}
                                 </SelectContent>
                             </Select>

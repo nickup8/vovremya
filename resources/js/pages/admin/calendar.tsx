@@ -70,7 +70,6 @@ export default function CalendarPage() {
         safeSetItem('calendar_view_mode', mode);
     };
 
-    const [selectedMasterId, setSelectedMasterId] = useState<string>('all');
     const [localClients, setLocalClients] = useState<ClientOption[]>(clients);
 
     const handleClientCreated = (c: ClientOption) => {
@@ -116,22 +115,6 @@ export default function CalendarPage() {
     // ═══════════════ Appointments Data ═══════════════
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
-    const filteredAppointments = useMemo(() => {
-        if (selectedMasterId === 'all') {
-return initialAppointments;
-}
-
-        return initialAppointments.filter(app => String(app.master_id) === selectedMasterId);
-    }, [initialAppointments, selectedMasterId]);
-
-    const filteredBlockedTimes = useMemo(() => {
-        if (selectedMasterId === 'all') {
-return initialBlockedTimes;
-}
-
-        return initialBlockedTimes.filter(bt => String(bt.user_id) === selectedMasterId);
-    }, [initialBlockedTimes, selectedMasterId]);
-
     const {
         localAppointments,
         getAppointmentsForDay,
@@ -140,8 +123,8 @@ return initialBlockedTimes;
         rollbackAppointment,
         confirmOptimistic,
     } = useCalendarData({
-        initialAppointments: filteredAppointments,
-        initialBlockedTimes: filteredBlockedTimes,
+        initialAppointments,
+        initialBlockedTimes,
         authUserId: auth?.user?.id,
         weekDateKeys,
         selectedId: selected?.id,
@@ -198,7 +181,6 @@ return initialBlockedTimes;
         confirmOptimistic,
         localAppointments,
         masters,
-        selectedMasterId,
     });
 
     const rescheduleByDragDay = (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) =>
@@ -325,9 +307,6 @@ return [];
 }}
                                 onSetView={setViewMode}
                                 onNewAppointment={openNewAppointment}
-                                masters={masters}
-                                selectedMasterId={selectedMasterId}
-                                onMasterChange={setSelectedMasterId}
                             />
 
                             {/* ─── Booking Mode Banner ─── */}
@@ -387,18 +366,17 @@ return [];
                                     dayStartHour={DAY_START_HOUR}
                                     slotInterval={slotInterval}
                                     workingHours={workingHours}
-                                    localAppointments={filteredAppointments}
+                                    localAppointments={initialAppointments}
                                     blockedTimes={initialBlockedTimes}
                                     onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time, masterId)}
                                     onAppointmentClick={openDetail}
                                     isToday={isToday}
                                     onRescheduleByDrag={rescheduleByDragDay}
-                                    selectedMasterId={selectedMasterId}
                                     timezone={timezone}
                                 />
                             ) : viewMode === 'month' ? (
                                 <MonthView
-                                    appointments={filteredAppointments}
+                                    appointments={initialAppointments}
                                     centerDate={monthCenterDate}
                                     onDayColumnClick={openDayFromMonth}
                                 />

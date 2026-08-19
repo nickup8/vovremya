@@ -1,12 +1,4 @@
 import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
-import {
-    Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
-} from '@/components/ui/select';
-
-interface MasterOption {
-    id: string;
-    name: string;
-}
 
 interface DateControlPanelProps {
     viewMode: 'week' | 'day' | 'month';
@@ -16,9 +8,6 @@ interface DateControlPanelProps {
     onToday: () => void;
     onSetView: (mode: 'week' | 'day' | 'month') => void;
     onNewAppointment: () => void;
-    masters?: MasterOption[];
-    selectedMasterId?: string;
-    onMasterChange?: (value: string) => void;
 }
 
 export default function DateControlPanel({
@@ -29,9 +18,6 @@ export default function DateControlPanel({
     onToday,
     onSetView,
     onNewAppointment,
-    masters = [],
-    selectedMasterId = 'all',
-    onMasterChange,
 }: DateControlPanelProps) {
     return (
         <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
@@ -59,19 +45,6 @@ export default function DateControlPanel({
                 </button>
             </div>
             <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                {masters.length > 0 && onMasterChange && (
-                    <Select value={selectedMasterId} onValueChange={onMasterChange}>
-                        <SelectTrigger className="h-8 w-full border-slate-200 bg-white text-xs dark:border-zinc-700 dark:bg-zinc-800 sm:w-auto">
-                            <SelectValue placeholder="Все мастера" />
-                        </SelectTrigger>
-                        <SelectContent>
-                            <SelectItem value="all">Все мастера</SelectItem>
-                            {masters.map(m => (
-                                <SelectItem key={m.id} value={String(m.id)}>{m.name}</SelectItem>
-                            ))}
-                        </SelectContent>
-                    </Select>
-                )}
                 <div className="flex w-full overflow-hidden rounded-md bg-slate-100 dark:bg-zinc-800 sm:w-auto">
                     {(['day', 'week', 'month'] as const).map((mode) => (
                         <button

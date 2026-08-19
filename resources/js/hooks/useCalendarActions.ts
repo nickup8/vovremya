@@ -20,7 +20,6 @@ interface UseCalendarActionsParams {
     confirmOptimistic: (id: string) => void;
     localAppointments: Appointment[];
     masters: MasterOption[];
-    selectedMasterId: string;
 }
 
 export function useCalendarActions({
@@ -38,7 +37,6 @@ export function useCalendarActions({
     confirmOptimistic,
     localAppointments,
     masters,
-    selectedMasterId,
 }: UseCalendarActionsParams) {
     const [isProcessing, setIsProcessing] = useState(false);
     const [newAppointmentOpen, setNewAppointmentOpen] = useState(false);
@@ -380,7 +378,7 @@ return;
 
     // ═══════════════ CRUD: New Appointment ═══════════════
     function openNewAppointment() {
-        setPreselectedMasterId(selectedMasterId !== 'all' ? selectedMasterId : null);
+        setPreselectedMasterId(null);
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateToKey(new Date()));
         newAppointmentForm.setData('time', '09:00');
@@ -392,8 +390,7 @@ return;
             return;
         }
 
-        const resolvedMasterId =
-            masterId ?? (selectedMasterId !== 'all' ? selectedMasterId : null);
+        const resolvedMasterId = masterId ?? null;
         setPreselectedMasterId(resolvedMasterId);
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateKey);
@@ -510,17 +507,7 @@ return;
                 if (isUndo) {
                     toast.success('Перенос отменён');
                 } else {
-                    let msg = 'Запись перенесена';
-
-                    if (newMasterId !== undefined) {
-                        const m = masters.find((x) => String(x.id) === String(newMasterId));
-
-                        if (m) {
-                            msg = `Запись перенесена к ${m.name}`;
-                        }
-                    }
-
-                    toast.success(msg, {
+                    toast.success('Запись перенесена', {
                         action: {
                             label: 'Отменить',
                             onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, prevMasterId, true, prevMasterId),

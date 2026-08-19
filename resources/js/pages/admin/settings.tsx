@@ -95,8 +95,6 @@ interface PageProps {
     workingHours: WorkingHour[];
     blockedTimes: BlockedTime[];
     auth?: { user?: AuthUser };
-    masters?: { id: string; name: string }[];
-    selectedMasterId?: string;
     [key: string]: unknown;
 }
 
@@ -963,8 +961,6 @@ export default function SettingsPage() {
         services: rawServices,
         workingHours: rawWorkingHours,
         auth,
-        masters: rawMasters,
-        selectedMasterId: rawSelectedMasterId,
     } = usePage<PageProps>().props;
     const canManageTeam = (auth?.user?.can_manage_team as boolean) ?? false;
     const profile = rawProfile || {
@@ -995,8 +991,6 @@ export default function SettingsPage() {
     };
     const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
-    const masters: { id: string; name: string }[] = rawMasters || [];
-    const [selectedMasterId, setSelectedMasterId] = useState<string>(rawSelectedMasterId || '');
     const userName = auth?.user?.name || 'Мастер';
     const initials = getInitials(userName);
     const [serviceModalOpen, setServiceModalOpen] = useState(false);
@@ -1005,17 +999,6 @@ export default function SettingsPage() {
     const [avatarCropOpen, setAvatarCropOpen] = useState(false);
     const [isCopied, setIsCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
-
-    function handleMasterChange(newMasterId: string) {
-        setSelectedMasterId(newMasterId);
-        const url = new URL(window.location.href);
-        url.searchParams.set('master_id', newMasterId);
-        router.get(url.toString(), {}, {
-            only: ['services', 'workingHours', 'blockedTimes', 'selectedMasterId'],
-            preserveState: true,
-            preserveScroll: true,
-        });
-    }
 
     const VALID_TABS = ['profile', 'booking', 'notifications', 'services', 'schedule'] as const;
     type TabValue = (typeof VALID_TABS)[number];
@@ -1140,27 +1123,6 @@ return;
                             confirmed={profile.timezone_confirmed}
                         />
 
-                        {/* ═══ Master Selector (admin/owner only) ═══ */}
-                        {masters.length > 0 && (
-                            <div className="flex items-center gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <label className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Мастер:
-                                </label>
-                                <Select value={selectedMasterId} onValueChange={handleMasterChange}>
-                                    <SelectTrigger className="h-9 w-[220px]">
-                                        <SelectValue placeholder="Выберите мастера" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        {masters.map((m) => (
-                                            <SelectItem key={m.id} value={m.id}>
-                                                {m.name}
-                                            </SelectItem>
-                                        ))}
-                                    </SelectContent>
-                                </Select>
-                            </div>
-                        )}
-
                         <div className="max-w-4xl space-y-6">
                             {/* ═══ Tabs ═══ */}
                             <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
@@ -1237,10 +1199,10 @@ return;
 
                                 {/* Fields Grid */}
                                 <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                    {/* Row 1: Имя / Название студии | Телефон */}
+                                    {/* Row 1: Имя | Телефон */}
                                     <div>
                                         <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Имя / Название студии
+                                            Имя
                                         </label>
                                         <Input
                                             value={profileForm.data.name}
@@ -1424,7 +1386,7 @@ return;
                                 {/* Address - full width */}
                                 <div className="mt-4">
                                     <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                        Адрес студии
+                                        Адрес
                                     </label>
                                     <Input
                                         value={profileForm.data.address}
@@ -1900,11 +1862,11 @@ return;
                             <WorkingHoursCard
                                 workingHours={workingHours}
                                 slotInterval={profile.slot_interval || 30}
-                                masterId={selectedMasterId || undefined}
+                                masterId={profile.id}
                             />
 
                             {/* ═══ Card 6: Blocked Times ═══ */}
-                            <BlockedTimesCard masterId={selectedMasterId || undefined} />
+                            <BlockedTimesCard masterId={profile.id} />
 
                             </TabsContent>
                             </Tabs>
@@ -1917,7 +1879,7 @@ return;
                 open={serviceModalOpen}
                 onClose={handleCloseModal}
                 service={editingService}
-                masterId={selectedMasterId || undefined}
+                masterId={profile.id}
             />
 
             <AvatarCropModal

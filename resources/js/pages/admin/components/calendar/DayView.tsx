@@ -30,7 +30,6 @@ interface DayViewProps {
     onAppointmentClick: (appointment: Appointment) => void;
     isToday: (date: Date) => boolean;
     onRescheduleByDrag: (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) => void;
-    selectedMasterId: string;
     timezone: string;
 }
 
@@ -90,14 +89,11 @@ export function DayView({
     onAppointmentClick,
     isToday,
     onRescheduleByDrag,
-    selectedMasterId,
     timezone,
 }: DayViewProps) {
     const DAY_START_HOUR = dayStartHour;
     const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
-    const visibleMasters = selectedMasterId === 'all'
-        ? masters
-        : masters.filter((m) => String(m.id) === selectedMasterId);
+    const visibleMasters = masters;
     const gridMinWidth = 60 + visibleMasters.length * 160;
 
     const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);

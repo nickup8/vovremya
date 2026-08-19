@@ -36,12 +36,8 @@ class SettingsController extends Controller
                 $targetMaster = $user;
             }
 
-            $masters = $user->workspace
-                ? $user->workspace->users()->where('is_master', true)->select('id', 'name')->get()
-                : [];
         } else {
             $targetMaster = $user;
-            $masters = [];
         }
 
         // Генерация токена для привязки Telegram, если он еще не создан
@@ -108,8 +104,6 @@ class SettingsController extends Controller
                 ]),
             'workingHours' => $targetMaster->workingHours()->get(),
             'blockedTimes' => $targetMaster->blockedTimes()->get(),
-            'masters' => $masters,
-            'selectedMasterId' => $targetMaster->id,
         ]);
     }
 

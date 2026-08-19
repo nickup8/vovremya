@@ -238,15 +238,15 @@ toast.error(flash.error);
         <>
             <Head title="Каталог услуг — Вовремя" />
 
-            <AdminLayout title="Каталог услуг студии" auth={auth}>
+            <AdminLayout title="Каталог услуг" auth={auth}>
                 <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="mb-4 flex items-center justify-between">
                         <div>
                             <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                Услуги студии
+                                Услуги
                             </h3>
                             <p className="mt-0.5 text-sm text-slate-500 dark:text-zinc-400">
-                                Базовый справочник услуг. Мастера наследуют цены и длительность.
+                                Справочник услуг для записи.
                             </p>
                         </div>
                         <Button
@@ -310,7 +310,7 @@ toast.error(flash.error);
                                         {item.master_services_exists ? (
                                             <span
                                                 className="rounded p-1.5 text-slate-300 dark:text-zinc-600"
-                                                title="Используется мастерами, удалить нельзя"
+                                                title="Используется в услугах, удалить нельзя"
                                             >
                                                 <Trash2 className="size-3.5" />
                                             </span>
