@@ -6,7 +6,6 @@ use App\Enums\SubscriptionStatus;
 use App\Models\NotificationLog;
 use App\Models\Subscription;
 use App\Services\Notification\MasterNotificationService;
-use App\Services\WorkspaceService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -14,11 +13,10 @@ class CheckSubscriptionExpirations extends Command
 {
     protected $signature = 'subscriptions:check-expirations';
 
-    protected $description = 'Mark expired subscriptions as expired and dissolve studio workspace';
+    protected $description = 'Mark expired subscriptions as expired and notify owners';
 
     public function __construct(
         private MasterNotificationService $notificationService,
-        private WorkspaceService $workspaceService,
     ) {
         parent::__construct();
     }
@@ -34,12 +32,6 @@ class CheckSubscriptionExpirations extends Command
         foreach ($expiredSubscriptions as $subscription) {
             try {
                 $subscription->update(['status' => SubscriptionStatus::Expired]);
-
-                $workspace = $subscription->workspace;
-
-                if ($workspace) {
-                    $this->workspaceService->dissolveStudio($workspace, $this->notificationService);
-                }
 
                 $this->info("Expired subscription {$subscription->id} (workspace: {$subscription->workspace_id}).");
             } catch (\Exception $e) {
