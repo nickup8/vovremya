@@ -5,7 +5,6 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\BlockedTimeReason;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedTime;
-use App\Models\MasterService;
 use App\Models\User;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -92,16 +91,6 @@ class SettingsController extends Controller
                 'custom_prepayment_message' => $user->getCustomPrepaymentMessage(),
                 'reminder_hours_before_final' => $user->getReminderHoursBeforeFinal(),
             ],
-            'services' => \App\Models\MasterService::where('master_id', $targetMaster->id)
-                ->where('is_active', true)
-                ->with('catalog')
-                ->get()
-                ->map(fn ($ms) => [
-                    'id'               => $ms->id,
-                    'title'            => $ms->catalog->title,
-                    'duration_minutes' => (int) $ms->effective_duration,
-                    'price'            => (float) $ms->effective_price,
-                ]),
             'workingHours' => $targetMaster->workingHours()->get(),
             'blockedTimes' => $targetMaster->blockedTimes()->get(),
         ]);
@@ -205,81 +194,6 @@ class SettingsController extends Controller
         }
 
         return back()->with('success', 'Фото удалено');
-    }
-
-    public function storeService(Request $request)
-    {
-        $user = auth()->user();
-
-        // E-U5: услуги централизованы — создаёт только owner/admin (одиночка = owner
-        // своего workspace). Мастер студии услуги не создаёт (бизнес-правило 4.2).
-        abort_unless(
-            $user->role->canManageTeam() || $user->is_super_admin,
-            403,
-            'Услуги создаёт только владелец или администратор.'
-        );
-
-        $isAdminOrOwner = $user->role->canManageTeam();
-
-        $validated = $request->validate([
-            'title' => 'required|string|max:255',
-            'duration_minutes' => 'required|integer|min:1',
-            'price' => 'required|numeric|min:0',
-            'master_id' => 'nullable|uuid|exists:users,id',
-        ]);
-
-        if ($isAdminOrOwner && ! empty($validated['master_id'])) {
-            $targetMaster = User::where('id', $validated['master_id'])
-                ->where('workspace_id', $user->workspace_id)
-                ->where('is_master', true)
-                ->firstOrFail();
-        } else {
-            $targetMaster = $user;
-        }
-
-        $isOwner = $targetMaster->id === $user->id;
-        $isWorkspaceAdmin = $isAdminOrOwner
-            && $targetMaster->workspace_id === $user->workspace_id;
-        abort_unless($isOwner || $isWorkspaceAdmin || $user->is_super_admin, 403);
-
-        unset($validated['master_id']);
-
-        app(\App\Services\CreateServiceAction::class)->execute($targetMaster, $validated);
-
-        return back()->with('success', 'Услуга добавлена');
-    }
-
-    public function updateService(Request $request, MasterService $masterService)
-    {
-        $user = auth()->user();
-        $isOwner = $masterService->master_id === $user->id;
-        $isWorkspaceAdmin = $user->workspace_id
-            && $masterService->master->workspace_id === $user->workspace_id
-            && $user->role->canManageTeam();
-
-        abort_unless($isOwner || $isWorkspaceAdmin || $user->is_super_admin, 403);
-
-        $validated = $request->validate([
-            'title'            => 'required|string|max:255',
-            'duration_minutes' => 'required|integer|min:1',
-            'price'            => 'required|numeric|min:0',
-        ]);
-
-        $masterService->update([
-            'price_override'    => $validated['price'],
-            'duration_override' => $validated['duration_minutes'],
-        ]);
-
-        return back()->with('success', 'Услуга обновлена');
-    }
-
-    public function destroyService(MasterService $masterService)
-    {
-        $this->authorize('delete', $masterService);
-
-        $masterService->delete();
-
-        return back()->with('success', 'Услуга удалена');
     }
 
     public function updateWorkingHours(Request $request)

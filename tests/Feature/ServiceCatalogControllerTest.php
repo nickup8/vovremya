@@ -69,7 +69,13 @@ class ServiceCatalogControllerTest extends TestCase
 
     public function test_owner_can_create_catalog_item(): void
     {
-        [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
+        // Solo workspace: only 1 master
+        $owner = User::factory()->master()->create();
+        $ws = Workspace::create([
+            'name' => 'Solo WS ' . Str::random(6),
+            'owner_id' => $owner->id,
+        ]);
+        $owner->update(['workspace_id' => $ws->id, 'role' => UserRole::Owner]);
 
         $response = $this->actingAs($owner)->post('/admin/catalog', [
             'title' => 'Маникюр',
@@ -85,11 +91,24 @@ class ServiceCatalogControllerTest extends TestCase
             'title' => 'Маникюр',
             'base_price' => 2000,
         ]);
+        $this->assertSame(1, MasterService::count());
     }
 
     public function test_admin_can_create_catalog_item(): void
     {
-        [$ws, $admin] = $this->createWorkspaceWithRole(UserRole::Admin);
+        // Admin (not master) + 1 master owner
+        $owner = User::factory()->master()->create();
+        $ws = Workspace::create([
+            'name' => 'Studio ' . Str::random(6),
+            'owner_id' => $owner->id,
+        ]);
+        $owner->update(['workspace_id' => $ws->id, 'role' => UserRole::Owner]);
+
+        $admin = User::factory()->create([
+            'workspace_id' => $ws->id,
+            'role' => UserRole::Admin,
+            'is_master' => false,
+        ]);
 
         $response = $this->actingAs($admin)->post('/admin/catalog', [
             'title' => 'Педикюр',
@@ -120,7 +139,13 @@ class ServiceCatalogControllerTest extends TestCase
 
     public function test_duplicate_title_in_same_workspace_rejected(): void
     {
-        [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
+        $owner = User::factory()->master()->create();
+        $ws = Workspace::create([
+            'name' => 'Solo WS ' . Str::random(6),
+            'owner_id' => $owner->id,
+        ]);
+        $owner->update(['workspace_id' => $ws->id, 'role' => UserRole::Owner]);
+
         $this->createCatalog($ws, 'Маникюр');
 
         $response = $this->actingAs($owner)->post('/admin/catalog', [
@@ -134,8 +159,19 @@ class ServiceCatalogControllerTest extends TestCase
 
     public function test_same_title_in_different_workspaces_allowed(): void
     {
-        [$wsA, $ownerA] = $this->createWorkspaceWithRole(UserRole::Owner);
-        [$wsB, $ownerB] = $this->createWorkspaceWithRole(UserRole::Owner);
+        $ownerA = User::factory()->master()->create();
+        $wsA = Workspace::create([
+            'name' => 'WS-A ' . Str::random(6),
+            'owner_id' => $ownerA->id,
+        ]);
+        $ownerA->update(['workspace_id' => $wsA->id, 'role' => UserRole::Owner]);
+
+        $ownerB = User::factory()->master()->create();
+        $wsB = Workspace::create([
+            'name' => 'WS-B ' . Str::random(6),
+            'owner_id' => $ownerB->id,
+        ]);
+        $ownerB->update(['workspace_id' => $wsB->id, 'role' => UserRole::Owner]);
 
         $this->createCatalog($wsA, 'Стрижка');
 
@@ -239,7 +275,7 @@ class ServiceCatalogControllerTest extends TestCase
 
     // ── Destroy ──────────────────────────────────────────
 
-    public function test_destroy_blocked_if_master_services_exist(): void
+    public function test_destroy_with_ms_deletes_both(): void
     {
         [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
         $catalog = $this->createCatalog($ws);
@@ -253,8 +289,9 @@ class ServiceCatalogControllerTest extends TestCase
 
         $response = $this->actingAs($owner)->delete("/admin/catalog/{$catalog->id}");
 
-        $response->assertSessionHasErrors('catalog');
-        $this->assertDatabaseHas('service_catalog', ['id' => $catalog->id]);
+        $response->assertRedirect();
+        $this->assertDatabaseMissing('service_catalog', ['id' => $catalog->id]);
+        $this->assertDatabaseMissing('master_service', ['catalog_id' => $catalog->id]);
     }
 
     public function test_destroy_passes_if_no_master_services(): void

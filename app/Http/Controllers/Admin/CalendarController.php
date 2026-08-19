@@ -105,6 +105,7 @@ class CalendarController extends Controller
 
             $services = MasterService::whereIn('master_id', $masterIds)
                 ->where('is_active', true)
+                ->whereHas('catalog', fn ($q) => $q->where('is_active', true))
                 ->with('catalog')
                 ->get()
                 ->map(fn (MasterService $s) => [
@@ -176,6 +177,7 @@ class CalendarController extends Controller
 
             $services = MasterService::where('master_id', $master->id)
                 ->where('is_active', true)
+                ->whereHas('catalog', fn ($q) => $q->where('is_active', true))
                 ->with('catalog')
                 ->get()
                 ->map(fn (MasterService $s) => [
@@ -236,6 +238,10 @@ class CalendarController extends Controller
         $this->authorize('view', $client);
 
         $masterService = MasterService::findOrFail($validated['service_id']);
+
+        if (! $masterService->catalog || ! $masterService->catalog->is_active) {
+            abort(422, 'Эта услуга больше недоступна для записи.');
+        }
 
         // Проверка принадлежности услуги мастерам текущего workspace (защита от IDOR)
         $workspaceMasterIds = $master->workspace

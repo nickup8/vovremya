@@ -59,13 +59,6 @@ interface Profile {
     reminder_hours_before_final: number;
 }
 
-interface Service {
-    id: string;
-    title: string;
-    duration_minutes: number;
-    price: number;
-}
-
 interface AuthUser {
     name: string;
     tariff_name?: string;
@@ -91,7 +84,6 @@ interface BlockedTime {
 
 interface PageProps {
     profile: Profile;
-    services: Service[];
     workingHours: WorkingHour[];
     blockedTimes: BlockedTime[];
     auth?: { user?: AuthUser };
@@ -287,159 +279,6 @@ return;
                         {uploading ? 'Загрузка...' : 'Применить'}
                     </Button>
                 </DialogFooter>
-            </DialogContent>
-        </Dialog>
-    );
-}
-
-/* ═══════════════ Service Modal ═══════════════ */
-
-function ServiceModal({
-    open,
-    onClose,
-    service,
-    masterId,
-}: {
-    open: boolean;
-    onClose: () => void;
-    service: Service | null;
-    masterId?: string;
-}) {
-    const form = useForm({
-        title: '',
-        duration_minutes: '',
-        price: '',
-    });
-
-    useEffect(() => {
-        if (open && service) {
-            form.setData({
-                title: service.title,
-                duration_minutes: service.duration_minutes.toString(),
-                price: service.price.toString(),
-            });
-        } else if (open) {
-            form.reset();
-        }
-    }, [open, service?.id]);
-
-    const handleSubmit = (e: React.FormEvent) => {
-        e.preventDefault();
-        const payload = masterId ? { ...form.data, master_id: masterId } : form.data;
-
-        if (service) {
-            router.put(`/admin/services/${service.id}`, payload, {
-                preserveScroll: true,
-                onSuccess: () => onClose(),
-            });
-        } else {
-            router.post('/admin/services', payload, {
-                preserveScroll: true,
-                onSuccess: () => {
-                    form.reset();
-                    onClose();
-                },
-            });
-        }
-    };
-
-    return (
-        <Dialog open={open} onOpenChange={(isOpen) => !isOpen && onClose()}>
-            <DialogContent className="sm:max-w-md">
-                <DialogHeader>
-                    <DialogTitle>
-                        {service ? 'Редактировать услугу' : 'Новая услуга'}
-                    </DialogTitle>
-                </DialogHeader>
-
-                <form onSubmit={handleSubmit} className="space-y-4">
-                    <div>
-                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                            Название услуги
-                        </label>
-                        <Input
-                            value={form.data.title}
-                            onChange={(e) =>
-                                form.setData('title', e.target.value)
-                            }
-                            placeholder="Маникюр + покрытие"
-                            className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                        />
-                        {form.errors.title && (
-                            <p className="mt-1 text-xs text-red-500">
-                                {form.errors.title}
-                            </p>
-                        )}
-                    </div>
-
-                    <div className="grid grid-cols-2 gap-4">
-                        <div>
-                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                Длительность (мин)
-                            </label>
-                            <Input
-                                type="number"
-                                min="1"
-                                value={form.data.duration_minutes}
-                                onChange={(e) =>
-                                    form.setData(
-                                        'duration_minutes',
-                                        e.target.value,
-                                    )
-                                }
-                                placeholder="60"
-                                className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                            />
-                            {form.errors.duration_minutes && (
-                                <p className="mt-1 text-xs text-red-500">
-                                    {form.errors.duration_minutes}
-                                </p>
-                            )}
-                        </div>
-                        <div>
-                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                Стоимость (₽)
-                            </label>
-                            <Input
-                                type="number"
-                                min="0"
-                                step="0.01"
-                                value={form.data.price}
-                                onChange={(e) =>
-                                    form.setData('price', e.target.value)
-                                }
-                                placeholder="1500"
-                                className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                            />
-                            {form.errors.price && (
-                                <p className="mt-1 text-xs text-red-500">
-                                    {form.errors.price}
-                                </p>
-                            )}
-                        </div>
-                    </div>
-
-                    <DialogFooter>
-                        <Button
-                            type="button"
-                            variant="outline"
-                            onClick={onClose}
-                        >
-                            Отмена
-                        </Button>
-                        <Button
-                            type="submit"
-                            disabled={form.processing}
-                            className="bg-blue-600 text-white hover:bg-blue-700"
-                        >
-                            {form.processing
-                                ? 'Сохранение...'
-                                : service
-                                  ? 'Сохранить'
-                                  : 'Добавить'}
-                        </Button>
-                    </DialogFooter>
-                </form>
             </DialogContent>
         </Dialog>
     );
@@ -958,11 +797,9 @@ return;
 export default function SettingsPage() {
     const {
         profile: rawProfile,
-        services: rawServices,
         workingHours: rawWorkingHours,
         auth,
     } = usePage<PageProps>().props;
-    const canManageTeam = (auth?.user?.can_manage_team as boolean) ?? false;
     const profile = rawProfile || {
         id: '',
         name: '',
@@ -989,18 +826,15 @@ export default function SettingsPage() {
         custom_prepayment_message: null,
         reminder_hours_before_final: 3,
     };
-    const services = rawServices || [];
     const workingHours = rawWorkingHours || [];
     const userName = auth?.user?.name || 'Мастер';
     const initials = getInitials(userName);
-    const [serviceModalOpen, setServiceModalOpen] = useState(false);
-    const [editingService, setEditingService] = useState<Service | null>(null);
     const [avatarImageSrc, setAvatarImageSrc] = useState('');
     const [avatarCropOpen, setAvatarCropOpen] = useState(false);
     const [isCopied, setIsCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const VALID_TABS = ['profile', 'booking', 'notifications', 'services', 'schedule'] as const;
+    const VALID_TABS = ['profile', 'booking', 'notifications', 'schedule'] as const;
     type TabValue = (typeof VALID_TABS)[number];
 
     const getTabFromUrl = (): TabValue => {
@@ -1091,29 +925,6 @@ return;
         }
     };
 
-    const handleAddService = () => {
-        setEditingService(null);
-        setServiceModalOpen(true);
-    };
-
-    const handleEditService = (svc: Service) => {
-        setEditingService(svc);
-        setServiceModalOpen(true);
-    };
-
-    const handleCloseModal = () => {
-        setServiceModalOpen(false);
-        setEditingService(null);
-    };
-
-    const handleDeleteService = (service: Service) => {
-        if (confirm('Удалить услугу «' + service.title + '»?')) {
-            router.delete(`/admin/services/${service.id}`, {
-                preserveScroll: true,
-            });
-        }
-    };
-
     return (
         <>
             <Head title="Настройки профиля — Вовремя" />
@@ -1130,7 +941,6 @@ return;
                                     <TabsTrigger value="profile">Профиль</TabsTrigger>
                                     <TabsTrigger value="booking">Запись и оплата</TabsTrigger>
                                     <TabsTrigger value="notifications">Уведомления</TabsTrigger>
-                                    <TabsTrigger value="services">Услуги</TabsTrigger>
                                     <TabsTrigger value="schedule">Расписание</TabsTrigger>
                                 </TabsList>
 
@@ -1766,95 +1576,6 @@ return;
                             </form>
                             </TabsContent>
 
-                            {/* ═══ Tab: Services ═══ */}
-                            <TabsContent value="services">
-
-                            {/* ═══ Card 4: Services Price List ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <div className="mb-4 flex items-center justify-between">
-                                    <div>
-                                        <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                            Прайс-лист услуг
-                                        </h3>
-                                        <p className="mt-0.5 text-sm text-slate-500 dark:text-zinc-400">
-                                            Управление услугами и ценами
-                                        </p>
-                                    </div>
-                                    {canManageTeam && (
-                                        <Button
-                                            type="button"
-                                            size="sm"
-                                            className="bg-blue-600 text-white hover:bg-blue-700"
-                                            onClick={handleAddService}
-                                        >
-                                            <Plus className="size-3.5" />
-                                            Добавить
-                                        </Button>
-                                    )}
-                                </div>
-                                <div className="space-y-2">
-                                    {services.length === 0 ? (
-                                        <p className="py-8 text-center text-sm text-slate-400 dark:text-zinc-500">
-                                            Пока нет услуг. Нажмите «Добавить»,
-                                            чтобы создать первую.
-                                        </p>
-                                    ) : (
-                                        services.map((service) => (
-                                            <div
-                                                key={service.id}
-                                                className="flex items-center justify-between rounded-lg bg-slate-50 p-3 transition-colors hover:bg-slate-100 dark:bg-zinc-800/50 dark:hover:bg-zinc-800"
-                                            >
-                                                <div>
-                                                    <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
-                                                        {service.title}
-                                                    </p>
-                                                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                        {
-                                                            service.duration_minutes
-                                                        }{' '}
-                                                        мин
-                                                    </p>
-                                                </div>
-                                                <div className="flex items-center gap-3">
-                                                    <span className="text-sm font-bold text-slate-900 dark:text-zinc-100">
-                                                        {Number(
-                                                            service.price,
-                                                        ).toLocaleString(
-                                                            'ru-RU',
-                                                        )}{' '}
-                                                        ₽
-                                                    </span>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            handleEditService(
-                                                                service,
-                                                            )
-                                                        }
-                                                        className="rounded p-1.5 text-slate-400 hover:bg-slate-200 hover:text-slate-600 dark:text-zinc-500 dark:hover:bg-zinc-700 dark:hover:text-zinc-300"
-                                                    >
-                                                        <Pencil className="size-3.5" />
-                                                    </button>
-                                                    <button
-                                                        type="button"
-                                                        onClick={() =>
-                                                            handleDeleteService(
-                                                                service,
-                                                            )
-                                                        }
-                                                        className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
-                                                    >
-                                                        <Trash2 className="size-3.5" />
-                                                    </button>
-                                                </div>
-                                            </div>
-                                        ))
-                                    )}
-                                </div>
-                            </div>
-
-                            </TabsContent>
-
                             {/* ═══ Tab: Schedule ═══ */}
                             <TabsContent value="schedule">
 
@@ -1874,14 +1595,6 @@ return;
             </AdminLayout>
 
             {/* Modals */}
-            <ServiceModal
-                key={editingService?.id ?? 'new'}
-                open={serviceModalOpen}
-                onClose={handleCloseModal}
-                service={editingService}
-                masterId={profile.id}
-            />
-
             <AvatarCropModal
                 open={avatarCropOpen}
                 onClose={() => {

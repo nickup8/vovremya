@@ -126,10 +126,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/settings/avatar', [SettingsController::class, 'updateAvatar'])->name('admin.settings.avatar');
     Route::delete('/admin/settings/avatar', [SettingsController::class, 'destroyAvatar'])->name('admin.settings.avatar.destroy');
 
-    Route::post('/admin/services', [SettingsController::class, 'storeService'])->name('admin.services.store');
-    Route::put('/admin/services/{masterService}', [SettingsController::class, 'updateService'])->name('admin.services.update');
-    Route::delete('/admin/services/{masterService}', [SettingsController::class, 'destroyService'])->name('admin.services.destroy');
-
     Route::get('/admin/catalog', [ServiceCatalogController::class, 'index'])->name('admin.catalog.index');
     Route::post('/admin/catalog', [ServiceCatalogController::class, 'store'])->name('admin.catalog.store');
     Route::put('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'update'])->name('admin.catalog.update');

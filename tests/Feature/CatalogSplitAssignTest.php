@@ -58,7 +58,7 @@ class CatalogSplitAssignTest extends TestCase
         $this->assertDatabaseMissing('master_service', ['master_id' => $owner->id, 'catalog_id' => $catalog->id]);
     }
 
-    public function test_studio_two_masters_no_auto_assign(): void
+    public function test_studio_two_masters_rejects_create(): void
     {
         $owner = User::factory()->create(['is_master' => false]);
         $ws = Workspace::create(['name' => 'Studio2', 'owner_id' => $owner->id]);
@@ -71,15 +71,12 @@ class CatalogSplitAssignTest extends TestCase
             'title' => 'Педикюр',
             'base_price' => 2000,
             'base_duration' => 90,
-        ])->assertRedirect();
+        ])->assertSessionHasErrors('title');
 
-        $catalog = ServiceCatalog::where('workspace_id', $ws->id)->where('title', 'Педикюр')->first();
-        $this->assertNotNull($catalog);
-
-        $this->assertDatabaseMissing('master_service', ['catalog_id' => $catalog->id]);
+        $this->assertSame(0, ServiceCatalog::count());
     }
 
-    public function test_zero_masters_creates_catalog_without_assignment(): void
+    public function test_zero_masters_rejects_create(): void
     {
         $owner = User::factory()->create(['is_master' => false]);
         $ws = Workspace::create(['name' => 'Empty', 'owner_id' => $owner->id]);
@@ -89,11 +86,9 @@ class CatalogSplitAssignTest extends TestCase
             'title' => 'Услуга X',
             'base_price' => 500,
             'base_duration' => 30,
-        ])->assertRedirect();
+        ])->assertSessionHasErrors('title');
 
-        $catalog = ServiceCatalog::where('workspace_id', $ws->id)->where('title', 'Услуга X')->first();
-        $this->assertNotNull($catalog);
-        $this->assertDatabaseMissing('master_service', ['catalog_id' => $catalog->id]);
+        $this->assertSame(0, ServiceCatalog::count());
     }
 
     public function test_u6_master_cannot_view_catalog(): void

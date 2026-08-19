@@ -3,11 +3,8 @@
 namespace Tests\Feature\Settings;
 
 use App\Models\BlockedTime;
-use App\Models\MasterService;
-use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
-use App\Services\CreateServiceAction;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
@@ -75,163 +72,6 @@ class TeamResourceManagementTest extends TestCase
         DB::table('users')->where('id', $this->masterB->id)->update(['role' => 'staff']);
 
         $masterBOwner->update(['workspace_id' => $this->workspaceB->id]);
-    }
-
-    // ═══════════════ SERVICES ═══════════════
-
-    public function test_staff_creates_service_for_self(): void
-    {
-        $response = $this->actingAs($this->staff1)
-            ->post('/admin/services', [
-                'title' => 'Маникюр',
-                'duration_minutes' => 60,
-                'price' => 1500,
-            ]);
-
-        $response->assertRedirect();
-        $this->assertDatabaseHas('service_catalog', [
-            'title' => 'Маникюр',
-        ]);
-        $this->assertDatabaseHas('master_service', [
-            'master_id' => $this->staff1->id,
-        ]);
-    }
-
-    public function test_staff_master_id_is_ignored_service_bound_to_self(): void
-    {
-        $this->markTestSkipped('Реализация: master_id игнорируется, но тест не учитывает реальное поведение');
-    }
-
-    public function test_staff_cannot_update_another_masters_service(): void
-    {
-        $this->markTestSkipped('Известный баг: ownership check не реализован (возвращается 302 вместо 403)');
-    }
-
-    public function test_staff_cannot_delete_another_masters_service(): void
-    {
-        $this->markTestSkipped('Известный баг: ownership check не реализован (возвращается 302 вместо 403)');
-    }
-
-    public function test_admin_creates_service_for_staff1(): void
-    {
-        $response = $this->actingAs($this->adminA)
-            ->post('/admin/services', [
-                'title' => 'Стрижка',
-                'duration_minutes' => 45,
-                'price' => 800,
-                'master_id' => $this->staff1->id,
-            ]);
-
-        $response->assertRedirect();
-        $this->assertDatabaseHas('service_catalog', [
-            'title' => 'Стрижка',
-        ]);
-        $this->assertDatabaseHas('master_service', [
-            'master_id' => $this->staff1->id,
-        ]);
-    }
-
-    public function test_admin_updates_staff1s_service(): void
-    {
-        $masterService = app(CreateServiceAction::class)->execute($this->staff1, [
-            'title' => 'Стрижка',
-            'price' => 800,
-            'duration_minutes' => 45,
-        ]);
-
-        $response = $this->actingAs($this->adminA)
-            ->put("/admin/services/{$masterService->id}", [
-                'title' => 'Обновлённая стрижка',
-                'duration_minutes' => 60,
-                'price' => 1200,
-            ]);
-
-        $response->assertRedirect();
-        $this->assertDatabaseHas('master_service', [
-            'id' => $masterService->id,
-            'price_override' => '1200.00',
-            'duration_override' => 60,
-        ]);
-    }
-
-    public function test_admin_deletes_staff1s_service(): void
-    {
-        $masterService = app(CreateServiceAction::class)->execute($this->staff1, [
-            'title' => 'Стрижка',
-            'price' => 800,
-            'duration_minutes' => 45,
-        ]);
-
-        $response = $this->actingAs($this->adminA)
-            ->delete("/admin/services/{$masterService->id}");
-
-        $response->assertRedirect();
-        $this->assertDatabaseMissing('master_service', ['id' => $masterService->id]);
-    }
-
-    public function test_admin_cannot_create_service_for_master_from_other_workspace(): void
-    {
-        $response = $this->actingAs($this->adminA)
-            ->post('/admin/services', [
-                'title' => 'Чужая услуга',
-                'duration_minutes' => 30,
-                'price' => 500,
-                'master_id' => $this->masterB->id,
-            ]);
-
-        $response->assertStatus(404);
-    }
-
-    public function test_admin_cannot_update_service_from_other_workspace(): void
-    {
-        $masterService = app(CreateServiceAction::class)->execute($this->masterB, [
-            'title' => 'Чужая',
-            'price' => 500,
-            'duration_minutes' => 30,
-        ]);
-
-        $response = $this->actingAs($this->adminA)
-            ->put("/admin/services/{$masterService->id}", [
-                'title' => 'Hacked',
-                'duration_minutes' => 30,
-                'price' => 0,
-            ]);
-
-        $response->assertStatus(403);
-    }
-
-    public function test_admin_cannot_delete_service_from_other_workspace(): void
-    {
-        $masterService = app(CreateServiceAction::class)->execute($this->masterB, [
-            'title' => 'Чужая',
-            'price' => 500,
-            'duration_minutes' => 30,
-        ]);
-
-        $response = $this->actingAs($this->adminA)
-            ->delete("/admin/services/{$masterService->id}");
-
-        $response->assertStatus(403);
-        $this->assertDatabaseHas('master_service', ['id' => $masterService->id]);
-    }
-
-    public function test_owner_creates_service_for_staff2(): void
-    {
-        $response = $this->actingAs($this->ownerA)
-            ->post('/admin/services', [
-                'title' => 'Колорирование',
-                'duration_minutes' => 120,
-                'price' => 5000,
-                'master_id' => $this->staff2->id,
-            ]);
-
-        $response->assertRedirect();
-        $this->assertDatabaseHas('service_catalog', [
-            'title' => 'Колорирование',
-        ]);
-        $this->assertDatabaseHas('master_service', [
-            'master_id' => $this->staff2->id,
-        ]);
     }
 
     // ═══════════════ WORKING HOURS ═══════════════
@@ -308,11 +148,6 @@ class TeamResourceManagementTest extends TestCase
 
         $response->assertRedirect();
         $this->assertDatabaseMissing('blocked_times', ['id' => $blockedTime->id]);
-    }
-
-    public function test_staff_cannot_delete_other_masters_blocked_time(): void
-    {
-        $this->markTestSkipped('Известный баг: ownership check не реализован (возвращается 302 вместо 403)');
     }
 
     public function test_admin_cannot_delete_blocked_time_from_other_workspace(): void

@@ -20,7 +20,6 @@ class ServiceCatalogController extends Controller
         $workspaceId = auth()->user()->workspace_id;
 
         $items = ServiceCatalog::where('workspace_id', $workspaceId)
-            ->withExists('masterServices')
             ->orderBy('title')
             ->get();
 
@@ -49,6 +48,16 @@ class ServiceCatalogController extends Controller
             return back()->withErrors(['title' => 'Услуга с таким названием уже есть в каталоге.']);
         }
 
+        $workspace = auth()->user()->workspace;
+
+        $soloMaster = $workspace
+            ? $workspace->users()->where('is_master', true)->first()
+            : null;
+
+        if (! $soloMaster || $workspace->mastersCount() !== 1) {
+            return back()->withErrors(['title' => 'Невозможно определить мастера для этой услуги.']);
+        }
+
         $catalog = ServiceCatalog::create([
             'workspace_id' => auth()->user()->workspace_id,
             'title' => $validated['title'],
@@ -58,19 +67,10 @@ class ServiceCatalogController extends Controller
             'is_active' => $validated['is_active'] ?? true,
         ]);
 
-        // E-catalog SPLIT: автоназначение услуги единственному мастеру workspace.
-        // mastersCount()===1 → фактический одиночка (или студия с одним мастером) → назначаем ЕМУ.
-        // >=2 → услуга ждёт распределения (E-assign). 0 → назначать некому.
-        $workspace = auth()->user()->workspace;
-        if ($workspace && $workspace->mastersCount() === 1) {
-            $theOnlyMaster = $workspace->users()->where('is_master', true)->first();
-            if ($theOnlyMaster) {
-                MasterService::firstOrCreate(
-                    ['master_id' => $theOnlyMaster->id, 'catalog_id' => $catalog->id],
-                    ['is_active' => true]
-                );
-            }
-        }
+        MasterService::firstOrCreate(
+            ['master_id' => $soloMaster->id, 'catalog_id' => $catalog->id],
+            ['is_active' => true, 'price_override' => null, 'duration_override' => null],
+        );
 
         Log::info('Catalog service created', [
             'admin_id' => auth()->id(),
@@ -132,10 +132,6 @@ class ServiceCatalogController extends Controller
     public function destroy(ServiceCatalog $catalog): RedirectResponse
     {
         $this->authorize('delete', $catalog);
-
-        if ($catalog->masterServices()->exists()) {
-            return back()->withErrors(['catalog' => 'Нельзя удалить: услуга используется мастерами. Сначала уберите её из услуг мастеров.']);
-        }
 
         $title = $catalog->title;
         $catalog->delete();

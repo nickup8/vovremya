@@ -17,7 +17,6 @@ interface CatalogItem {
     base_price: number;
     base_duration: number;
     is_active: boolean;
-    master_services_exists: boolean;
 }
 
 interface PageProps {
@@ -307,22 +306,13 @@ toast.error(flash.error);
                                         >
                                             <Pencil className="size-3.5" />
                                         </button>
-                                        {item.master_services_exists ? (
-                                            <span
-                                                className="rounded p-1.5 text-slate-300 dark:text-zinc-600"
-                                                title="Используется в услугах, удалить нельзя"
-                                            >
-                                                <Trash2 className="size-3.5" />
-                                            </span>
-                                        ) : (
-                                            <button
-                                                type="button"
-                                                onClick={() => handleDelete(item)}
-                                                className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
-                                            >
-                                                <Trash2 className="size-3.5" />
-                                            </button>
-                                        )}
+                                        <button
+                                            type="button"
+                                            onClick={() => handleDelete(item)}
+                                            className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                                        >
+                                            <Trash2 className="size-3.5" />
+                                        </button>
                                     </div>
                                 </div>
                             ))}
