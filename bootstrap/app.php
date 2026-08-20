@@ -25,6 +25,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'super_admin' => SuperAdminMiddleware::class,
             'max.initdata' => VerifyMaxInitData::class,
+            'feature' => \App\Http\Middleware\EnsureHasFeature::class,
         ]);
 
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);

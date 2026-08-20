@@ -23,6 +23,8 @@ class Appointment extends Model
         'start_time',
         'status',
         'source',
+        'tracking_link_id',
+        'completed_at',
         'service_name',
         'provider',
         'reminder_24h_sent',
@@ -47,6 +49,7 @@ class Appointment extends Model
             'reminder_24h_sent_at' => 'datetime',
             'reminder_final_sent_at' => 'datetime',
             'cancelled_at' => 'datetime',
+            'completed_at' => 'datetime',
             'client_confirmed_at' => 'datetime',
         ];
     }
@@ -91,6 +94,11 @@ class Appointment extends Model
     public function masterService(): BelongsTo
     {
         return $this->belongsTo(MasterService::class, 'master_service_id');
+    }
+
+    public function trackingLink(): BelongsTo
+    {
+        return $this->belongsTo(TrackingLink::class, 'tracking_link_id');
     }
 
     public function cancelledBy(): BelongsTo

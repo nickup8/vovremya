@@ -7,6 +7,8 @@ import {
 import AdminLayout from '@/layouts/AdminLayout';
 import { Button } from '@/components/ui/button';
 import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
+import { ChannelsTab, TopChannelsBlock } from '@/components/admin/ChannelsAnalytics';
+import type { ChannelSource, TrackingLinkItem } from '@/components/admin/ChannelsAnalytics';
 
 /* ═══════════════ Types ═══════════════ */
 
@@ -47,10 +49,18 @@ interface PageProps {
     dateFrom: string | null;
     dateTo: string | null;
     auth?: { user?: AuthUser };
+    activeTab?: string;
+    channels_feature?: boolean;
+    top_channels?: ChannelSource[] | null;
+    channels?: ChannelSource[] | null;
+    tracking_links?: TrackingLinkItem[] | null;
     [key: string]: unknown;
 }
 
 /* ═══════════════ Constants ═══════════════ */
+
+// Полный набор prop-ключей, обновляемых при partial navigation (стабильная ссылка).
+const RELOAD_ONLY = ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo', 'activeTab', 'channels_feature', 'top_channels', 'channels', 'tracking_links'];
 
 const PERIOD_TABS: { key: string; label: string }[] = [
     { key: 'day', label: 'День' },
@@ -201,6 +211,32 @@ export default function AnalyticsPage() {
     const activePeriod = props.activePeriod || 'week';
     const auth = props.auth;
 
+    const activeTab = props.activeTab === 'channels' ? 'channels' : 'overview';
+    const channelsFeature = props.channels_feature === true;
+
+    // Текущие query-параметры периода (сохраняются при переключении вкладок).
+    function currentPeriodParams(): Record<string, string> {
+        const p: Record<string, string> = { period: activePeriod };
+
+        if (props.dateFrom) {
+p.date_from = props.dateFrom;
+}
+
+        if (props.dateTo) {
+p.date_to = props.dateTo;
+}
+
+        return p;
+    }
+
+    function switchTab(tab: 'overview' | 'channels') {
+        router.get('/admin/analytics', { ...currentPeriodParams(), tab }, {
+            preserveState: true,
+            preserveScroll: true,
+            only: RELOAD_ONLY,
+        });
+    }
+
     const [activePoint, setActivePoint] = useState<ChartPoint | null>(null);
     const [dates, setDates] = useState({
         from: props.dateFrom || '',
@@ -229,11 +265,12 @@ export default function AnalyticsPage() {
 
         router.get('/admin/analytics', {
             period,
+            tab: activeTab,
             ...(bounds ? { date_from: bounds.from, date_to: bounds.to } : {}),
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: RELOAD_ONLY,
         });
     }
 
@@ -244,12 +281,13 @@ return;
 
         router.get('/admin/analytics', {
             period: 'custom',
+            tab: activeTab,
             date_from: dates.from,
             date_to: dates.to,
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: RELOAD_ONLY,
         });
     }
 
@@ -281,14 +319,15 @@ return;
 
         router.get('/admin/analytics', {
             period: activePeriod,
+            tab: activeTab,
             date_from: bounds.from,
             date_to: bounds.to,
         }, {
             preserveState: true,
             preserveScroll: true,
-            only: ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo'],
+            only: RELOAD_ONLY,
         });
-    }, [periodOffset, activePeriod]);
+    }, [periodOffset, activePeriod, activeTab]);
 
     const stats = [
         {
@@ -411,6 +450,42 @@ return;
                                 )}
                             </div>
 
+                            {/* ─── Tabs: Обзор / Каналы записи ─── */}
+                            <div className="flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-zinc-800">
+                                <button
+                                    onClick={() => switchTab('overview')}
+                                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                                        activeTab === 'overview'
+                                            ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                                            : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                                    }`}
+                                >
+                                    Обзор
+                                </button>
+                                <button
+                                    onClick={() => switchTab('channels')}
+                                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                                        activeTab === 'channels'
+                                            ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                                            : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                                    }`}
+                                >
+                                    Каналы записи
+                                </button>
+                            </div>
+
+                            {/* ─── Channels Tab ─── */}
+                            {activeTab === 'channels' && (
+                                <ChannelsTab
+                                    feature={channelsFeature}
+                                    channels={props.channels ?? null}
+                                    trackingLinks={props.tracking_links ?? null}
+                                />
+                            )}
+
+                            {/* ─── Overview Tab ─── */}
+                            {activeTab === 'overview' && (
+                            <div className="space-y-6">
                             {/* ─── Stat Cards ─── */}
                             <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
                                 {stats.map((stat) => (
@@ -620,6 +695,15 @@ return;
                                     </CardContent>
                                 </Card>
                             </div>
+
+                            {/* ─── TOP-5 каналов записи ─── */}
+                            <TopChannelsBlock
+                                channels={props.top_channels ?? null}
+                                feature={channelsFeature}
+                                onSeeAll={() => switchTab('channels')}
+                            />
+                            </div>
+                            )}
                         </div>
             </AdminLayout>
         </>

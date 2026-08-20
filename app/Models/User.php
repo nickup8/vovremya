@@ -6,8 +6,8 @@ use App\Enums\UserRole;
 use App\Traits\SearchableByProvider;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
-use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Attributes\Hidden;
+use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
@@ -100,6 +100,25 @@ class User extends Authenticatable implements PasskeyUser
     public function masterAppointments(): HasMany
     {
         return $this->hasMany(Appointment::class, 'master_id');
+    }
+
+    public function trackingLinks(): HasMany
+    {
+        return $this->hasMany(TrackingLink::class, 'master_id');
+    }
+
+    /**
+     * Есть ли у мастера фича текущего тарифа.
+     *
+     * Источник истины — Workspace::hasFeature (по активной подписке).
+     * Каждый мастер (в т.ч. одиночка) гарантированно имеет workspace:
+     * все пути создания мастера вызывают WorkspaceService::createForUser
+     * (Fortify-регистрация, Telegram/MAX онбординг, первая оплата).
+     * Отдельной per-user тарифной колонки в проекте нет.
+     */
+    public function hasFeature(string $feature): bool
+    {
+        return $this->workspace?->hasFeature($feature) ?? false;
     }
 
     public function clients(): HasMany
@@ -211,7 +230,7 @@ class User extends Authenticatable implements PasskeyUser
                 ->whereHas('catalog', fn ($c) => $c->where('is_active', true)))
             ->where(function ($q) {
                 $q->whereNotIn('role', [UserRole::Owner, UserRole::Admin])
-                  ->orWhere('is_service_provider', true);
+                    ->orWhere('is_service_provider', true);
             });
     }
 }

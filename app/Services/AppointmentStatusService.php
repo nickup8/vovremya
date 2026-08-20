@@ -53,6 +53,16 @@ class AppointmentStatusService
                 ? $actor->id
                 : null;
         }
+
+        // Жизненный цикл completed_at (аналитика завершённых услуг).
+        // Вход в Paid из любого статуса → фиксируем момент завершения (в т.ч. повторный Paid).
+        // Выход Paid → NoShow → услуга больше не завершена, сбрасываем.
+        if ($to === AppointmentStatus::Paid) {
+            $updateData['completed_at'] = now();
+        } elseif ($from === AppointmentStatus::Paid && $to === AppointmentStatus::NoShow) {
+            $updateData['completed_at'] = null;
+        }
+
         $appointment->update($updateData);
 
         broadcast(new AppointmentStatusChanged(

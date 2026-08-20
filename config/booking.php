@@ -16,4 +16,11 @@ return [
 
     'free_monthly_limit' => env('BOOKING_FREE_MONTHLY_LIMIT', 30),
 
+    /*
+     * Marketing attribution window (last-touch) в днях.
+     * Валидный переход по tracking-ссылке фиксирует источник на этот срок.
+     * Прямой заход не сбрасывает и не продлевает окно.
+     */
+    'attribution_window_days' => (int) env('BOOKING_ATTRIBUTION_WINDOW_DAYS', 7),
+
 ];

@@ -8,6 +8,7 @@ use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ServiceCatalogController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SuperAdminController;
+use App\Http\Controllers\Admin\TrackingLinkController;
 use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\BookingWidgetController;
@@ -119,6 +120,13 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/clients/{client}/toggle-block', [ClientController::class, 'toggleBlock'])->name('admin.clients.toggle-block');
 
     Route::get('/admin/analytics', [AnalyticsController::class, 'index'])->name('admin.analytics');
+
+    // Управление tracking-ссылками — только ПРОФИ (feature gate). Delete отсутствует намеренно.
+    Route::middleware('feature:channel_analytics')->group(function () {
+        Route::post('/admin/tracking-links', [TrackingLinkController::class, 'store'])->name('admin.tracking-links.store');
+        Route::put('/admin/tracking-links/{trackingLink}', [TrackingLinkController::class, 'update'])->name('admin.tracking-links.update');
+        Route::patch('/admin/tracking-links/{trackingLink}/active', [TrackingLinkController::class, 'setActive'])->name('admin.tracking-links.active');
+    });
 
     Route::get('/admin/settings', [SettingsController::class, 'index'])->name('admin.settings');
     Route::put('/admin/settings', [SettingsController::class, 'update'])->name('admin.settings.update');

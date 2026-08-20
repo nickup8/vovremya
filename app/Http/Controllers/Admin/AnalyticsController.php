@@ -6,6 +6,7 @@ use App\Enums\AppointmentStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Services\Analytics\AnalyticsService;
+use App\Services\Analytics\SourceAnalyticsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -15,6 +16,7 @@ class AnalyticsController extends Controller
 {
     public function __construct(
         private AnalyticsService $analyticsService,
+        private SourceAnalyticsService $sourceAnalyticsService,
     ) {}
 
     public function index(Request $request)
@@ -44,34 +46,60 @@ class AnalyticsController extends Controller
             $dateTo = $dateTo ?? Carbon::today()->format('Y-m-d');
         }
 
+        $tz = $user->getTimezone();
+        $dateStart = $dateFrom ?? $this->getPeriodStart($period)->toDateString();
+        $dateEnd = $dateTo ?? Carbon::now()->toDateString();
+
+        // Границы периода в timezone мастера → UTC для сравнения с PostgreSQL timestamps.
+        $periodStartUtc = Carbon::parse($dateStart, $tz)->startOfDay()->utc();
+        $periodEndUtc = Carbon::parse($dateEnd, $tz)->endOfDay()->utc();
+
+        // Операционный набор по start_time (utilization, отмены, неявки, посещаемость).
         $appointments = Appointment::whereIn('master_id', $masterIds)
             ->with(['masterService.catalog'])
             ->whereBetween('start_time', [
-                ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00',
-                ($dateTo ?? Carbon::now()->toDateString()).' 23:59:59',
+                $dateStart.' 00:00:00',
+                $dateEnd.' 23:59:59',
             ])
             ->get();
 
+        // Финансовый набор по completed_at (выручка, завершённые, средний чек, график, услуги, NEW/RETURNING).
+        $completedInPeriod = Appointment::whereIn('master_id', $masterIds)
+            ->with(['masterService.catalog'])
+            ->where('status', AppointmentStatus::Paid)
+            ->whereBetween('completed_at', [$periodStartUtc, $periodEndUtc])
+            ->get();
+
+        // Операционные метрики (отмены/неявки/посещаемость/упущенная выгода) — оставляем на start_time.
         $metrics = $this->analyticsService->calculateMetrics($appointments);
-        $chartData = $this->buildChartData($appointments, $period, $dateFrom, $dateTo);
-        $serviceStats = $this->buildServiceStats($appointments);
+        // Финансовые метрики — переводим на completed_at.
+        $metrics = array_merge($metrics, $this->analyticsService->financialFromCompleted($completedInPeriod));
 
-        $periodStart = ($dateFrom ?? $this->getPeriodStart($period)->toDateString()).' 00:00:00';
-        $clientRetention = $this->buildClientRetention($masterIds, $appointments, $periodStart);
+        $chartData = $this->buildChartData($completedInPeriod, $period, $dateFrom, $dateTo, $tz);
+        $serviceStats = $this->buildServiceStats($completedInPeriod);
+        $clientRetention = $this->buildClientRetention($masterIds, $completedInPeriod, $periodStartUtc);
 
-        $dateStart = $dateFrom ?? $this->getPeriodStart($period)->toDateString();
-        $dateEnd = $dateTo ?? Carbon::now()->toDateString();
         $utilization = $this->analyticsService->calculateUtilization($targetMasters, $appointments, $dateStart, $dateEnd);
 
         [$prevStart, $prevEnd] = $this->getPreviousPeriodDates($period, $dateFrom, $dateTo);
+        $prevStartUtc = Carbon::parse($prevStart->toDateString(), $tz)->startOfDay()->utc();
+        $prevEndUtc = Carbon::parse($prevEnd->toDateString(), $tz)->endOfDay()->utc();
+
         $prevAppointments = Appointment::whereIn('master_id', $masterIds)
             ->whereBetween('start_time', [
-                $prevStart->startOfDay()->toDateTimeString(),
-                $prevEnd->endOfDay()->toDateTimeString(),
+                $prevStart->copy()->startOfDay()->toDateTimeString(),
+                $prevEnd->copy()->endOfDay()->toDateTimeString(),
             ])
             ->get();
+        $prevCompleted = Appointment::whereIn('master_id', $masterIds)
+            ->where('status', AppointmentStatus::Paid)
+            ->whereBetween('completed_at', [$prevStartUtc, $prevEndUtc])
+            ->get();
 
-        $prevMetrics = $this->analyticsService->calculateMetrics($prevAppointments);
+        $prevMetrics = array_merge(
+            $this->analyticsService->calculateMetrics($prevAppointments),
+            $this->analyticsService->financialFromCompleted($prevCompleted),
+        );
         $prevUtilization = $this->analyticsService->calculateUtilization(
             $targetMasters,
             $prevAppointments,
@@ -98,7 +126,33 @@ class AnalyticsController extends Controller
             'utilization' => $prevUtilization,
         ];
 
-        return Inertia::render('admin/analytics', [
+        // ─── Каналы записи (source analytics) ───
+        // Приватный доступ гейтится тарифом ПРОФИ (feature capability).
+        // START-пользователю реальные данные НЕ отправляются: только флаг locked.
+        $activeTab = $request->query('tab', 'overview');
+        $hasChannelFeature = $user->hasFeature('channel_analytics');
+
+        $channelPayload = [
+            'channels_feature' => $hasChannelFeature,
+            'activeTab' => $activeTab,
+        ];
+
+        if ($hasChannelFeature) {
+            $sources = $this->sourceAnalyticsService->buildForMaster($user, $periodStartUtc, $periodEndUtc);
+
+            $channelPayload['top_channels'] = $this->sourceAnalyticsService->topByRevenue($sources, 5);
+            // Полный список — только когда открыта вкладка каналов (экономим payload).
+            $channelPayload['channels'] = $activeTab === 'channels' ? $sources : null;
+            $channelPayload['tracking_links'] = $activeTab === 'channels'
+                ? $this->buildTrackingLinks($user)
+                : null;
+        } else {
+            $channelPayload['top_channels'] = null;
+            $channelPayload['channels'] = null;
+            $channelPayload['tracking_links'] = null;
+        }
+
+        return Inertia::render('admin/analytics', array_merge([
             'metrics' => $metrics,
             'trends' => $trends,
             'prev_metrics' => $prevMetricsAbsolute,
@@ -106,15 +160,33 @@ class AnalyticsController extends Controller
             'activePeriod' => $period,
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
-        ]);
+        ], $channelPayload));
     }
 
-    private function buildChartData(Collection $appointments, string $period, ?string $dateFrom = null, ?string $dateTo = null): array
+    /**
+     * Список tracking-ссылок мастера для управления (только ПРОФИ).
+     *
+     * @return array<int, array<string, mixed>>
+     */
+    private function buildTrackingLinks($master): array
     {
-        $completed = $this->analyticsService->getCompleted($appointments);
+        return $master->trackingLinks()
+            ->orderByDesc('created_at')
+            ->get()
+            ->map(fn ($link) => [
+                'id' => $link->id,
+                'name' => $link->name,
+                'is_active' => $link->is_active,
+                'url' => route('booking.widget', $master->master_slug).'?ref='.$link->token,
+            ])
+            ->all();
+    }
 
-        $groupByFn = function ($app) use ($period, $dateFrom, $dateTo) {
-            $date = $app->start_time;
+    private function buildChartData(Collection $completed, string $period, ?string $dateFrom, ?string $dateTo, string $tz): array
+    {
+        $groupByFn = function ($app) use ($period, $dateFrom, $dateTo, $tz) {
+            // Финансовый график — по completed_at в timezone мастера.
+            $date = $app->completed_at?->copy()->timezone($tz) ?? $app->start_time->copy()->timezone($tz);
 
             if ($period === 'custom' && $dateFrom && $dateTo) {
                 $diff = Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo));
@@ -241,10 +313,8 @@ class AnalyticsController extends Controller
         };
     }
 
-    private function buildServiceStats(Collection $appointments): array
+    private function buildServiceStats(Collection $completed): array
     {
-        $completed = $this->analyticsService->getCompleted($appointments);
-
         if ($completed->isEmpty()) {
             return [];
         }
@@ -267,18 +337,19 @@ class AnalyticsController extends Controller
         return $stats->sortByDesc('count')->values()->take(10)->toArray();
     }
 
-    private function buildClientRetention(array $masterIds, Collection $appointments, string $periodStart): array
+    private function buildClientRetention(array $masterIds, Collection $completed, Carbon $periodStartUtc): array
     {
-        $completed = $this->analyticsService->getCompleted($appointments);
         $currentClientIds = $completed->pluck('client_id')->filter()->unique()->values();
 
         if ($currentClientIds->isEmpty()) {
             return ['new_clients_count' => 0, 'returning_clients_count' => 0, 'first_visit_conversion' => null];
         }
 
+        // Возвращающийся клиент — есть ранее завершённая услуга (по completed_at) до периода.
         $previousClientIds = Appointment::whereIn('master_id', $masterIds)
             ->where('status', AppointmentStatus::Paid)
-            ->where('start_time', '<', $periodStart)
+            ->whereNotNull('completed_at')
+            ->where('completed_at', '<', $periodStartUtc)
             ->whereIn('client_id', $currentClientIds)
             ->distinct()
             ->pluck('client_id');

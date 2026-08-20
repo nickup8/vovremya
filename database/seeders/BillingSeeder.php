@@ -29,7 +29,7 @@ class BillingSeeder extends Seeder
                 'price_monthly' => 490,
                 'max_appointments_per_month' => null,
                 'max_masters' => 1,
-                'features' => ['unlimited_appointments', 'client_management'],
+                'features' => ['unlimited_appointments', 'client_management', 'channel_analytics'],
                 'is_active' => true,
             ],
         );

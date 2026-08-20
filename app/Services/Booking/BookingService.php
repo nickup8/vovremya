@@ -13,9 +13,10 @@ use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
 use App\Services\Notification\ClientNotificationService;
 use Illuminate\Contracts\Auth\Authenticatable;
-use Illuminate\Support\Carbon;
 use Illuminate\Database\QueryException;
+use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
 use Illuminate\Validation\ValidationException;
 
@@ -108,6 +109,7 @@ class BookingService
         ?string $clientId = null,
         ?AppointmentStatus $status = null,
         ?AppointmentSource $source = null,
+        ?string $trackingLinkId = null,
     ): Appointment {
         $workspace = $master->workspace;
 
@@ -120,7 +122,7 @@ class BookingService
             ]);
         }
 
-        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source) {
+        return DB::transaction(function () use ($master, $service, $startDateTime, $endDateTime, $provider, $clientId, $status, $source, $trackingLinkId) {
             $conflict = Appointment::where('master_id', $master->id)
                 ->whereIn('status', [
                     AppointmentStatus::Booked,
@@ -167,6 +169,7 @@ class BookingService
                     'status' => $appointmentStatus,
                     'provider' => $provider,
                     'source' => $source,
+                    'tracking_link_id' => $trackingLinkId,
                 ]);
             } catch (QueryException $e) {
                 if ($e->getPrevious()?->getCode() === '23P01') {
@@ -457,7 +460,7 @@ class BookingService
                 ]),
             );
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::error('[reschedule] client notify failed', [
+            Log::error('[reschedule] client notify failed', [
                 'appointment_id' => $appointment->id,
                 'error' => $e->getMessage(),
             ]);

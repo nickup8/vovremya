@@ -46,6 +46,28 @@ class AnalyticsService
         return $appointments->filter(fn ($app) => $app->status === AppointmentStatus::Paid);
     }
 
+    /**
+     * Финансовые метрики по семантике completed_at.
+     *
+     * $completedByCompletedAt — записи со статусом Paid, у которых completed_at
+     * попадает в выбранный период (загружаются контроллером отдельным запросом).
+     * Используется для revenue / total_visits / avg_check вместо start_time.
+     *
+     * @return array{revenue: float, total_visits: int, avg_check: float}
+     */
+    public function financialFromCompleted(Collection $completedByCompletedAt): array
+    {
+        $revenue = (float) $completedByCompletedAt->sum(fn ($app) => $app->display_price);
+        $totalVisits = $completedByCompletedAt->count();
+        $avgCheck = $totalVisits > 0 ? round($revenue / $totalVisits, 2) : 0;
+
+        return [
+            'revenue' => $revenue,
+            'total_visits' => $totalVisits,
+            'avg_check' => $avgCheck,
+        ];
+    }
+
     public function calculateUtilization(Collection $masters, Collection $appointments, string $startDate, string $endDate): int
     {
         $occupied = $appointments->filter(fn ($app) => in_array($app->status, [

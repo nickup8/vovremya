@@ -4,6 +4,7 @@ namespace App\Http\Controllers;
 
 use App\Models\MasterService;
 use App\Models\User;
+use App\Services\Booking\AttributionService;
 use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\JsonResponse;
@@ -16,6 +17,7 @@ class BookingWidgetController extends Controller
     public function __construct(
         private BookingService $bookingService,
         private AvailabilityService $availabilityService,
+        private AttributionService $attributionService,
     ) {}
 
     public function show(string $slug, Request $request)
@@ -23,6 +25,11 @@ class BookingWidgetController extends Controller
         $master = User::where('master_slug', $slug)
             ->visibleInWidget()
             ->firstOrFail();
+
+        // Снимаем marketing attribution на первом backend GET (?ref=TOKEN),
+        // чтобы не зависеть от сохранения ref во frontend URL при partial navigation.
+        // Тариф здесь не проверяется — публичный сбор работает и для START.
+        $this->attributionService->captureFromRequest($master, $request);
 
         $master->load(['masterServices' => fn ($q) => $q->with('catalog')
             ->where('is_active', true)
@@ -131,13 +138,19 @@ class BookingWidgetController extends Controller
             ], 422);
         }
 
+        // Резолвим источник в момент создания записи: ссылка заново валидируется
+        // (принадлежность мастеру + активность). Если между click и booking её отключили —
+        // источник не фиксируется, запись классифицируется как Direct.
+        $trackingLinkId = $this->attributionService->resolveLinkId($master, $request);
+
         $appointment = $this->bookingService->createAppointment(
             $master,
             $service,
             $validated['date'],
             $validated['time'],
             $validated['provider'],
-            null,
+            clientId: null,
+            trackingLinkId: $trackingLinkId,
         );
 
         $telegramBotName = config('services.telegram.bot_name', 'vovremia_bot');
