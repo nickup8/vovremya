@@ -22,28 +22,11 @@ class AttributionService
     private const COOKIE = 'booking_attribution';
 
     /**
-     * Снять attribution на первом backend GET виджета.
-     * Валидный tracked-переход заменяет источник и рестартит TTL.
-     * Direct/invalid/foreign/disabled — не сбрасывают и не продлевают существующую attribution.
+     * Установить 7-day last-touch attribution для валидной active ссылки.
+     * Caller обязан предварительно найти TrackingLink и проверить is_active.
      */
-    public function captureFromRequest(User $master, Request $request): void
+    public function captureByToken(User $master, TrackingLink $link, Request $request): void
     {
-        $token = $request->query('ref');
-
-        if (! is_string($token) || $token === '') {
-            return; // Direct — ничего не трогаем.
-        }
-
-        $link = TrackingLink::query()
-            ->where('token', $token)
-            ->where('master_id', $master->id) // IDOR: чужой токен игнорируется.
-            ->where('is_active', true)         // disabled токен не собирает attribution.
-            ->first();
-
-        if (! $link) {
-            return; // invalid/foreign/disabled — существующую attribution не трогаем.
-        }
-
         $days = $this->windowDays();
 
         $map = $this->readMap($request);
@@ -54,7 +37,7 @@ class AttributionService
 
         $encoded = json_encode($map);
         if ($encoded === false) {
-            return; // не удалось сериализовать — не трогаем существующую attribution.
+            return;
         }
 
         Cookie::queue(cookie(

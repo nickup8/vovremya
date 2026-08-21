@@ -177,7 +177,7 @@ class AnalyticsController extends Controller
                 'id' => $link->id,
                 'name' => $link->name,
                 'is_active' => $link->is_active,
-                'url' => route('booking.widget', $master->master_slug).'?ref='.$link->token,
+                'url' => route('tracking-link.redirect', $link->token),
             ])
             ->all();
     }

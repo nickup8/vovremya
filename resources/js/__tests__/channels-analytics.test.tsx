@@ -23,8 +23,8 @@ const sampleChannels: ChannelSource[] = [
 ];
 
 const sampleLinks: TrackingLinkItem[] = [
-    { id: '1', name: 'Instagram', is_active: true, url: 'https://x/book/m?ref=abc' },
-    { id: '2', name: 'VK старое', is_active: false, url: 'https://x/book/m?ref=def' },
+    { id: '1', name: 'Instagram', is_active: true, url: 'https://x/r/abc' },
+    { id: '2', name: 'VK старое', is_active: false, url: 'https://x/r/def' },
 ];
 
 describe('ChannelsTab — PROFI', () => {

@@ -3,11 +3,13 @@
 namespace App\Http\Controllers;
 
 use App\Models\MasterService;
+use App\Models\TrackingLink;
 use App\Models\User;
 use App\Services\Booking\AttributionService;
 use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
@@ -25,11 +27,6 @@ class BookingWidgetController extends Controller
         $master = User::where('master_slug', $slug)
             ->visibleInWidget()
             ->firstOrFail();
-
-        // Снимаем marketing attribution на первом backend GET (?ref=TOKEN),
-        // чтобы не зависеть от сохранения ref во frontend URL при partial navigation.
-        // Тариф здесь не проверяется — публичный сбор работает и для START.
-        $this->attributionService->captureFromRequest($master, $request);
 
         $master->load(['masterServices' => fn ($q) => $q->with('catalog')
             ->where('is_active', true)
@@ -67,6 +64,28 @@ class BookingWidgetController extends Controller
             'selectedServiceId' => $service ? $selectedServiceId : null,
             'maxBotName' => config('services.max.bot_name'),
         ]);
+    }
+
+    /**
+     * Tracking link redirect: /r/{token}.
+     *
+     * Active  → set attribution, 302 to widget.
+     * Disabled → 302 to widget without touching attribution.
+     * Missing  → 404.
+     */
+    public function redirect(string $token, Request $request): RedirectResponse
+    {
+        $link = TrackingLink::where('token', $token)->firstOrFail();
+
+        $master = User::where('id', $link->master_id)
+            ->visibleInWidget()
+            ->firstOrFail();
+
+        if ($link->is_active) {
+            $this->attributionService->captureByToken($master, $link, $request);
+        }
+
+        return redirect()->route('booking.widget', $master->master_slug);
     }
 
     public function availableDates(Request $request, string $slug): JsonResponse

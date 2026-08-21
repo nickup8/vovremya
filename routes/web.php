@@ -49,6 +49,7 @@ Route::post('/auth/magic', [MagicLoginController::class, 'login'])
     ->name('auth.magic.login')
     ->middleware('throttle:10,1');
 
+Route::get('/r/{token}', [BookingWidgetController::class, 'redirect'])->name('tracking-link.redirect');
 Route::get('/book/{master}', [BookingWidgetController::class, 'show'])->name('booking.widget');
 Route::get('/book/{master}/available-dates', [BookingWidgetController::class, 'availableDates'])->name('booking.available-dates');
 Route::post('/book/{master}', [BookingWidgetController::class, 'store'])->middleware('throttle:5,1')->name('booking.reserve');
