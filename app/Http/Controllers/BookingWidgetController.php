@@ -39,12 +39,6 @@ class BookingWidgetController extends Controller
             ? $master->masterServices->firstWhere('id', $selectedServiceId)
             : null;
 
-        $availableSlots = $this->bookingService->getAvailableSlots(
-            $master,
-            $service,
-            $selectedDate
-        );
-
         return Inertia::render('booking/widget', [
             'master' => [
                 'name' => $master->name,
@@ -59,7 +53,11 @@ class BookingWidgetController extends Controller
                 'price' => (float) $s->effective_price,
                 'duration_minutes' => $s->effective_duration,
             ]),
-            'availableSlots' => $availableSlots,
+            'availableSlots' => Inertia::optional(fn () => $this->bookingService->getAvailableSlots(
+                $master,
+                $service,
+                $selectedDate
+            )),
             'selectedDate' => $selectedDate,
             'selectedServiceId' => $service ? $selectedServiceId : null,
             'maxBotName' => config('services.max.bot_name'),

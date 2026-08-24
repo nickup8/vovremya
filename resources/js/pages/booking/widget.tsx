@@ -31,7 +31,7 @@ interface Service {
 interface PageProps {
     master: Master;
     services: Service[];
-    availableSlots: string[];
+    availableSlots?: string[];
     selectedDate: string;
     selectedServiceId: string | null;
     maxBotName: string | null;
@@ -523,7 +523,7 @@ export default function Widget() {
         initialDate ? new Date(initialDate + 'T00:00:00') : null
     );
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
-    const [slots, setSlots] = useState<string[]>(availableSlots);
+    const [slots, setSlots] = useState<string[]>(availableSlots ?? []);
     const [loadingSlots, setLoadingSlots] = useState(false);
     const [loadingProvider, setLoadingProvider] = useState<'telegram' | 'max' | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
