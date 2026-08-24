@@ -6,10 +6,7 @@ import {
     ChevronLeft, ChevronRight, MapPin, Loader2,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import PublicLayout from '@/layouts/PublicLayout';
 import { getInitials } from '@/lib/utils';
-
-Widget.layout = (page: React.ReactNode) => <PublicLayout children={page} />;
 
 /* ═══════════════ Types ═══════════════ */
 
