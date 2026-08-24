@@ -15,7 +15,7 @@ const mockAppointment = {
     status: AppointmentStatus.Booked,
 };
 
-vi.mock('@laravel/echo-react', () => ({
+vi.mock('@/echo-config', () => ({
     echo: () => ({
         private: () => ({
             listen: () => ({

@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef, useMemo } from 'react';
 import { Head, router, useForm, usePage } from '@inertiajs/react';
-import { echo } from '@laravel/echo-react';
+import { echo } from '@/echo-config';
 import Cropper from 'react-easy-crop';
 import {
     Send,

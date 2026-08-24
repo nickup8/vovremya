@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { echo } from '@laravel/echo-react';
+import { echo } from '@/echo-config';
 import { AppointmentStatus } from '@/types/appointment-status';
 import type { Appointment, BlockedTime } from '@/pages/admin/components/calendar/types';
 
