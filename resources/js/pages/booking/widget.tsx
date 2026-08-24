@@ -199,18 +199,37 @@ function StepDate({
 
     // Загрузка доступных дат при смене месяца
     useEffect(() => {
+        let cancelled = false;
+        const controller = new AbortController();
+
         setLoadingDates(true);
-        fetch(`/book/${masterSlug}/available-dates?service_id=${serviceId}&year=${viewYear}&month=${viewMonth + 1}`)
+        fetch(`/book/${masterSlug}/available-dates?service_id=${serviceId}&year=${viewYear}&month=${viewMonth + 1}`, {
+            signal: controller.signal,
+        })
             .then((res) => res.json())
             .then((data: { dates: string[] }) => {
-                setAvailableDates(new Set(data.dates ?? []));
+                if (!cancelled) {
+                    setAvailableDates(new Set(data.dates ?? []));
+                }
             })
-            .catch(() => {
-                setAvailableDates(new Set());
+            .catch((error: unknown) => {
+                if (error instanceof Error && error.name === 'AbortError') {
+                    return;
+                }
+                if (!cancelled) {
+                    setAvailableDates(new Set());
+                }
             })
             .finally(() => {
-                setLoadingDates(false);
+                if (!cancelled) {
+                    setLoadingDates(false);
+                }
             });
+
+        return () => {
+            cancelled = true;
+            controller.abort();
+        };
     }, [masterSlug, serviceId, viewYear, viewMonth]);
 
     const isPast = (d: Date) => {
