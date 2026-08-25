@@ -9,6 +9,7 @@ export interface Client {
     max_id: string | null;
     avatar_url: string | null;
     is_blocked: boolean;
+    disable_reactivation: boolean;
     notes: string | null;
     auth_token: string | null;
     created_at: string;

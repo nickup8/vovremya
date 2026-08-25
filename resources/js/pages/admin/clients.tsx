@@ -6,9 +6,11 @@ import {
     Users, Phone, Send, MessageCircle,
     CalendarPlus, Pencil, ShieldCheck,
     ShieldOff, Shield, ChevronLeft, ChevronRight,
+    RefreshCw,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Switch } from '@/components/ui/switch';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import AdminLayout from '@/layouts/AdminLayout';
@@ -44,7 +46,15 @@ function formatCurrency(value: number): string {
 
 /* ═══════════════ Client Card ═══════════════ */
 
-function ClientCard({ client, onEdit, onToggleBlock, isProcessing }: { client: Client; onEdit: (c: Client) => void; onToggleBlock: (c: Client) => void; isProcessing: boolean }) {
+function ClientCard({ client, onEdit, onToggleBlock, isProcessing, hasReactivationFeature, onToggleReactivation, reactivationProcessing }: {
+    client: Client;
+    onEdit: (c: Client) => void;
+    onToggleBlock: (c: Client) => void;
+    isProcessing: boolean;
+    hasReactivationFeature: boolean;
+    onToggleReactivation: (c: Client, nextEnabled: boolean) => void;
+    reactivationProcessing: string | null;
+}) {
     const initials = getInitials(client.name);
 
     return (
@@ -122,6 +132,25 @@ function ClientCard({ client, onEdit, onToggleBlock, isProcessing }: { client: C
                     </div>
                 </div>
 
+                {/* Reactivation toggle */}
+                {hasReactivationFeature && (
+                    <div className="flex items-center gap-2 rounded-lg bg-slate-50 px-3 py-2 dark:bg-zinc-800/50">
+                        <RefreshCw className="size-3.5 text-slate-400 dark:text-zinc-500" />
+                        <span className="flex-1 text-xs font-medium text-slate-600 dark:text-zinc-400">
+                            Умный возврат
+                        </span>
+                        <Switch
+                            checked={!client.disable_reactivation}
+                            disabled={reactivationProcessing === client.id}
+                            onCheckedChange={(enabled) => onToggleReactivation(client, enabled)}
+                            className="scale-75"
+                        />
+                        <span className="text-xs text-slate-400 dark:text-zinc-500">
+                            {!client.disable_reactivation ? 'Вкл' : 'Выкл'}
+                        </span>
+                    </div>
+                )}
+
                 {/* Action buttons */}
                 <div className="flex gap-2 pt-2">
                     <button
@@ -158,7 +187,7 @@ function ClientCard({ client, onEdit, onToggleBlock, isProcessing }: { client: C
 /* ═══════════════ Main Clients Page ═══════════════ */
 
 export default function ClientsPage() {
-    const { clients: paginatedClients, auth } = usePage<PageProps & { clients: Paginated<Client> }>().props;
+    const { clients: paginatedClients, auth, has_reactivation_feature } = usePage<PageProps & { clients: Paginated<Client>; has_reactivation_feature: boolean }>().props;
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FilterType>('all');
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -166,6 +195,7 @@ export default function ClientsPage() {
     const [formName, setFormName] = useState('');
     const [formPhone, setFormPhone] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
+    const [reactivationProcessing, setReactivationProcessing] = useState<string | null>(null);
 
     const initialClients = paginatedClients?.data ?? [];
 
@@ -217,6 +247,25 @@ return;
             },
             onFinish: () => {
                 setIsProcessing(false);
+            },
+        });
+    }
+
+    function handleToggleReactivation(client: Client, nextEnabled: boolean) {
+        if (reactivationProcessing) {
+return;
+}
+
+        setReactivationProcessing(client.id);
+        router.patch(`/admin/clients/${client.id}/reactivation`, {
+            disable_reactivation: !nextEnabled,
+        }, {
+            preserveScroll: true,
+            onError: (errors) => {
+                toast.error(Object.values(errors)[0] || 'Не удалось изменить настройку');
+            },
+            onFinish: () => {
+                setReactivationProcessing(null);
             },
         });
     }
@@ -322,7 +371,16 @@ return;
                                 <>
                                     <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
                                         {clients.map((client) => (
-                                            <ClientCard key={client.id} client={client} onEdit={openEdit} onToggleBlock={handleToggleBlock} isProcessing={isProcessing} />
+                                            <ClientCard
+                                                key={client.id}
+                                                client={client}
+                                                onEdit={openEdit}
+                                                onToggleBlock={handleToggleBlock}
+                                                isProcessing={isProcessing}
+                                                hasReactivationFeature={has_reactivation_feature}
+                                                onToggleReactivation={handleToggleReactivation}
+                                                reactivationProcessing={reactivationProcessing}
+                                            />
                                         ))}
                                     </div>
 

@@ -52,6 +52,7 @@ class ClientController extends Controller
                     'completed_bookings' => $client->completed_bookings,
                     'ltv' => (float) $ltv,
                     'last_visit' => $client->last_visit,
+                    'disable_reactivation' => $client->disable_reactivation,
                 ];
             });
 
@@ -65,6 +66,7 @@ class ClientController extends Controller
                 'per_page' => $perPage,
                 'current_page' => (int) $request->query('page', 1),
             ],
+            'has_reactivation_feature' => $user->hasFeature('client_reactivation'),
         ]);
     }
 
@@ -134,6 +136,24 @@ class ClientController extends Controller
         $client->update($validated);
 
         return back()->with('success', 'Данные клиента обновлены');
+    }
+
+    public function updateReactivation(Request $request, Client $client)
+    {
+        $this->authorize('update', $client);
+
+        $validated = $request->validate([
+            'disable_reactivation' => 'required|boolean',
+        ]);
+
+        $client->update([
+            'disable_reactivation' => $validated['disable_reactivation'],
+        ]);
+
+        return back()->with('success', $validated['disable_reactivation']
+            ? 'Клиент исключён из возврата'
+            : 'Клиент будет участвовать в возврате'
+        );
     }
 
     public function toggleBlock(Client $client)

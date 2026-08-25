@@ -33,6 +33,7 @@ class Client extends Authenticatable
         'pdn_consent_at',
         'pdn_consent_version',
         'is_blocked',
+        'disable_reactivation',
         'notes',
     ];
 
@@ -45,6 +46,7 @@ class Client extends Authenticatable
         return [
             'is_personal' => 'boolean',
             'is_blocked' => 'boolean',
+            'disable_reactivation' => 'boolean',
             'pdn_consent_at' => 'datetime',
         ];
     }
