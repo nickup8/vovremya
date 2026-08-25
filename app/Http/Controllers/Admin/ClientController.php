@@ -8,6 +8,8 @@ use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\Booking\BookingService;
+use App\Services\Client\ReactivationCandidateService;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
 
@@ -154,6 +156,13 @@ class ClientController extends Controller
             ? 'Клиент исключён из возврата'
             : 'Клиент будет участвовать в возврате'
         );
+    }
+
+    public function reactivationCandidates(ReactivationCandidateService $service): JsonResponse
+    {
+        $candidates = $service->findFor(auth()->user());
+
+        return response()->json($candidates);
     }
 
     public function toggleBlock(Client $client)
