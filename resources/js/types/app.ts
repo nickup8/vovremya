@@ -22,6 +22,20 @@ export interface Client {
     last_visit?: string | null;
 }
 
+/* ═══════════════ Reactivation Candidate ═══════════════ */
+
+export interface ReactivationCandidate {
+    client_id: string;
+    client_name: string;
+    service_catalog_id: string;
+    service_name: string;
+    source_appointment_id: string;
+    last_visit_at: string;
+    reactivation_days: number;
+    eligible_at: string;
+    days_overdue: number;
+}
+
 /* ═══════════════ Pagination ═══════════════ */
 
 export interface Paginated<T> {
