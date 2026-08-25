@@ -9,19 +9,20 @@ use Illuminate\Support\Facades\DB;
 
 class ReactivationCandidateService
 {
+    private const FUTURE_STATUSES = [
+        AppointmentStatus::Booked->value,
+        AppointmentStatus::PendingPayment->value,
+        AppointmentStatus::Prepaid->value,
+    ];
+
     /**
      * Find reactivation candidates for the authenticated master.
      *
-     * Each candidate = (client, service_catalog) where:
-     *  1. client belongs to workspace/master scope
-     *  2. client.is_blocked = false
-     *  3. client.disable_reactivation = false
-     *  4. service_catalog.is_active = true
-     *  5. service_catalog.reactivation_days IS NOT NULL
-     *  6. latest paid appointment with completed_at exists for this client+catalog
-     *  7. completed_at + reactivation_days <= now
-     *  8. no future active appointment for same catalog
-     *  9. current master has active MasterService for this catalog
+     * Single set-based PostgreSQL query:
+     *  - CTE latest_paid: DISTINCT ON (client_id, catalog_id) for latest paid visit
+     *  - EXISTS: current master has active MasterService for catalog
+     *  - NOT EXISTS: no future same-catalog active appointment
+     *  - Due filter: completed_at + reactivation_days <= now
      *
      * @return array<int, array{
      *     client_id: string,
@@ -39,167 +40,110 @@ class ReactivationCandidateService
     {
         $now = Carbon::now();
 
-        // Step 1: Get current master's active catalog IDs
-        $activeCatalogIds = DB::table('master_service')
-            ->where('master_id', $user->id)
-            ->where('is_active', true)
-            ->pluck('catalog_id');
+        // Client scope: matches Client::scopeForWorkspaceOrMaster()
+        $clientScopeCondition = $user->workspace_id !== null
+            ? 'c.workspace_id = :ws_id'
+            : '(c.workspace_id IS NULL AND c.user_id = :master_id)';
 
-        if ($activeCatalogIds->isEmpty()) {
-            return [];
-        }
-
-        // Step 2: Get eligible catalog services (active + has reactivation cycle)
-        $eligibleCatalogs = DB::table('service_catalog')
-            ->whereIn('id', $activeCatalogIds)
-            ->where('is_active', true)
-            ->whereNotNull('reactivation_days')
-            ->get()
-            ->keyBy('id');
-
-        if ($eligibleCatalogs->isEmpty()) {
-            return [];
-        }
-
-        // Step 3: Get clients in scope
-        $clientQuery = DB::table('clients')
-            ->where('is_blocked', false)
-            ->where('disable_reactivation', false);
-
-        if ($user->workspace_id !== null) {
-            $clientQuery->where('workspace_id', $user->workspace_id);
-        } else {
-            $clientQuery->where('user_id', $user->id)->whereNull('workspace_id');
-        }
-
-        $clientIds = $clientQuery->pluck('id');
-
-        if ($clientIds->isEmpty()) {
-            return [];
-        }
-
-        // Step 4: Find latest paid+completed appointment per (client_id, catalog_id)
-        // using DISTINCT ON (client_id, catalog_id)
-        $latestVisits = DB::table('appointments as a')
-            ->join('master_service as ms', 'ms.id', '=', 'a.master_service_id')
-            ->select(
-                'a.client_id',
-                'ms.catalog_id',
-                'a.id as appointment_id',
-                'a.completed_at',
-            )
-            ->whereIn('a.client_id', $clientIds)
-            ->whereIn('ms.catalog_id', $eligibleCatalogs->keys())
-            ->where('a.status', AppointmentStatus::Paid->value)
-            ->whereNotNull('a.completed_at')
-            ->whereNotNull('a.master_service_id')
-            ->orderByRaw('a.client_id, ms.catalog_id, a.completed_at DESC, a.id DESC')
-            ->get();
-
-        // Apply DISTINCT ON (client_id, catalog_id) in PHP
-        $latestByKey = [];
-        foreach ($latestVisits as $visit) {
-            $key = $visit->client_id . '|' . $visit->catalog_id;
-            if (! isset($latestByKey[$key])) {
-                $latestByKey[$key] = $visit;
-            }
-        }
-
-        if (empty($latestByKey)) {
-            return [];
-        }
-
-        // Step 5: Filter by eligibility (completed_at + reactivation_days <= now)
-        $dueVisits = [];
-        foreach ($latestByKey as $key => $visit) {
-            $catalog = $eligibleCatalogs->get($visit->catalog_id);
-            if (! $catalog) {
-                continue;
-            }
-
-            $completedAt = Carbon::parse($visit->completed_at);
-            $eligibleAt = $completedAt->copy()->addDays($catalog->reactivation_days);
-
-            if ($eligibleAt->lte($now)) {
-                $dueVisits[$key] = (object) [
-                    'client_id' => $visit->client_id,
-                    'catalog_id' => $visit->catalog_id,
-                    'appointment_id' => $visit->appointment_id,
-                    'completed_at' => $completedAt,
-                    'eligible_at' => $eligibleAt,
-                    'reactivation_days' => $catalog->reactivation_days,
-                    'service_name' => $catalog->title,
-                ];
-            }
-        }
-
-        if (empty($dueVisits)) {
-            return [];
-        }
-
-        // Step 6: Suppress candidates with future active appointment for same catalog
-        $activeFutureStatuses = [
-            AppointmentStatus::Booked->value,
-            AppointmentStatus::PendingPayment->value,
-            AppointmentStatus::Prepaid->value,
+        $bindings = [
+            'master_id' => $user->id,
+            'ws_id' => $user->workspace_id,
+            'now' => $now->toDateTimeString(),
+            'paid' => AppointmentStatus::Paid->value,
         ];
 
-        $dueClientIds = collect($dueVisits)->pluck('client_id')->unique()->values()->all();
-        $dueCatalogIds = collect($dueVisits)->pluck('catalog_id')->unique()->values()->all();
+        $futureStatuses = self::FUTURE_STATUSES;
 
-        $futureAppointments = DB::table('appointments as a')
-            ->join('master_service as ms', 'ms.id', '=', 'a.master_service_id')
-            ->select('a.client_id', 'ms.catalog_id')
-            ->whereIn('a.client_id', $dueClientIds)
-            ->whereIn('ms.catalog_id', $dueCatalogIds)
-            ->whereIn('a.status', $activeFutureStatuses)
-            ->where('a.start_time', '>', $now)
-            ->get();
-
-        $suppressed = [];
-        foreach ($futureAppointments as $fa) {
-            $suppressed[$fa->client_id . '|' . $fa->catalog_id] = true;
+        // Build placeholders for NOT EXISTS IN clause
+        $futureStatusPlaceholders = [];
+        foreach ($futureStatuses as $i => $status) {
+            $key = "future_status_{$i}";
+            $futureStatusPlaceholders[] = ":{$key}";
+            $bindings[$key] = $status;
         }
+        $futureStatusList = implode(', ', $futureStatusPlaceholders);
 
-        // Step 7: Build result
-        $clientNames = DB::table('clients')
-            ->whereIn('id', $dueClientIds)
-            ->pluck('name', 'id');
+        $sql = <<<SQL
+            WITH latest_paid AS (
+                SELECT DISTINCT ON (a.client_id, ms.catalog_id)
+                    a.client_id,
+                    ms.catalog_id,
+                    a.id AS source_appointment_id,
+                    a.completed_at AS last_visit_at,
+                    c.name AS client_name,
+                    sc.title AS service_name,
+                    sc.reactivation_days
+                FROM appointments a
+                JOIN master_service ms ON ms.id = a.master_service_id
+                JOIN service_catalog sc ON sc.id = ms.catalog_id
+                JOIN clients c ON c.id = a.client_id
+                WHERE a.status = :paid
+                  AND a.completed_at IS NOT NULL
+                  AND a.master_service_id IS NOT NULL
+                  AND sc.is_active = true
+                  AND sc.reactivation_days IS NOT NULL
+                  AND c.is_blocked = false
+                  AND c.disable_reactivation = false
+                  AND {$clientScopeCondition}
+                  AND EXISTS (
+                      SELECT 1
+                      FROM master_service current_ms
+                      WHERE current_ms.master_id = :master_id
+                        AND current_ms.catalog_id = sc.id
+                        AND current_ms.is_active = true
+                  )
+                ORDER BY
+                    a.client_id,
+                    ms.catalog_id,
+                    a.completed_at DESC,
+                    a.id DESC
+            )
+            SELECT
+                lp.client_id,
+                lp.client_name,
+                lp.catalog_id AS service_catalog_id,
+                lp.service_name,
+                lp.source_appointment_id,
+                lp.last_visit_at,
+                lp.reactivation_days,
+                (lp.last_visit_at::timestamp + make_interval(days => lp.reactivation_days)) AS eligible_at
+            FROM latest_paid lp
+            WHERE (lp.last_visit_at::timestamp + make_interval(days => lp.reactivation_days)) <= :now
+              AND NOT EXISTS (
+                  SELECT 1
+                  FROM appointments fa
+                  JOIN master_service fms ON fms.id = fa.master_service_id
+                  WHERE fa.client_id = lp.client_id
+                    AND fms.catalog_id = lp.catalog_id
+                    AND fa.status IN ({$futureStatusList})
+                    AND fa.start_time > :now
+              )
+            ORDER BY
+                (lp.last_visit_at::timestamp + make_interval(days => lp.reactivation_days)) ASC,
+                lp.client_id ASC,
+                lp.catalog_id ASC
+            SQL;
+
+        $rows = DB::select($sql, $bindings);
 
         $candidates = [];
-        foreach ($dueVisits as $key => $visit) {
-            if (isset($suppressed[$key])) {
-                continue;
-            }
-
-            $secondsOverdue = $now->getTimestamp() - $visit->eligible_at->getTimestamp();
+        foreach ($rows as $row) {
+            $eligibleAt = Carbon::parse($row->eligible_at);
+            $secondsOverdue = $now->getTimestamp() - $eligibleAt->getTimestamp();
             $daysOverdue = max(0, (int) floor($secondsOverdue / 86400));
 
             $candidates[] = [
-                'client_id' => $visit->client_id,
-                'client_name' => $clientNames[$visit->client_id] ?? '',
-                'service_catalog_id' => $visit->catalog_id,
-                'service_name' => $visit->service_name,
-                'source_appointment_id' => $visit->appointment_id,
-                'last_visit_at' => $visit->completed_at->toIso8601String(),
-                'reactivation_days' => $visit->reactivation_days,
-                'eligible_at' => $visit->eligible_at->toIso8601String(),
+                'client_id' => $row->client_id,
+                'client_name' => $row->client_name,
+                'service_catalog_id' => $row->service_catalog_id,
+                'service_name' => $row->service_name,
+                'source_appointment_id' => $row->source_appointment_id,
+                'last_visit_at' => Carbon::parse($row->last_visit_at)->toIso8601String(),
+                'reactivation_days' => (int) $row->reactivation_days,
+                'eligible_at' => $eligibleAt->toIso8601String(),
                 'days_overdue' => $daysOverdue,
             ];
         }
-
-        // Sort: most overdue first, then by client_id, then catalog_id
-        usort($candidates, function (array $a, array $b) {
-            if ($b['days_overdue'] !== $a['days_overdue']) {
-                return $b['days_overdue'] - $a['days_overdue'];
-            }
-
-            if ($a['client_id'] !== $b['client_id']) {
-                return $a['client_id'] <=> $b['client_id'];
-            }
-
-            return $a['service_catalog_id'] <=> $b['service_catalog_id'];
-        });
 
         return $candidates;
     }
