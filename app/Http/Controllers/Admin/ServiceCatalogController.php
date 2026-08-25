@@ -25,6 +25,7 @@ class ServiceCatalogController extends Controller
 
         return Inertia::render('admin/service-catalog', [
             'catalog' => $items,
+            'has_reactivation_feature' => auth()->user()->hasFeature('client_reactivation'),
         ]);
     }
 

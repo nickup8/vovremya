@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
-import { Plus, Pencil, Trash2 } from 'lucide-react';
+import { Plus, Pencil, Trash2, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -17,10 +17,12 @@ interface CatalogItem {
     base_price: number;
     base_duration: number;
     is_active: boolean;
+    reactivation_days: number | null;
 }
 
 interface PageProps {
     catalog: CatalogItem[];
+    has_reactivation_feature: boolean;
     auth?: { user?: { name?: string; [key: string]: unknown } };
     flash?: { success?: string; error?: string };
     errors?: Record<string, string>;
@@ -32,10 +34,12 @@ function CatalogModal({
     open,
     onClose,
     item,
+    hasReactivationFeature,
 }: {
     open: boolean;
     onClose: () => void;
     item: CatalogItem | null;
+    hasReactivationFeature: boolean;
 }) {
     const { errors: pageErrors } = usePage<PageProps>().props;
     const [title, setTitle] = useState('');
@@ -44,6 +48,9 @@ function CatalogModal({
     const [baseDuration, setBaseDuration] = useState('');
     const [isActive, setIsActive] = useState(true);
     const [processing, setProcessing] = useState(false);
+    const [reactivationEnabled, setReactivationEnabled] = useState(false);
+    const [reactivationDays, setReactivationDays] = useState('');
+    const [reactivationError, setReactivationError] = useState('');
 
     useEffect(() => {
         if (open && item) {
@@ -52,18 +59,42 @@ function CatalogModal({
             setBasePrice(item.base_price.toString());
             setBaseDuration(item.base_duration.toString());
             setIsActive(item.is_active);
+            setReactivationEnabled(item.reactivation_days !== null);
+            setReactivationDays(item.reactivation_days !== null ? item.reactivation_days.toString() : '');
+            setReactivationError('');
         } else if (open) {
             setTitle('');
             setCategory('');
             setBasePrice('');
             setBaseDuration('');
             setIsActive(true);
+            setReactivationEnabled(false);
+            setReactivationDays('');
+            setReactivationError('');
         }
     }, [open, item?.id]);
+
+    const saveReactivation = (catalogId: string, days: number | null, done: () => void) => {
+        router.patch(`/admin/catalog/${catalogId}/reactivation`, { reactivation_days: days }, {
+            preserveScroll: true,
+            onSuccess: () => done(),
+            onError: (errors) => {
+                setReactivationError(errors.reactivation_days ?? 'Ошибка сохранения');
+                done();
+            },
+        });
+    };
 
     const handleSubmit = (e: React.FormEvent) => {
         e.preventDefault();
         setProcessing(true);
+        setReactivationError('');
+
+        if (reactivationEnabled && !reactivationDays) {
+            setReactivationError('Укажите количество дней');
+            setProcessing(false);
+            return;
+        }
 
         const payload = {
             title,
@@ -73,23 +104,42 @@ function CatalogModal({
             is_active: isActive,
         };
 
+        const afterMainSave = () => {
+            if (item && hasReactivationFeature) {
+                const days = reactivationEnabled ? Number(reactivationDays) : null;
+                if (days !== item.reactivation_days) {
+                    saveReactivation(item.id, days, () => {
+                        setProcessing(false);
+                        toast.success('Услуга обновлена');
+                        onClose();
+                    });
+                } else {
+                    setProcessing(false);
+                    toast.success('Услуга обновлена');
+                    onClose();
+                }
+            } else {
+                setProcessing(false);
+                if (item) {
+                    toast.success('Услуга обновлена');
+                } else {
+                    toast.success('Услуга добавлена в каталог');
+                }
+                onClose();
+            }
+        };
+
         if (item) {
             router.put(`/admin/catalog/${item.id}`, payload, {
                 preserveScroll: true,
-                onFinish: () => setProcessing(false),
-                onSuccess: () => {
-                    toast.success('Услуга обновлена');
-                    onClose();
-                },
+                onError: () => setProcessing(false),
+                onSuccess: afterMainSave,
             });
         } else {
             router.post('/admin/catalog', payload, {
                 preserveScroll: true,
-                onFinish: () => setProcessing(false),
-                onSuccess: () => {
-                    toast.success('Услуга добавлена в каталог');
-                    onClose();
-                },
+                onError: () => setProcessing(false),
+                onSuccess: afterMainSave,
             });
         }
     };
@@ -177,6 +227,80 @@ function CatalogModal({
                         </label>
                     </div>
 
+                    {item && (
+                        <div className="rounded-lg border border-slate-200 p-4 dark:border-zinc-700">
+                            {hasReactivationFeature ? (
+                                <div className="space-y-3">
+                                    <div className="flex items-center gap-3">
+                                        <Switch
+                                            checked={reactivationEnabled}
+                                            onCheckedChange={(enabled) => {
+                                                setReactivationEnabled(enabled);
+                                                if (!enabled) {
+                                                    setReactivationDays('');
+                                                    setReactivationError('');
+                                                }
+                                            }}
+                                        />
+                                        <div>
+                                            <label className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                                Умный возврат
+                                            </label>
+                                            <p className="text-xs text-slate-500 dark:text-zinc-400">
+                                                Сервис подскажет, когда клиента пора пригласить на эту услугу снова.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {reactivationEnabled && (
+                                        <div>
+                                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                                Цикл возврата, дней
+                                            </label>
+                                            <Input
+                                                type="number"
+                                                min="1"
+                                                value={reactivationDays}
+                                                onChange={(e) => {
+                                                    setReactivationDays(e.target.value);
+                                                    setReactivationError('');
+                                                }}
+                                                placeholder="21"
+                                                className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
+                                            />
+                                            <p className="mt-1 text-xs text-slate-400 dark:text-zinc-500">
+                                                Укажите, через сколько дней после визита клиента нужно напомнить мастеру о возврате.
+                                            </p>
+                                            {reactivationError && (
+                                                <p className="mt-1 text-xs text-red-500">{reactivationError}</p>
+                                            )}
+                                        </div>
+                                    )}
+                                </div>
+                            ) : (
+                                <div className="flex flex-col items-center text-center">
+                                    <div className="mb-2 flex size-8 items-center justify-center rounded-full bg-blue-100 dark:bg-blue-950/50">
+                                        <Lock className="size-4 text-blue-600 dark:text-blue-400" />
+                                    </div>
+                                    <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        Умный возврат
+                                    </p>
+                                    <p className="mt-0.5 text-xs text-slate-500 dark:text-zinc-400">
+                                        Умный возврат доступен на тарифе Профи.
+                                    </p>
+                                    <Button
+                                        type="button"
+                                        size="sm"
+                                        className="mt-3"
+                                        onClick={() => router.visit('/admin/billing')}
+                                    >
+                                        Перейти на Профи
+                                    </Button>
+                                </div>
+                            )}
+                        </div>
+                    )}
+
                     <DialogFooter>
                         <Button type="button" variant="outline" onClick={onClose}>
                             Отмена
@@ -198,7 +322,7 @@ function CatalogModal({
 /* ═══════════════ Page ═══════════════ */
 
 export default function ServiceCatalogPage() {
-    const { catalog, auth, flash } = usePage<PageProps>().props;
+    const { catalog, auth, flash, has_reactivation_feature } = usePage<PageProps>().props;
     const [modalOpen, setModalOpen] = useState(false);
     const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
 
@@ -325,6 +449,7 @@ toast.error(flash.error);
                 open={modalOpen}
                 onClose={handleCloseModal}
                 item={editingItem}
+                hasReactivationFeature={has_reactivation_feature}
             />
         </>
     );
