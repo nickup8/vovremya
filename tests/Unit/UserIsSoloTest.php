@@ -69,15 +69,15 @@ class UserIsSoloTest extends TestCase
         $this->assertTrue($user->isSolo());
     }
 
-    public function test_studio_owner_with_active_subscription_is_not_solo(): void
+    public function test_workspace_owner_with_active_subscription_is_not_solo(): void
     {
         $owner = User::factory()->create();
-        $workspace = Workspace::create(['name' => 'My Studio', 'owner_id' => $owner->id]);
+        $workspace = Workspace::create(['name' => 'My Workspace', 'owner_id' => $owner->id]);
         $owner->update(['workspace_id' => $workspace->id]);
 
         $plan = TariffPlan::create([
-            'code' => 'studio', 'name' => 'Студия', 'price_monthly' => 1290,
-            'max_appointments_per_month' => null, 'max_masters' => 5,
+            'code' => 'pro', 'name' => 'Профи', 'price_monthly' => 490,
+            'max_appointments_per_month' => null, 'max_masters' => 1,
             'features' => [], 'is_active' => true,
         ]);
 

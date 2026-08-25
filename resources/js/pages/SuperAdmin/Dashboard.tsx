@@ -55,18 +55,14 @@ export default function Dashboard() {
 
                     <div className="mt-8">
                         <h2 className="mb-4 text-lg font-semibold text-slate-900 dark:text-zinc-50">Пользователи по тарифам</h2>
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-3">
+                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/50">
-                                <p className="text-sm font-medium text-slate-500 dark:text-zinc-400">Free</p>
-                                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-zinc-50">{users_by_tariff.free ?? 0}</p>
+                                <p className="text-sm font-medium text-slate-500 dark:text-zinc-400">Start</p>
+                                <p className="mt-2 text-2xl font-bold text-slate-900 dark:text-zinc-50">{users_by_tariff.start ?? 0}</p>
                             </div>
                             <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/50">
                                 <p className="text-sm font-medium text-slate-500 dark:text-zinc-400">Pro</p>
                                 <p className="mt-2 text-2xl font-bold text-blue-600 dark:text-blue-400">{users_by_tariff.pro ?? 0}</p>
-                            </div>
-                            <div className="rounded-2xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900/50">
-                                <p className="text-sm font-medium text-slate-500 dark:text-zinc-400">Studio</p>
-                                <p className="mt-2 text-2xl font-bold text-emerald-600 dark:text-emerald-400">{users_by_tariff.studio ?? 0}</p>
                             </div>
                         </div>
                     </div>

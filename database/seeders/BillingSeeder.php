@@ -34,30 +34,6 @@ class BillingSeeder extends Seeder
             ],
         );
 
-        TariffPlan::updateOrCreate(
-            ['code' => 'studio'],
-            [
-                'name' => 'Студия',
-                'price_monthly' => 1290,
-                'max_appointments_per_month' => null,
-                'max_masters' => 5,
-                'features' => ['unlimited_appointments', 'client_management', 'multi_master', 'priority_support'],
-                'is_active' => true,
-            ],
-        );
-
-        TariffPlan::updateOrCreate(
-            ['code' => 'salon'],
-            [
-                'name' => 'Салон',
-                'price_monthly' => 2990,
-                'max_appointments_per_month' => null,
-                'max_masters' => null,
-                'features' => ['unlimited_appointments', 'client_management', 'multi_master', 'priority_support', 'white_label'],
-                'is_active' => true,
-            ],
-        );
-
         $discounts = [
             1 => 0,
             3 => 5,

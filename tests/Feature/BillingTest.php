@@ -18,8 +18,6 @@ class BillingTest extends TestCase
 
     private TariffPlan $proPlan;
 
-    private TariffPlan $studioPlan;
-
     protected function setUp(): void
     {
         parent::setUp();
@@ -30,13 +28,6 @@ class BillingTest extends TestCase
             'code' => 'pro',
             'name' => 'Профи',
             'price_monthly' => 490,
-            'is_active' => true,
-        ]);
-
-        $this->studioPlan = TariffPlan::create([
-            'code' => 'studio',
-            'name' => 'Студия',
-            'price_monthly' => 1290,
             'is_active' => true,
         ]);
 
@@ -59,13 +50,13 @@ class BillingTest extends TestCase
         $this->assertEquals(4704, $result['final']);
     }
 
-    public function test_calculate_price_studio_1_month(): void
+    public function test_calculate_price_pro_1_month(): void
     {
-        $result = $this->billingService->calculatePrice($this->studioPlan, 1);
+        $result = $this->billingService->calculatePrice($this->proPlan, 1);
 
-        $this->assertEquals(1290, $result['base']);
+        $this->assertEquals(490, $result['base']);
         $this->assertEquals(0, $result['discount_percent']);
-        $this->assertEquals(1290, $result['final']);
+        $this->assertEquals(490, $result['final']);
     }
 
     public function test_calculate_price_pro_3_months(): void
@@ -90,7 +81,7 @@ class BillingTest extends TestCase
     {
         $master = User::factory()->master()->create();
 
-        $result = $this->billingService->subscribe($master, $this->studioPlan, 6);
+        $result = $this->billingService->subscribe($master, $this->proPlan, 6);
 
         $subscription = $result['subscription'];
 

@@ -87,9 +87,8 @@ export default function Users() {
                             className="rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
                         >
                             <option value="">Все тарифы</option>
-                            <option value="free">Free</option>
+                            <option value="start">Start</option>
                             <option value="pro">Pro</option>
-                            <option value="studio">Studio</option>
                         </select>
                         <button
                             onClick={handleSearch}
@@ -119,7 +118,6 @@ export default function Users() {
                                         <td className="px-4 py-3 text-slate-500 dark:text-zinc-400">{user.phone || '—'}</td>
                                         <td className="px-4 py-3">
                                             <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                                                user.tariff === 'studio' ? 'bg-emerald-100 text-emerald-700' :
                                                 user.tariff === 'pro' ? 'bg-blue-100 text-blue-700' :
                                                 'bg-slate-100 text-slate-700'
                                             }`}>
