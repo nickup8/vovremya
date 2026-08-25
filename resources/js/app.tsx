@@ -1,6 +1,5 @@
 import { createInertiaApp } from '@inertiajs/react';
 import axios from 'axios';
-import { TooltipProvider } from '@/components/ui/tooltip';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { initializeTheme } from '@/hooks/use-appearance';
 
@@ -17,9 +16,7 @@ createInertiaApp({
     withApp(app) {
         return (
             <ErrorBoundary>
-                <TooltipProvider delayDuration={0}>
-                    {app}
-                </TooltipProvider>
+                {app}
             </ErrorBoundary>
         );
     },
