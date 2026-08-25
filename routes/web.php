@@ -141,6 +141,10 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/admin/catalog/{catalog}', [ServiceCatalogController::class, 'destroy'])->name('admin.catalog.destroy');
     Route::post('/admin/catalog/{catalog}/toggle-active', [ServiceCatalogController::class, 'toggleActive'])->name('admin.catalog.toggle-active');
 
+    Route::middleware('feature:client_reactivation')->group(function () {
+        Route::patch('/admin/catalog/{catalog}/reactivation', [ServiceCatalogController::class, 'updateReactivation'])->name('admin.catalog.reactivation');
+    });
+
     Route::put('/admin/working-hours', [SettingsController::class, 'updateWorkingHours'])->name('admin.working-hours.update');
     Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');
     Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
