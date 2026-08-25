@@ -15,6 +15,7 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
+use App\Services\Consent\MarketingConsentService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
@@ -38,6 +39,7 @@ class TelegramWebhookHandler extends WebhookHandler
 {
     public function __construct(
         private AppointmentStatusService $statusService,
+        private MarketingConsentService $consentService,
     ) {
         parent::__construct();
     }
@@ -177,6 +179,91 @@ class TelegramWebhookHandler extends WebhookHandler
         Log::info('[TG] start() unknown param');
 
         $this->chat->html(__('bot.errors.unknown_command'))->send();
+    }
+
+    /**
+     * /stop — marketing opt-out for all Client records of this Telegram user.
+     */
+    public function stop(?string $parameter = null): void
+    {
+        $chatId = $this->chat->chat_id;
+        $updateId = $this->request->input('update_id');
+        $messageId = $this->request->input('message.message_id');
+        $messageDate = $this->request->input('message.date');
+
+        if ($updateId === null && $messageId === null) {
+            Log::warning('[TG] marketing stop: missing stable interaction ID', ['chat_id' => $chatId]);
+            $this->chat->html(__('bot.marketing_consent.revoke_failed'))->send();
+
+            return;
+        }
+
+        $idempotencyBase = $updateId !== null
+            ? "telegram:{$chatId}:{$updateId}"
+            : "telegram:{$chatId}:message:{$messageId}";
+
+        $occurredAt = $messageDate !== null
+            ? \Illuminate\Support\Carbon::createFromTimestamp($messageDate)
+            : now();
+
+        $clients = Client::byTelegramId($chatId)->get();
+
+        if ($clients->isEmpty()) {
+            $this->chat->html(__('bot.marketing_consent.revoke_success'))->send();
+
+            return;
+        }
+
+        $anyFailed = false;
+
+        foreach ($clients as $client) {
+            $master = $client->master;
+
+            if ($master === null) {
+                Log::warning('[TG] marketing stop: client has no master', [
+                    'client_id' => $client->id,
+                    'chat_id' => $chatId,
+                ]);
+                $anyFailed = true;
+
+                continue;
+            }
+
+            try {
+                $this->consentService->revoke(
+                    client: $client,
+                    master: $master,
+                    source: 'telegram',
+                    channel: 'telegram',
+                    occurredAt: $occurredAt,
+                    idempotencyKey: "{$idempotencyBase}:{$client->id}",
+                    metadata: [
+                        'tg_chat_id' => $chatId,
+                        'tg_update_id' => $updateId,
+                        'tg_message_id' => $messageId,
+                    ],
+                );
+
+                Log::info('[TG] marketing stop: revoked', [
+                    'client_id' => $client->id,
+                    'workspace_id' => $client->workspace_id,
+                ]);
+            } catch (\Throwable $e) {
+                Log::error('[TG] marketing stop: failed for client', [
+                    'client_id' => $client->id,
+                    'workspace_id' => $client->workspace_id,
+                    'error' => $e->getMessage(),
+                    'class' => get_class($e),
+                ]);
+                $anyFailed = true;
+            }
+        }
+
+        $this->chat->html(
+            $anyFailed
+                ? __('bot.marketing_consent.revoke_failed')
+                : __('bot.marketing_consent.revoke_success')
+        )->send();
     }
 
     /**
