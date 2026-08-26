@@ -120,10 +120,6 @@ Route::middleware(['auth'])->group(function () {
     Route::put('/admin/clients/{client}', [ClientController::class, 'update'])->name('admin.clients.update');
     Route::post('/admin/clients/{client}/toggle-block', [ClientController::class, 'toggleBlock'])->name('admin.clients.toggle-block');
 
-    Route::middleware('feature:client_reactivation')->group(function () {
-        Route::patch('/admin/clients/{client}/reactivation', [ClientController::class, 'updateReactivation'])->name('admin.clients.reactivation');
-    });
-
     Route::get('/admin/analytics', [AnalyticsController::class, 'index'])->name('admin.analytics');
 
     // Управление tracking-ссылками — только ПРОФИ (feature gate). Delete отсутствует намеренно.
