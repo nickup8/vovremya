@@ -2,6 +2,7 @@
 
 namespace App\Http\Resources\MiniApp;
 
+use App\Enums\AppointmentStatus;
 use App\Exceptions\CancellationNotAllowedException;
 use App\Services\AppointmentStatusService;
 use Illuminate\Http\Request;
@@ -26,6 +27,26 @@ class AppointmentResource extends JsonResource
             }
         }
 
+        // autofill_available: Booked + future + master has AutoFill enabled
+        $autofillAvailable = $this->status === AppointmentStatus::Booked
+            && $this->start_time?->isFuture()
+            && $master?->isAutoFillEnabled();
+
+        // earlier_request: active slot request (eager loaded)
+        $activeRequest = $this->activeSlotRequest;
+        $earlierRequest = null;
+
+        if ($activeRequest) {
+            $earlierRequest = [
+                'id' => $activeRequest->id,
+                'date_from' => $activeRequest->date_from->format('Y-m-d'),
+                'date_to' => $activeRequest->date_to->format('Y-m-d'),
+                'time_from' => substr($activeRequest->time_from, 0, 5),
+                'time_to' => substr($activeRequest->time_to, 0, 5),
+                'status' => $activeRequest->status->value,
+            ];
+        }
+
         return [
             'id' => $this->id,
             'service' => $this->display_name,
@@ -40,6 +61,8 @@ class AppointmentResource extends JsonResource
                 'master_slug' => $master->master_slug,
             ] : null,
             'can_cancel' => $canCancel,
+            'autofill_available' => $autofillAvailable,
+            'earlier_request' => $earlierRequest,
         ];
     }
 }

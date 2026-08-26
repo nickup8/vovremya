@@ -4,11 +4,14 @@ namespace App\Models;
 
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Enums\SlotRequestStatus;
+use App\Enums\SlotRequestType;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class Appointment extends Model
 {
@@ -104,6 +107,13 @@ class Appointment extends Model
     public function cancelledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    public function activeSlotRequest(): HasOne
+    {
+        return $this->hasOne(SlotRequest::class, 'appointment_id')
+            ->where('type', SlotRequestType::Earlier)
+            ->where('status', SlotRequestStatus::Active);
     }
 
     public function toCalendarArray(): array

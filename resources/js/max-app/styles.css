@@ -159,3 +159,70 @@ body {
     gap: 8px;
     margin-top: 20px;
 }
+
+.overlay-card--wide {
+    max-width: 360px;
+}
+
+/* Earlier request form */
+.earlier-form {
+    margin-top: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    text-align: left;
+}
+
+.earlier-row {
+    display: flex;
+    gap: 12px;
+}
+
+.earlier-label {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    font-size: 13px;
+    color: var(--max-text-secondary, #666);
+}
+
+.earlier-input {
+    padding: 8px 10px;
+    border: 1px solid var(--max-separator, #e5e5e5);
+    border-radius: 8px;
+    font-size: 14px;
+    background: var(--max-background, #f5f5f5);
+    color: var(--max-text, #1a1a1a);
+}
+
+.earlier-anytime {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 14px;
+    cursor: pointer;
+}
+
+/* Earlier request status block on appointment card */
+.earlier-status-block {
+    padding: 8px 16px 10px;
+}
+
+.earlier-status-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: var(--max-accent, #3b82f6);
+}
+
+.earlier-status-detail {
+    font-size: 12px;
+    color: var(--max-text-secondary, #666);
+    margin-top: 2px;
+}
+
+.earlier-status-actions {
+    display: flex;
+    gap: 8px;
+    margin-top: 8px;
+}

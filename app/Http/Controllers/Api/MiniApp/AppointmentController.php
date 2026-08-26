@@ -27,12 +27,15 @@ class AppointmentController extends Controller
             return response()->json([]);
         }
 
-        $appointments = Appointment::with(['master', 'masterService'])
+        $appointments = Appointment::with(['master', 'masterService', 'activeSlotRequest'])
             ->whereIn('client_id', $clientIds)
             ->where('status', AppointmentStatus::Booked)
             ->where('start_time', '>', now())
             ->orderBy('start_time')
             ->get();
+
+        // Eager load workspace -> activeSubscription -> tariffPlan for isAutoFillEnabled()
+        $appointments->loadMissing('master.workspace.subscriptions.tariffPlan');
 
         return response()->json(
             AppointmentResource::collection($appointments)

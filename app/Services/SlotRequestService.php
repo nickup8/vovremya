@@ -170,9 +170,9 @@ class SlotRequestService
             return false;
         }
 
-        $latestStartMinutes = $this->timeToMinutes($timeTo) - $duration;
+        $earliestStartMinutes = $this->timeToMinutes($timeFrom);
 
-        return $latestStartMinutes < $appointmentMinutes;
+        return $earliestStartMinutes < $appointmentMinutes;
     }
 
     private function handleExistingRequest(
@@ -250,10 +250,10 @@ class SlotRequestService
         string $dateTo,
         string $timeTo,
         string $timezone,
-    ): Carbon {
+    ): \Carbon\CarbonInterface {
         $appointmentExpiry = $appointment->start_time->copy();
 
-        $windowEnd = Carbon::parse("{$dateTo} {$timeTo}", $timezone)->setTimezone('UTC');
+        $windowEnd = \Illuminate\Support\Carbon::parse("{$dateTo} {$timeTo}", $timezone)->setTimezone('UTC');
 
         return $appointmentExpiry->lt($windowEnd) ? $appointmentExpiry : $windowEnd;
     }

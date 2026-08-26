@@ -1,6 +1,15 @@
 import { getInitData } from './maxBridge';
 
 // Типы ответов API (минимально, по полям API Resource шага 3)
+export interface EarlierRequest {
+    id: string;
+    date_from: string;
+    date_to: string;
+    time_from: string;
+    time_to: string;
+    status: string;
+}
+
 export interface Appointment {
     id: string;
     service: string;
@@ -10,6 +19,8 @@ export interface Appointment {
     start_at_human: string;
     master: { name: string; address: string | null; phone: string | null; master_slug: string | null } | null;
     can_cancel: boolean;
+    autofill_available: boolean;
+    earlier_request: EarlierRequest | null;
 }
 
 export interface Profile {
@@ -81,4 +92,20 @@ export function getProfile(): Promise<Profile> {
 /** Отмена записи */
 export function cancelAppointment(id: string): Promise<{ ok: true } | { error: string; deadline_hours?: number }> {
     return request(`/appointments/${id}/cancel`, { method: 'POST', body: '{}' });
+}
+
+/** Создать/обновить EARLIER request */
+export function saveEarlierRequest(
+    appointmentId: string,
+    data: { date_from: string; date_to: string; time_from: string; time_to: string },
+): Promise<{ ok: true; earlier_request: EarlierRequest } | { error: string }> {
+    return request(`/appointments/${appointmentId}/earlier-request`, {
+        method: 'PUT',
+        body: JSON.stringify(data),
+    });
+}
+
+/** Отменить EARLIER request */
+export function cancelEarlierRequest(appointmentId: string): Promise<{ ok: true }> {
+    return request(`/appointments/${appointmentId}/earlier-request`, { method: 'DELETE' });
 }
