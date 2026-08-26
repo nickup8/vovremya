@@ -20,7 +20,10 @@ class CleanupDraftAppointments extends Command
 
         $appointments = Appointment::query()
             ->whereNull('client_id')
-            ->where('status', '!=', AppointmentStatus::Cancelled)
+            ->whereIn('status', [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+            ])
             ->where('created_at', '<', $threshold)
             ->get();
 
