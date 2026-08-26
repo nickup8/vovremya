@@ -102,15 +102,15 @@ class SlotRequestServiceTest extends TestCase
         $this->assertEquals(SlotRequestStatus::Active, $sr->status);
     }
 
-    // ── Eligibility: Prepaid ──────────────────────────────
+    // ── Eligibility: Prepaid rejected ─────────────────────
 
-    public function test_prepaid_appointment_can_create(): void
+    public function test_prepaid_rejected(): void
     {
         $this->appointment->update(['status' => AppointmentStatus::Prepaid]);
 
-        $sr = $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs());
+        $this->expectException(\DomainException::class);
 
-        $this->assertEquals(SlotRequestStatus::Active, $sr->status);
+        $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs());
     }
 
     // ── Eligibility: PendingPayment rejected ──────────────

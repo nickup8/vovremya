@@ -82,7 +82,7 @@ class SlotRequestService
             throw new \DomainException('Appointment does not belong to this client.');
         }
 
-        $allowedStatuses = [AppointmentStatus::Booked, AppointmentStatus::Prepaid];
+        $allowedStatuses = [AppointmentStatus::Booked];
         if (! in_array($appointment->status, $allowedStatuses, true)) {
             throw new \DomainException("Appointment status [{$appointment->status->value}] is not eligible for earlier request.");
         }
