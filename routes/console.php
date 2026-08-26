@@ -8,3 +8,4 @@ Schedule::command('appointments:cleanup-drafts')->everyFiveMinutes()->withoutOve
 Schedule::command('subscriptions:check-expirations')->dailyAt('00:00');
 Schedule::command('subscriptions:check-limits')->hourly()->withoutOverlapping();
 Schedule::command('subscriptions:cleanup-pending')->hourly()->withoutOverlapping();
+Schedule::command('pending-marketing:cleanup')->hourly()->withoutOverlapping();
