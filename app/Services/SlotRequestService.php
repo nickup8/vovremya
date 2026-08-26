@@ -127,8 +127,15 @@ class SlotRequestService
         Appointment $appointment,
         string $timezone,
     ): void {
+        $appointmentLocal = $appointment->start_time->timezone($timezone);
+        $appointmentDate = $appointmentLocal->format('Y-m-d');
+
         if ($dateFrom > $dateTo) {
             throw new \DomainException('date_from must be <= date_to.');
+        }
+
+        if ($dateTo > $appointmentDate) {
+            throw new \DomainException('date_to must not be after the appointment date.');
         }
 
         if ($timeFrom >= $timeTo) {
@@ -145,21 +152,18 @@ class SlotRequestService
             throw new \DomainException('Time window is too short for the appointment duration.');
         }
 
-        if (! $this->hasEarlierPoint($dateFrom, $timeFrom, $timeTo, $duration, $appointment, $timezone)) {
-            throw new \DomainException('No point in the requested window is earlier than the source appointment.');
+        if (! $this->hasEarlierPoint($dateFrom, $timeFrom, $duration, $appointmentLocal, $appointmentDate)) {
+            throw new \DomainException('No full appointment can fit before the source appointment.');
         }
     }
 
     private function hasEarlierPoint(
         string $dateFrom,
         string $timeFrom,
-        string $timeTo,
         int $duration,
-        Appointment $appointment,
-        string $timezone,
+        \Carbon\CarbonInterface $appointmentLocal,
+        string $appointmentDate,
     ): bool {
-        $appointmentLocal = $appointment->start_time->timezone($timezone);
-        $appointmentDate = $appointmentLocal->format('Y-m-d');
         $appointmentMinutes = $appointmentLocal->hour * 60 + $appointmentLocal->minute;
 
         if ($dateFrom < $appointmentDate) {
@@ -172,7 +176,7 @@ class SlotRequestService
 
         $earliestStartMinutes = $this->timeToMinutes($timeFrom);
 
-        return $earliestStartMinutes < $appointmentMinutes;
+        return ($earliestStartMinutes + $duration) <= $appointmentMinutes;
     }
 
     private function handleExistingRequest(

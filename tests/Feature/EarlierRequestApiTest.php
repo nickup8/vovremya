@@ -268,8 +268,8 @@ class EarlierRequestApiTest extends TestCase
         $response = $this->putJson('/api/miniapp/appointments/' . $this->appointment->id . '/earlier-request', [
             'date_from' => Carbon::tomorrow()->format('Y-m-d'),
             'date_to' => Carbon::tomorrow()->format('Y-m-d'),
-            'time_from' => '00:00',
-            'time_to' => '23:59',
+            'time_from' => '00:00:00',
+            'time_to' => '23:59:59',
         ], $this->maxHeaders());
 
         $response->assertOk();
@@ -277,7 +277,7 @@ class EarlierRequestApiTest extends TestCase
         $this->assertDatabaseHas('slot_requests', [
             'appointment_id' => $this->appointment->id,
             'time_from' => '00:00:00',
-            'time_to' => '23:59:00',
+            'time_to' => '23:59:59',
         ]);
     }
 

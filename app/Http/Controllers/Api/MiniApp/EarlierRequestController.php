@@ -33,9 +33,12 @@ class EarlierRequestController extends Controller
         $validated = $request->validate([
             'date_from' => ['required', 'date_format:Y-m-d'],
             'date_to' => ['required', 'date_format:Y-m-d'],
-            'time_from' => ['required', 'date_format:H:i'],
-            'time_to' => ['required', 'date_format:H:i'],
+            'time_from' => ['required', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
+            'time_to' => ['required', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
         ]);
+
+        $timeFrom = strlen($validated['time_from']) === 5 ? $validated['time_from'] . ':00' : $validated['time_from'];
+        $timeTo = strlen($validated['time_to']) === 5 ? $validated['time_to'] . ':00' : $validated['time_to'];
 
         try {
             $slotRequest = $this->slotRequestService->createOrUpdateEarlierRequest(
@@ -43,8 +46,8 @@ class EarlierRequestController extends Controller
                 client: $client,
                 dateFrom: $validated['date_from'],
                 dateTo: $validated['date_to'],
-                timeFrom: $validated['time_from'] . ':00',
-                timeTo: $validated['time_to'] . ':00',
+                timeFrom: $timeFrom,
+                timeTo: $timeTo,
                 deliveryChannel: SlotRequestDeliveryChannel::Max,
                 requestSource: SlotRequestSource::Max,
             );

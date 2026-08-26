@@ -50,8 +50,8 @@ export function EarlierRequestOverlay({
         let effectiveTimeTo: string;
 
         if (anyTime) {
-            effectiveTimeFrom = '00:00';
-            effectiveTimeTo = '23:59';
+            effectiveTimeFrom = '00:00:00';
+            effectiveTimeTo = '23:59:59';
         } else {
             if (!timeFrom || !timeTo) {
                 setValidationError('Укажите время или включите «В любое время»');
@@ -63,8 +63,8 @@ export function EarlierRequestOverlay({
                 return;
             }
 
-            effectiveTimeFrom = timeFrom;
-            effectiveTimeTo = timeTo;
+            effectiveTimeFrom = timeFrom + ':00';
+            effectiveTimeTo = timeTo + ':00';
         }
 
         onSave({

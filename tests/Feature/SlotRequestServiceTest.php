@@ -306,6 +306,122 @@ class SlotRequestServiceTest extends TestCase
         ]));
     }
 
+    // ── Full earlier interval checks ──────────────────────
+    // Appointment: 16:00, duration 60
+
+    public function test_same_day_15_00_16_00_valid(): void
+    {
+        $sr = $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'timeFrom' => '15:00',
+            'timeTo' => '16:00',
+        ]));
+
+        $this->assertEquals(SlotRequestStatus::Active, $sr->status);
+    }
+
+    public function test_same_day_15_30_18_00_rejected(): void
+    {
+        $this->expectException(\DomainException::class);
+
+        $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'timeFrom' => '15:30',
+            'timeTo' => '18:00',
+        ]));
+    }
+
+    public function test_same_day_14_30_15_30_valid(): void
+    {
+        $sr = $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'timeFrom' => '14:30',
+            'timeTo' => '15:30',
+        ]));
+
+        $this->assertEquals(SlotRequestStatus::Active, $sr->status);
+    }
+
+    public function test_same_day_wide_range_12_00_18_00_valid(): void
+    {
+        $sr = $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'timeFrom' => '12:00',
+            'timeTo' => '18:00',
+        ]));
+
+        $this->assertEquals(SlotRequestStatus::Active, $sr->status);
+    }
+
+    // ── Duration 90 checks ────────────────────────────────
+
+    public function test_duration_90_same_day_15_00_18_00_rejected(): void
+    {
+        $this->appointment->update(['duration' => 90]);
+
+        $this->expectException(\DomainException::class);
+
+        $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'timeFrom' => '15:00',
+            'timeTo' => '18:00',
+        ]));
+    }
+
+    public function test_duration_90_same_day_14_30_16_00_valid(): void
+    {
+        $this->appointment->update(['duration' => 90]);
+
+        $sr = $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'timeFrom' => '14:30',
+            'timeTo' => '16:00',
+        ]));
+
+        $this->assertEquals(SlotRequestStatus::Active, $sr->status);
+    }
+
+    // ── Previous day included ─────────────────────────────
+
+    public function test_previous_day_with_later_time_valid(): void
+    {
+        $tz = $this->master->getTimezone();
+        $apptLocal = $this->appointment->start_time->timezone($tz);
+
+        $sr = $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'dateFrom' => $apptLocal->copy()->subDay()->format('Y-m-d'),
+            'dateTo' => $apptLocal->format('Y-m-d'),
+            'timeFrom' => '17:00',
+            'timeTo' => '20:00',
+        ]));
+
+        $this->assertEquals(SlotRequestStatus::Active, $sr->status);
+    }
+
+    // ── date_to after appointment date ─────────────────────
+
+    public function test_date_to_after_appointment_rejected(): void
+    {
+        $tz = $this->master->getTimezone();
+        $apptLocal = $this->appointment->start_time->timezone($tz);
+
+        $this->expectException(\DomainException::class);
+
+        $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'dateFrom' => $apptLocal->copy()->subDay()->format('Y-m-d'),
+            'dateTo' => $apptLocal->copy()->addDay()->format('Y-m-d'),
+            'timeFrom' => '09:00',
+            'timeTo' => '18:00',
+        ]));
+    }
+
+    // ── Full-day canonical representation ──────────────────
+
+    public function test_full_day_persists_as_00_00_00_to_23_59_59(): void
+    {
+        $sr = $this->service->createOrUpdateEarlierRequest(...$this->validEarlierArgs([
+            'timeFrom' => '00:00:00',
+            'timeTo' => '23:59:59',
+        ]));
+
+        $this->assertEquals('00:00:00', $sr->time_from);
+        $this->assertEquals('23:59:59', $sr->time_to);
+    }
+
     // ── Create same active request again → update ─────────
 
     public function test_create_same_active_request_updates(): void
