@@ -57,6 +57,8 @@ interface Profile {
     booking_flow_type: string;
     custom_prepayment_message: string | null;
     reminder_hours_before_final: number;
+    autofill_enabled: boolean;
+    has_slot_autofill: boolean;
 }
 
 interface AuthUser {
@@ -898,6 +900,7 @@ return;
         deposit_timeout: profile.deposit_timeout?.toString() || '15',
         deposit_percent: profile.deposit_percent?.toString() || '30',
         cancellation_deadline_hours: profile.cancellation_deadline_hours?.toString() || '',
+        autofill_enabled: profile.autofill_enabled,
     });
 
     const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -1419,6 +1422,30 @@ return;
                                         {bookingFlowForm.errors.cancellation_deadline_hours}
                                     </p>
                                 )}
+                            </div>
+
+                            {/* ═══ Card: Автозаполнение окон ═══ */}
+                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                <div className="flex items-start justify-between gap-4">
+                                    <div>
+                                        <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
+                                            Автозаполнение окон
+                                        </h3>
+                                        <p className="text-sm text-slate-500 dark:text-zinc-400">
+                                            Если освободится время, ИРСИ сможет предложить его клиентам, которые заранее попросили сообщить о подходящем окне.
+                                        </p>
+                                    </div>
+                                    <div className="flex items-center gap-2 shrink-0">
+                                        {!profile.has_slot_autofill && (
+                                            <span className="text-xs font-medium text-slate-400 dark:text-zinc-500">Профи</span>
+                                        )}
+                                        <Switch
+                                            checked={bookingFlowForm.data.autofill_enabled}
+                                            onCheckedChange={(checked) => bookingFlowForm.setData('autofill_enabled', checked)}
+                                            disabled={!profile.has_slot_autofill}
+                                        />
+                                    </div>
+                                </div>
                             </div>
 
                             <div className="flex justify-end gap-2">

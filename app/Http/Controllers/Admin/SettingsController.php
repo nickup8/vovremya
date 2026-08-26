@@ -90,6 +90,8 @@ class SettingsController extends Controller
                 'booking_flow_type' => $user->getBookingFlowType(),
                 'custom_prepayment_message' => $user->getCustomPrepaymentMessage(),
                 'reminder_hours_before_final' => $user->getReminderHoursBeforeFinal(),
+                'autofill_enabled' => $user->autofill_enabled,
+                'has_slot_autofill' => $user->hasFeature('slot_autofill'),
             ],
             'workingHours' => $targetMaster->workingHours()->get(),
             'blockedTimes' => $targetMaster->blockedTimes()->get(),
@@ -123,6 +125,7 @@ class SettingsController extends Controller
             'custom_prepayment_message' => ['nullable', 'string', 'max:1000'],
             'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([0, 1, 2, 3, 12])],
             'cancellation_deadline_hours' => 'nullable|integer|min:1|max:168',
+            'autofill_enabled' => 'boolean',
         ];
 
         $sentFields = $request->only(array_keys($allRules));
@@ -138,6 +141,10 @@ class SettingsController extends Controller
 
         if (! $user->isSolo()) {
             unset($validated['master_slug']);
+        }
+
+        if (isset($validated['autofill_enabled']) && $validated['autofill_enabled'] && ! $user->hasFeature('slot_autofill')) {
+            unset($validated['autofill_enabled']);
         }
 
         $jsonFields = ['booking_flow_type', 'custom_prepayment_message', 'reminder_hours_before_final'];

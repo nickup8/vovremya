@@ -56,6 +56,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
     'settings',
     'pdn_consent_at', 'pdn_consent_version',
     'cancellation_deadline_hours',
+    'autofill_enabled',
 ])]
 #[Hidden(['password', 'two_factor_secret', 'two_factor_recovery_codes', 'remember_token'])]
 class User extends Authenticatable implements PasskeyUser
@@ -84,6 +85,7 @@ class User extends Authenticatable implements PasskeyUser
             'max_notifications' => 'boolean',
             'settings' => 'array',
             'cancellation_deadline_hours' => 'integer',
+            'autofill_enabled' => 'boolean',
         ];
     }
 
@@ -119,6 +121,11 @@ class User extends Authenticatable implements PasskeyUser
     public function hasFeature(string $feature): bool
     {
         return $this->workspace?->hasFeature($feature) ?? false;
+    }
+
+    public function isAutoFillEnabled(): bool
+    {
+        return $this->autofill_enabled && $this->hasFeature('slot_autofill');
     }
 
     public function clients(): HasMany
