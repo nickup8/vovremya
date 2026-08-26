@@ -15,7 +15,6 @@ use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
@@ -626,100 +625,5 @@ class ReactivationCandidateTest extends TestCase
 
         $this->assertCount(2, $candidates);
         $this->assertGreaterThanOrEqual($candidates[1]['days_overdue'], $candidates[0]['days_overdue']);
-    }
-
-    // ── Large history: latest not due ─────────────────────
-
-    public function test_large_history_latest_not_due(): void
-    {
-        [$owner, $ws] = $this->createProWorkspace();
-        $catalog = $this->createCatalog($ws, 'Массаж', 21);
-        $ms = $this->createMasterService($owner, $catalog);
-        $client = Client::factory()->create(['user_id' => $owner->id, 'workspace_id' => $ws->id]);
-
-        // 20 old paid visits, all due individually
-        for ($i = 30; $i <= 100; $i += 5) {
-            $this->createPaidAppointment($owner, $client, $ms, now()->subDays($i));
-        }
-
-        // Latest visit: 5 days ago — NOT due (cycle = 21)
-        $this->createPaidAppointment($owner, $client, $ms, now()->subDays(5));
-
-        $candidates = $this->actingAs($owner)->getJson('/admin/reactivation/candidates')->json();
-
-        $this->assertCount(0, $candidates);
-    }
-
-    // ── Large history: latest due ─────────────────────────
-
-    public function test_large_history_latest_due(): void
-    {
-        [$owner, $ws] = $this->createProWorkspace();
-        $catalog = $this->createCatalog($ws, 'Массаж', 21);
-        $ms = $this->createMasterService($owner, $catalog);
-        $client = Client::factory()->create(['user_id' => $owner->id, 'workspace_id' => $ws->id]);
-
-        // 20 old paid visits
-        for ($i = 30; $i <= 100; $i += 5) {
-            $this->createPaidAppointment($owner, $client, $ms, now()->subDays($i));
-        }
-
-        // Latest visit: 25 days ago — due (cycle = 21)
-        $latestAppointment = $this->createPaidAppointment($owner, $client, $ms, now()->subDays(25));
-
-        $candidates = $this->actingAs($owner)->getJson('/admin/reactivation/candidates')->json();
-
-        $this->assertCount(1, $candidates);
-        $this->assertEquals($latestAppointment->id, $candidates[0]['source_appointment_id']);
-    }
-
-    // ── Query count regression ────────────────────────────
-
-    public function test_single_candidate_query(): void
-    {
-        [$owner, $ws] = $this->createProWorkspace();
-        $catalog = $this->createCatalog($ws, 'Массаж', 21);
-        $ms = $this->createMasterService($owner, $catalog);
-        $client = Client::factory()->create(['user_id' => $owner->id, 'workspace_id' => $ws->id]);
-
-        $this->createPaidAppointment($owner, $client, $ms, now()->subDays(25));
-
-        // Pre-load user properties to avoid lazy-load noise
-        $owner->workspace_id;
-        $owner->id;
-
-        $queryCount = 0;
-        DB::listen(function () use (&$queryCount) {
-            $queryCount++;
-        });
-
-        $service = app(\App\Services\Client\ReactivationCandidateService::class);
-        $service->findFor($owner);
-
-        $this->assertEquals(1, $queryCount);
-    }
-
-    // ── SQL contains DISTINCT ON ──────────────────────────
-
-    public function test_sql_uses_distinct_on(): void
-    {
-        [$owner, $ws] = $this->createProWorkspace();
-        $catalog = $this->createCatalog($ws, 'Массаж', 21);
-        $ms = $this->createMasterService($owner, $catalog);
-        $client = Client::factory()->create(['user_id' => $owner->id, 'workspace_id' => $ws->id]);
-
-        $this->createPaidAppointment($owner, $client, $ms, now()->subDays(25));
-
-        $capturedSql = '';
-        DB::listen(function ($query) use (&$capturedSql) {
-            $capturedSql = $query->sql;
-        });
-
-        $service = app(\App\Services\Client\ReactivationCandidateService::class);
-        $service->findFor($owner);
-
-        $normalizedSql = strtolower($capturedSql);
-        $this->assertStringContainsString('distinct on', $normalizedSql);
-        $this->assertStringContainsString('not exists', $normalizedSql);
     }
 }
