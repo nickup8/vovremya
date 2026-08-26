@@ -121,7 +121,6 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/clients/{client}/toggle-block', [ClientController::class, 'toggleBlock'])->name('admin.clients.toggle-block');
 
     Route::middleware('feature:client_reactivation')->group(function () {
-        Route::get('/admin/reactivation/candidates', [ClientController::class, 'reactivationCandidates'])->name('admin.reactivation.candidates');
         Route::patch('/admin/clients/{client}/reactivation', [ClientController::class, 'updateReactivation'])->name('admin.clients.reactivation');
     });
 
