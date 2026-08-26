@@ -2,7 +2,9 @@
 
 namespace App\Services;
 
+use App\DTOs\AppointmentWindowFreed;
 use App\Enums\AppointmentStatus;
+use App\Enums\SlotOpportunitySourceType;
 use App\Events\AppointmentStatusChanged;
 use App\Exceptions\CancellationNotAllowedException;
 use App\Exceptions\InvalidStatusTransitionException;
@@ -11,6 +13,7 @@ use App\Models\Appointment;
 use App\Models\User;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class AppointmentStatusService
 {
@@ -46,6 +49,9 @@ class AppointmentStatusService
             throw new InvalidStatusTransitionException($from, $to);
         }
 
+        // AutoFill: capture freed-window snapshot BEFORE mutation
+        $freedWindow = $this->captureFreedWindow($appointment, $from, $to);
+
         $updateData = ['status' => $to];
         if ($to === AppointmentStatus::Cancelled) {
             $updateData['cancelled_at'] = now();
@@ -64,6 +70,11 @@ class AppointmentStatusService
         }
 
         $appointment->update($updateData);
+
+        // AutoFill: dispatch opportunity creation after commit
+        if ($freedWindow !== null) {
+            app(FreedWindowDispatcher::class)->dispatchAfterCommit($freedWindow);
+        }
 
         broadcast(new AppointmentStatusChanged(
             $appointment->load(['client']),
@@ -100,5 +111,47 @@ class AppointmentStatusService
                 throw new CancellationNotAllowedException('deadline_passed', $deadlineHours);
             }
         }
+    }
+
+    private function captureFreedWindow(
+        Appointment $appointment,
+        AppointmentStatus $from,
+        AppointmentStatus $to,
+    ): ?AppointmentWindowFreed {
+        if ($from !== AppointmentStatus::Booked || $to !== AppointmentStatus::Cancelled) {
+            return null;
+        }
+
+        if ($appointment->client_id === null) {
+            return null;
+        }
+
+        if ($appointment->master_service_id === null) {
+            return null;
+        }
+
+        $duration = (int) ($appointment->duration ?? $appointment->masterService?->effective_duration ?? 0);
+
+        if ($duration <= 0) {
+            return null;
+        }
+
+        $master = $appointment->master;
+
+        if ($master === null || ! $master->isAutoFillEnabled()) {
+            return null;
+        }
+
+        return new AppointmentWindowFreed(
+            originEventId: (string) Str::uuid(),
+            chainId: null,
+            workspaceId: $master->workspace_id,
+            masterId: $appointment->master_id,
+            masterServiceId: $appointment->master_service_id,
+            sourceAppointmentId: $appointment->id,
+            sourceType: SlotOpportunitySourceType::Cancellation,
+            startTime: $appointment->start_time,
+            duration: $duration,
+        );
     }
 }

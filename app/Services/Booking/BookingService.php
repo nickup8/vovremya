@@ -2,8 +2,10 @@
 
 namespace App\Services\Booking;
 
+use App\DTOs\AppointmentWindowFreed;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Enums\SlotOpportunitySourceType;
 use App\Events\AppointmentCreated;
 use App\Events\AppointmentRescheduled;
 use App\Models\Appointment;
@@ -11,6 +13,7 @@ use App\Models\MasterService;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
+use App\Services\FreedWindowDispatcher;
 use App\Services\Notification\ClientNotificationService;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\QueryException;
@@ -18,6 +21,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Validator;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 
 class BookingService
@@ -387,6 +391,9 @@ class BookingService
 
                 $oldStartTime = $locked->start_time->toIso8601String();
 
+                // AutoFill: capture freed-window snapshot BEFORE mutation
+                $freedWindow = $this->captureRescheduleFreedWindow($locked, $originalMaster);
+
                 $updateData = [
                     'start_time' => $startDateTime,
                     'client_confirmed_at' => null,
@@ -400,6 +407,11 @@ class BookingService
                 }
 
                 $locked->update($updateData);
+
+                // AutoFill: dispatch opportunity creation after commit
+                if ($freedWindow !== null) {
+                    app(FreedWindowDispatcher::class)->dispatchAfterCommit($freedWindow);
+                }
 
                 if ($locked->status === AppointmentStatus::NoShow) {
                     $this->statusService->transition($locked, AppointmentStatus::Booked);
@@ -465,5 +477,44 @@ class BookingService
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    private function captureRescheduleFreedWindow(
+        Appointment $locked,
+        User $originalMaster,
+    ): ?AppointmentWindowFreed {
+        if ($locked->status !== AppointmentStatus::Booked) {
+            return null;
+        }
+
+        if ($locked->client_id === null) {
+            return null;
+        }
+
+        if ($locked->master_service_id === null) {
+            return null;
+        }
+
+        $duration = (int) ($locked->duration ?? $locked->masterService?->effective_duration ?? 0);
+
+        if ($duration <= 0) {
+            return null;
+        }
+
+        if (! $originalMaster->isAutoFillEnabled()) {
+            return null;
+        }
+
+        return new AppointmentWindowFreed(
+            originEventId: (string) Str::uuid(),
+            chainId: null,
+            workspaceId: $originalMaster->workspace_id,
+            masterId: $originalMaster->id,
+            masterServiceId: $locked->master_service_id,
+            sourceAppointmentId: $locked->id,
+            sourceType: SlotOpportunitySourceType::Reschedule,
+            startTime: $locked->start_time,
+            duration: $duration,
+        );
     }
 }
