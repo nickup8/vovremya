@@ -21,7 +21,6 @@ class ServiceCatalog extends Model
         'base_price',
         'base_duration',
         'is_active',
-        'reactivation_days',
     ];
 
     protected function casts(): array
@@ -30,7 +29,6 @@ class ServiceCatalog extends Model
             'base_price' => 'decimal:2',
             'base_duration' => 'integer',
             'is_active' => 'boolean',
-            'reactivation_days' => 'integer',
         ];
     }
 

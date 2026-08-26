@@ -129,21 +129,6 @@ class ServiceCatalogController extends Controller
         return back();
     }
 
-    public function updateReactivation(Request $request, ServiceCatalog $catalog): RedirectResponse
-    {
-        $this->authorize('update', $catalog);
-
-        $validated = $request->validate([
-            'reactivation_days' => 'nullable|integer|min:1',
-        ]);
-
-        $catalog->update([
-            'reactivation_days' => $validated['reactivation_days'],
-        ]);
-
-        return back()->with('success', 'Настройка возврата обновлена.');
-    }
-
     public function destroy(ServiceCatalog $catalog): RedirectResponse
     {
         $this->authorize('delete', $catalog);
