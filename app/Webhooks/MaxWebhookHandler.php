@@ -12,7 +12,6 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\Client\ClientMergeService;
-use App\Services\Consent\MarketingConsentService;
 use App\Services\MaxApiClient;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
@@ -28,7 +27,6 @@ class MaxWebhookHandler
     public function __construct(
         private ClientMergeService $clientMergeService,
         private MaxApiClient $maxApi,
-        private MarketingConsentService $consentService,
     ) {}
 
     /**
@@ -221,13 +219,6 @@ class MaxWebhookHandler
             }
 
             $this->sendMessage($userId, __('bot.welcome'));
-
-            return;
-        }
-
-        // Handle /stop command
-        if (trim($text) === '/stop') {
-            $this->handleMarketingStop($userId, $payload);
 
             return;
         }
@@ -632,84 +623,6 @@ class MaxWebhookHandler
             ]));
 
         Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
-    }
-
-    /**
-     * Handle /stop — marketing opt-out for all Client records of this MAX user.
-     */
-    private function handleMarketingStop(string $userId, array $payload): void
-    {
-        $mid = $payload['message']['body']['mid'] ?? null;
-
-        if ($mid === null) {
-            Log::warning('[MAX] marketing stop: missing mid', ['user_id' => $userId]);
-            $this->sendMessage($userId, __('bot.marketing_consent.revoke_failed'));
-
-            return;
-        }
-
-        $idempotencyBase = "max:{$userId}:{$mid}";
-        // MAX message_created does not provide an event timestamp
-        $occurredAt = now();
-
-        $clients = Client::byMaxId($userId)->get();
-
-        if ($clients->isEmpty()) {
-            $this->sendMessage($userId, __('bot.marketing_consent.revoke_success'));
-
-            return;
-        }
-
-        $anyFailed = false;
-
-        foreach ($clients as $client) {
-            $master = $client->master;
-
-            if ($master === null) {
-                Log::warning('[MAX] marketing stop: client has no master', [
-                    'client_id' => $client->id,
-                    'user_id' => $userId,
-                ]);
-                $anyFailed = true;
-
-                continue;
-            }
-
-            try {
-                $this->consentService->revoke(
-                    client: $client,
-                    master: $master,
-                    source: 'max',
-                    channel: 'max',
-                    occurredAt: $occurredAt,
-                    idempotencyKey: "{$idempotencyBase}:{$client->id}",
-                    metadata: [
-                        'max_user_id' => $userId,
-                        'max_mid' => $mid,
-                    ],
-                );
-
-                Log::info('[MAX] marketing stop: revoked', [
-                    'client_id' => $client->id,
-                    'workspace_id' => $client->workspace_id,
-                ]);
-            } catch (\Throwable $e) {
-                Log::error('[MAX] marketing stop: failed for client', [
-                    'client_id' => $client->id,
-                    'workspace_id' => $client->workspace_id,
-                    'error' => $e->getMessage(),
-                    'class' => get_class($e),
-                ]);
-                $anyFailed = true;
-            }
-        }
-
-        $this->sendMessage(
-            $userId,
-            $anyFailed
-                ? __('bot.marketing_consent.revoke_failed')
-                : __('bot.marketing_consent.revoke_success'),
-        );
     }
 
     /**
