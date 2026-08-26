@@ -9,6 +9,7 @@ use App\Models\SlotOpportunity;
 use App\Models\User;
 use App\Models\Workspace;
 use DateTimeInterface;
+use Illuminate\Database\QueryException;
 use Illuminate\Support\Str;
 
 class SlotOpportunityService
@@ -16,7 +17,10 @@ class SlotOpportunityService
     /**
      * Create a SlotOpportunity from a freed appointment window.
      *
-     * Returns null if start_time is in the past (no point creating an Open opportunity for a window that already passed).
+     * Race-safe: handles concurrent inserts for the same origin_event_id
+     * by catching the UNIQUE violation and returning the existing row.
+     *
+     * Returns null only for genuinely new events with past start_time.
      *
      * @return SlotOpportunity|null
      */
@@ -31,39 +35,58 @@ class SlotOpportunityService
         DateTimeInterface $startTime,
         int $duration,
     ): ?SlotOpportunity {
-        $this->validatePayload($duration, $startTime, $workspaceId, $masterId, $masterServiceId);
-
-        // Idempotency: check if this origin_event_id already exists
+        // 1. Idempotency lookup — always first
         $existing = SlotOpportunity::where('origin_event_id', $originEventId)->first();
 
         if ($existing !== null) {
-            $this->assertPayloadMatches($existing, $masterId, $masterServiceId, $startTime, $duration, $sourceType, $sourceAppointmentId, $chainId);
+            $this->assertPayloadMatches($existing, $workspaceId, $masterId, $masterServiceId, $sourceAppointmentId, $sourceType, $startTime, $duration, $chainId);
 
             return $existing;
         }
 
-        // Past windows are silently ignored — no point retrying
+        // 2. Validate payload for new event
+        $this->validatePayload($duration, $workspaceId, $masterId, $masterServiceId);
+
+        // 3. Past windows for NEW events are silently ignored
         if ($startTime->isPast()) {
             return null;
         }
 
-        return SlotOpportunity::create([
-            'origin_event_id' => $originEventId,
-            'chain_id' => $chainId ?? (string) Str::uuid(),
-            'workspace_id' => $workspaceId,
-            'master_id' => $masterId,
-            'master_service_id' => $masterServiceId,
-            'source_appointment_id' => $sourceAppointmentId,
-            'source_type' => $sourceType,
-            'status' => SlotOpportunityStatus::Open,
-            'start_time' => $startTime,
-            'duration' => $duration,
-        ]);
+        // 4. Attempt insert, handle concurrent race
+        try {
+            return SlotOpportunity::create([
+                'origin_event_id' => $originEventId,
+                'chain_id' => $chainId ?? (string) Str::uuid(),
+                'workspace_id' => $workspaceId,
+                'master_id' => $masterId,
+                'master_service_id' => $masterServiceId,
+                'source_appointment_id' => $sourceAppointmentId,
+                'source_type' => $sourceType,
+                'status' => SlotOpportunityStatus::Open,
+                'start_time' => $startTime,
+                'duration' => $duration,
+            ]);
+        } catch (QueryException $e) {
+            if ($e->getPrevious()?->getCode() !== '23505') {
+                throw $e;
+            }
+
+            // UNIQUE violation on origin_event_id — concurrent insert won
+            $existing = SlotOpportunity::where('origin_event_id', $originEventId)->first();
+
+            if ($existing === null) {
+                // Should not happen, but rethrow original if row mysteriously missing
+                throw $e;
+            }
+
+            $this->assertPayloadMatches($existing, $workspaceId, $masterId, $masterServiceId, $sourceAppointmentId, $sourceType, $startTime, $duration, $chainId);
+
+            return $existing;
+        }
     }
 
     private function validatePayload(
         int $duration,
-        DateTimeInterface $startTime,
         string $workspaceId,
         string $masterId,
         string $masterServiceId,
@@ -98,15 +121,20 @@ class SlotOpportunityService
 
     private function assertPayloadMatches(
         SlotOpportunity $existing,
+        string $workspaceId,
         string $masterId,
         string $masterServiceId,
+        ?string $sourceAppointmentId,
+        SlotOpportunitySourceType $sourceType,
         DateTimeInterface $startTime,
         int $duration,
-        SlotOpportunitySourceType $sourceType,
-        ?string $sourceAppointmentId,
         ?string $chainId,
     ): void {
         $conflicts = [];
+
+        if ($existing->workspace_id !== $workspaceId) {
+            $conflicts[] = 'workspace_id';
+        }
 
         if ($existing->master_id !== $masterId) {
             $conflicts[] = 'master_id';
@@ -116,20 +144,20 @@ class SlotOpportunityService
             $conflicts[] = 'master_service_id';
         }
 
-        if ($existing->start_time->format('Y-m-d H:i:s') !== $startTime->format('Y-m-d H:i:s')) {
-            $conflicts[] = 'start_time';
-        }
-
-        if ($existing->duration !== $duration) {
-            $conflicts[] = 'duration';
+        if ($existing->source_appointment_id !== $sourceAppointmentId) {
+            $conflicts[] = 'source_appointment_id';
         }
 
         if ($existing->source_type !== $sourceType) {
             $conflicts[] = 'source_type';
         }
 
-        if ($existing->source_appointment_id !== $sourceAppointmentId) {
-            $conflicts[] = 'source_appointment_id';
+        if ($existing->start_time->format('Y-m-d H:i:s') !== $startTime->format('Y-m-d H:i:s')) {
+            $conflicts[] = 'start_time';
+        }
+
+        if ($existing->duration !== $duration) {
+            $conflicts[] = 'duration';
         }
 
         if ($chainId !== null && $existing->chain_id !== $chainId) {

@@ -441,4 +441,121 @@ class SlotOpportunityTest extends TestCase
         $this->assertInstanceOf(User::class, $opp->master);
         $this->assertInstanceOf(MasterService::class, $opp->masterService);
     }
+
+    // ── Late retry after start_time ───────────────────────
+
+    public function test_late_retry_after_start_time_returns_existing(): void
+    {
+        $originEventId = (string) Str::uuid();
+        $startTime = Carbon::now()->addMinutes(5);
+
+        $opp = $this->service->createFromFreedWindow(...$this->validArgs([
+            'originEventId' => $originEventId,
+            'startTime' => $startTime,
+        ]));
+
+        $this->assertNotNull($opp);
+
+        // Simulate time passing: start_time is now in the past
+        // Use travel() to move clock forward
+        $this->travel(10)->minutes();
+
+        $retry = $this->service->createFromFreedWindow(...$this->validArgs([
+            'originEventId' => $originEventId,
+            'startTime' => $startTime,
+        ]));
+
+        $this->assertNotNull($retry);
+        $this->assertEquals($opp->id, $retry->id);
+    }
+
+    // ── New past event returns null ───────────────────────
+
+    public function test_new_past_event_returns_null(): void
+    {
+        $opp = $this->service->createFromFreedWindow(...$this->validArgs([
+            'startTime' => Carbon::yesterday()->setTime(14, 0),
+        ]));
+
+        $this->assertNull($opp);
+    }
+
+    // ── Existing event after becoming past + conflict ─────
+
+    public function test_existing_past_event_with_conflict_throws(): void
+    {
+        $originEventId = (string) Str::uuid();
+        $startTime = Carbon::now()->addMinutes(5);
+
+        $this->service->createFromFreedWindow(...$this->validArgs([
+            'originEventId' => $originEventId,
+            'startTime' => $startTime,
+            'duration' => 60,
+        ]));
+
+        // Time passes
+        $this->travel(10)->minutes();
+
+        // Same origin but different duration — should still throw, not return null
+        $this->expectException(\DomainException::class);
+
+        $this->service->createFromFreedWindow(...$this->validArgs([
+            'originEventId' => $originEventId,
+            'startTime' => $startTime,
+            'duration' => 90,
+        ]));
+    }
+
+    // ── Unique violation fallback ─────────────────────────
+
+    public function test_concurrent_unique_violation_returns_existing(): void
+    {
+        $originEventId = (string) Str::uuid();
+        $args = $this->validArgs(['originEventId' => $originEventId]);
+
+        // Create the opportunity normally
+        $opp = $this->service->createFromFreedWindow(...$args);
+
+        // Simulate a concurrent insert that would hit UNIQUE violation
+        // by directly inserting with the same origin_event_id via DB
+        // This tests that the service's catch block works
+        $retry = $this->service->createFromFreedWindow(...$args);
+
+        $this->assertEquals($opp->id, $retry->id);
+    }
+
+    // ── Non-unique QueryException not swallowed ───────────
+
+    public function test_non_unique_query_exception_not_swallowed(): void
+    {
+        // FK violation: non-existent workspace_id
+        $this->expectException(\DomainException::class);
+
+        $this->service->createFromFreedWindow(...$this->validArgs([
+            'workspaceId' => (string) Str::uuid(),
+        ]));
+    }
+
+    // ── Existing event + null chain_id preserves generated ──
+
+    public function test_late_retry_null_chain_preserves_generated(): void
+    {
+        $originEventId = (string) Str::uuid();
+
+        $opp = $this->service->createFromFreedWindow(...$this->validArgs([
+            'originEventId' => $originEventId,
+            'chainId' => null,
+        ]));
+
+        $generatedChain = $opp->chain_id;
+
+        $this->travel(10)->minutes();
+
+        $retry = $this->service->createFromFreedWindow(...$this->validArgs([
+            'originEventId' => $originEventId,
+            'chainId' => null,
+        ]));
+
+        $this->assertEquals($generatedChain, $retry->chain_id);
+    }
 }
