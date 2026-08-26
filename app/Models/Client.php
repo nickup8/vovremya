@@ -69,11 +69,6 @@ class Client extends Authenticatable
         return $this->hasMany(Appointment::class, 'client_id');
     }
 
-    public function consents(): HasMany
-    {
-        return $this->hasMany(ClientConsent::class);
-    }
-
     public function isBlocked(): bool
     {
         return (bool) $this->is_blocked;
