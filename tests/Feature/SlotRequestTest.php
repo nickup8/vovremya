@@ -285,8 +285,8 @@ class SlotRequestTest extends TestCase
 
         $this->assertInstanceOf(\Carbon\CarbonImmutable::class, $sr->date_from);
         $this->assertInstanceOf(\Carbon\CarbonImmutable::class, $sr->date_to);
-        $this->assertInstanceOf(\Carbon\CarbonImmutable::class, $sr->time_from);
-        $this->assertInstanceOf(\Carbon\CarbonImmutable::class, $sr->time_to);
+        $this->assertIsString($sr->time_from);
+        $this->assertIsString($sr->time_to);
         $this->assertInstanceOf(\Carbon\CarbonImmutable::class, $sr->appointment_start_time_snapshot);
     }
 
