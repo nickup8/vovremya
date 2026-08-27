@@ -56,10 +56,9 @@ class SlotMatcherService
         }
 
         // 6. Availability check (once, before candidate loop)
-        $oppStartCarbon = new Carbon($opportunity->start_time->format('Y-m-d H:i:s'), 'UTC');
         if (! $this->availabilityService->isSlotAvailable(
             $master,
-            $oppStartCarbon,
+            Carbon::instance($opportunity->start_time),
             $opportunity->duration,
             null,
         )) {
@@ -213,55 +212,45 @@ class SlotMatcherService
 
     private function isStaleRequest(SlotRequest $request, Carbon $now): bool
     {
-        // appointment_id null
         if ($request->appointment_id === null) {
             return true;
         }
 
         $appointment = $request->appointment;
 
-        // source appointment missing
         if ($appointment === null) {
             return true;
         }
 
-        // client mismatch
         if ($appointment->client_id !== $request->client_id) {
             return true;
         }
 
-        // status != Booked
         if ($appointment->status !== AppointmentStatus::Booked) {
             return true;
         }
 
-        // source appointment past
         if ($appointment->start_time->lte($now)) {
             return true;
         }
 
-        // workspace mismatch (appointment doesn't have workspace_id, derive from master)
         $appointmentWorkspaceId = $appointment->master?->workspace_id;
         if ($appointmentWorkspaceId !== $request->workspace_id) {
             return true;
         }
 
-        // master mismatch
         if ($appointment->master_id !== $request->master_id) {
             return true;
         }
 
-        // master_service mismatch
         if ($appointment->master_service_id !== $request->master_service_id) {
             return true;
         }
 
-        // snapshot missing
         if ($request->appointment_start_time_snapshot === null) {
             return true;
         }
 
-        // snapshot drift
         if ($appointment->start_time->format('Y-m-d H:i:s') !== $request->appointment_start_time_snapshot->format('Y-m-d H:i:s')) {
             return true;
         }

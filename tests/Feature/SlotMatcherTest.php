@@ -1234,4 +1234,32 @@ class SlotMatcherTest extends TestCase
         $this->assertNotNull($offer);
         $this->assertEquals($request2->id, $offer->slot_request_id);
     }
+
+    // ── Timezone regression ───────────────────────────────
+
+    public function test_matcher_preserves_utc_instant_for_availability(): void
+    {
+        // Master timezone: Europe/Moscow (UTC+3)
+        // Working hours: 09:00-18:00 Moscow (standard from setUp)
+        // Opportunity at 06:30 UTC = 09:30 Moscow (WITHIN working hours)
+        //
+        // If code incorrectly strips timezone (passes 06:30 Moscow),
+        // availability check fails (06:30 < 09:00 working hours start).
+        // With correct timezone preservation, 09:30 Moscow passes.
+
+        // Opportunity at 06:30 UTC tomorrow
+        $utcInstant = Carbon::tomorrow()->setTime(6, 30);
+        $this->opportunity->update(['start_time' => $utcInstant]);
+
+        // Source appointment after opportunity (11:00 UTC = 14:00 Moscow)
+        $newSourceStart = Carbon::tomorrow()->setTime(11, 0);
+        $this->sourceAppointment->update(['start_time' => $newSourceStart]);
+        // Update request snapshot to match new source appointment time
+        $this->request->update(['appointment_start_time_snapshot' => $newSourceStart]);
+
+        $offer = $this->matcher->matchOpportunity($this->opportunity);
+
+        $this->assertNotNull($offer);
+        $this->assertSame(SlotOpportunityStatus::Open, $this->opportunity->fresh()->status);
+    }
 }
