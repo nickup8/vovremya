@@ -53,13 +53,13 @@ return new class extends Migration
             CHECK (time_from < time_to)
         ");
 
-        // EARLIER: appointment_id and snapshot both required
+        // EARLIER: snapshot required (appointment_id may become NULL after FK ON DELETE SET NULL)
         // OPEN: appointment_id and snapshot both null
         DB::statement("
             ALTER TABLE slot_requests
             ADD CONSTRAINT slot_requests_type_appointment_invariant
             CHECK (
-                (type = 'earlier' AND appointment_id IS NOT NULL AND appointment_start_time_snapshot IS NOT NULL)
+                (type = 'earlier' AND appointment_start_time_snapshot IS NOT NULL)
                 OR
                 (type = 'open' AND appointment_id IS NULL AND appointment_start_time_snapshot IS NULL)
             )

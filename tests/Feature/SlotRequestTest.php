@@ -137,15 +137,17 @@ class SlotRequestTest extends TestCase
         $this->assertNull($sr->appointment_start_time_snapshot);
     }
 
-    // ── EARLIER without appointment_id rejected ───────────
+    // ── EARLIER without appointment_id allowed (historical state after FK SET NULL) ──
 
-    public function test_earlier_without_appointment_rejected(): void
+    public function test_earlier_without_appointment_allowed(): void
     {
-        $this->expectException(QueryException::class);
-
-        SlotRequest::create($this->earlierRequest([
+        $sr = SlotRequest::create($this->earlierRequest([
             'appointment_id' => null,
         ]));
+
+        $this->assertNotNull($sr->id);
+        $this->assertNull($sr->appointment_id);
+        $this->assertNotNull($sr->appointment_start_time_snapshot);
     }
 
     // ── EARLIER without snapshot rejected ─────────────────
@@ -310,5 +312,106 @@ class SlotRequestTest extends TestCase
         $sr = SlotRequest::create($this->openRequest());
 
         $this->assertSame(SlotRequestStatus::Active, $sr->status);
+    }
+
+    // ── Appointment deletion: FK ON DELETE SET NULL ────────
+
+    public function test_appointment_delete_succeeds_with_active_earlier_request(): void
+    {
+        SlotRequest::create($this->earlierRequest());
+
+        // DELETE should succeed (no CHECK violation)
+        $this->appointment->delete();
+
+        $this->assertDatabaseMissing('appointments', [
+            'id' => $this->appointment->id,
+        ]);
+    }
+
+    public function test_slot_request_survives_appointment_deletion(): void
+    {
+        $sr = SlotRequest::create($this->earlierRequest());
+
+        $this->appointment->delete();
+
+        $this->assertDatabaseHas('slot_requests', [
+            'id' => $sr->id,
+            'type' => 'earlier',
+        ]);
+    }
+
+    public function test_appointment_id_null_after_appointment_deletion(): void
+    {
+        $sr = SlotRequest::create($this->earlierRequest());
+
+        $this->appointment->delete();
+
+        $this->assertNull($sr->fresh()->appointment_id);
+    }
+
+    public function test_snapshot_preserved_after_appointment_deletion(): void
+    {
+        $sr = SlotRequest::create($this->earlierRequest());
+        $originalSnapshot = $sr->appointment_start_time_snapshot;
+
+        $this->appointment->delete();
+
+        $this->assertEquals(
+            $originalSnapshot->format('Y-m-d H:i:s'),
+            $sr->fresh()->appointment_start_time_snapshot->format('Y-m-d H:i:s'),
+        );
+    }
+
+    public function test_other_fields_preserved_after_appointment_deletion(): void
+    {
+        $sr = SlotRequest::create($this->earlierRequest());
+
+        $this->appointment->delete();
+
+        $fresh = $sr->fresh();
+        $this->assertEquals($this->ws->id, $fresh->workspace_id);
+        $this->assertEquals($this->master->id, $fresh->master_id);
+        $this->assertEquals($this->client->id, $fresh->client_id);
+        $this->assertEquals($this->masterService->id, $fresh->master_service_id);
+        $this->assertEquals(SlotRequestType::Earlier, $fresh->type);
+        $this->assertEquals(SlotRequestStatus::Active, $fresh->status);
+        $this->assertStringStartsWith('09:00', $fresh->time_from);
+        $this->assertStringStartsWith('18:00', $fresh->time_to);
+        $this->assertEquals('Europe/Moscow', $fresh->timezone);
+    }
+
+    // ── OPEN with snapshot rejected ────────────────────────
+
+    public function test_open_with_snapshot_rejected(): void
+    {
+        $this->expectException(QueryException::class);
+
+        SlotRequest::create($this->openRequest([
+            'appointment_start_time_snapshot' => Carbon::tomorrow()->setTime(14, 0),
+        ]));
+    }
+
+    // ── SlotRequestService creation contract ───────────────
+
+    public function test_service_creates_earlier_with_real_appointment(): void
+    {
+        $this->client->update(['telegram_id' => '123456789']);
+
+        $service = app(\App\Services\SlotRequestService::class);
+
+        $sr = $service->createOrUpdateEarlierRequest(
+            appointment: $this->appointment,
+            client: $this->client,
+            dateFrom: Carbon::tomorrow()->toDateString(),
+            dateTo: Carbon::tomorrow()->toDateString(),
+            timeFrom: '09:00',
+            timeTo: '13:00',
+            deliveryChannel: SlotRequestDeliveryChannel::Telegram,
+            requestSource: SlotRequestSource::Web,
+        );
+
+        $this->assertNotNull($sr->appointment_id);
+        $this->assertEquals($this->appointment->id, $sr->appointment_id);
+        $this->assertNotNull($sr->appointment_start_time_snapshot);
     }
 }
