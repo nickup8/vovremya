@@ -235,7 +235,8 @@ class SlotOfferAcceptanceService
 
         // Opportunity stays Open — rematch will handle it
         if ($opportunity !== null) {
-            MatchSlotOpportunityJob::dispatch($opportunity->id);
+            $opportunityId = $opportunity->id;
+            DB::afterCommit(fn () => MatchSlotOpportunityJob::dispatch($opportunityId));
         }
 
         return ['success' => false, 'error' => $reason];
@@ -255,7 +256,8 @@ class SlotOfferAcceptanceService
 
         // Opportunity stays Open
         if ($opportunity !== null) {
-            MatchSlotOpportunityJob::dispatch($opportunity->id);
+            $opportunityId = $opportunity->id;
+            DB::afterCommit(fn () => MatchSlotOpportunityJob::dispatch($opportunityId));
         }
 
         return ['success' => false, 'error' => $reason];

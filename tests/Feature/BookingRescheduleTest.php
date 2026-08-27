@@ -182,4 +182,42 @@ class BookingRescheduleTest extends TestCase
             $masterB->id,
         );
     }
+
+    #[Test]
+    public function reschedule_broadcasts_after_commit(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([\App\Events\AppointmentRescheduled::class]);
+
+        $workspace = Workspace::create([
+            'name' => 'Test Salon',
+            'owner_id' => User::factory()->create()->id,
+        ]);
+
+        $master = $this->createMasterInWorkspace($workspace);
+
+        $service = MasterService::factory()->forMaster($master)->create([
+            'duration_override' => 60,
+        ]);
+
+        $appointment = $this->bookingService->createAppointment(
+            $master,
+            $service,
+            $this->tomorrow10amMoscow()->format('Y-m-d'),
+            $this->tomorrow10amMoscow()->format('H:i'),
+            'admin',
+            null,
+            AppointmentStatus::Booked,
+        );
+
+        $newTime = $this->tomorrow10amMoscow()->copy()->setTime(15, 0);
+
+        $result = $this->bookingService->rescheduleAppointment(
+            $appointment,
+            $newTime->format('Y-m-d'),
+            $newTime->format('H:i'),
+        );
+
+        $this->assertTrue($result['success']);
+        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\AppointmentRescheduled::class);
+    }
 }

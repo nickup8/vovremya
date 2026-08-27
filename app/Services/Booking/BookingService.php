@@ -419,11 +419,11 @@ class BookingService
                 }
 
                 $locked->load(['client', 'master']);
-                broadcast(new AppointmentRescheduled($locked, $oldStartTime));
 
                 return [
                     'success' => true,
                     'appointment' => $locked,
+                    'old_start_time' => $oldStartTime,
                 ];
             });
         } catch (QueryException $e) {
@@ -440,10 +440,25 @@ class BookingService
             throw $e;
         }
 
-        // Уведомления о переносе — ПОСЛЕ коммита транзакции.
-        // Падение мессенджера не должно откатывать сам перенос.
+        // Broadcast + notification — ПОСЛЕ коммита outermost транзакции.
+        // При вызове из SlotOfferAcceptanceService outer transaction ещё открыт;
+        // DB::afterCommit сработает только после его commit.
+        // Ошибки broadcast/notification логируются, но не превращают
+        // успешный reschedule в HTTP 500.
         if (($result['success'] ?? false) === true) {
-            $this->sendRescheduleNotifications($result['appointment']);
+            $appointmentForResult = $result['appointment'];
+            $oldStartTimeForResult = $result['old_start_time'];
+            DB::afterCommit(function () use ($appointmentForResult, $oldStartTimeForResult) {
+                try {
+                    broadcast(new AppointmentRescheduled($appointmentForResult, $oldStartTimeForResult));
+                } catch (\Throwable $e) {
+                    Log::error('[reschedule] broadcast failed', [
+                        'appointment_id' => $appointmentForResult->id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
+                $this->sendRescheduleNotifications($appointmentForResult);
+            });
         }
 
         return $result;

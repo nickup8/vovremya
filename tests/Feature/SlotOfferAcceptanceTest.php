@@ -356,4 +356,63 @@ class SlotOfferAcceptanceTest extends TestCase
         // No freed-window dispatched
         Bus::assertNotDispatched(MatchSlotOpportunityJob::class);
     }
+
+    // ── Deferred side effects ─────────────────────────────
+
+    public function test_acceptance_rollback_no_broadcast_no_notification_no_rematch(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([\App\Events\AppointmentRescheduled::class]);
+        $this->mock(\App\Services\Notification\ClientNotificationService::class, function ($mock) {
+            $mock->shouldReceive('sendToClientBySource')->never();
+        });
+
+        DB::beginTransaction();
+        $result = $this->service->acceptEarlier($this->offer);
+        DB::rollBack();
+
+        // DB state rolled back
+        $this->assertSame(SlotOfferStatus::Pending, $this->offer->fresh()->status);
+        $this->assertSame(SlotRequestStatus::Active, $this->request->fresh()->status);
+        $this->assertSame(SlotOpportunityStatus::Open, $this->opportunity->fresh()->status);
+
+        // No side effects after rollback
+        \Illuminate\Support\Facades\Event::assertNotDispatched(\App\Events\AppointmentRescheduled::class);
+        Bus::assertNotDispatched(MatchSlotOpportunityJob::class);
+    }
+
+    public function test_successful_acceptance_broadcasts_after_commit(): void
+    {
+        \Illuminate\Support\Facades\Event::fake([\App\Events\AppointmentRescheduled::class]);
+
+        $result = $this->service->acceptEarlier($this->offer);
+
+        $this->assertTrue($result['success']);
+        \Illuminate\Support\Facades\Event::assertDispatched(\App\Events\AppointmentRescheduled::class);
+    }
+
+    public function test_stale_branch_commit_dispatches_rematch(): void
+    {
+        $this->sourceAppointment->update(['status' => AppointmentStatus::Cancelled]);
+
+        $result = $this->service->acceptEarlier($this->offer);
+
+        $this->assertFalse($result['success']);
+
+        Bus::assertDispatched(MatchSlotOpportunityJob::class, function ($job) {
+            return $job->slotOpportunityId === $this->opportunity->id;
+        });
+    }
+
+    public function test_stale_branch_rollback_no_rematch_job(): void
+    {
+        DB::beginTransaction();
+        $this->sourceAppointment->update(['status' => AppointmentStatus::Cancelled]);
+
+        $result = $this->service->acceptEarlier($this->offer);
+
+        DB::rollBack();
+
+        $this->assertSame(SlotOfferStatus::Pending, $this->offer->fresh()->status);
+        Bus::assertNotDispatched(MatchSlotOpportunityJob::class);
+    }
 }
