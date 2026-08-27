@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\SlotOfferStatus;
 use App\Enums\SlotRequestDeliveryChannel;
 use App\Enums\SlotRequestSource;
 use App\Enums\SlotRequestStatus;
@@ -9,6 +10,8 @@ use App\Enums\SlotRequestType;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SlotRequest extends Model
 {
@@ -82,5 +85,16 @@ class SlotRequest extends Model
     public function masterService(): BelongsTo
     {
         return $this->belongsTo(MasterService::class);
+    }
+
+    public function offers(): HasMany
+    {
+        return $this->hasMany(SlotOffer::class, 'slot_request_id');
+    }
+
+    public function pendingOffer(): HasOne
+    {
+        return $this->hasOne(SlotOffer::class, 'slot_request_id')
+            ->where('status', SlotOfferStatus::Pending);
     }
 }

@@ -2,11 +2,14 @@
 
 namespace App\Models;
 
+use App\Enums\SlotOfferStatus;
 use App\Enums\SlotOpportunitySourceType;
 use App\Enums\SlotOpportunityStatus;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Database\Eloquent\Relations\HasOne;
 
 class SlotOpportunity extends Model
 {
@@ -69,5 +72,16 @@ class SlotOpportunity extends Model
     public function filledByAppointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class, 'filled_by_appointment_id');
+    }
+
+    public function offers(): HasMany
+    {
+        return $this->hasMany(SlotOffer::class, 'slot_opportunity_id');
+    }
+
+    public function pendingOffer(): HasOne
+    {
+        return $this->hasOne(SlotOffer::class, 'slot_opportunity_id')
+            ->where('status', SlotOfferStatus::Pending);
     }
 }

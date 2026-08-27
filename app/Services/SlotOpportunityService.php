@@ -85,6 +85,50 @@ class SlotOpportunityService
         }
     }
 
+    public function expire(SlotOpportunity $opportunity): SlotOpportunity
+    {
+        if ($opportunity->status === SlotOpportunityStatus::Expired) {
+            return $opportunity;
+        }
+
+        if ($opportunity->status !== SlotOpportunityStatus::Open) {
+            throw new \DomainException(
+                "Cannot expire opportunity with status [{$opportunity->status->value}]. Only open opportunities can be expired."
+            );
+        }
+
+        if ($opportunity->start_time->isFuture()) {
+            throw new \DomainException('Cannot expire opportunity before its start_time.');
+        }
+
+        $opportunity->update([
+            'status' => SlotOpportunityStatus::Expired,
+            'expired_at' => now(),
+        ]);
+
+        return $opportunity->refresh();
+    }
+
+    public function invalidate(SlotOpportunity $opportunity): SlotOpportunity
+    {
+        if ($opportunity->status === SlotOpportunityStatus::Invalidated) {
+            return $opportunity;
+        }
+
+        if ($opportunity->status !== SlotOpportunityStatus::Open) {
+            throw new \DomainException(
+                "Cannot invalidate opportunity with status [{$opportunity->status->value}]. Only open opportunities can be invalidated."
+            );
+        }
+
+        $opportunity->update([
+            'status' => SlotOpportunityStatus::Invalidated,
+            'invalidated_at' => now(),
+        ]);
+
+        return $opportunity->refresh();
+    }
+
     private function validatePayload(
         int $duration,
         string $workspaceId,

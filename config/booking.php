@@ -23,4 +23,8 @@ return [
      */
     'attribution_window_days' => (int) env('BOOKING_ATTRIBUTION_WINDOW_DAYS', 7),
 
+    'autofill' => [
+        'offer_ttl_minutes' => (int) env('BOOKING_AUTOFILL_OFFER_TTL_MINUTES', 10),
+    ],
+
 ];

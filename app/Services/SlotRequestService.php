@@ -58,6 +58,26 @@ class SlotRequestService
         });
     }
 
+    public function expire(SlotRequest $request): SlotRequest
+    {
+        if ($request->status === SlotRequestStatus::Expired) {
+            return $request;
+        }
+
+        if ($request->status !== SlotRequestStatus::Active) {
+            throw new \DomainException(
+                "Cannot expire request with status [{$request->status->value}]. Only active requests can be expired."
+            );
+        }
+
+        $request->update([
+            'status' => SlotRequestStatus::Expired,
+            'expired_at' => now(),
+        ]);
+
+        return $request->refresh();
+    }
+
     public function cancel(SlotRequest $request, Client $client): SlotRequest
     {
         if ($request->client_id !== $client->id) {
