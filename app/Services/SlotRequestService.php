@@ -78,6 +78,26 @@ class SlotRequestService
         return $request->refresh();
     }
 
+    public function fulfill(SlotRequest $request): SlotRequest
+    {
+        if ($request->status === SlotRequestStatus::Fulfilled) {
+            return $request;
+        }
+
+        if ($request->status !== SlotRequestStatus::Active) {
+            throw new \DomainException(
+                "Cannot fulfill request with status [{$request->status->value}]. Only active requests can be fulfilled."
+            );
+        }
+
+        $request->update([
+            'status' => SlotRequestStatus::Fulfilled,
+            'fulfilled_at' => now(),
+        ]);
+
+        return $request->refresh();
+    }
+
     public function cancel(SlotRequest $request, Client $client): SlotRequest
     {
         if ($request->client_id !== $client->id) {

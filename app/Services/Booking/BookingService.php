@@ -337,9 +337,10 @@ class BookingService
         bool $ignoreWarnings = false,
         bool $confirmOutsideHours = false,
         ?string $newMasterId = null,
+        ?string $autofillChainId = null,
     ): array {
         try {
-            $result = DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId) {
+            $result = DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId, $autofillChainId) {
                 $locked = Appointment::where('id', $appointment->id)->lockForUpdate()->first();
 
                 $originalMaster = $locked->master;
@@ -392,7 +393,7 @@ class BookingService
                 $oldStartTime = $locked->start_time->toIso8601String();
 
                 // AutoFill: capture freed-window snapshot BEFORE mutation
-                $freedWindow = $this->captureRescheduleFreedWindow($locked, $originalMaster);
+                $freedWindow = $this->captureRescheduleFreedWindow($locked, $originalMaster, $autofillChainId);
 
                 $updateData = [
                     'start_time' => $startDateTime,
@@ -482,6 +483,7 @@ class BookingService
     private function captureRescheduleFreedWindow(
         Appointment $locked,
         User $originalMaster,
+        ?string $autofillChainId = null,
     ): ?AppointmentWindowFreed {
         if ($locked->status !== AppointmentStatus::Booked) {
             return null;
@@ -507,12 +509,14 @@ class BookingService
 
         return new AppointmentWindowFreed(
             originEventId: (string) Str::uuid(),
-            chainId: null,
+            chainId: $autofillChainId,
             workspaceId: $originalMaster->workspace_id,
             masterId: $originalMaster->id,
             masterServiceId: $locked->master_service_id,
             sourceAppointmentId: $locked->id,
-            sourceType: SlotOpportunitySourceType::Reschedule,
+            sourceType: $autofillChainId !== null
+                ? SlotOpportunitySourceType::AutoFillReschedule
+                : SlotOpportunitySourceType::Reschedule,
             startTime: $locked->start_time,
             duration: $duration,
         );

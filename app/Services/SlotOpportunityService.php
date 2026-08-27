@@ -129,6 +129,30 @@ class SlotOpportunityService
         return $opportunity->refresh();
     }
 
+    public function fill(SlotOpportunity $opportunity, string $appointmentId): SlotOpportunity
+    {
+        if ($opportunity->status === SlotOpportunityStatus::Filled) {
+            if ($opportunity->filled_by_appointment_id === $appointmentId) {
+                return $opportunity;
+            }
+            throw new \DomainException('Opportunity already filled by a different appointment.');
+        }
+
+        if ($opportunity->status !== SlotOpportunityStatus::Open) {
+            throw new \DomainException(
+                "Cannot fill opportunity with status [{$opportunity->status->value}]. Only open opportunities can be filled."
+            );
+        }
+
+        $opportunity->update([
+            'status' => SlotOpportunityStatus::Filled,
+            'filled_at' => now(),
+            'filled_by_appointment_id' => $appointmentId,
+        ]);
+
+        return $opportunity->refresh();
+    }
+
     private function validatePayload(
         int $duration,
         string $workspaceId,

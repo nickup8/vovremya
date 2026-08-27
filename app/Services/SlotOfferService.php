@@ -54,6 +54,26 @@ class SlotOfferService
         }
     }
 
+    public function accept(SlotOffer $offer): SlotOffer
+    {
+        if ($offer->status === SlotOfferStatus::Accepted) {
+            return $offer;
+        }
+
+        if ($offer->status !== SlotOfferStatus::Pending) {
+            throw new \DomainException(
+                "Cannot accept offer with status [{$offer->status->value}]. Only pending offers can be accepted."
+            );
+        }
+
+        $offer->update([
+            'status' => SlotOfferStatus::Accepted,
+            'accepted_at' => now(),
+        ]);
+
+        return $offer->refresh();
+    }
+
     public function decline(SlotOffer $offer): SlotOffer
     {
         if ($offer->status === SlotOfferStatus::Declined) {
