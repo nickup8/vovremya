@@ -412,4 +412,157 @@ class FreedWindowTest extends TestCase
         $this->assertEquals($this->master->id, $opp->master_id);
         $this->assertNotEquals($newMaster->id, $opp->master_id);
     }
+
+    // ── Duration source: persisted appointment.duration only ──
+
+    public function test_cancellation_uses_appointment_duration_not_master_service(): void
+    {
+        // Appointment created with duration=60
+        $this->assertEquals(60, $this->appointment->duration);
+
+        // MasterService effective_duration changed to 90 AFTER appointment creation
+        $catalog = $this->masterService->catalog;
+        $catalog->update(['base_duration' => 90]);
+
+        // Cancellation should use persisted appointment.duration=60, not 90
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($this->appointment, AppointmentStatus::Cancelled);
+
+        $opp = SlotOpportunity::first();
+        $this->assertNotNull($opp);
+        $this->assertEquals(60, $opp->duration);
+    }
+
+    public function test_reschedule_uses_appointment_duration_not_master_service(): void
+    {
+        // Appointment created with duration=60
+        $this->assertEquals(60, $this->appointment->duration);
+
+        // MasterService effective_duration changed to 90 AFTER appointment creation
+        $catalog = $this->masterService->catalog;
+        $catalog->update(['base_duration' => 90]);
+
+        // Reschedule snapshot should use persisted appointment.duration=60
+        $window = new AppointmentWindowFreed(
+            originEventId: (string) Str::uuid(),
+            chainId: null,
+            workspaceId: $this->ws->id,
+            masterId: $this->master->id,
+            masterServiceId: $this->masterService->id,
+            sourceAppointmentId: $this->appointment->id,
+            sourceType: SlotOpportunitySourceType::Reschedule,
+            startTime: $this->appointment->start_time,
+            duration: $this->appointment->duration,
+        );
+
+        $service = new SlotOpportunityService();
+        $opp = $service->createFromFreedWindow(
+            originEventId: $window->originEventId,
+            chainId: $window->chainId,
+            workspaceId: $window->workspaceId,
+            masterId: $window->masterId,
+            masterServiceId: $window->masterServiceId,
+            sourceAppointmentId: $window->sourceAppointmentId,
+            sourceType: $window->sourceType,
+            startTime: $window->startTime,
+            duration: $window->duration,
+        );
+
+        $this->assertEquals(60, $opp->duration);
+    }
+
+    public function test_null_duration_cancellation_no_opportunity(): void
+    {
+        // Legacy appointment with null duration
+        $this->appointment->update(['duration' => null]);
+
+        // Cancellation succeeds
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($this->appointment, AppointmentStatus::Cancelled);
+
+        $this->assertEquals(AppointmentStatus::Cancelled, $this->appointment->fresh()->status);
+
+        // No AutoFill side effect
+        $this->assertDatabaseCount('slot_opportunities', 0);
+    }
+
+    public function test_null_duration_reschedule_no_opportunity(): void
+    {
+        // Legacy appointment with null duration
+        $this->appointment->update(['duration' => null]);
+
+        // Reschedule via BookingService
+        $result = app(BookingService::class)->rescheduleAppointment(
+            $this->appointment,
+            Carbon::tomorrow()->format('Y-m-d'),
+            '15:00',
+        );
+
+        $this->assertTrue($result['success']);
+
+        // No AutoFill side effect
+        $this->assertDatabaseCount('slot_opportunities', 0);
+    }
+
+    public function test_zero_duration_cancellation_no_opportunity(): void
+    {
+        // Appointment with duration=0
+        $this->appointment->update(['duration' => 0]);
+
+        // Cancellation succeeds
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($this->appointment, AppointmentStatus::Cancelled);
+
+        $this->assertEquals(AppointmentStatus::Cancelled, $this->appointment->fresh()->status);
+
+        // No AutoFill side effect
+        $this->assertDatabaseCount('slot_opportunities', 0);
+    }
+
+    // ── Transaction rollback: no side effects ──────────────
+    // DB::afterCommit defers until the outermost transaction commits.
+    // In tests with RefreshDatabase, the outermost transaction is the
+    // test wrapper. A nested DB::rollBack() means the afterCommit
+    // callback never fires → no job dispatched → no opportunity.
+
+    public function test_cancellation_rollback_no_opportunity(): void
+    {
+        // Wrap cancellation in explicit transaction and rollback
+        DB::beginTransaction();
+
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($this->appointment, AppointmentStatus::Cancelled);
+
+        DB::rollBack();
+
+        // afterCommit never fires on rollback → no opportunity created
+        $this->assertDatabaseCount('slot_opportunities', 0);
+
+        // Appointment status unchanged (rolled back)
+        $this->assertEquals(AppointmentStatus::Booked, $this->appointment->fresh()->status);
+    }
+
+    public function test_reschedule_rollback_no_opportunity(): void
+    {
+        // BookingService::rescheduleAppointment wraps in DB::transaction.
+        // An outer transaction + rollback prevents afterCommit from firing.
+        DB::beginTransaction();
+
+        $result = app(BookingService::class)->rescheduleAppointment(
+            $this->appointment,
+            Carbon::tomorrow()->format('Y-m-d'),
+            '15:00',
+        );
+
+        DB::rollBack();
+
+        // afterCommit never fires on rollback → no opportunity created
+        $this->assertDatabaseCount('slot_opportunities', 0);
+
+        // Appointment start_time unchanged (rolled back)
+        $this->assertEquals(
+            Carbon::tomorrow()->setTime(14, 0)->format('Y-m-d H:i'),
+            $this->appointment->fresh()->start_time->format('Y-m-d H:i'),
+        );
+    }
 }

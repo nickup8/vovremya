@@ -130,9 +130,9 @@ class AppointmentStatusService
             return null;
         }
 
-        $duration = (int) ($appointment->duration ?? $appointment->masterService?->effective_duration ?? 0);
+        $duration = $appointment->duration;
 
-        if ($duration <= 0) {
+        if ($duration === null || $duration <= 0) {
             return null;
         }
 

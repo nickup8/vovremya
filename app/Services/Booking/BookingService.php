@@ -495,9 +495,9 @@ class BookingService
             return null;
         }
 
-        $duration = (int) ($locked->duration ?? $locked->masterService?->effective_duration ?? 0);
+        $duration = $locked->duration;
 
-        if ($duration <= 0) {
+        if ($duration === null || $duration <= 0) {
             return null;
         }
 
