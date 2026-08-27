@@ -46,6 +46,9 @@ class CreateSlotOpportunityJob implements ShouldQueue
                 'origin_event_id' => $this->window->originEventId,
                 'start_time' => $this->window->startTime->toIso8601String(),
             ]);
+            return;
         }
+
+        MatchSlotOpportunityJob::dispatch($result->id);
     }
 }
