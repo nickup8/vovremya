@@ -1,7 +1,6 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import type { ReactNode } from 'react';
 import { Sun, Moon, LogOut, CalendarDays, Home, RefreshCw } from 'lucide-react';
-import { Toaster } from '@/components/ui/sonner';
 import { useAppearance } from '@/hooks/use-appearance';
 
 interface ClientLayoutProps {
@@ -107,8 +106,6 @@ export default function ClientLayout({ children }: ClientLayoutProps) {
 
             {/* Spacer for bottom nav on mobile */}
             <div className="h-14 lg:hidden" />
-
-            <Toaster />
         </div>
     );
 }

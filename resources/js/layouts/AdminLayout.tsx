@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { usePage, Link } from '@inertiajs/react';
 import { Menu, Sun, Moon, Monitor, CreditCard } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Toaster } from '@/components/ui/sonner';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import Sidebar from '@/components/admin/Sidebar';
 import { getInitials } from '@/lib/utils';
@@ -119,7 +118,6 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                     {children}
                 </main>
             </div>
-            <Toaster />
         </div>
     );
 }
