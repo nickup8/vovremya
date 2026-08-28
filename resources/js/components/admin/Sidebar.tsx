@@ -1,20 +1,32 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import {
-    CalendarDays, Users, BarChart3, Settings, BookOpen,
-    X, LogOut, RefreshCw, ChevronLeft, ChevronRight,
-    Sun, Moon, type LucideIcon,
-} from 'lucide-react';
-import { useEffect, useCallback } from 'react';
+    CalendarDaysIcon,
+    UsersIcon,
+    ChartBarIcon,
+    Cog6ToothIcon,
+    BookOpenIcon,
+    XMarkIcon,
+    ArrowRightStartOnRectangleIcon,
+    ArrowPathIcon,
+    ChevronLeftIcon,
+    ChevronRightIcon,
+    SunIcon,
+    MoonIcon,
+    CreditCardIcon,
+} from '@heroicons/react/24/outline';
+import { useEffect, useCallback, type ComponentType } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
 import { useAppearance } from '@/hooks/use-appearance';
 
-const MENU_ITEMS: { icon: LucideIcon; label: string; href: string; ownerOnly?: boolean }[] = [
-    { icon: CalendarDays, label: 'Календарь', href: '/admin/calendar' },
-    { icon: Users, label: 'Клиенты', href: '/admin/clients' },
-    { icon: BookOpen, label: 'Услуги', href: '/admin/catalog' },
-    { icon: BarChart3, label: 'Аналитика', href: '/admin/analytics' },
-    { icon: Settings, label: 'Настройки', href: '/admin/settings' },
+type HeroiconProps = { className?: string };
+
+const MENU_ITEMS: { icon: ComponentType<HeroiconProps>; label: string; href: string; ownerOnly?: boolean }[] = [
+    { icon: CalendarDaysIcon, label: 'Календарь', href: '/admin/calendar' },
+    { icon: UsersIcon, label: 'Клиенты', href: '/admin/clients' },
+    { icon: BookOpenIcon, label: 'Услуги', href: '/admin/catalog' },
+    { icon: ChartBarIcon, label: 'Аналитика', href: '/admin/analytics' },
+    { icon: Cog6ToothIcon, label: 'Настройки', href: '/admin/settings' },
 ];
 
 interface SidebarProps {
@@ -60,14 +72,17 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         updateAppearance(order[(idx + 1) % order.length]);
     };
 
+    const isDark = appearance === 'dark';
+    const logoSrc = isDark ? '/images/logo-white.svg' : '/images/logo.svg';
+
     const sidebarContent = (
         <div className="flex h-full flex-col">
             {/* Brand */}
             <div className={`flex h-[52px] items-center border-b px-2 pb-4 ${collapsed ? 'justify-center' : 'gap-2'}`}>
                 {collapsed ? (
-                    <img src="/images/logo-white.svg" alt="Вовремя" className="h-8 w-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
+                    <img src={logoSrc} alt="Вовремя" className="h-8 w-8 object-contain" />
                 ) : (
-                    <img src="/images/logo-white.svg" alt="Вовремя" className="h-7 w-auto" style={{ filter: 'brightness(0) invert(1)' }} />
+                    <img src={logoSrc} alt="Вовремя" className="h-7 w-auto" />
                 )}
             </div>
 
@@ -129,7 +144,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                             className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
                             title={collapsed ? 'Тариф' : undefined}
                         >
-                            <CreditCardIcon />
+                            <CreditCardIcon className="size-4 shrink-0" />
                             {!collapsed && <span>Тариф</span>}
                         </Link>
                     )}
@@ -138,23 +153,23 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
                         title={collapsed ? 'Режим клиента' : undefined}
                     >
-                        <RefreshCw className="size-4 shrink-0" />
+                        <ArrowPathIcon className="size-4 shrink-0" />
                         {!collapsed && <span>Режим клиента</span>}
                     </button>
                     <button
                         onClick={toggleTheme}
                         className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
-                        title={collapsed ? (appearance === 'dark' ? 'Светлая тема' : 'Тёмная тема') : undefined}
+                        title={collapsed ? (isDark ? 'Светлая тема' : 'Тёмная тема') : undefined}
                     >
-                        {appearance === 'dark' ? <Sun className="size-4 shrink-0" /> : <Moon className="size-4 shrink-0" />}
-                        {!collapsed && <span>{appearance === 'dark' ? 'Светлая тема' : 'Тёмная тема'}</span>}
+                        {isDark ? <SunIcon className="size-4 shrink-0" /> : <MoonIcon className="size-4 shrink-0" />}
+                        {!collapsed && <span>{isDark ? 'Светлая тема' : 'Тёмная тема'}</span>}
                     </button>
                     <button
                         onClick={() => { onMobileClose(); handleLogout(); }}
                         className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-red-500 ${collapsed ? 'justify-center' : ''}`}
                         title={collapsed ? 'Выйти' : undefined}
                     >
-                        <LogOut className="size-4 shrink-0" />
+                        <ArrowRightStartOnRectangleIcon className="size-4 shrink-0" />
                         {!collapsed && <span>Выйти</span>}
                     </button>
                 </div>
@@ -194,7 +209,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                 }}
                 aria-label={collapsed ? 'Развернуть боковую панель' : 'Сложить боковую панель'}
             >
-                {collapsed ? <ChevronRight className="size-3" /> : <ChevronLeft className="size-3" />}
+                {collapsed ? <ChevronRightIcon className="size-3" /> : <ChevronLeftIcon className="size-3" />}
             </button>
 
             {/* Mobile overlay + sidebar */}
@@ -210,12 +225,12 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         aria-label="Основная навигация"
                     >
                         <div className="flex h-[52px] items-center justify-between border-b px-2 pb-4">
-                            <img src="/images/logo-white.svg" alt="Вовремя" className="h-7 w-auto" style={{ filter: 'brightness(0) invert(1)' }} />
+                            <img src={logoSrc} alt="Вовремя" className="h-7 w-auto" />
                             <button
                                 onClick={onMobileClose}
                                 className="rounded-md p-1.5 text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)]"
                             >
-                                <X className="size-4" />
+                                <XMarkIcon className="size-4" />
                             </button>
                         </div>
                         <nav className="mt-3 flex flex-1 flex-col gap-1">
@@ -261,21 +276,21 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                                     onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
                                     className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
                                 >
-                                    <RefreshCw className="size-4 shrink-0" />
+                                    <ArrowPathIcon className="size-4 shrink-0" />
                                     <span>Режим клиента</span>
                                 </button>
                                 <button
                                     onClick={toggleTheme}
                                     className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
                                 >
-                                    {appearance === 'dark' ? <Sun className="size-4 shrink-0" /> : <Moon className="size-4 shrink-0" />}
-                                    <span>{appearance === 'dark' ? 'Светлая тема' : 'Тёмная тема'}</span>
+                                    {isDark ? <SunIcon className="size-4 shrink-0" /> : <MoonIcon className="size-4 shrink-0" />}
+                                    <span>{isDark ? 'Светлая тема' : 'Тёмная тема'}</span>
                                 </button>
                                 <button
                                     onClick={() => { onMobileClose(); handleLogout(); }}
                                     className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-red-500"
                                 >
-                                    <LogOut className="size-4 shrink-0" />
+                                    <ArrowRightStartOnRectangleIcon className="size-4 shrink-0" />
                                     <span>Выйти</span>
                                 </button>
                             </div>
@@ -284,14 +299,5 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                 </div>
             )}
         </>
-    );
-}
-
-function CreditCardIcon() {
-    return (
-        <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-            <rect x="3" y="5" width="18" height="14" rx="2" />
-            <path d="M3 10h18M7 15h4" />
-        </svg>
     );
 }

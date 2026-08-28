@@ -1,9 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePage, Link } from '@inertiajs/react';
-import { Menu, Bell, Plus } from 'lucide-react';
+import { Bars3Icon, BellIcon, PlusIcon } from '@heroicons/react/24/outline';
 import type { ReactNode } from 'react';
 import Sidebar from '@/components/admin/Sidebar';
-import { useAppearance } from '@/hooks/use-appearance';
 
 const SIDEBAR_COLLAPSED_KEY = 'vovremya-sidebar-collapsed';
 
@@ -76,7 +75,7 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                         className="rounded-lg p-2 text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] lg:hidden"
                         aria-label="Открыть меню"
                     >
-                        <Menu className="size-5" />
+                        <Bars3Icon className="size-5" />
                     </button>
 
                     {/* Page title */}
@@ -99,7 +98,7 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                                 aria-label="Уведомления"
                                 aria-expanded={notificationsOpen}
                             >
-                                <Bell className="size-5" />
+                                <BellIcon className="size-5" />
                             </button>
                             {notificationsOpen && (
                                 <section
@@ -131,7 +130,7 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                             href="/admin/calendar"
                             className="flex h-10 items-center gap-2 rounded-[10px] bg-[var(--color-orange)] px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[var(--color-orange-600)]"
                         >
-                            <Plus className="size-4" />
+                            <PlusIcon className="size-4" />
                             <span className="hidden sm:inline">Новая запись</span>
                         </Link>
                     </div>
