@@ -1,72 +1,85 @@
-import { ChevronLeft, ChevronRight, Plus } from 'lucide-react';
+import {
+    ChevronLeftIcon,
+    ChevronRightIcon,
+    CalendarDaysIcon,
+} from '@heroicons/react/24/outline';
 
 interface DateControlPanelProps {
     viewMode: 'week' | 'day' | 'month';
     dateLabel: string;
+    yearLabel?: string;
     onPrev: () => void;
     onNext: () => void;
     onToday: () => void;
     onSetView: (mode: 'week' | 'day' | 'month') => void;
-    onNewAppointment: () => void;
 }
 
 export default function DateControlPanel({
     viewMode,
     dateLabel,
+    yearLabel,
     onPrev,
     onNext,
     onToday,
     onSetView,
-    onNewAppointment,
 }: DateControlPanelProps) {
     return (
-        <div className="flex flex-col gap-3 rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900 sm:flex-row sm:flex-wrap sm:items-center sm:justify-between">
-            <div className="flex items-center gap-2">
+        <div className="flex min-h-[72px] items-center gap-3 border-b border-[var(--color-line)] bg-white px-7 py-3.5 dark:bg-zinc-900">
+            {/* Left: navigation */}
+            <div className="flex items-center gap-1">
                 <button
                     onClick={onPrev}
-                    className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                    className="flex size-10 items-center justify-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                    aria-label="Предыдущий период"
                 >
-                    <ChevronLeft className="size-4 text-slate-600 dark:text-zinc-400" />
+                    <ChevronLeftIcon className="size-5" />
                 </button>
-                <h2 className="text-sm font-semibold text-slate-900 dark:text-zinc-100 md:text-base">
-                    {dateLabel}
-                </h2>
                 <button
                     onClick={onNext}
-                    className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800"
+                    className="flex size-10 items-center justify-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                    aria-label="Следующий период"
                 >
-                    <ChevronRight className="size-4 text-slate-600 dark:text-zinc-400" />
+                    <ChevronRightIcon className="size-5" />
                 </button>
+                <div className="ml-2 whitespace-nowrap text-[15px] font-semibold tracking-tight text-[var(--color-ink)]">
+                    {dateLabel}
+                    {yearLabel && (
+                        <span className="ml-1.5 text-xs font-medium text-[var(--color-graphite)]">{yearLabel}</span>
+                    )}
+                </div>
+            </div>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Right: tools */}
+            <div className="flex items-center gap-2">
                 <button
                     onClick={onToday}
-                    className="ml-2 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700"
+                    className="flex h-10 items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-white px-3 text-sm font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)] dark:bg-zinc-900"
                 >
+                    <CalendarDaysIcon className="size-5" />
                     Сегодня
                 </button>
-            </div>
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center">
-                <div className="flex w-full overflow-hidden rounded-md bg-slate-100 dark:bg-zinc-800 sm:w-auto">
+
+                <div
+                    className="flex h-10 items-center gap-0.5 rounded-xl bg-[var(--color-warm)] p-[3px]"
+                    aria-label="Представление календаря"
+                >
                     {(['day', 'week', 'month'] as const).map((mode) => (
                         <button
                             key={mode}
                             onClick={() => onSetView(mode)}
-                            className={`flex-1 px-3 py-1.5 text-xs font-medium transition-colors sm:flex-none ${
+                            className={`rounded-lg px-3.5 py-0 text-[13px] font-semibold transition-all ${
                                 viewMode === mode
-                                    ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
-                                    : 'bg-transparent text-slate-600 hover:text-slate-800 dark:text-zinc-400 dark:hover:text-zinc-200'
+                                    ? 'bg-white text-[var(--color-ink)] shadow-sm dark:bg-zinc-800'
+                                    : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                             }`}
                         >
                             {mode === 'day' ? 'День' : mode === 'week' ? 'Неделя' : 'Месяц'}
                         </button>
                     ))}
                 </div>
-                <button
-                    onClick={onNewAppointment}
-                    className="flex w-full items-center justify-center gap-1.5 rounded-md bg-blue-600 px-3 py-1.5 text-xs font-medium text-white hover:bg-blue-700 sm:w-auto sm:justify-start"
-                >
-                    <Plus className="size-3.5" />
-                    Новая запись
-                </button>
             </div>
         </div>
     );

@@ -299,17 +299,17 @@ return [];
                         <div className="space-y-4">
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 
-                            {/* ─── Date Control Panel ─── */}
+                            {/* ─── Calendar Toolbar ─── */}
                             <DateControlPanel
                                 viewMode={viewMode}
                                 dateLabel={viewMode === 'day' ? dayRangeStr : viewMode === 'week' ? dateRangeStr : monthRangeStr}
+                                yearLabel={viewMode === 'week' ? String(today.getFullYear()) : undefined}
                                 onPrev={() => viewMode === 'day' ? setDayOffset((d) => d - 1) : viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
                                 onNext={() => viewMode === 'day' ? setDayOffset((d) => d + 1) : viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
                                 onToday={() => {
  setWeekOffset(0); setMonthOffset(0); setDayOffset(0); 
 }}
                                 onSetView={setViewMode}
-                                onNewAppointment={openNewAppointment}
                             />
 
                             {/* ─── Booking Mode Banner ─── */}
