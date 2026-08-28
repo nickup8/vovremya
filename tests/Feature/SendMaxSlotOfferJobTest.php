@@ -76,7 +76,6 @@ class SendMaxSlotOfferJobTest extends TestCase
             'user_id' => $this->master->id,
             'workspace_id' => $this->ws->id,
             'max_id' => 'max_user_123',
-            'max_chat_id' => 'max_chat_456',
         ]);
 
         $catalog = ServiceCatalog::create([
@@ -163,7 +162,7 @@ class SendMaxSlotOfferJobTest extends TestCase
         $maxApi->shouldReceive('sendMessage')
             ->once()
             ->with(
-                'max_chat_456',
+                'max_user_123',
                 Mockery::on(fn ($text) => str_contains($text, 'Освободилось время раньше')
                     && str_contains($text, 'Массаж')
                     && str_contains($text, 'Можно перенести на:')
@@ -236,9 +235,9 @@ class SendMaxSlotOfferJobTest extends TestCase
         $job->handle($maxApi, app(SlotOfferService::class));
     }
 
-    public function test_missing_max_chat_id_invalidates_and_rematches(): void
+    public function test_missing_max_id_invalidates_and_rematches(): void
     {
-        $this->client->update(['max_chat_id' => null]);
+        $this->client->update(['max_id' => null]);
 
         $maxApi = Mockery::mock(MaxApiClient::class);
         $this->app->instance(MaxApiClient::class, $maxApi);
@@ -253,21 +252,21 @@ class SendMaxSlotOfferJobTest extends TestCase
         });
     }
 
-    public function test_max_id_present_but_max_chat_id_null_invalidates(): void
+    public function test_max_id_present_max_chat_id_null_sends_successfully(): void
     {
-        $this->client->update(['max_id' => 'max_user_123', 'max_chat_id' => null]);
+        $this->client->update(['max_chat_id' => null]);
 
         $maxApi = Mockery::mock(MaxApiClient::class);
         $this->app->instance(MaxApiClient::class, $maxApi);
-        $maxApi->shouldReceive('sendMessage')->never();
+        $maxApi->shouldReceive('sendMessage')
+            ->once()
+            ->with('max_user_123', Mockery::any(), Mockery::any())
+            ->andReturn('msg_123');
 
         $job = new SendMaxSlotOfferJob($this->offer->id);
         $job->handle($maxApi, app(SlotOfferService::class));
 
-        $this->assertSame(SlotOfferStatus::Invalidated, $this->offer->fresh()->status);
-        Bus::assertDispatched(MatchSlotOpportunityJob::class, function ($job) {
-            return $job->slotOpportunityId === $this->opportunity->id;
-        });
+        $this->assertSame(SlotOfferStatus::Pending, $this->offer->fresh()->status);
     }
 
     public function test_max_api_failure_throws_for_retry(): void

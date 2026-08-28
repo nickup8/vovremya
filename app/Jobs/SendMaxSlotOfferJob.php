@@ -83,8 +83,8 @@ class SendMaxSlotOfferJob implements ShouldQueue
             return;
         }
 
-        if (empty($client->max_chat_id)) {
-            Log::warning('[AutoFill] SendMaxSlotOfferJob: client missing max_chat_id', [
+        if (empty($client->max_id)) {
+            Log::warning('[AutoFill] SendMaxSlotOfferJob: client missing max_id', [
                 'offer_id' => $offer->id,
                 'client_id' => $client->id,
             ]);
@@ -133,12 +133,12 @@ class SendMaxSlotOfferJob implements ShouldQueue
             ],
         ]];
 
-        $mid = $maxApi->sendMessage($client->max_chat_id, $text, ['attachments' => $attachments]);
+        $mid = $maxApi->sendMessage($client->max_id, $text, ['attachments' => $attachments]);
 
         if ($mid === null) {
             Log::warning('[AutoFill] SendMaxSlotOfferJob: MAX API send failed, will retry', [
                 'offer_id' => $offer->id,
-                'max_chat_id' => $client->max_chat_id,
+                'max_id' => $client->max_id,
             ]);
             throw new \Exception('MAX API failed to send slot offer message');
         }
