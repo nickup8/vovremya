@@ -1,7 +1,6 @@
 import { createInertiaApp } from '@inertiajs/react';
 import axios from 'axios';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { Toaster } from '@/components/ui/sonner';
 import { initializeTheme } from '@/hooks/use-appearance';
 
 // Ensure cookies are sent with every request (session, XSRF-TOKEN)
@@ -18,7 +17,6 @@ createInertiaApp({
         return (
             <ErrorBoundary>
                 {app}
-                <Toaster />
             </ErrorBoundary>
         );
     },

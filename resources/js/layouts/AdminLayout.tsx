@@ -3,6 +3,7 @@ import { usePage, Link } from '@inertiajs/react';
 import { Bars3Icon, BellIcon, PlusIcon } from '@heroicons/react/24/outline';
 import type { ReactNode } from 'react';
 import Sidebar from '@/components/admin/Sidebar';
+import { Toaster } from '@/components/ui/sonner';
 
 const SIDEBAR_COLLAPSED_KEY = 'vovremya-sidebar-collapsed';
 
@@ -141,6 +142,7 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                     {children}
                 </main>
             </div>
+            <Toaster />
         </div>
     );
 }

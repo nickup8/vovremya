@@ -45,29 +45,48 @@ describe('Global Toaster', () => {
     });
 });
 
-// ── Layout Toaster removal ──────────────────────────────
+// ── Layout Toaster (inside Inertia context) ─────────────
 
-describe('Layouts do not render their own Toaster', () => {
-    it('AdminLayout source does not import Toaster', async () => {
+describe('Layouts render Toaster inside Inertia context', () => {
+    it('AdminLayout source imports and renders Toaster', async () => {
         const source = await import('@/layouts/AdminLayout?raw');
-        // Vite ?raw import gives the file content as default string
         const content = typeof source === 'string' ? source : (source as { default: string }).default;
-        expect(content).not.toContain('<Toaster');
-        expect(content).not.toMatch(/import.*Toaster.*from/);
+        expect(content).toContain('<Toaster');
+        expect(content).toMatch(/import.*Toaster.*from/);
     });
 
-    it('ClientLayout source does not import Toaster', async () => {
+    it('ClientLayout source imports and renders Toaster', async () => {
         const source = await import('@/layouts/ClientLayout?raw');
         const content = typeof source === 'string' ? source : (source as { default: string }).default;
-        expect(content).not.toContain('<Toaster');
-        expect(content).not.toMatch(/import.*Toaster.*from/);
+        expect(content).toContain('<Toaster');
+        expect(content).toMatch(/import.*Toaster.*from/);
     });
 
-    it('PublicLayout source does not import Toaster', async () => {
+    it('PublicLayout source imports and renders Toaster', async () => {
         const source = await import('@/layouts/PublicLayout?raw');
         const content = typeof source === 'string' ? source : (source as { default: string }).default;
+        expect(content).toContain('<Toaster');
+        expect(content).toMatch(/import.*Toaster.*from/);
+    });
+
+    it('app.tsx does NOT render Toaster (must be inside Inertia context)', async () => {
+        const source = await import('@/app.tsx?raw');
+        const content = typeof source === 'string' ? source : (source as { default: string }).default;
         expect(content).not.toContain('<Toaster');
-        expect(content).not.toMatch(/import.*Toaster.*from/);
+    });
+});
+
+// ── Toaster renders within Inertia PageContext ───────────
+
+describe('Toaster regression: renders inside Inertia context', () => {
+    it('Toaster mounts successfully when usePage mock provides flash', () => {
+        // This test catches the real crash: useFlashToast() → usePage() outside PageContext
+        const { container } = render(<Toaster />);
+        expect(container.firstChild).not.toBeNull();
+    });
+
+    it('Toaster does not throw when flash is empty', () => {
+        expect(() => render(<Toaster />)).not.toThrow();
     });
 });
 
