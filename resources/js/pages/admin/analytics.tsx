@@ -40,6 +40,14 @@ interface AuthUser {
     [key: string]: unknown;
 }
 
+interface AutofillMetrics {
+    requests_created: number;
+    offers_sent: number;
+    offers_accepted: number;
+    acceptance_rate: number;
+    median_time_to_accept_seconds: number | null;
+}
+
 interface PageProps {
     metrics: Metrics;
     trends: Record<string, number>;
@@ -54,13 +62,15 @@ interface PageProps {
     top_channels?: ChannelSource[] | null;
     channels?: ChannelSource[] | null;
     tracking_links?: TrackingLinkItem[] | null;
+    autofill_feature?: boolean;
+    autofill?: AutofillMetrics | null;
     [key: string]: unknown;
 }
 
 /* ═══════════════ Constants ═══════════════ */
 
 // Полный набор prop-ключей, обновляемых при partial navigation (стабильная ссылка).
-const RELOAD_ONLY = ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo', 'activeTab', 'channels_feature', 'top_channels', 'channels', 'tracking_links'];
+const RELOAD_ONLY = ['metrics', 'trends', 'prev_metrics', 'chartData', 'activePeriod', 'dateFrom', 'dateTo', 'activeTab', 'channels_feature', 'top_channels', 'channels', 'tracking_links', 'autofill_feature', 'autofill'];
 
 const PERIOD_TABS: { key: string; label: string }[] = [
     { key: 'day', label: 'День' },
@@ -157,6 +167,16 @@ function toLocalDateString(d: Date): string {
     return `${y}-${m}-${day}`;
 }
 
+/** Форматирует секунды в человекочитаемый формат */
+function formatMedianSeconds(seconds: number | null): string {
+    if (seconds === null || seconds === undefined) return '—';
+    if (seconds < 60) return `${seconds} сек.`;
+    if (seconds < 3600) return `${Math.round(seconds / 60)} мин.`;
+    const h = Math.floor(seconds / 3600);
+    const m = Math.round((seconds % 3600) / 60);
+    return m > 0 ? `${h} ч ${m} мин.` : `${h} ч`;
+}
+
 /** Вычисляет границы периода по его типу и смещению */
 function computePeriodDates(period: string, offset: number): { from: string; to: string } | null {
     if (period === 'custom') {
@@ -211,8 +231,10 @@ export default function AnalyticsPage() {
     const activePeriod = props.activePeriod || 'week';
     const auth = props.auth;
 
-    const activeTab = props.activeTab === 'channels' ? 'channels' : 'overview';
+    const activeTab = props.activeTab === 'channels' ? 'channels' : props.activeTab === 'autofill' ? 'autofill' : 'overview';
     const channelsFeature = props.channels_feature === true;
+    const autoFillFeature = props.autofill_feature === true;
+    const autoFill = props.autofill;
 
     // Текущие query-параметры периода (сохраняются при переключении вкладок).
     function currentPeriodParams(): Record<string, string> {
@@ -229,7 +251,7 @@ p.date_to = props.dateTo;
         return p;
     }
 
-    function switchTab(tab: 'overview' | 'channels') {
+    function switchTab(tab: 'overview' | 'channels' | 'autofill') {
         router.get('/admin/analytics', { ...currentPeriodParams(), tab }, {
             preserveState: true,
             preserveScroll: true,
@@ -472,6 +494,18 @@ return;
                                 >
                                     Каналы записи
                                 </button>
+                                {autoFillFeature && (
+                                    <button
+                                        onClick={() => switchTab('autofill')}
+                                        className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
+                                            activeTab === 'autofill'
+                                                ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
+                                                : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
+                                        }`}
+                                    >
+                                        Автозаполнение
+                                    </button>
+                                )}
                             </div>
 
                             {/* ─── Channels Tab ─── */}
@@ -481,6 +515,61 @@ return;
                                     channels={props.channels ?? null}
                                     trackingLinks={props.tracking_links ?? null}
                                 />
+                            )}
+
+                            {/* ─── AutoFill Tab ─── */}
+                            {activeTab === 'autofill' && autoFillFeature && (
+                                <div className="space-y-6">
+                                    {/* Funnel */}
+                                    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
+                                        <h3 className="mb-1 font-semibold text-slate-900 dark:text-zinc-100">Воронка автозаполнения</h3>
+                                        <p className="mb-5 text-xs text-slate-500 dark:text-zinc-400">Запросы → Отправлено → Перенесено</p>
+                                        {autoFill ? (
+                                            <div className="flex items-center gap-4">
+                                                <div className="flex-1 rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-950/40">
+                                                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{autoFill.requests_created}</p>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Запросов</p>
+                                                </div>
+                                                <div className="text-lg text-slate-300 dark:text-zinc-600">→</div>
+                                                <div className="flex-1 rounded-lg bg-indigo-50 p-4 text-center dark:bg-indigo-950/40">
+                                                    <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{autoFill.offers_sent}</p>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Отправлено</p>
+                                                </div>
+                                                <div className="text-lg text-slate-300 dark:text-zinc-600">→</div>
+                                                <div className="flex-1 rounded-lg bg-emerald-50 p-4 text-center dark:bg-emerald-950/40">
+                                                    <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{autoFill.offers_accepted}</p>
+                                                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Перенесено</p>
+                                                </div>
+                                            </div>
+                                        ) : (
+                                            <p className="py-4 text-center text-sm text-slate-400 dark:text-zinc-500">Нет данных за выбранный период</p>
+                                        )}
+                                    </div>
+
+                                    {/* Metric Cards */}
+                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
+                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Запросов на поиск</p>
+                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill?.requests_created ?? 0}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Предложений отправлено</p>
+                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill?.offers_sent ?? 0}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Переносов выполнено</p>
+                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill?.offers_accepted ?? 0}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Доля принятых</p>
+                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill ? `${autoFill.acceptance_rate}%` : '—'}</p>
+                                        </div>
+                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
+                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Медианное время ответа</p>
+                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{formatMedianSeconds(autoFill?.median_time_to_accept_seconds ?? null)}</p>
+                                        </div>
+                                    </div>
+                                </div>
                             )}
 
                             {/* ─── Overview Tab ─── */}

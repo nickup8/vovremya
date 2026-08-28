@@ -7,6 +7,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Services\Analytics\AnalyticsService;
 use App\Services\Analytics\SourceAnalyticsService;
+use App\Services\AutoFillMetricsService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -17,6 +18,7 @@ class AnalyticsController extends Controller
     public function __construct(
         private AnalyticsService $analyticsService,
         private SourceAnalyticsService $sourceAnalyticsService,
+        private AutoFillMetricsService $autoFillMetricsService,
     ) {}
 
     public function index(Request $request)
@@ -152,6 +154,22 @@ class AnalyticsController extends Controller
             $channelPayload['tracking_links'] = null;
         }
 
+        // ─── AutoFill analytics ───
+        $hasAutoFillFeature = $user->hasFeature('slot_autofill');
+        $autoFillPayload = ['autofill_feature' => $hasAutoFillFeature, 'autofill' => null];
+
+        if ($hasAutoFillFeature) {
+            $autoFillMetrics = $this->autoFillMetricsService->getMetrics($user, $periodStartUtc, $periodEndUtc);
+
+            $autoFillPayload['autofill'] = [
+                'requests_created' => $autoFillMetrics['requests_created'],
+                'offers_sent' => $autoFillMetrics['offers_sent'],
+                'offers_accepted' => $autoFillMetrics['offers_accepted'],
+                'acceptance_rate' => $autoFillMetrics['acceptance_rate'],
+                'median_time_to_accept_seconds' => $autoFillMetrics['median_time_to_accept_seconds'],
+            ];
+        }
+
         return Inertia::render('admin/analytics', array_merge([
             'metrics' => $metrics,
             'trends' => $trends,
@@ -160,7 +178,7 @@ class AnalyticsController extends Controller
             'activePeriod' => $period,
             'dateFrom' => $dateFrom,
             'dateTo' => $dateTo,
-        ], $channelPayload));
+        ], $channelPayload, $autoFillPayload));
     }
 
     /**
