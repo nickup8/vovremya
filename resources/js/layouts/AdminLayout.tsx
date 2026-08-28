@@ -1,120 +1,144 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { usePage, Link } from '@inertiajs/react';
-import { Menu, Sun, Moon, Monitor, CreditCard } from 'lucide-react';
+import { Menu, Bell, Plus } from 'lucide-react';
 import type { ReactNode } from 'react';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import Sidebar from '@/components/admin/Sidebar';
-import { getInitials } from '@/lib/utils';
 import { useAppearance } from '@/hooks/use-appearance';
+
+const SIDEBAR_COLLAPSED_KEY = 'vovremya-sidebar-collapsed';
 
 interface AdminLayoutProps {
     children: ReactNode;
     title: string;
-    auth?: { user?: { name?: string; tariff_name?: string; avatar_url?: string | null; [key: string]: unknown } };
+    auth?: { user?: Record<string, unknown> };
     headerActions?: ReactNode;
-}
-
-function ThemeToggle() {
-    const { appearance, updateAppearance } = useAppearance();
-
-    const cycle = () => {
-        const order: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-        const idx = order.indexOf(appearance);
-        updateAppearance(order[(idx + 1) % order.length]);
-    };
-
-    return (
-        <button
-            onClick={cycle}
-            title={`Тема: ${appearance === 'light' ? 'Светлая' : appearance === 'dark' ? 'Тёмная' : 'Системная'}`}
-            className="rounded-md p-2 text-slate-500 transition-colors hover:bg-slate-100 hover:text-slate-700 dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-zinc-200"
-        >
-            {appearance === 'light' && <Sun className="size-5" />}
-            {appearance === 'dark' && <Moon className="size-5" />}
-            {appearance === 'system' && <Monitor className="size-5" />}
-        </button>
-    );
 }
 
 export default function AdminLayout({ children, title, auth, headerActions }: AdminLayoutProps) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-    const { props } = usePage<{ tariff_limits?: { total: number | null; used: number } | null }>();
-    const tariff_limits = props.tariff_limits;
+    const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
+        try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
+    });
+    const [notificationsOpen, setNotificationsOpen] = useState(false);
+    const { props } = usePage();
 
-    const userName = auth?.user?.name || 'Мастер';
-    const tariffName = auth?.user?.tariff_name || 'Free';
-    const avatarUrl = auth?.user?.avatar_url ?? undefined;
-    const initials = getInitials(userName);
-    const canBilling = auth?.user?.can_manage_billing === true;
+    const toggleCollapse = useCallback(() => {
+        setSidebarCollapsed((prev) => {
+            const next = !prev;
+            try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0'); } catch {}
+            return next;
+        });
+    }, []);
 
-    const limitTotal = tariff_limits?.total;
-    const limitUsed = tariff_limits?.used ?? 0;
-    const limitPercent = limitTotal ? Math.min(100, (limitUsed / limitTotal) * 100) : 0;
-    const limitExceeded = limitTotal !== null && limitTotal !== undefined && limitUsed >= limitTotal;
+    // Close mobile menu on resize
+    useEffect(() => {
+        const handler = () => { if (window.innerWidth > 1024) setMobileMenuOpen(false); };
+        window.addEventListener('resize', handler);
+        return () => window.removeEventListener('resize', handler);
+    }, []);
+
+    // Close notifications on Escape
+    useEffect(() => {
+        if (!notificationsOpen) return;
+        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') setNotificationsOpen(false); };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [notificationsOpen]);
+
+    // Close notifications on outside click
+    useEffect(() => {
+        if (!notificationsOpen) return;
+        const handler = () => setNotificationsOpen(false);
+        document.addEventListener('click', handler);
+        return () => document.removeEventListener('click', handler);
+    }, [notificationsOpen]);
 
     return (
-        <div className="min-h-screen bg-slate-50 text-slate-900 antialiased dark:bg-zinc-900 dark:text-zinc-50">
-            {/* Sidebar — fixed on desktop */}
-            <Sidebar mobileOpen={mobileMenuOpen} onMobileClose={() => setMobileMenuOpen(false)} />
+        <div className="flex h-screen overflow-hidden bg-[var(--color-warm)] text-[var(--color-ink)]">
+            <Sidebar
+                collapsed={sidebarCollapsed}
+                onToggleCollapse={toggleCollapse}
+                mobileOpen={mobileMenuOpen}
+                onMobileClose={() => setMobileMenuOpen(false)}
+            />
 
-            {/* Content area — offset by sidebar width on desktop */}
-            <div className="flex min-h-screen flex-col lg:ml-64">
-                <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center justify-between border-b border-slate-200 bg-white px-4 shadow-xs md:px-6 dark:border-zinc-800 dark:bg-zinc-900">
-                    <div className="flex items-center gap-4">
-                        <button
-                            onClick={() => setMobileMenuOpen(true)}
-                            className="rounded-md p-2 hover:bg-slate-100 dark:hover:bg-zinc-800 lg:hidden"
-                        >
-                            <Menu className="size-5 text-slate-700 dark:text-zinc-300" />
-                        </button>
-                        <h1 className="text-lg font-semibold text-slate-900 dark:text-zinc-100 md:text-xl">
-                            {title}
-                        </h1>
-                    </div>
+            {/* Main workspace */}
+            <div
+                className={`flex min-w-0 flex-1 flex-col transition-[margin-left] duration-200 ${
+                    sidebarCollapsed ? 'lg:ml-[76px]' : 'lg:ml-60'
+                }`}
+            >
+                {/* Topbar */}
+                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-6 backdrop-blur-[16px] dark:bg-zinc-900/90">
+                    {/* Mobile menu button */}
+                    <button
+                        onClick={() => setMobileMenuOpen(true)}
+                        className="rounded-lg p-2 text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] lg:hidden"
+                        aria-label="Открыть меню"
+                    >
+                        <Menu className="size-5" />
+                    </button>
+
+                    {/* Page title */}
+                    <h1 className="text-[25px] font-bold leading-8 tracking-[-.035em] text-[var(--color-ink)]">
+                        {title}
+                    </h1>
+
+                    {/* Spacer */}
+                    <div className="flex-1" />
+
+                    {/* Actions */}
                     <div className="flex items-center gap-2">
                         {headerActions}
-                        {canBilling && (
-                            <Link
-                                href="/admin/billing"
-                                title="Тарифы и оплата"
-                                className="hidden items-center gap-2 rounded-md px-3 py-2 text-sm font-medium text-slate-600 transition-colors hover:bg-slate-100 hover:text-slate-900 sm:flex dark:text-zinc-300 dark:hover:bg-zinc-800 dark:hover:text-zinc-100"
+
+                        {/* Notifications shell */}
+                        <div className="relative">
+                            <button
+                                onClick={(e) => { e.stopPropagation(); setNotificationsOpen(!notificationsOpen); }}
+                                className="flex size-10 items-center justify-center rounded-[10px] border border-transparent text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                aria-label="Уведомления"
+                                aria-expanded={notificationsOpen}
                             >
-                                <CreditCard className="size-4" />
-                                <span>Тариф</span>
-                            </Link>
-                        )}
-                        <ThemeToggle />
-                        {limitTotal !== null && limitTotal !== undefined && (
-                            <div className={`hidden items-center gap-2 rounded-lg px-3 py-1.5 text-xs font-medium sm:flex ${
-                                limitExceeded
-                                    ? 'bg-red-50 text-red-700 dark:bg-red-950/40 dark:text-red-400'
-                                    : 'bg-slate-100 text-slate-600 dark:bg-zinc-800 dark:text-zinc-400'
-                            }`}>
-                                <span>Записей: {limitUsed}/{limitTotal}</span>
-                                <div className="h-1.5 w-16 overflow-hidden rounded-full bg-slate-200 dark:bg-zinc-700">
-                                    <div
-                                        className={`h-full rounded-full transition-all ${
-                                            limitExceeded ? 'bg-red-500' : 'bg-blue-500'
-                                        }`}
-                                        style={{ width: `${limitPercent}%` }}
-                                    />
-                                </div>
-                            </div>
-                        )}
-                        <div className="hidden text-right sm:block">
-                            <p className="text-sm font-medium text-slate-700 dark:text-zinc-300">{userName}</p>
-                            <p className="text-xs text-slate-400 dark:text-zinc-500">Тариф: {tariffName}</p>
+                                <Bell className="size-5" />
+                            </button>
+                            {notificationsOpen && (
+                                <section
+                                    className="absolute right-0 top-12 z-[80] w-[380px] max-h-[min(560px,calc(100vh-92px))] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-lg dark:bg-zinc-900"
+                                    onClick={(e) => e.stopPropagation()}
+                                    aria-label="Уведомления"
+                                >
+                                    <div className="flex min-h-[68px] items-center justify-between border-b border-[var(--color-line-soft)] px-4 py-3.5">
+                                        <div>
+                                            <div className="text-[15px] font-bold tracking-tight">Уведомления</div>
+                                            <div className="text-[11px] text-[var(--color-graphite)]">Нет новых</div>
+                                        </div>
+                                        <button
+                                            disabled
+                                            className="rounded-md px-1 py-1.5 text-xs font-semibold text-[var(--color-graphite)]"
+                                        >
+                                            Всё прочитано
+                                        </button>
+                                    </div>
+                                    <div className="flex items-center justify-center py-12 text-sm text-[var(--color-graphite)]">
+                                        Нет уведомлений
+                                    </div>
+                                </section>
+                            )}
                         </div>
-                        <Avatar className="size-9">
-                            <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
-                            <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-xs font-bold text-white">
-                                {initials}
-                            </AvatarFallback>
-                        </Avatar>
+
+                        {/* New appointment button */}
+                        <Link
+                            href="/admin/calendar"
+                            className="flex h-10 items-center gap-2 rounded-[10px] bg-[var(--color-orange)] px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[var(--color-orange-600)]"
+                        >
+                            <Plus className="size-4" />
+                            <span className="hidden sm:inline">Новая запись</span>
+                        </Link>
                     </div>
                 </header>
 
-                <main className="flex-1 overflow-y-auto p-4 md:p-6">
+                {/* Page content */}
+                <main className="flex-1 overflow-y-auto bg-white p-4 md:p-6 dark:bg-zinc-900">
                     {children}
                 </main>
             </div>

@@ -9,10 +9,19 @@
 
 @theme {
     --font-sans:
-        ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
+        'Golos Text', ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont,
         'Segoe UI', Roboto, 'Helvetica Neue', Arial, 'Noto Sans',
         sans-serif, 'Apple Color Emoji', 'Segoe UI Emoji',
         'Segoe UI Symbol', 'Noto Color Emoji';
+
+    --color-orange: #FF5A1F;
+    --color-orange-600: #E94D14;
+    --color-orange-100: #FFF0E8;
+    --color-warm: #F7F5F1;
+    --color-ink: #181818;
+    --color-graphite: #62615F;
+    --color-line: #E7E4DF;
+    --color-line-soft: #F0EEEA;
 
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);
@@ -131,6 +140,12 @@
     --sidebar-accent-foreground: oklch(0.985 0 0);
     --sidebar-border: oklch(0.269 0 0);
     --sidebar-ring: oklch(0.439 0 0);
+    --color-warm: #141312;
+    --color-ink: #F4F1EC;
+    --color-graphite: #B0ACA6;
+    --color-line: #302E2B;
+    --color-line-soft: #272522;
+    --color-orange-100: #382018;
 }
 
 @layer base {

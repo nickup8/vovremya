@@ -1,116 +1,297 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import {
-    CalendarDays, Users, BarChart3, Settings, RefreshCw, X, LogOut, BookOpen,
+    CalendarDays, Users, BarChart3, Settings, BookOpen,
+    X, LogOut, RefreshCw, ChevronLeft, ChevronRight,
+    Sun, Moon, type LucideIcon,
 } from 'lucide-react';
+import { useEffect, useCallback } from 'react';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { getInitials } from '@/lib/utils';
+import { useAppearance } from '@/hooks/use-appearance';
 
-const MENU_ITEMS = [
+const MENU_ITEMS: { icon: LucideIcon; label: string; href: string; ownerOnly?: boolean }[] = [
     { icon: CalendarDays, label: 'Календарь', href: '/admin/calendar' },
-    { icon: Users, label: 'База клиентов', href: '/admin/clients' },
+    { icon: Users, label: 'Клиенты', href: '/admin/clients' },
+    { icon: BookOpen, label: 'Услуги', href: '/admin/catalog' },
     { icon: BarChart3, label: 'Аналитика', href: '/admin/analytics' },
-    { icon: Settings, label: 'Настройки профиля', href: '/admin/settings' },
-    { icon: BookOpen, label: 'Каталог услуг', href: '/admin/catalog' },
+    { icon: Settings, label: 'Настройки', href: '/admin/settings' },
 ];
 
 interface SidebarProps {
+    collapsed: boolean;
+    onToggleCollapse: () => void;
     mobileOpen: boolean;
     onMobileClose: () => void;
 }
 
-export default function Sidebar({ mobileOpen, onMobileClose }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }: SidebarProps) {
     const { url, props } = usePage();
-    const tariffName = (props as { auth?: { user?: { tariff_name?: string } } })?.auth?.user?.tariff_name || 'Free';
-    const canManageTeam = (props as { auth?: { user?: { can_manage_team?: boolean } } })?.auth?.user?.can_manage_team ?? false;
+    const { appearance, updateAppearance } = useAppearance();
+
+    const authUser = (props as { auth?: { user?: Record<string, unknown> } })?.auth?.user;
+    const userName = (authUser?.name as string) || 'Мастер';
+    const tariffName = (authUser?.tariff_name as string) || 'Free';
+    const avatarUrl = (authUser?.avatar_url as string | null) ?? undefined;
+    const initials = getInitials(userName);
+    const canManageTeam = (authUser?.can_manage_team as boolean) ?? false;
+    const canBilling = (authUser?.can_manage_billing as boolean) ?? false;
 
     const visibleMenuItems = MENU_ITEMS.filter(
-        (item) => !(item as { ownerOnly?: boolean }).ownerOnly || canManageTeam,
+        (item) => !item.ownerOnly || canManageTeam,
     );
 
-    function handleLogout() {
+    const handleLogout = useCallback(() => {
         router.post('/logout', {}, {
-            onFinish: () => {
-                window.location.href = '/';
-            },
+            onFinish: () => { window.location.href = '/'; },
         });
-    }
+    }, []);
+
+    // Escape closes mobile sidebar
+    useEffect(() => {
+        if (!mobileOpen) return;
+        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onMobileClose(); };
+        document.addEventListener('keydown', handler);
+        return () => document.removeEventListener('keydown', handler);
+    }, [mobileOpen, onMobileClose]);
+
+    const toggleTheme = () => {
+        const order: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
+        const idx = order.indexOf(appearance);
+        updateAppearance(order[(idx + 1) % order.length]);
+    };
 
     const sidebarContent = (
-        <div className="flex h-full flex-col justify-between bg-slate-950 text-white dark:bg-zinc-950">
-            <div>
-                <div className="flex h-16 items-center justify-between border-b border-slate-800 px-4 dark:border-zinc-800">
-                    <div className="flex items-center gap-2">
-                        <span className="text-lg font-bold tracking-tight">Вовремя</span>
-                        <span className="rounded-full bg-emerald-500/20 px-1.5 py-0.5 text-[10px] font-semibold text-emerald-400">
-                            {tariffName}
-                        </span>
-                    </div>
+        <div className="flex h-full flex-col">
+            {/* Brand */}
+            <div className={`flex h-[52px] items-center border-b px-2 pb-4 ${collapsed ? 'justify-center' : 'gap-2'}`}>
+                {collapsed ? (
+                    <img src="/images/logo-white.svg" alt="Вовремя" className="h-8 w-8 object-contain" style={{ filter: 'brightness(0) invert(1)' }} />
+                ) : (
+                    <img src="/images/logo-white.svg" alt="Вовремя" className="h-7 w-auto" style={{ filter: 'brightness(0) invert(1)' }} />
+                )}
+            </div>
+
+            {/* Navigation */}
+            <nav className="mt-3 flex flex-1 flex-col gap-1">
+                {visibleMenuItems.map((item) => {
+                    const isActive = url.startsWith(item.href);
+
+                    return (
+                        <Link
+                            key={item.label}
+                            href={item.href}
+                            onClick={onMobileClose}
+                            className={`relative flex h-11 w-full items-center gap-3 rounded-[10px] text-sm font-medium transition-colors ${
+                                collapsed ? 'justify-center px-0' : 'px-3'
+                            } ${
+                                isActive
+                                    ? 'bg-[var(--color-orange-100)] text-[var(--color-ink)] font-semibold'
+                                    : 'text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]'
+                            }`}
+                            title={collapsed ? item.label : undefined}
+                        >
+                            {isActive && (
+                                <span className="absolute left-0 top-[10px] h-6 w-[3px] rounded-full bg-[var(--color-orange)]" />
+                            )}
+                            <item.icon className={`size-5 shrink-0 ${isActive ? 'text-[var(--color-orange)]' : 'text-[#77736E]'}`} />
+                            {!collapsed && <span className="truncate">{item.label}</span>}
+                        </Link>
+                    );
+                })}
+            </nav>
+
+            {/* Spacer */}
+            <div className="flex-1" />
+
+            {/* Profile section */}
+            <div className={`border-t border-[var(--color-line-soft)] pt-3 ${collapsed ? 'flex flex-col items-center gap-2' : ''}`}>
+                <div className={`flex items-center ${collapsed ? 'flex-col gap-2' : 'gap-3'}`}>
+                    <Avatar className="size-9 shrink-0">
+                        <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                        <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
+                            {initials}
+                        </AvatarFallback>
+                    </Avatar>
+                    {!collapsed && (
+                        <div className="min-w-0 flex-1">
+                            <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
+                            <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                        </div>
+                    )}
+                </div>
+
+                {/* Actions */}
+                <div className={`mt-3 flex flex-col gap-1 ${collapsed ? 'items-center' : ''}`}>
+                    {canBilling && (
+                        <Link
+                            href="/admin/billing"
+                            onClick={onMobileClose}
+                            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
+                            title={collapsed ? 'Тариф' : undefined}
+                        >
+                            <CreditCardIcon />
+                            {!collapsed && <span>Тариф</span>}
+                        </Link>
+                    )}
                     <button
-                        onClick={onMobileClose}
-                        className="rounded-md bg-slate-800 p-1.5 text-slate-400 hover:bg-slate-700 hover:text-white dark:bg-zinc-800 dark:text-zinc-400 dark:hover:bg-zinc-700 lg:hidden"
+                        onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
+                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
+                        title={collapsed ? 'Режим клиента' : undefined}
                     >
-                        <X className="size-4" />
+                        <RefreshCw className="size-4 shrink-0" />
+                        {!collapsed && <span>Режим клиента</span>}
+                    </button>
+                    <button
+                        onClick={toggleTheme}
+                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
+                        title={collapsed ? (appearance === 'dark' ? 'Светлая тема' : 'Тёмная тема') : undefined}
+                    >
+                        {appearance === 'dark' ? <Sun className="size-4 shrink-0" /> : <Moon className="size-4 shrink-0" />}
+                        {!collapsed && <span>{appearance === 'dark' ? 'Светлая тема' : 'Тёмная тема'}</span>}
+                    </button>
+                    <button
+                        onClick={() => { onMobileClose(); handleLogout(); }}
+                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-red-500 ${collapsed ? 'justify-center' : ''}`}
+                        title={collapsed ? 'Выйти' : undefined}
+                    >
+                        <LogOut className="size-4 shrink-0" />
+                        {!collapsed && <span>Выйти</span>}
                     </button>
                 </div>
-                <nav className="space-y-1 p-3">
-                    {visibleMenuItems.map((item) => {
-                        const isActive = url.startsWith(item.href);
 
-                        return (
-                            <Link
-                                key={item.label}
-                                href={item.href}
-                                onClick={onMobileClose}
-                                className={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-medium transition-colors ${
-                                    isActive
-                                        ? 'bg-blue-600 text-white'
-                                        : 'text-slate-400 hover:bg-slate-800 hover:text-white dark:text-zinc-400 dark:hover:bg-zinc-800 dark:hover:text-white'
-                                }`}
-                            >
-                                <item.icon className="size-5 shrink-0" />
-                                <span className="truncate">{item.label}</span>
-                            </Link>
-                        );
-                    })}
-                </nav>
-            </div>
-            <div className="border-t border-slate-800 p-3 dark:border-zinc-800">
-                <button
-                    onClick={() => {
- router.post('/switch-to-client'); onMobileClose(); 
-}}
-                    className="flex w-full items-center gap-3 rounded-lg bg-slate-800 px-3 py-2.5 text-xs font-semibold text-slate-200 transition-colors hover:bg-slate-700 dark:bg-zinc-800 dark:text-zinc-200 dark:hover:bg-zinc-700"
-                >
-                    <RefreshCw className="size-4 shrink-0 text-slate-400 dark:text-zinc-400" />
-                    <span>Режим клиента</span>
-                </button>
-                <button
-                    onClick={handleLogout}
-                    className="mt-2 flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-xs font-semibold text-slate-400 transition-colors hover:bg-slate-800 hover:text-red-400 dark:text-zinc-500 dark:hover:bg-zinc-800 dark:hover:text-red-400"
-                >
-                    <LogOut className="size-4 shrink-0" />
-                    <span>Выйти</span>
-                </button>
-                <div className="mt-3 text-center text-[10px] text-slate-600 dark:text-zinc-600">
-                    v{props.appVersion || '1.0.0'}
-                </div>
+                {/* Version */}
+                {!collapsed && (
+                    <div className="mt-3 pb-1 text-center text-[10px] text-[var(--color-graphite)]">
+                        v{(props as Record<string, unknown>).appVersion || '1.0.0'}
+                    </div>
+                )}
             </div>
         </div>
     );
 
     return (
         <>
-            {/* Desktop: fixed left sidebar */}
-            <aside className="fixed inset-y-0 left-0 z-40 hidden w-64 lg:block">
+            {/* Desktop sidebar */}
+            <aside
+                className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--color-line)] bg-[var(--color-warm)] backdrop-blur-[18px] transition-[width] duration-200 lg:flex ${
+                    collapsed ? 'w-[76px] p-[16px_10px]' : 'w-60 p-[20px_16px_16px]'
+                }`}
+                aria-label="Основная навигация"
+            >
                 {sidebarContent}
             </aside>
-            {/* Mobile: overlay sidebar */}
+
+            {/* Desktop collapse toggle */}
+            <button
+                onClick={onToggleCollapse}
+                className="fixed z-50 hidden items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-warm)] text-[var(--color-graphite)] shadow-sm transition-colors hover:bg-[var(--color-line-soft)] lg:flex"
+                style={{
+                    left: collapsed ? '64px' : '228px',
+                    top: '50%',
+                    width: '24px',
+                    height: '24px',
+                    transform: 'translateY(-50%)',
+                }}
+                aria-label={collapsed ? 'Развернуть боковую панель' : 'Сложить боковую панель'}
+            >
+                {collapsed ? <ChevronRight className="size-3" /> : <ChevronLeft className="size-3" />}
+            </button>
+
+            {/* Mobile overlay + sidebar */}
             {mobileOpen && (
                 <div className="fixed inset-0 z-50 lg:hidden">
-                    <div className="fixed inset-0 bg-black/50" onClick={onMobileClose} />
-                    <div className="relative z-10 h-full w-64">
-                        {sidebarContent}
-                    </div>
+                    <div
+                        className="fixed inset-0 bg-black/40 backdrop-blur-[2px]"
+                        onClick={onMobileClose}
+                        aria-hidden="true"
+                    />
+                    <aside
+                        className="relative z-10 flex h-full w-[min(288px,calc(100vw-48px))] flex-col border-r border-[var(--color-line)] bg-[var(--color-warm)] p-[20px_16px_16px]"
+                        aria-label="Основная навигация"
+                    >
+                        <div className="flex h-[52px] items-center justify-between border-b px-2 pb-4">
+                            <img src="/images/logo-white.svg" alt="Вовремя" className="h-7 w-auto" style={{ filter: 'brightness(0) invert(1)' }} />
+                            <button
+                                onClick={onMobileClose}
+                                className="rounded-md p-1.5 text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)]"
+                            >
+                                <X className="size-4" />
+                            </button>
+                        </div>
+                        <nav className="mt-3 flex flex-1 flex-col gap-1">
+                            {visibleMenuItems.map((item) => {
+                                const isActive = url.startsWith(item.href);
+
+                                return (
+                                    <Link
+                                        key={item.label}
+                                        href={item.href}
+                                        onClick={onMobileClose}
+                                        className={`relative flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-sm font-medium transition-colors ${
+                                            isActive
+                                                ? 'bg-[var(--color-orange-100)] text-[var(--color-ink)] font-semibold'
+                                                : 'text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]'
+                                        }`}
+                                    >
+                                        {isActive && (
+                                            <span className="absolute left-0 top-[10px] h-6 w-[3px] rounded-full bg-[var(--color-orange)]" />
+                                        )}
+                                        <item.icon className={`size-5 shrink-0 ${isActive ? 'text-[var(--color-orange)]' : 'text-[#77736E]'}`} />
+                                        <span className="truncate">{item.label}</span>
+                                    </Link>
+                                );
+                            })}
+                        </nav>
+                        <div className="flex-1" />
+                        <div className="border-t border-[var(--color-line-soft)] pt-3">
+                            <div className="flex items-center gap-3">
+                                <Avatar className="size-9 shrink-0">
+                                    <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                                    <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
+                                        {initials}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <div className="min-w-0 flex-1">
+                                    <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
+                                    <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                                </div>
+                            </div>
+                            <div className="mt-3 flex flex-col gap-1">
+                                <button
+                                    onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
+                                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                >
+                                    <RefreshCw className="size-4 shrink-0" />
+                                    <span>Режим клиента</span>
+                                </button>
+                                <button
+                                    onClick={toggleTheme}
+                                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                >
+                                    {appearance === 'dark' ? <Sun className="size-4 shrink-0" /> : <Moon className="size-4 shrink-0" />}
+                                    <span>{appearance === 'dark' ? 'Светлая тема' : 'Тёмная тема'}</span>
+                                </button>
+                                <button
+                                    onClick={() => { onMobileClose(); handleLogout(); }}
+                                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-red-500"
+                                >
+                                    <LogOut className="size-4 shrink-0" />
+                                    <span>Выйти</span>
+                                </button>
+                            </div>
+                        </div>
+                    </aside>
                 </div>
             )}
         </>
+    );
+}
+
+function CreditCardIcon() {
+    return (
+        <svg className="size-4 shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+            <rect x="3" y="5" width="18" height="14" rx="2" />
+            <path d="M3 10h18M7 15h4" />
+        </svg>
     );
 }
