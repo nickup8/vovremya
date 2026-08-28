@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\SlotInvalidationReason;
 use App\Enums\SlotOfferStatus;
 use App\Enums\SlotRequestDeliveryChannel;
 use App\Models\SlotOffer;
@@ -55,6 +56,14 @@ class SendMaxSlotOfferJob implements ShouldQueue
             return;
         }
 
+        if ($offer->sent_at !== null) {
+            Log::info('[AutoFill] SendMaxSlotOfferJob: already sent, skipping duplicate', [
+                'offer_id' => $offer->id,
+                'sent_at' => $offer->sent_at->toIso8601String(),
+            ]);
+            return;
+        }
+
         if ($offer->expires_at->isPast()) {
             Log::info('[AutoFill] SendMaxSlotOfferJob: offer already expired', [
                 'offer_id' => $offer->id,
@@ -70,7 +79,7 @@ class SendMaxSlotOfferJob implements ShouldQueue
             Log::warning('[AutoFill] SendMaxSlotOfferJob: missing relations', [
                 'offer_id' => $offer->id,
             ]);
-            $this->invalidateAndRematch($offerService, $offer);
+            $this->invalidateAndRematch($offerService, $offer, SlotInvalidationReason::MissingRelations);
             return;
         }
 
@@ -79,7 +88,7 @@ class SendMaxSlotOfferJob implements ShouldQueue
                 'offer_id' => $offer->id,
                 'channel' => $request->delivery_channel?->value,
             ]);
-            $this->invalidateAndRematch($offerService, $offer);
+            $this->invalidateAndRematch($offerService, $offer, SlotInvalidationReason::UnsupportedDeliveryChannel);
             return;
         }
 
@@ -88,7 +97,7 @@ class SendMaxSlotOfferJob implements ShouldQueue
                 'offer_id' => $offer->id,
                 'client_id' => $client->id,
             ]);
-            $this->invalidateAndRematch($offerService, $offer);
+            $this->invalidateAndRematch($offerService, $offer, SlotInvalidationReason::MissingMaxIdentity);
             return;
         }
 
@@ -143,6 +152,11 @@ class SendMaxSlotOfferJob implements ShouldQueue
             throw new \Exception('MAX API failed to send slot offer message');
         }
 
+        $offer->update([
+            'sent_at' => now(),
+            'delivery_mid' => $mid,
+        ]);
+
         Log::info('[AutoFill] SendMaxSlotOfferJob: sent', [
             'offer_id' => $offer->id,
             'mid' => $mid,
@@ -162,7 +176,7 @@ class SendMaxSlotOfferJob implements ShouldQueue
         }
 
         try {
-            app(SlotOfferService::class)->invalidate($offer);
+            app(SlotOfferService::class)->invalidate($offer, SlotInvalidationReason::DeliveryFailed);
         } catch (\Throwable $e) {
             Log::warning('[AutoFill] SendMaxSlotOfferJob: invalidate on failed() error', [
                 'offer_id' => $this->slotOfferId,
@@ -175,7 +189,7 @@ class SendMaxSlotOfferJob implements ShouldQueue
         MatchSlotOpportunityJob::dispatch($opportunityId);
     }
 
-    private function invalidateAndRematch(SlotOfferService $offerService, SlotOffer $offer): void
+    private function invalidateAndRematch(SlotOfferService $offerService, SlotOffer $offer, SlotInvalidationReason $reason): void
     {
         $fresh = SlotOffer::find($offer->id);
         if ($fresh === null || $fresh->status !== SlotOfferStatus::Pending) {
@@ -183,7 +197,7 @@ class SendMaxSlotOfferJob implements ShouldQueue
         }
 
         try {
-            $offerService->invalidate($fresh);
+            $offerService->invalidate($fresh, $reason);
         } catch (\Throwable $e) {
             Log::warning('[AutoFill] SendMaxSlotOfferJob: invalidate failed', [
                 'offer_id' => $offer->id,

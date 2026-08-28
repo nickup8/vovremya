@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\SlotInvalidationReason;
 use App\Enums\SlotOfferStatus;
 use App\Enums\SlotOpportunityStatus;
 use App\Enums\SlotRequestStatus;
@@ -118,7 +119,7 @@ class SlotOfferService
         return $offer->refresh();
     }
 
-    public function invalidate(SlotOffer $offer): SlotOffer
+    public function invalidate(SlotOffer $offer, ?SlotInvalidationReason $reason = null): SlotOffer
     {
         if ($offer->status === SlotOfferStatus::Invalidated) {
             return $offer;
@@ -133,6 +134,7 @@ class SlotOfferService
         $offer->update([
             'status' => SlotOfferStatus::Invalidated,
             'invalidated_at' => now(),
+            'invalidation_reason' => $reason,
         ]);
 
         return $offer->refresh();

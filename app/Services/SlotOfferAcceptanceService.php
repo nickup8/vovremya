@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\AppointmentStatus;
+use App\Enums\SlotInvalidationReason;
 use App\Enums\SlotOfferStatus;
 use App\Enums\SlotOpportunityStatus;
 use App\Enums\SlotRequestStatus;
@@ -61,7 +62,7 @@ class SlotOfferAcceptanceService
 
             // Request validation
             if ($request->status !== SlotRequestStatus::Active) {
-                return $this->invalidateAndReturn($offer, $request, $opportunity, 'request_not_active');
+                return $this->invalidateAndReturn($offer, $request, $opportunity, 'request_not_active', SlotInvalidationReason::StaleRequest);
             }
 
             if ($request->type !== SlotRequestType::Earlier) {
@@ -81,65 +82,65 @@ class SlotOfferAcceptanceService
             $appointment = $request->appointment;
 
             if ($appointment === null) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'source_appointment_missing');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'source_appointment_missing', SlotInvalidationReason::StaleRequest);
             }
 
             $appointment = \App\Models\Appointment::where('id', $appointment->id)->lockForUpdate()->first();
 
             if ($appointment === null) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'source_appointment_missing');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'source_appointment_missing', SlotInvalidationReason::StaleRequest);
             }
 
             if ($appointment->status !== AppointmentStatus::Booked) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'source_not_booked');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'source_not_booked', SlotInvalidationReason::SourceChanged);
             }
 
             if ($appointment->client_id !== $request->client_id) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'client_mismatch');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'client_mismatch', SlotInvalidationReason::StaleRequest);
             }
 
             $appointmentWorkspaceId = $appointment->master?->workspace_id;
             if ($appointmentWorkspaceId !== $request->workspace_id) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'workspace_mismatch');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'workspace_mismatch', SlotInvalidationReason::StaleRequest);
             }
 
             if ($appointment->master_id !== $request->master_id) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'master_mismatch');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'master_mismatch', SlotInvalidationReason::StaleRequest);
             }
 
             if ($appointment->master_service_id !== $request->master_service_id) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'master_service_mismatch');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'master_service_mismatch', SlotInvalidationReason::StaleRequest);
             }
 
             if ($request->appointment_start_time_snapshot === null) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'snapshot_missing');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'snapshot_missing', SlotInvalidationReason::StaleRequest);
             }
 
             if ($appointment->start_time->format('Y-m-d H:i:s') !== $request->appointment_start_time_snapshot->format('Y-m-d H:i:s')) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'snapshot_drift');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'snapshot_drift', SlotInvalidationReason::SourceChanged);
             }
 
             // Duration validation (persisted only)
             $sourceDuration = $appointment->duration;
 
             if ($sourceDuration === null || $sourceDuration <= 0) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'invalid_duration');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'invalid_duration', SlotInvalidationReason::StaleRequest);
             }
 
             if ($sourceDuration !== $opportunity->duration) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'duration_mismatch');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'duration_mismatch', SlotInvalidationReason::StaleRequest);
             }
 
             // Strict earlier rule
             $oppEnd = $opportunity->start_time->copy()->addMinutes($opportunity->duration);
             if ($oppEnd->gt($appointment->start_time)) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'not_earlier');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'not_earlier', SlotInvalidationReason::StaleRequest);
             }
 
             // MasterService active
             $masterService = $appointment->masterService;
             if ($masterService === null || ! $masterService->is_active) {
-                return $this->invalidateAndExpire($offer, $request, $opportunity, 'service_inactive');
+                return $this->invalidateAndExpire($offer, $request, $opportunity, 'service_inactive', SlotInvalidationReason::EligibilityChanged);
             }
 
             // Client conflict check
@@ -175,8 +176,8 @@ class SlotOfferAcceptanceService
                 $opportunity->duration,
                 $appointment->id,
             )) {
-                $this->offerService->invalidate($offer);
-                $this->opportunityService->invalidate($opportunity);
+                $this->offerService->invalidate($offer, SlotInvalidationReason::SlotUnavailable);
+                $this->opportunityService->invalidate($opportunity, SlotInvalidationReason::SlotUnavailable);
                 return ['success' => false, 'error' => 'slot_unavailable'];
             }
 
@@ -200,8 +201,8 @@ class SlotOfferAcceptanceService
             if (! ($result['success'] ?? false)) {
                 // slot_taken or other failure
                 if (($result['error'] ?? '') === 'slot_taken') {
-                    $this->offerService->invalidate($offer);
-                    $this->opportunityService->invalidate($opportunity);
+                    $this->offerService->invalidate($offer, SlotInvalidationReason::SlotTaken);
+                    $this->opportunityService->invalidate($opportunity, SlotInvalidationReason::SlotTaken);
                     return ['success' => false, 'error' => 'slot_taken'];
                 }
 
@@ -225,9 +226,10 @@ class SlotOfferAcceptanceService
         SlotOffer $offer,
         ?\App\Models\SlotRequest $request,
         ?\App\Models\SlotOpportunity $opportunity,
-        string $reason,
+        string $error,
+        SlotInvalidationReason $reason,
     ): array {
-        $this->offerService->invalidate($offer);
+        $this->offerService->invalidate($offer, $reason);
 
         if ($request !== null && $request->status === SlotRequestStatus::Active) {
             $this->requestService->expire($request);
@@ -239,16 +241,17 @@ class SlotOfferAcceptanceService
             DB::afterCommit(fn () => MatchSlotOpportunityJob::dispatch($opportunityId));
         }
 
-        return ['success' => false, 'error' => $reason];
+        return ['success' => false, 'error' => $error];
     }
 
     private function invalidateAndExpire(
         SlotOffer $offer,
         ?\App\Models\SlotRequest $request,
         ?\App\Models\SlotOpportunity $opportunity,
-        string $reason,
+        string $error,
+        SlotInvalidationReason $reason,
     ): array {
-        $this->offerService->invalidate($offer);
+        $this->offerService->invalidate($offer, $reason);
 
         if ($request !== null && $request->status === SlotRequestStatus::Active) {
             $this->requestService->expire($request);
@@ -260,6 +263,6 @@ class SlotOfferAcceptanceService
             DB::afterCommit(fn () => MatchSlotOpportunityJob::dispatch($opportunityId));
         }
 
-        return ['success' => false, 'error' => $reason];
+        return ['success' => false, 'error' => $error];
     }
 }

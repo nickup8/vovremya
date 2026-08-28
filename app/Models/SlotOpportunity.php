@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Enums\SlotInvalidationReason;
 use App\Enums\SlotOfferStatus;
 use App\Enums\SlotOpportunitySourceType;
 use App\Enums\SlotOpportunityStatus;
@@ -30,6 +31,7 @@ class SlotOpportunity extends Model
         'filled_at',
         'expired_at',
         'invalidated_at',
+        'invalidation_reason',
     ];
 
     protected function casts(): array
@@ -37,6 +39,7 @@ class SlotOpportunity extends Model
         return [
             'source_type' => SlotOpportunitySourceType::class,
             'status' => SlotOpportunityStatus::class,
+            'invalidation_reason' => SlotInvalidationReason::class,
             'start_time' => 'datetime',
             'duration' => 'integer',
             'filled_at' => 'datetime',

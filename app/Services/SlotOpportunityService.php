@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Enums\SlotInvalidationReason;
 use App\Enums\SlotOpportunitySourceType;
 use App\Enums\SlotOpportunityStatus;
 use App\Models\MasterService;
@@ -109,7 +110,7 @@ class SlotOpportunityService
         return $opportunity->refresh();
     }
 
-    public function invalidate(SlotOpportunity $opportunity): SlotOpportunity
+    public function invalidate(SlotOpportunity $opportunity, ?SlotInvalidationReason $reason = null): SlotOpportunity
     {
         if ($opportunity->status === SlotOpportunityStatus::Invalidated) {
             return $opportunity;
@@ -124,6 +125,7 @@ class SlotOpportunityService
         $opportunity->update([
             'status' => SlotOpportunityStatus::Invalidated,
             'invalidated_at' => now(),
+            'invalidation_reason' => $reason,
         ]);
 
         return $opportunity->refresh();

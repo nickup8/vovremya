@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\Enums\AppointmentStatus;
+use App\Enums\SlotInvalidationReason;
 use App\Enums\SlotOfferStatus;
 use App\Enums\SlotOpportunityStatus;
 use App\Enums\SlotRequestStatus;
@@ -62,7 +63,7 @@ class SlotMatcherService
             $opportunity->duration,
             null,
         )) {
-            $this->opportunityService->invalidate($opportunity);
+            $this->opportunityService->invalidate($opportunity, SlotInvalidationReason::SlotUnavailable);
             return null;
         }
 
