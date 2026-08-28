@@ -201,8 +201,8 @@ export function DayView({
     return (
         <div
             ref={scrollRef}
-            className="relative w-full overflow-x-auto overflow-y-auto scrollbar-thin"
-            style={{ maxHeight: 'calc(100vh - 200px)', minWidth: `${gridMinWidth}px` }}
+            className="relative h-full w-full overflow-x-auto overflow-y-auto scrollbar-thin"
+            style={{ minWidth: `${gridMinWidth}px` }}
         >
             {/* Day Header + Master Headers — sticky at top */}
             <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-zinc-900/96">
@@ -218,9 +218,10 @@ export function DayView({
                     {visibleMasters.map((master) => (
                         <div
                             key={`h-${master.id}`}
-                            className={`flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0 ${
-                                todayMark ? 'bg-[#FFFCFA] dark:bg-[#211B18]' : ''
-                            }`}
+                            className="flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
+                            style={todayMark ? {
+                                backgroundImage: 'linear-gradient(to bottom, rgba(255,90,31,0.06) 0%, rgba(255,90,31,0.02) 100%)',
+                            } : undefined}
                         >
                             <div className="text-center">
                                 <div className="text-xs font-semibold text-[var(--color-graphite)]">
@@ -285,9 +286,10 @@ export function DayView({
                             return (
                                 <div
                                     key={`col-${master.id}`}
-                                    className={`relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0 ${
-                                        todayMark ? 'bg-[#FFFCFA] dark:bg-[#211B18]' : ''
-                                    }`}
+                                    className="relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0"
+                                    style={todayMark ? {
+                                        backgroundImage: 'linear-gradient(to bottom, rgba(255,90,31,0.04) 0%, rgba(255,90,31,0.015) 30%, transparent 70%)',
+                                    } : undefined}
                                 >
                                     {gridHours.map((hour) => {
                                         const slots: React.ReactNode[] = [];

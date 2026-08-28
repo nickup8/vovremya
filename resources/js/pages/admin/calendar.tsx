@@ -297,7 +297,7 @@ return [];
             <Head title="Календарь — Вовремя" />
 
             <AdminLayout title="Календарь" auth={auth} todayCount={todayCount}>
-                        <div className="space-y-4">
+                        <div className="flex h-full flex-col overflow-hidden">
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 
                             {/* ─── Calendar Toolbar ─── */}
@@ -356,6 +356,7 @@ return [];
                             )}
 
                             {/* ─── Calendar Content ─── */}
+                            <div className="flex-1 min-h-0 overflow-hidden">
                             {viewMode !== 'month' && gridHours.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center gap-2 py-20 text-gray-400">
                                     <CalendarDays className="size-10 opacity-40" />
@@ -407,6 +408,7 @@ return [];
                                     onRescheduleByDrag={rescheduleByDrag}
                                 />
                             )}
+                            </div>
 
                             {/* ─── Legend ─── */}
                             <CalendarLegend />
