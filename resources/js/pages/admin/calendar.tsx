@@ -13,7 +13,7 @@ import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
 import type { PageProps, Appointment, ClientOption } from './components/calendar/types';
 import {
-    getWeekDates, formatDateRange, dateToKey, timeToMinutes,
+    getWeekDates, formatDateRange, getYearFromDate, dateToKey, timeToMinutes,
 } from './components/calendar/helpers';
 import { WeekView } from './components/calendar/WeekView';
 import { DayView } from './components/calendar/DayView';
@@ -87,6 +87,7 @@ export default function CalendarPage() {
     }, [weekOffset]);
     const weekDates = useMemo(() => getWeekDates(centerDate), [centerDate]);
     const dateRangeStr = useMemo(() => formatDateRange(weekDates), [weekDates]);
+    const weekYearLabel = useMemo(() => getYearFromDate(weekDates), [weekDates]);
 
     const monthCenterDate = useMemo(() => {
         const d = new Date(today);
@@ -303,7 +304,7 @@ return [];
                             <DateControlPanel
                                 viewMode={viewMode}
                                 dateLabel={viewMode === 'day' ? dayRangeStr : viewMode === 'week' ? dateRangeStr : monthRangeStr}
-                                yearLabel={viewMode === 'week' ? String(today.getFullYear()) : undefined}
+                                yearLabel={viewMode === 'week' ? weekYearLabel : viewMode === 'day' ? String(dayDate.getFullYear()) : undefined}
                                 onPrev={() => viewMode === 'day' ? setDayOffset((d) => d - 1) : viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
                                 onNext={() => viewMode === 'day' ? setDayOffset((d) => d + 1) : viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
                                 onToday={() => {

@@ -34,10 +34,14 @@ export function formatDateRange(dates: Date[]): string {
     const last = dates[6];
 
     if (first.getMonth() === last.getMonth()) {
-        return `${first.getDate()} – ${last.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]} ${first.getFullYear()}`;
+        return `${first.getDate()}–${last.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]}`;
     }
 
-    return `${first.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]} – ${last.getDate()} ${MONTHS_RU_GENITIVE[last.getMonth()]} ${first.getFullYear()}`;
+    return `${first.getDate()} ${MONTHS_RU_GENITIVE[first.getMonth()]} – ${last.getDate()} ${MONTHS_RU_GENITIVE[last.getMonth()]}`;
+}
+
+export function getYearFromDate(dates: Date[]): string {
+    return String(dates[0].getFullYear());
 }
 
 export function dateToKey(d: Date): string {

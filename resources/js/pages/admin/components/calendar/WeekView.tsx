@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import type { DragStartEvent, DragEndEvent, DragOverEvent } from '@dnd-kit/core';
 import {
     DndContext,
@@ -57,15 +57,19 @@ function CurrentTimeLine({ dayStartHour, gridHours }: CurrentTimeLineProps) {
     const gridEnd = gridStart + gridHours.length * 60;
 
     if (totalMinutes < gridStart || totalMinutes >= gridEnd) {
-return null;
-}
+        return null;
+    }
 
     const top = (totalMinutes - gridStart) * MINUTE_HEIGHT;
+    const timeLabel = `${String(now.getHours()).padStart(2, '0')}:${String(now.getMinutes()).padStart(2, '0')}`;
 
     return (
         <div className="pointer-events-none absolute inset-x-0 z-20" style={{ top }}>
-            <div className="absolute -left-[5px] top-1/2 size-2.5 -translate-y-1/2 rounded-full bg-red-500" />
-            <div className="h-[2px] bg-red-500" />
+            <div className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rounded-full bg-[var(--color-orange)] shadow-[0_0_0_3px_white] dark:shadow-[0_0_0_3px_var(--color-warm)]" />
+            <div className="h-px bg-[var(--color-orange)]" />
+            <span className="absolute right-1 -top-2.5 rounded bg-white px-1 py-0.5 text-[9px] font-bold text-[var(--color-orange)] dark:bg-zinc-900">
+                {timeLabel}
+            </span>
         </div>
     );
 }
@@ -103,6 +107,8 @@ export function WeekView({
 }: WeekViewProps) {
     const DAY_START_HOUR = dayStartHour;
     const DAY_END_HOUR = gridHours.length > 0 ? gridHours[gridHours.length - 1] + 1 : 21;
+    const scrollRef = useRef<HTMLDivElement>(null);
+    const didInitialScroll = useRef(false);
 
     const [activeAppointment, setActiveAppointment] = useState<Appointment | null>(null);
     const [hoveredDropId, setHoveredDropId] = useState<string | null>(null);
@@ -112,6 +118,34 @@ export function WeekView({
             activationConstraint: { distance: 8 },
         }),
     );
+
+    // Initial scroll to working hours
+    const scrollToWorkingHours = useCallback(() => {
+        if (didInitialScroll.current || !scrollRef.current) return;
+        didInitialScroll.current = true;
+
+        const firstWorkingHour = workingHours
+            .filter((w) => w.is_working)
+            .map((w) => {
+                const parts = w.start_time.split(':');
+
+                return parseInt(parts[0], 10);
+            })
+            .filter((h) => !isNaN(h))
+            .sort((a, b) => a - b)[0];
+
+        if (firstWorkingHour !== undefined && firstWorkingHour > dayStartHour) {
+            const offset = (firstWorkingHour - dayStartHour) * HOUR_HEIGHT - 20;
+            scrollRef.current.scrollTop = Math.max(0, offset);
+        }
+    }, [workingHours, dayStartHour]);
+
+    useEffect(() => {
+        didInitialScroll.current = false;
+        const timer = setTimeout(scrollToWorkingHours, 50);
+
+        return () => clearTimeout(timer);
+    }, [scrollToWorkingHours]);
 
     function handleDragStart(event: DragStartEvent) {
         const id = String(event.active.id);
@@ -133,14 +167,14 @@ export function WeekView({
         setHoveredDropId(null);
 
         if (!over) {
-return;
-}
+            return;
+        }
 
         const overId = String(over.id);
 
         if (!overId.includes('__')) {
-return;
-}
+            return;
+        }
 
         const [newDate, newTime] = overId.split('__');
 
@@ -148,39 +182,57 @@ return;
         const appt = localAppointments.find((a) => a.id === apptId);
 
         if (!appt) {
-return;
-}
+            return;
+        }
 
         if (appt.date === newDate && appt.time === newTime) {
-return;
-}
+            return;
+        }
 
         onRescheduleByDrag(apptId, newDate, newTime);
     }
 
     return (
-        <div className="relative max-h-[calc(100vh-240px)] w-full overflow-x-auto overflow-y-auto rounded-xl border border-slate-200 bg-white shadow-xs scrollbar-thin dark:border-zinc-800 dark:bg-zinc-900">
+        <div
+            ref={scrollRef}
+            className="relative w-full overflow-x-auto overflow-y-auto scrollbar-thin"
+            style={{ maxHeight: 'calc(100vh - 200px)' }}
+        >
             {/* Day Headers — sticky at top */}
-            <div className="sticky top-0 z-30 flex min-w-[980px] border-b border-slate-200 bg-slate-50 shadow-sm dark:border-zinc-800 dark:bg-zinc-900/50">
-                <div className="sticky left-0 z-40 flex w-[60px] min-w-[60px] flex-col items-start justify-center gap-0.5 border-r border-slate-200 bg-slate-50 p-3 text-slate-500 dark:border-zinc-800 dark:bg-zinc-900/50 dark:text-zinc-500">
-                    <span className="text-xs font-semibold">Время</span>
-                    <span className="text-[10px] font-normal text-slate-400 dark:text-zinc-600">{formatGmtOffset(timezone)}</span>
+            <div className="sticky top-0 z-30 flex min-w-[980px] border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-zinc-900/96">
+                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-zinc-900/96">
+                    <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>
-                <div className="grid min-w-[920px] flex-1 grid-cols-7">
+                <div className="grid min-w-[908px] flex-1 grid-cols-7">
                     {weekDates.map((date, idx) => {
                         const todayMark = isToday(date);
 
                         return (
                             <div
                                 key={`h-${idx}`}
-                                className={`cursor-pointer border-r border-slate-200 p-3 text-center transition-colors last:border-r-0 hover:bg-slate-100 dark:border-zinc-800 dark:hover:bg-zinc-800/50 ${todayMark ? 'bg-blue-50/50 dark:bg-blue-950/20' : ''}`}
+                                className={`relative flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0 ${
+                                    todayMark ? 'bg-[#FFFCFA] dark:bg-[#211B18]' : ''
+                                }`}
                             >
-                                <div className="text-xs font-medium text-slate-500 dark:text-zinc-400">
-                                    {DAY_NAMES[idx]}
+                                <div className="flex items-center gap-2.5">
+                                    <span className="text-xs font-semibold text-[var(--color-graphite)]">
+                                        {DAY_NAMES[idx]}
+                                    </span>
+                                    <span
+                                        className={`flex size-[30px] items-center justify-center rounded-full text-sm font-bold ${
+                                            todayMark
+                                                ? 'bg-[var(--color-orange)] text-white shadow-[0_5px_14px_rgba(255,90,31,0.2)]'
+                                                : 'text-[var(--color-ink)]'
+                                        }`}
+                                    >
+                                        {date.getDate()}
+                                    </span>
                                 </div>
-                                <div className={`mt-0.5 text-lg font-bold ${todayMark ? 'text-blue-600 dark:text-blue-400' : 'text-slate-900 dark:text-zinc-100'}`}>
-                                    {date.getDate()}
-                                </div>
+                                {todayMark && (
+                                    <span className="absolute bottom-1 text-[9px] font-bold text-[var(--color-orange)]">
+                                        Сегодня
+                                    </span>
+                                )}
                             </div>
                         );
                     })}
@@ -191,7 +243,7 @@ return;
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
                 <div className="flex min-w-[980px]">
                     {/* Time Column — sticky left */}
-                    <div className="sticky left-0 z-20 w-[60px] min-w-[60px] border-r border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
+                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] border-r border-[var(--color-line-soft)] bg-white dark:bg-zinc-900">
                         {gridHours.map((hour) => {
                             const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
                             const labels: React.ReactNode[] = [];
@@ -201,7 +253,7 @@ return;
                                     <div
                                         key={`${hour}-${m}`}
                                         style={{ height: slotHeightPx }}
-                                        className="flex items-start border-b border-slate-100 p-2 font-mono text-xs text-slate-400 dark:border-zinc-800/40 dark:text-zinc-500"
+                                        className="flex items-start justify-end border-b border-[var(--color-line-soft)] pr-3 pt-0.5 font-mono text-[11px] text-[var(--color-graphite)]"
                                     >
                                         {m === 0 ? `${String(hour).padStart(2, '0')}:00` : ''}
                                     </div>,
@@ -213,7 +265,7 @@ return;
                     </div>
 
                     {/* Day Columns with Appointment Cards */}
-                    <div className="grid min-w-[920px] flex-1 grid-cols-7">
+                    <div className="grid min-w-[908px] flex-1 grid-cols-7">
                         {weekDates.map((date, dayIdx) => {
                             const dayAppts = getAppointmentsForDay(dayIdx);
                             const dayBlocked = getBlockedTimesForDay(dayIdx);
@@ -229,11 +281,14 @@ return;
                                 ? hasCollision(dateKey, hoveredSlot.time, bookingModeService.duration_minutes, localAppointments)
                                 : false;
                             const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
+                            const todayMark = isToday(date);
 
                             return (
                                 <div
                                     key={`col-${dayIdx}`}
-                                    className="relative overflow-hidden border-r border-slate-100 last:border-r-0 dark:border-zinc-800/40"
+                                    className={`relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0 ${
+                                        todayMark ? 'bg-[#FFFCFA] dark:bg-[#211B18]' : ''
+                                    }`}
                                 >
                                     {gridHours.map((hour) => {
                                         const slots: React.ReactNode[] = [];
@@ -245,7 +300,7 @@ return;
                                                     key={`${hour}-${m}`}
                                                     id={`${dateKey}__${timeStr}`}
                                                     style={{ height: slotHeightPx }}
-                                                    className="group relative border-b border-slate-100 transition-colors hover:bg-slate-50 dark:border-zinc-800/40 dark:hover:bg-zinc-800/30"
+                                                    className="group relative border-b border-[var(--color-line-soft)] transition-colors hover:bg-[var(--color-line-soft)]"
                                                     onMouseEnter={() => {
                                                         if (activeBookingClient && bookingModeServiceId) {
                                                             onSlotHover({ date: dateKey, time: timeStr });
@@ -321,7 +376,7 @@ return;
                                             dayStartHour={DAY_START_HOUR}
                                         />
                                     ))}
-                                    {isToday(date) && (
+                                    {todayMark && (
                                         <CurrentTimeLine dayStartHour={DAY_START_HOUR} gridHours={gridHours} />
                                     )}
                                 </div>
