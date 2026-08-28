@@ -288,11 +288,14 @@ return [];
         );
     }
 
+    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
+    const todayCount = initialAppointments.filter((a) => a.date === todayStr).length;
+
     return (
         <>
             <Head title="Календарь — Вовремя" />
 
-            <AdminLayout title="Рабочий календарь" auth={auth}>
+            <AdminLayout title="Календарь" auth={auth} todayCount={todayCount}>
                         <div className="space-y-4">
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 

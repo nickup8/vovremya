@@ -10,23 +10,33 @@ import {
     ArrowPathIcon,
     ChevronLeftIcon,
     ChevronRightIcon,
-    SunIcon,
-    MoonIcon,
     CreditCardIcon,
+    EllipsisVerticalIcon,
+    QuestionMarkCircleIcon,
 } from '@heroicons/react/24/outline';
-import { useEffect, useCallback, type ComponentType } from 'react';
+import { useState, useEffect, useCallback, type ComponentType } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
-import { useAppearance } from '@/hooks/use-appearance';
 
 type HeroiconProps = { className?: string };
 
-const MENU_ITEMS: { icon: ComponentType<HeroiconProps>; label: string; href: string; ownerOnly?: boolean }[] = [
+interface NavItem {
+    icon: ComponentType<HeroiconProps>;
+    label: string;
+    href: string;
+    ownerOnly?: boolean;
+}
+
+const WORK_ITEMS: NavItem[] = [
     { icon: CalendarDaysIcon, label: 'Календарь', href: '/admin/calendar' },
     { icon: UsersIcon, label: 'Клиенты', href: '/admin/clients' },
     { icon: BookOpenIcon, label: 'Услуги', href: '/admin/catalog' },
     { icon: ChartBarIcon, label: 'Аналитика', href: '/admin/analytics' },
+];
+
+const SYSTEM_ITEMS: NavItem[] = [
     { icon: Cog6ToothIcon, label: 'Настройки', href: '/admin/settings' },
+    { icon: QuestionMarkCircleIcon, label: 'Помощь', href: '/admin/help' },
 ];
 
 interface SidebarProps {
@@ -38,7 +48,7 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }: SidebarProps) {
     const { url, props } = usePage();
-    const { appearance, updateAppearance } = useAppearance();
+    const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
     const authUser = (props as { auth?: { user?: Record<string, unknown> } })?.auth?.user;
     const userName = (authUser?.name as string) || 'Мастер';
@@ -48,9 +58,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
     const canManageTeam = (authUser?.can_manage_team as boolean) ?? false;
     const canBilling = (authUser?.can_manage_billing as boolean) ?? false;
 
-    const visibleMenuItems = MENU_ITEMS.filter(
-        (item) => !item.ownerOnly || canManageTeam,
-    );
+    const filterVisible = (items: NavItem[]) => items.filter((item) => !item.ownerOnly || canManageTeam);
 
     const handleLogout = useCallback(() => {
         router.post('/logout', {}, {
@@ -66,19 +74,48 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         return () => document.removeEventListener('keydown', handler);
     }, [mobileOpen, onMobileClose]);
 
-    const toggleTheme = () => {
-        const order: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-        const idx = order.indexOf(appearance);
-        updateAppearance(order[(idx + 1) % order.length]);
-    };
+    // Close profile menu on outside click
+    useEffect(() => {
+        if (!profileMenuOpen) return;
+        const handler = () => setProfileMenuOpen(false);
+        document.addEventListener('click', handler);
+        return () => document.removeEventListener('click', handler);
+    }, [profileMenuOpen]);
 
-    const isDark = appearance === 'dark';
-    const logoSrc = isDark ? '/images/logo-white.svg' : '/images/logo.svg';
+    const isDark = false; // logo selection handled by theme-aware img
+    const logoSrc = '/images/logo.svg';
+
+    const renderNavItems = (items: NavItem[], showLabels: boolean) =>
+        filterVisible(items).map((item) => {
+            const isActive = url.startsWith(item.href);
+
+            return (
+                <Link
+                    key={item.label}
+                    href={item.href}
+                    onClick={onMobileClose}
+                    className={`relative flex h-11 w-full items-center gap-3 rounded-[10px] text-sm font-medium transition-colors ${
+                        collapsed && !showLabels ? 'justify-center px-0' : 'px-3'
+                    } ${
+                        isActive
+                            ? 'bg-[var(--color-orange-100)] text-[var(--color-ink)] font-semibold'
+                            : 'text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]'
+                    }`}
+                    title={collapsed && !showLabels ? item.label : undefined}
+                >
+                    {isActive && (
+                        <span className="absolute left-0 top-[10px] h-6 w-[3px] rounded-full bg-[var(--color-orange)]" />
+                    )}
+                    <item.icon className={`size-5 shrink-0 ${isActive ? 'text-[var(--color-orange)]' : 'text-[#77736E]'}`} />
+                    {(showLabels || !collapsed) && <span className="truncate">{item.label}</span>}
+                </Link>
+            );
+        });
 
     const sidebarContent = (
         <div className="flex h-full flex-col">
             {/* Brand */}
-            <div className={`flex h-[52px] items-center border-b px-2 pb-4 ${collapsed ? 'justify-center' : 'gap-2'}`}>
+            <div className={`flex h-[52px] items-center border-b border-[var(--color-line-soft)] px-2 pb-4 ${collapsed ? 'justify-center' : ''}`}>
                 {collapsed ? (
                     <img src={logoSrc} alt="Вовремя" className="h-8 w-8 object-contain" />
                 ) : (
@@ -88,39 +125,29 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
             {/* Navigation */}
             <nav className="mt-3 flex flex-1 flex-col gap-1">
-                {visibleMenuItems.map((item) => {
-                    const isActive = url.startsWith(item.href);
+                {/* РАБОТА section */}
+                {!collapsed && (
+                    <div className="px-3 pt-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                        Работа
+                    </div>
+                )}
+                {renderNavItems(WORK_ITEMS, false)}
 
-                    return (
-                        <Link
-                            key={item.label}
-                            href={item.href}
-                            onClick={onMobileClose}
-                            className={`relative flex h-11 w-full items-center gap-3 rounded-[10px] text-sm font-medium transition-colors ${
-                                collapsed ? 'justify-center px-0' : 'px-3'
-                            } ${
-                                isActive
-                                    ? 'bg-[var(--color-orange-100)] text-[var(--color-ink)] font-semibold'
-                                    : 'text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]'
-                            }`}
-                            title={collapsed ? item.label : undefined}
-                        >
-                            {isActive && (
-                                <span className="absolute left-0 top-[10px] h-6 w-[3px] rounded-full bg-[var(--color-orange)]" />
-                            )}
-                            <item.icon className={`size-5 shrink-0 ${isActive ? 'text-[var(--color-orange)]' : 'text-[#77736E]'}`} />
-                            {!collapsed && <span className="truncate">{item.label}</span>}
-                        </Link>
-                    );
-                })}
+                {/* СИСТЕМА section */}
+                {!collapsed && (
+                    <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                        Система
+                    </div>
+                )}
+                {renderNavItems(SYSTEM_ITEMS, false)}
             </nav>
 
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Profile section */}
-            <div className={`border-t border-[var(--color-line-soft)] pt-3 ${collapsed ? 'flex flex-col items-center gap-2' : ''}`}>
-                <div className={`flex items-center ${collapsed ? 'flex-col gap-2' : 'gap-3'}`}>
+            {/* Profile section — compact */}
+            <div className="border-t border-[var(--color-line-soft)] pt-3">
+                <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
                     <Avatar className="size-9 shrink-0">
                         <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
                         <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
@@ -128,50 +155,59 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         </AvatarFallback>
                     </Avatar>
                     {!collapsed && (
-                        <div className="min-w-0 flex-1">
-                            <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
-                            <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
-                        </div>
+                        <>
+                            <div className="min-w-0 flex-1">
+                                <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
+                                <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                            </div>
+                            <div className="relative">
+                                <button
+                                    onClick={(e) => { e.stopPropagation(); setProfileMenuOpen(!profileMenuOpen); }}
+                                    className="flex size-8 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                    aria-label="Меню профиля"
+                                    aria-expanded={profileMenuOpen}
+                                >
+                                    <EllipsisVerticalIcon className="size-4" />
+                                </button>
+                                {profileMenuOpen && (
+                                    <div
+                                        className="absolute bottom-full left-0 mb-1 w-56 rounded-xl border border-[var(--color-line)] bg-white p-1.5 shadow-lg dark:bg-zinc-900"
+                                        onClick={(e) => e.stopPropagation()}
+                                        role="menu"
+                                    >
+                                        {canBilling && (
+                                            <Link
+                                                href="/admin/billing"
+                                                onClick={() => { setProfileMenuOpen(false); onMobileClose(); }}
+                                                className="flex h-10 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                                role="menuitem"
+                                            >
+                                                <CreditCardIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                                <span>Тариф · {tariffName}</span>
+                                            </Link>
+                                        )}
+                                        <button
+                                            onClick={() => { setProfileMenuOpen(false); onMobileClose(); router.post('/switch-to-client'); }}
+                                            className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                            role="menuitem"
+                                        >
+                                            <ArrowPathIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                            <span>Режим клиента</span>
+                                        </button>
+                                        <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
+                                        <button
+                                            onClick={() => { setProfileMenuOpen(false); onMobileClose(); handleLogout(); }}
+                                            className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                            role="menuitem"
+                                        >
+                                            <ArrowRightStartOnRectangleIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                            <span>Выйти</span>
+                                        </button>
+                                    </div>
+                                )}
+                            </div>
+                        </>
                     )}
-                </div>
-
-                {/* Actions */}
-                <div className={`mt-3 flex flex-col gap-1 ${collapsed ? 'items-center' : ''}`}>
-                    {canBilling && (
-                        <Link
-                            href="/admin/billing"
-                            onClick={onMobileClose}
-                            className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
-                            title={collapsed ? 'Тариф' : undefined}
-                        >
-                            <CreditCardIcon className="size-4 shrink-0" />
-                            {!collapsed && <span>Тариф</span>}
-                        </Link>
-                    )}
-                    <button
-                        onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
-                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
-                        title={collapsed ? 'Режим клиента' : undefined}
-                    >
-                        <ArrowPathIcon className="size-4 shrink-0" />
-                        {!collapsed && <span>Режим клиента</span>}
-                    </button>
-                    <button
-                        onClick={toggleTheme}
-                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] ${collapsed ? 'justify-center' : ''}`}
-                        title={collapsed ? (isDark ? 'Светлая тема' : 'Тёмная тема') : undefined}
-                    >
-                        {isDark ? <SunIcon className="size-4 shrink-0" /> : <MoonIcon className="size-4 shrink-0" />}
-                        {!collapsed && <span>{isDark ? 'Светлая тема' : 'Тёмная тема'}</span>}
-                    </button>
-                    <button
-                        onClick={() => { onMobileClose(); handleLogout(); }}
-                        className={`flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-red-500 ${collapsed ? 'justify-center' : ''}`}
-                        title={collapsed ? 'Выйти' : undefined}
-                    >
-                        <ArrowRightStartOnRectangleIcon className="size-4 shrink-0" />
-                        {!collapsed && <span>Выйти</span>}
-                    </button>
                 </div>
 
                 {/* Version */}
@@ -196,22 +232,6 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                 {sidebarContent}
             </aside>
 
-            {/* Desktop collapse toggle */}
-            <button
-                onClick={onToggleCollapse}
-                className="fixed z-50 hidden items-center justify-center rounded-full border border-[var(--color-line)] bg-[var(--color-warm)] text-[var(--color-graphite)] shadow-sm transition-colors hover:bg-[var(--color-line-soft)] lg:flex"
-                style={{
-                    left: collapsed ? '64px' : '228px',
-                    top: '50%',
-                    width: '24px',
-                    height: '24px',
-                    transform: 'translateY(-50%)',
-                }}
-                aria-label={collapsed ? 'Развернуть боковую панель' : 'Сложить боковую панель'}
-            >
-                {collapsed ? <ChevronRightIcon className="size-3" /> : <ChevronLeftIcon className="size-3" />}
-            </button>
-
             {/* Mobile overlay + sidebar */}
             {mobileOpen && (
                 <div className="fixed inset-0 z-50 lg:hidden">
@@ -224,7 +244,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         className="relative z-10 flex h-full w-[min(288px,calc(100vw-48px))] flex-col border-r border-[var(--color-line)] bg-[var(--color-warm)] p-[20px_16px_16px]"
                         aria-label="Основная навигация"
                     >
-                        <div className="flex h-[52px] items-center justify-between border-b px-2 pb-4">
+                        <div className="flex h-[52px] items-center justify-between border-b border-[var(--color-line-soft)] px-2 pb-4">
                             <img src={logoSrc} alt="Вовремя" className="h-7 w-auto" />
                             <button
                                 onClick={onMobileClose}
@@ -234,32 +254,18 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                             </button>
                         </div>
                         <nav className="mt-3 flex flex-1 flex-col gap-1">
-                            {visibleMenuItems.map((item) => {
-                                const isActive = url.startsWith(item.href);
-
-                                return (
-                                    <Link
-                                        key={item.label}
-                                        href={item.href}
-                                        onClick={onMobileClose}
-                                        className={`relative flex h-11 w-full items-center gap-3 rounded-[10px] px-3 text-sm font-medium transition-colors ${
-                                            isActive
-                                                ? 'bg-[var(--color-orange-100)] text-[var(--color-ink)] font-semibold'
-                                                : 'text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]'
-                                        }`}
-                                    >
-                                        {isActive && (
-                                            <span className="absolute left-0 top-[10px] h-6 w-[3px] rounded-full bg-[var(--color-orange)]" />
-                                        )}
-                                        <item.icon className={`size-5 shrink-0 ${isActive ? 'text-[var(--color-orange)]' : 'text-[#77736E]'}`} />
-                                        <span className="truncate">{item.label}</span>
-                                    </Link>
-                                );
-                            })}
+                            <div className="px-3 pt-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                                Работа
+                            </div>
+                            {renderNavItems(WORK_ITEMS, true)}
+                            <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                                Система
+                            </div>
+                            {renderNavItems(SYSTEM_ITEMS, true)}
                         </nav>
                         <div className="flex-1" />
                         <div className="border-t border-[var(--color-line-soft)] pt-3">
-                            <div className="flex items-center gap-3">
+                            <div className="flex items-center gap-2.5">
                                 <Avatar className="size-9 shrink-0">
                                     <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
                                     <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
@@ -272,25 +278,29 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                                 </div>
                             </div>
                             <div className="mt-3 flex flex-col gap-1">
+                                {canBilling && (
+                                    <Link
+                                        href="/admin/billing"
+                                        onClick={onMobileClose}
+                                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                    >
+                                        <CreditCardIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                        <span>Тариф · {tariffName}</span>
+                                    </Link>
+                                )}
                                 <button
                                     onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
-                                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
                                 >
-                                    <ArrowPathIcon className="size-4 shrink-0" />
+                                    <ArrowPathIcon className="size-[18px] text-[var(--color-graphite)]" />
                                     <span>Режим клиента</span>
                                 </button>
-                                <button
-                                    onClick={toggleTheme}
-                                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
-                                >
-                                    {isDark ? <SunIcon className="size-4 shrink-0" /> : <MoonIcon className="size-4 shrink-0" />}
-                                    <span>{isDark ? 'Светлая тема' : 'Тёмная тема'}</span>
-                                </button>
+                                <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
                                 <button
                                     onClick={() => { onMobileClose(); handleLogout(); }}
-                                    className="flex items-center gap-2 rounded-lg px-2 py-1.5 text-xs font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-red-500"
+                                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
                                 >
-                                    <ArrowRightStartOnRectangleIcon className="size-4 shrink-0" />
+                                    <ArrowRightStartOnRectangleIcon className="size-[18px] text-[var(--color-graphite)]" />
                                     <span>Выйти</span>
                                 </button>
                             </div>

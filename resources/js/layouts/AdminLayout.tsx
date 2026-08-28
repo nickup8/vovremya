@@ -1,9 +1,14 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePage, Link } from '@inertiajs/react';
-import { Bars3Icon, BellIcon, PlusIcon } from '@heroicons/react/24/outline';
+import {
+    Bars3Icon, BellIcon, PlusIcon,
+    SunIcon, MoonIcon,
+    ChevronLeftIcon, ChevronRightIcon,
+} from '@heroicons/react/24/outline';
 import type { ReactNode } from 'react';
 import Sidebar from '@/components/admin/Sidebar';
 import { Toaster } from '@/components/ui/sonner';
+import { useAppearance } from '@/hooks/use-appearance';
 
 const SIDEBAR_COLLAPSED_KEY = 'vovremya-sidebar-collapsed';
 
@@ -12,15 +17,16 @@ interface AdminLayoutProps {
     title: string;
     auth?: { user?: Record<string, unknown> };
     headerActions?: ReactNode;
+    todayCount?: number | null;
 }
 
-export default function AdminLayout({ children, title, auth, headerActions }: AdminLayoutProps) {
+export default function AdminLayout({ children, title, auth, headerActions, todayCount }: AdminLayoutProps) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
         try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
     });
     const [notificationsOpen, setNotificationsOpen] = useState(false);
-    const { props } = usePage();
+    const { appearance, updateAppearance } = useAppearance();
 
     const toggleCollapse = useCallback(() => {
         setSidebarCollapsed((prev) => {
@@ -29,6 +35,14 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
             return next;
         });
     }, []);
+
+    const toggleTheme = () => {
+        const order: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
+        const idx = order.indexOf(appearance);
+        updateAppearance(order[(idx + 1) % order.length]);
+    };
+
+    const isDark = appearance === 'dark';
 
     // Close mobile menu on resize
     useEffect(() => {
@@ -70,6 +84,19 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
             >
                 {/* Topbar */}
                 <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-6 backdrop-blur-[16px] dark:bg-zinc-900/90">
+                    {/* Desktop sidebar collapse toggle */}
+                    <button
+                        onClick={toggleCollapse}
+                        className="hidden items-center justify-center rounded-[10px] p-2 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] lg:flex"
+                        aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Сложить боковую панель'}
+                        aria-pressed={sidebarCollapsed}
+                    >
+                        {sidebarCollapsed
+                            ? <ChevronRightIcon className="size-5" />
+                            : <ChevronLeftIcon className="size-5" />
+                        }
+                    </button>
+
                     {/* Mobile menu button */}
                     <button
                         onClick={() => setMobileMenuOpen(true)}
@@ -80,9 +107,19 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                     </button>
 
                     {/* Page title */}
-                    <h1 className="text-[25px] font-bold leading-8 tracking-[-.035em] text-[var(--color-ink)]">
+                    <h1 className="whitespace-nowrap text-[25px] font-bold leading-8 tracking-[-.035em] text-[var(--color-ink)]">
                         {title}
                     </h1>
+
+                    {/* Today context — only when count is provided */}
+                    {todayCount !== null && todayCount !== undefined && (
+                        <div className="flex items-center gap-2 text-xs text-[var(--color-graphite)]">
+                            <span className="inline-block size-1.5 rounded-full bg-[var(--color-orange)]" />
+                            <span>Сегодня</span>
+                            <span className="font-semibold text-[var(--color-graphite)]">·</span>
+                            <span className="font-semibold text-[var(--color-graphite)]">{todayCount} {todayCount === 1 ? 'запись' : todayCount < 5 ? 'записи' : 'записей'}</span>
+                        </div>
+                    )}
 
                     {/* Spacer */}
                     <div className="flex-1" />
@@ -90,6 +127,16 @@ export default function AdminLayout({ children, title, auth, headerActions }: Ad
                     {/* Actions */}
                     <div className="flex items-center gap-2">
                         {headerActions}
+
+                        {/* Theme switch */}
+                        <button
+                            onClick={toggleTheme}
+                            className="flex size-10 items-center justify-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                            aria-label={isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
+                            title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+                        >
+                            {isDark ? <SunIcon className="size-5" /> : <MoonIcon className="size-5" />}
+                        </button>
 
                         {/* Notifications shell */}
                         <div className="relative">
