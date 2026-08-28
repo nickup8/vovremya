@@ -2,6 +2,7 @@
 
 namespace App\Jobs;
 
+use App\Enums\SlotRequestDeliveryChannel;
 use App\Models\SlotOpportunity;
 use App\Services\SlotMatcherService;
 use Illuminate\Bus\Queueable;
@@ -47,5 +48,10 @@ class MatchSlotOpportunityJob implements ShouldQueue
         // Schedule delayed expiry for the pending offer
         ExpireSlotOfferJob::dispatch($offer->id)
             ->delay($offer->expires_at);
+
+        // Deliver offer notification via MAX if applicable
+        if ($offer->request?->delivery_channel === SlotRequestDeliveryChannel::Max) {
+            SendMaxSlotOfferJob::dispatch($offer->id);
+        }
     }
 }

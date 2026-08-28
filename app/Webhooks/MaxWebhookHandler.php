@@ -258,6 +258,20 @@ class MaxWebhookHandler
             return;
         }
 
+        if (str_starts_with($data, 'af_accept_')) {
+            $offerUuid = substr($data, 10);
+            $this->handleAutofillAccept($userId, $callbackId, $offerUuid);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'af_decline_')) {
+            $offerUuid = substr($data, 11);
+            $this->handleAutofillDecline($userId, $callbackId, $offerUuid);
+
+            return;
+        }
+
         if ($callbackId !== '') {
             $this->maxApi->answerCallback($callbackId);
         }
@@ -836,5 +850,115 @@ class MaxWebhookHandler
                 'date' => $date,
                 'time' => $time,
             ]));
+    }
+
+    private function handleAutofillAccept(string $userId, string $callbackId, string $offerUuid): void
+    {
+        $offer = \App\Models\SlotOffer::with(['request.client'])->find($offerUuid);
+
+        if ($offer === null) {
+            $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+            return;
+        }
+
+        $client = $offer->request?->client;
+        if ($client === null || $client->max_id !== $userId) {
+            Log::warning('[MAX] autofill accept: ownership violation', [
+                'user_id' => $userId,
+                'offer_id' => $offerUuid,
+            ]);
+            $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+            return;
+        }
+
+        $result = app(\App\Services\SlotOfferAcceptanceService::class)->acceptEarlier($offer);
+
+        if ($result['success']) {
+            $ok = $this->maxApi->answerCallbackWithMessage($callbackId, 'Готово, запись перенесена.');
+            if (! $ok) {
+                $this->maxApi->answerCallback($callbackId);
+                $this->sendMessage($userId, 'Готово, запись перенесена.');
+            }
+            return;
+        }
+
+        $error = $result['error'] ?? 'unknown';
+
+        $message = match ($error) {
+            'slot_taken', 'slot_unavailable' => 'Это время уже заняли. Продолжим искать подходящее время.',
+            'request_not_active', 'not_earlier_type', 'source_appointment_missing',
+            'source_not_booked', 'client_mismatch', 'workspace_mismatch',
+            'master_mismatch', 'master_service_mismatch', 'snapshot_missing',
+            'snapshot_drift', 'invalid_duration', 'duration_mismatch',
+            'not_earlier', 'service_inactive', 'client_conflict',
+            'opportunity_not_open', 'opportunity_past', 'missing_relations' =>
+                'Поиск по этой записи уже неактуален.',
+            'expired', 'not_pending' => 'Предложение уже недоступно.',
+            default => 'Предложение уже недоступно.',
+        };
+
+        $ok = $this->maxApi->answerCallbackWithMessage($callbackId, $message);
+        if (! $ok) {
+            $this->maxApi->answerCallback($callbackId);
+            $this->sendMessage($userId, $message);
+        }
+    }
+
+    private function handleAutofillDecline(string $userId, string $callbackId, string $offerUuid): void
+    {
+        $offer = \App\Models\SlotOffer::with(['request.client'])->find($offerUuid);
+
+        if ($offer === null) {
+            $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+            return;
+        }
+
+        $client = $offer->request?->client;
+        if ($client === null || $client->max_id !== $userId) {
+            Log::warning('[MAX] autofill decline: ownership violation', [
+                'user_id' => $userId,
+                'offer_id' => $offerUuid,
+            ]);
+            $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+            return;
+        }
+
+        $freshOffer = \App\Models\SlotOffer::find($offerUuid);
+
+        if ($freshOffer === null || $freshOffer->status !== \App\Enums\SlotOfferStatus::Pending) {
+            $status = $freshOffer?->status?->value ?? 'missing';
+            $message = $status === 'accepted'
+                ? 'Запись уже перенесена.'
+                : 'Предложение уже недоступно.';
+
+            $ok = $this->maxApi->answerCallbackWithMessage($callbackId, $message);
+            if (! $ok) {
+                $this->maxApi->answerCallback($callbackId);
+                $this->sendMessage($userId, $message);
+            }
+            return;
+        }
+
+        try {
+            app(\App\Services\SlotOfferService::class)->decline($freshOffer);
+        } catch (\Throwable $e) {
+            Log::warning('[MAX] autofill decline: service error', [
+                'offer_id' => $offerUuid,
+                'error' => $e->getMessage(),
+            ]);
+            $this->maxApi->answerCallback($callbackId, 'Предложение уже недоступно');
+            return;
+        }
+
+        $opportunityId = $freshOffer->slot_opportunity_id;
+        \Illuminate\Support\Facades\DB::afterCommit(
+            fn () => \App\Jobs\MatchSlotOpportunityJob::dispatch($opportunityId),
+        );
+
+        $ok = $this->maxApi->answerCallbackWithMessage($callbackId, 'Хорошо, это время не подойдёт. Продолжим искать.');
+        if (! $ok) {
+            $this->maxApi->answerCallback($callbackId);
+            $this->sendMessage($userId, 'Хорошо, это время не подойдёт. Продолжим искать.');
+        }
     }
 }
