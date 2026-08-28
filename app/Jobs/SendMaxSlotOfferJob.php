@@ -4,7 +4,6 @@ namespace App\Jobs;
 
 use App\Enums\SlotOfferStatus;
 use App\Enums\SlotRequestDeliveryChannel;
-use App\Jobs\MatchSlotOpportunityJob;
 use App\Models\SlotOffer;
 use App\Services\MaxApiClient;
 use App\Services\SlotOfferService;
@@ -84,8 +83,8 @@ class SendMaxSlotOfferJob implements ShouldQueue
             return;
         }
 
-        if (empty($client->max_id)) {
-            Log::warning('[AutoFill] SendMaxSlotOfferJob: client missing max_id', [
+        if (empty($client->max_chat_id)) {
+            Log::warning('[AutoFill] SendMaxSlotOfferJob: client missing max_chat_id', [
                 'offer_id' => $offer->id,
                 'client_id' => $client->id,
             ]);
@@ -134,21 +133,46 @@ class SendMaxSlotOfferJob implements ShouldQueue
             ],
         ]];
 
-        $mid = $maxApi->sendMessage($client->max_id, $text, ['attachments' => $attachments]);
+        $mid = $maxApi->sendMessage($client->max_chat_id, $text, ['attachments' => $attachments]);
 
         if ($mid === null) {
-            Log::warning('[AutoFill] SendMaxSlotOfferJob: MAX API send failed', [
+            Log::warning('[AutoFill] SendMaxSlotOfferJob: MAX API send failed, will retry', [
                 'offer_id' => $offer->id,
-                'client_max_id' => $client->max_id,
+                'max_chat_id' => $client->max_chat_id,
             ]);
-            $this->invalidateAndRematch($offerService, $offer);
-            return;
+            throw new \Exception('MAX API failed to send slot offer message');
         }
 
         Log::info('[AutoFill] SendMaxSlotOfferJob: sent', [
             'offer_id' => $offer->id,
             'mid' => $mid,
         ]);
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('[AutoFill] SendMaxSlotOfferJob: all retries exhausted', [
+            'offer_id' => $this->slotOfferId,
+            'error' => $exception->getMessage(),
+        ]);
+
+        $offer = SlotOffer::find($this->slotOfferId);
+        if ($offer === null || $offer->status !== SlotOfferStatus::Pending) {
+            return;
+        }
+
+        try {
+            app(SlotOfferService::class)->invalidate($offer);
+        } catch (\Throwable $e) {
+            Log::warning('[AutoFill] SendMaxSlotOfferJob: invalidate on failed() error', [
+                'offer_id' => $this->slotOfferId,
+                'error' => $e->getMessage(),
+            ]);
+            return;
+        }
+
+        $opportunityId = $offer->slot_opportunity_id;
+        MatchSlotOpportunityJob::dispatch($opportunityId);
     }
 
     private function invalidateAndRematch(SlotOfferService $offerService, SlotOffer $offer): void

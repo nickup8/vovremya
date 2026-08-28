@@ -260,14 +260,16 @@ class MaxWebhookHandler
 
         if (str_starts_with($data, 'af_accept_')) {
             $offerUuid = substr($data, 10);
-            $this->handleAutofillAccept($userId, $callbackId, $offerUuid);
+            $messageId = (string) ($callback['message']['body']['mid'] ?? '');
+            $this->handleAutofillAccept($userId, $callbackId, $offerUuid, $messageId);
 
             return;
         }
 
         if (str_starts_with($data, 'af_decline_')) {
             $offerUuid = substr($data, 11);
-            $this->handleAutofillDecline($userId, $callbackId, $offerUuid);
+            $messageId = (string) ($callback['message']['body']['mid'] ?? '');
+            $this->handleAutofillDecline($userId, $callbackId, $offerUuid, $messageId);
 
             return;
         }
@@ -852,7 +854,7 @@ class MaxWebhookHandler
             ]));
     }
 
-    private function handleAutofillAccept(string $userId, string $callbackId, string $offerUuid): void
+    private function handleAutofillAccept(string $userId, string $callbackId, string $offerUuid, string $messageId): void
     {
         $offer = \App\Models\SlotOffer::with(['request.client'])->find($offerUuid);
 
@@ -879,6 +881,7 @@ class MaxWebhookHandler
                 $this->maxApi->answerCallback($callbackId);
                 $this->sendMessage($userId, 'Готово, запись перенесена.');
             }
+            $this->removeKeyboardBestEffort($messageId);
             return;
         }
 
@@ -902,9 +905,10 @@ class MaxWebhookHandler
             $this->maxApi->answerCallback($callbackId);
             $this->sendMessage($userId, $message);
         }
+        $this->removeKeyboardBestEffort($messageId);
     }
 
-    private function handleAutofillDecline(string $userId, string $callbackId, string $offerUuid): void
+    private function handleAutofillDecline(string $userId, string $callbackId, string $offerUuid, string $messageId): void
     {
         $offer = \App\Models\SlotOffer::with(['request.client'])->find($offerUuid);
 
@@ -959,6 +963,23 @@ class MaxWebhookHandler
         if (! $ok) {
             $this->maxApi->answerCallback($callbackId);
             $this->sendMessage($userId, 'Хорошо, это время не подойдёт. Продолжим искать.');
+        }
+        $this->removeKeyboardBestEffort($messageId);
+    }
+
+    private function removeKeyboardBestEffort(string $messageId): void
+    {
+        if ($messageId === '') {
+            return;
+        }
+
+        try {
+            $this->maxApi->deleteKeyboard($messageId);
+        } catch (\Throwable $e) {
+            Log::debug('[MAX] removeKeyboardBestEffort failed', [
+                'message_id' => $messageId,
+                'error' => $e->getMessage(),
+            ]);
         }
     }
 }

@@ -16,6 +16,7 @@ use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
 use App\Services\FreedWindowDispatcher;
 use App\Services\SlotOpportunityService;
@@ -93,6 +94,19 @@ class FreedWindowTest extends TestCase
                 'start_time' => Carbon::tomorrow()->setTime(14, 0),
                 'duration' => 60,
             ]);
+
+        for ($day = 0; $day <= 6; $day++) {
+            WorkingHour::updateOrCreate(
+                ['user_id' => $this->master->id, 'day_of_week' => $day],
+                [
+                    'is_working' => true,
+                    'start_time' => '09:00',
+                    'end_time' => '18:00',
+                    'break_start_time' => null,
+                    'break_end_time' => null,
+                ],
+            );
+        }
     }
 
     // ── Cancellation snapshot tests ───────────────────────

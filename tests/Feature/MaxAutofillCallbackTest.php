@@ -167,18 +167,18 @@ class MaxAutofillCallbackTest extends TestCase
         ]);
     }
 
-    private function invokeAccept(string $userId, string $callbackId, string $offerId): void
+    private function invokeAccept(string $userId, string $callbackId, string $offerId, string $messageId = 'msg_123'): void
     {
         $method = new \ReflectionMethod(MaxWebhookHandler::class, 'handleAutofillAccept');
         $method->setAccessible(true);
-        $method->invoke($this->handler, $userId, $callbackId, $offerId);
+        $method->invoke($this->handler, $userId, $callbackId, $offerId, $messageId);
     }
 
-    private function invokeDecline(string $userId, string $callbackId, string $offerId): void
+    private function invokeDecline(string $userId, string $callbackId, string $offerId, string $messageId = 'msg_123'): void
     {
         $method = new \ReflectionMethod(MaxWebhookHandler::class, 'handleAutofillDecline');
         $method->setAccessible(true);
-        $method->invoke($this->handler, $userId, $callbackId, $offerId);
+        $method->invoke($this->handler, $userId, $callbackId, $offerId, $messageId);
     }
 
     // ── Accept callback ───────────────────────────────────
