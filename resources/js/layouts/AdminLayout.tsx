@@ -28,6 +28,8 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const { appearance, updateAppearance } = useAppearance();
 
+    const isDark = appearance === 'dark';
+
     const toggleCollapse = useCallback(() => {
         setSidebarCollapsed((prev) => {
             const next = !prev;
@@ -37,12 +39,8 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     }, []);
 
     const toggleTheme = () => {
-        const order: Array<'light' | 'dark' | 'system'> = ['light', 'dark', 'system'];
-        const idx = order.indexOf(appearance);
-        updateAppearance(order[(idx + 1) % order.length]);
+        updateAppearance(isDark ? 'light' : 'dark');
     };
-
-    const isDark = appearance === 'dark';
 
     // Close mobile menu on resize
     useEffect(() => {
@@ -63,8 +61,8 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     useEffect(() => {
         if (!notificationsOpen) return;
         const handler = () => setNotificationsOpen(false);
-        document.addEventListener('click', handler);
-        return () => document.removeEventListener('click', handler);
+        const timer = setTimeout(() => document.addEventListener('click', handler), 0);
+        return () => { clearTimeout(timer); document.removeEventListener('click', handler); };
     }, [notificationsOpen]);
 
     return (
@@ -111,7 +109,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                         {title}
                     </h1>
 
-                    {/* Today context — only when count is provided */}
+                    {/* Today context */}
                     {todayCount !== null && todayCount !== undefined && (
                         <div className="flex items-center gap-2 text-xs text-[var(--color-graphite)]">
                             <span className="inline-block size-1.5 rounded-full bg-[var(--color-orange)]" />
@@ -128,14 +126,29 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                     <div className="flex items-center gap-2">
                         {headerActions}
 
-                        {/* Theme switch */}
+                        {/* Theme switch pill */}
                         <button
                             onClick={toggleTheme}
-                            className="flex size-10 items-center justify-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                            className="relative flex h-10 w-[72px] items-center justify-center rounded-[10px] transition-colors hover:bg-[var(--color-line-soft)]"
                             aria-label={isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
-                            title={isDark ? 'Светлая тема' : 'Тёмная тема'}
+                            title={isDark ? 'Тёмная тема' : 'Светлая тема'}
                         >
-                            {isDark ? <SunIcon className="size-5" /> : <MoonIcon className="size-5" />}
+                            <span className="relative flex h-7 w-14 items-center rounded-full border border-[var(--color-line)] bg-[var(--color-warm)]">
+                                {/* Sun icon */}
+                                <span className={`relative z-10 flex w-1/2 items-center justify-center transition-colors ${isDark ? 'text-[var(--color-graphite)]' : 'text-[var(--color-ink)]'}`}>
+                                    <SunIcon className="size-3.5" />
+                                </span>
+                                {/* Moon icon */}
+                                <span className={`relative z-10 flex w-1/2 items-center justify-center transition-colors ${isDark ? 'text-[var(--color-ink)]' : 'text-[var(--color-graphite)]'}`}>
+                                    <MoonIcon className="size-3.5" />
+                                </span>
+                                {/* Thumb */}
+                                <span
+                                    className={`absolute top-[3px] size-5 rounded-full bg-white shadow-sm transition-transform duration-200 dark:bg-zinc-800 ${
+                                        isDark ? 'translate-x-[26px]' : 'translate-x-[3px]'
+                                    }`}
+                                />
+                            </span>
                         </button>
 
                         {/* Notifications shell */}

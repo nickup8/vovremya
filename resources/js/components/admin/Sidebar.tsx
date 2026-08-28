@@ -8,8 +8,6 @@ import {
     XMarkIcon,
     ArrowRightStartOnRectangleIcon,
     ArrowPathIcon,
-    ChevronLeftIcon,
-    ChevronRightIcon,
     CreditCardIcon,
     EllipsisVerticalIcon,
     QuestionMarkCircleIcon,
@@ -17,6 +15,7 @@ import {
 import { useState, useEffect, useCallback, type ComponentType } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
 import { getInitials } from '@/lib/utils';
+import { useAppearance } from '@/hooks/use-appearance';
 
 type HeroiconProps = { className?: string };
 
@@ -48,6 +47,7 @@ interface SidebarProps {
 
 export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }: SidebarProps) {
     const { url, props } = usePage();
+    const { resolvedAppearance } = useAppearance();
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
 
     const authUser = (props as { auth?: { user?: Record<string, unknown> } })?.auth?.user;
@@ -58,6 +58,10 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
     const canManageTeam = (authUser?.can_manage_team as boolean) ?? false;
     const canBilling = (authUser?.can_manage_billing as boolean) ?? false;
 
+    const isDark = resolvedAppearance === 'dark';
+    const logoFull = isDark ? '/images/logo-white.svg' : '/images/logo.svg';
+    const logoMark = isDark ? '/images/logo-mark-white.svg' : '/images/logo-mark.svg';
+
     const filterVisible = (items: NavItem[]) => items.filter((item) => !item.ownerOnly || canManageTeam);
 
     const handleLogout = useCallback(() => {
@@ -66,24 +70,34 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         });
     }, []);
 
-    // Escape closes mobile sidebar
+    // Escape closes mobile sidebar and profile menu
     useEffect(() => {
-        if (!mobileOpen) return;
-        const handler = (e: KeyboardEvent) => { if (e.key === 'Escape') onMobileClose(); };
+        if (!mobileOpen && !profileMenuOpen) return;
+        const handler = (e: KeyboardEvent) => {
+            if (e.key === 'Escape') {
+                if (profileMenuOpen) setProfileMenuOpen(false);
+                else if (mobileOpen) onMobileClose();
+            }
+        };
         document.addEventListener('keydown', handler);
         return () => document.removeEventListener('keydown', handler);
-    }, [mobileOpen, onMobileClose]);
+    }, [mobileOpen, profileMenuOpen, onMobileClose]);
 
     // Close profile menu on outside click
     useEffect(() => {
         if (!profileMenuOpen) return;
         const handler = () => setProfileMenuOpen(false);
-        document.addEventListener('click', handler);
-        return () => document.removeEventListener('click', handler);
+        // Delay to avoid the opening click immediately closing it
+        const timer = setTimeout(() => document.addEventListener('click', handler), 0);
+        return () => { clearTimeout(timer); document.removeEventListener('click', handler); };
     }, [profileMenuOpen]);
 
-    const isDark = false; // logo selection handled by theme-aware img
-    const logoSrc = '/images/logo.svg';
+    const toggleProfile = (e: React.MouseEvent) => {
+        e.stopPropagation();
+        setProfileMenuOpen((prev) => !prev);
+    };
+
+    const closeProfile = () => setProfileMenuOpen(false);
 
     const renderNavItems = (items: NavItem[], showLabels: boolean) =>
         filterVisible(items).map((item) => {
@@ -112,20 +126,56 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
             );
         });
 
+    const profileDropdown = profileMenuOpen ? (
+        <div
+            className="absolute bottom-full left-0 mb-1 w-56 rounded-xl border border-[var(--color-line)] bg-white p-1.5 shadow-lg dark:bg-zinc-900"
+            onClick={(e) => e.stopPropagation()}
+            role="menu"
+        >
+            {canBilling && (
+                <Link
+                    href="/admin/billing"
+                    onClick={() => { closeProfile(); onMobileClose(); }}
+                    className="flex h-10 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                    role="menuitem"
+                >
+                    <CreditCardIcon className="size-[18px] text-[var(--color-graphite)]" />
+                    <span>Тариф · {tariffName}</span>
+                </Link>
+            )}
+            <button
+                onClick={() => { closeProfile(); onMobileClose(); router.post('/switch-to-client'); }}
+                className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                role="menuitem"
+            >
+                <ArrowPathIcon className="size-[18px] text-[var(--color-graphite)]" />
+                <span>Режим клиента</span>
+            </button>
+            <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
+            <button
+                onClick={() => { closeProfile(); onMobileClose(); handleLogout(); }}
+                className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                role="menuitem"
+            >
+                <ArrowRightStartOnRectangleIcon className="size-[18px] text-[var(--color-graphite)]" />
+                <span>Выйти</span>
+            </button>
+        </div>
+    ) : null;
+
     const sidebarContent = (
         <div className="flex h-full flex-col">
             {/* Brand */}
             <div className={`flex h-[52px] items-center border-b border-[var(--color-line-soft)] px-2 pb-4 ${collapsed ? 'justify-center' : ''}`}>
-                {collapsed ? (
-                    <img src={logoSrc} alt="Вовремя" className="h-8 w-8 object-contain" />
-                ) : (
-                    <img src={logoSrc} alt="Вовремя" className="h-7 w-auto" />
-                )}
+                <img
+                    src={collapsed ? logoMark : logoFull}
+                    alt="Вовремя"
+                    className={collapsed ? 'h-8 w-8 object-contain' : 'h-7 w-auto'}
+                />
             </div>
 
             {/* Navigation */}
             <nav className="mt-3 flex flex-1 flex-col gap-1">
-                {/* РАБОТА section */}
                 {!collapsed && (
                     <div className="px-3 pt-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
                         Работа
@@ -133,7 +183,6 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                 )}
                 {renderNavItems(WORK_ITEMS, false)}
 
-                {/* СИСТЕМА section */}
                 {!collapsed && (
                     <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
                         Система
@@ -145,68 +194,45 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
             {/* Spacer */}
             <div className="flex-1" />
 
-            {/* Profile section — compact */}
+            {/* Profile section */}
             <div className="border-t border-[var(--color-line-soft)] pt-3">
                 <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
-                    <Avatar className="size-9 shrink-0">
-                        <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
-                        <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
-                            {initials}
-                        </AvatarFallback>
-                    </Avatar>
+                    {/* Avatar — always clickable to open profile menu */}
+                    <button
+                        onClick={toggleProfile}
+                        className="shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)]"
+                        aria-label="Меню профиля"
+                        aria-expanded={profileMenuOpen}
+                        aria-controls="profile-menu"
+                    >
+                        <Avatar className="size-9">
+                            <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                            <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
+                                {initials}
+                            </AvatarFallback>
+                        </Avatar>
+                    </button>
                     {!collapsed && (
                         <>
                             <div className="min-w-0 flex-1">
                                 <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
                                 <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
                             </div>
-                            <div className="relative">
-                                <button
-                                    onClick={(e) => { e.stopPropagation(); setProfileMenuOpen(!profileMenuOpen); }}
-                                    className="flex size-8 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
-                                    aria-label="Меню профиля"
-                                    aria-expanded={profileMenuOpen}
-                                >
-                                    <EllipsisVerticalIcon className="size-4" />
-                                </button>
-                                {profileMenuOpen && (
-                                    <div
-                                        className="absolute bottom-full left-0 mb-1 w-56 rounded-xl border border-[var(--color-line)] bg-white p-1.5 shadow-lg dark:bg-zinc-900"
-                                        onClick={(e) => e.stopPropagation()}
-                                        role="menu"
-                                    >
-                                        {canBilling && (
-                                            <Link
-                                                href="/admin/billing"
-                                                onClick={() => { setProfileMenuOpen(false); onMobileClose(); }}
-                                                className="flex h-10 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
-                                                role="menuitem"
-                                            >
-                                                <CreditCardIcon className="size-[18px] text-[var(--color-graphite)]" />
-                                                <span>Тариф · {tariffName}</span>
-                                            </Link>
-                                        )}
-                                        <button
-                                            onClick={() => { setProfileMenuOpen(false); onMobileClose(); router.post('/switch-to-client'); }}
-                                            className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
-                                            role="menuitem"
-                                        >
-                                            <ArrowPathIcon className="size-[18px] text-[var(--color-graphite)]" />
-                                            <span>Режим клиента</span>
-                                        </button>
-                                        <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
-                                        <button
-                                            onClick={() => { setProfileMenuOpen(false); onMobileClose(); handleLogout(); }}
-                                            className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
-                                            role="menuitem"
-                                        >
-                                            <ArrowRightStartOnRectangleIcon className="size-[18px] text-[var(--color-graphite)]" />
-                                            <span>Выйти</span>
-                                        </button>
-                                    </div>
-                                )}
-                            </div>
+                            <button
+                                onClick={toggleProfile}
+                                className="flex size-8 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                aria-label="Меню профиля"
+                                aria-expanded={profileMenuOpen}
+                            >
+                                <EllipsisVerticalIcon className="size-4" />
+                            </button>
                         </>
+                    )}
+                    {/* Dropdown positioned relative to the profile row */}
+                    {profileMenuOpen && (
+                        <div className="relative">
+                            {profileDropdown}
+                        </div>
                     )}
                 </div>
 
@@ -245,7 +271,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         aria-label="Основная навигация"
                     >
                         <div className="flex h-[52px] items-center justify-between border-b border-[var(--color-line-soft)] px-2 pb-4">
-                            <img src={logoSrc} alt="Вовремя" className="h-7 w-auto" />
+                            <img src={logoFull} alt="Вовремя" className="h-7 w-auto" />
                             <button
                                 onClick={onMobileClose}
                                 className="rounded-md p-1.5 text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)]"
