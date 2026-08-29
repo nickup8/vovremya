@@ -383,17 +383,28 @@ describe('Mobile sidebar — theme toggle', () => {
     });
 });
 
-describe('Mobile DateControlPanel — two-row layout', () => {
-    it('has mobile-specific padding and layout', () => {
+describe('DateControlPanel — desktop one-row layout restored', () => {
+    it('desktop has single-row flex with spacer', () => {
         const source = readSource('../components/calendar/DateControlPanel.tsx');
-        expect(source).toContain('px-4');
-        expect(source).toContain('lg:px-[28px]');
+        expect(source).toContain('hidden min-h-[72px]');
+        expect(source).toContain('lg:flex');
+        expect(source).toContain('flex-1'); // spacer
     });
 
-    it('year label hidden on mobile', () => {
+    it('desktop control order: [prev][next] date [Сегодня] [segmented]', () => {
         const source = readSource('../components/calendar/DateControlPanel.tsx');
-        expect(source).toContain('hidden');
-        expect(source).toContain('lg:inline');
+        // Desktop section has prev, next, date label, today, segmented
+        const desktopSection = source.split('hidden min-h-[72px]')[1] || '';
+        expect(desktopSection).toContain('Сегодня');
+        expect(desktopSection).toContain('Представление календаря');
+    });
+});
+
+describe('Mobile DateControlPanel — two-row layout', () => {
+    it('mobile has px-4 padding', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('px-4 py-3');
+        expect(source).toContain('lg:hidden');
     });
 
     it('mobile view buttons flex-1 full width', () => {
@@ -402,10 +413,66 @@ describe('Mobile DateControlPanel — two-row layout', () => {
         expect(source).toContain('w-full');
     });
 
-    it('Today button label hidden on mobile', () => {
+    it('mobile Today is icon-only (no text)', () => {
         const source = readSource('../components/calendar/DateControlPanel.tsx');
-        // "Сегодня" text hidden on mobile, only icon shown
-        expect(source).toContain('hidden lg:inline');
+        // Mobile Today button has aria-label but no visible text
+        expect(source).toContain('aria-label="Сегодня"');
+    });
+});
+
+describe('Mobile DayView — compact header', () => {
+    it('mobile header hides weekday and master name', () => {
+        const source = readSource('../pages/admin/components/calendar/DayView.tsx');
+        expect(source).toContain('hidden text-center lg:block'); // desktop-only content
+    });
+
+    it('mobile header height is compact (36px)', () => {
+        const source = readSource('../pages/admin/components/calendar/DayView.tsx');
+        expect(source).toContain('h-[36px]');
+        expect(source).toContain('lg:h-auto');
+    });
+
+    it('mobile time rail is 56px, desktop is 72px', () => {
+        const source = readSource('../pages/admin/components/calendar/DayView.tsx');
+        expect(source).toContain('w-[56px]');
+        expect(source).toContain('lg:w-[72px]');
+    });
+
+    it('desktop master headers preserved', () => {
+        const source = readSource('../pages/admin/components/calendar/DayView.tsx');
+        expect(source).toContain('master.name');
+        expect(source).toContain('weekday');
+    });
+});
+
+describe('Mobile WeekView — horizontal scroll geometry', () => {
+    it('mobile time rail is 56px, desktop is 72px', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('w-[56px]');
+        expect(source).toContain('lg:w-[72px]');
+    });
+
+    it('day columns have min-w-[128px] on mobile', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('min-w-[128px]');
+        expect(source).toContain('lg:min-w-0');
+    });
+
+    it('container uses fit-content for horizontal scroll', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain("minWidth: 'fit-content'");
+    });
+
+    it('today auto-scroll is one-time only', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('didHorizontalScroll');
+        expect(source).toContain('window.innerWidth >= 1024');
+    });
+
+    it('mobile header is compact (44px vs 58px desktop)', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('h-[44px]');
+        expect(source).toContain('lg:h-[58px]');
     });
 });
 

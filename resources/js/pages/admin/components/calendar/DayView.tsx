@@ -205,8 +205,8 @@ export function DayView({
             style={{ minWidth: `${gridMinWidth}px` }}
         >
             {/* Day Header + Master Headers — sticky at top */}
-            <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)]">
-                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)]">
+            <div className="sticky top-0 z-30 flex h-[36px] border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:h-auto">
+                <div className="sticky left-0 z-40 flex w-[56px] min-w-[56px] items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:w-[72px] lg:min-w-[72px] lg:py-3">
                     <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>
                 <div
@@ -218,13 +218,14 @@ export function DayView({
                     {visibleMasters.map((master) => (
                         <div
                             key={`h-${master.id}`}
-                            className="relative flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
+                            className="relative flex items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
                             style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                         >
                             {todayMark && (
                                 <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
                             )}
-                            <div className="text-center">
+                            {/* Desktop: weekday + master name */}
+                            <div className="hidden text-center lg:block">
                                 <div className="text-xs font-semibold text-[var(--color-graphite)]">
                                     {dayDate.toLocaleDateString('ru-RU', { weekday: 'short' })}
                                 </div>
@@ -241,7 +242,7 @@ export function DayView({
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
                 <div className="relative flex">
                     {/* Time Column — sticky left */}
-                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-workspace)]">
+                    <div className="sticky left-0 z-20 w-[56px] min-w-[56px] border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-workspace)] lg:w-[72px] lg:min-w-[72px]">
                         {gridHours.map((hour) => {
                             const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
                             const labels: React.ReactNode[] = [];
