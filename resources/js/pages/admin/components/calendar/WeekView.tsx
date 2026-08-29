@@ -198,8 +198,8 @@ export function WeekView({
             className="relative h-full w-full overflow-x-auto overflow-y-auto scrollbar-thin"
         >
             {/* Day Headers — sticky at top */}
-            <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
-                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] shrink-0 items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
+            <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)]">
+                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] shrink-0 items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)]">
                     <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>
                 <div className="grid min-w-0 flex-1 grid-cols-7">
@@ -244,7 +244,7 @@ export function WeekView({
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
                 <div className="flex">
                     {/* Time Column — sticky left */}
-                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] shrink-0 border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-surface)]">
+                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] shrink-0 border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-workspace)]">
                         {gridHours.map((hour) => {
                             const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
                             const labels: React.ReactNode[] = [];

@@ -24,7 +24,7 @@ export default function DateControlPanel({
     onSetView,
 }: DateControlPanelProps) {
     return (
-        <div className="flex min-h-[72px] shrink-0 items-center gap-3 border-b border-[var(--color-line)] bg-white px-[28px] py-[14px] dark:bg-[var(--color-cal-surface)]">
+        <div className="flex min-h-[72px] shrink-0 items-center gap-3 border-b border-[var(--color-line)] bg-white px-[28px] py-[14px] dark:bg-[var(--color-cal-surface-alt)]">
             {/* Left: navigation */}
             <div className="flex items-center gap-0.5">
                 <button
@@ -72,7 +72,7 @@ export default function DateControlPanel({
                         <button
                             key={mode}
                             onClick={() => onSetView(mode)}
-                            className={`rounded-[9px] px-[13px] py-0 text-[13px] font-semibold transition-all ${
+                            className={`h-full rounded-[9px] px-[13px] text-[13px] font-semibold transition-all ${
                                 viewMode === mode
                                     ? 'bg-white text-[var(--color-ink)] shadow-[0_1px_2px_rgba(24,24,24,0.18)] dark:bg-[var(--color-cal-surface)]'
                                     : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'

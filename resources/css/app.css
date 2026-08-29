@@ -185,7 +185,11 @@
     --color-line-soft: #272522;
     --color-orange-100: #382018;
 
-    /* IRSI admin/calendar scoped dark surfaces — warm graphite */
+    /* IRSI admin/calendar scoped dark surfaces */
+    --color-cal-workspace: #1A1918;
+    --color-cal-topbar: rgba(26,25,24,.92);
+    --color-cal-sticky: rgba(26,25,24,.96);
+    --color-cal-sidebar: rgba(24,23,22,.92);
     --color-cal-surface: #201F1D;
     --color-cal-surface-alt: #282725;
     --color-cal-border: #333130;

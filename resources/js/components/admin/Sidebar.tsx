@@ -250,7 +250,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         <>
             {/* Desktop sidebar */}
             <aside
-                className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--color-line)] bg-white/88 backdrop-blur-[18px] transition-[width] duration-200 dark:bg-[var(--color-cal-surface)]/90 lg:flex ${
+                className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--color-line)] bg-white/88 backdrop-blur-[18px] transition-[width] duration-200 dark:bg-[var(--color-cal-sidebar)] lg:flex ${
                     collapsed ? 'w-[76px] p-[16px_10px]' : 'w-60 p-[20px_16px_16px]'
                 }`}
                 aria-label="Основная навигация"

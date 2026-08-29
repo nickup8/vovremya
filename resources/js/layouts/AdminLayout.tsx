@@ -67,7 +67,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     }, [notificationsOpen]);
 
     return (
-        <div className="flex h-screen overflow-hidden bg-white text-[var(--color-ink)] dark:bg-[var(--color-cal-surface)]">
+        <div className="flex h-screen overflow-hidden bg-white text-[var(--color-ink)] dark:bg-[var(--color-cal-workspace)]">
             <Sidebar
                 collapsed={sidebarCollapsed}
                 onToggleCollapse={toggleCollapse}
@@ -82,7 +82,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 }`}
             >
                 {/* Topbar */}
-                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-[28px] backdrop-blur-[16px] dark:bg-[var(--color-cal-surface)]/90">
+                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-[28px] backdrop-blur-[16px] dark:bg-[var(--color-cal-topbar)]">
                     {/* Desktop sidebar collapse toggle */}
                     <button
                         onClick={toggleCollapse}
@@ -130,11 +130,11 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                         {/* Theme switch pill */}
                         <button
                             onClick={toggleTheme}
-                            className="relative flex h-10 w-[72px] items-center justify-center rounded-[10px] transition-colors hover:bg-[var(--color-line-soft)]"
+                            className="grid h-10 w-[72px] place-items-center rounded-[10px] border-0 bg-transparent transition-colors hover:bg-[var(--color-line-soft)]"
                             aria-label={isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
                             title={isDark ? 'Тёмная тема' : 'Светлая тема'}
                         >
-                            <span className="relative flex h-7 w-14 items-center rounded-full border border-[var(--color-line)] bg-[var(--color-warm)]">
+                            <span className="relative flex h-[28px] w-[56px] items-center rounded-full border border-[var(--color-line)] bg-[var(--color-warm)]">
                                 {/* Sun icon */}
                                 <span className={`relative z-10 flex w-1/2 items-center justify-center transition-colors ${isDark ? 'text-[var(--color-graphite)]' : 'text-[var(--color-ink)]'}`}>
                                     <SunIcon className="size-3.5" />
@@ -145,8 +145,8 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                                 </span>
                                 {/* Thumb */}
                                 <span
-                                    className={`absolute top-[3px] size-5 rounded-full bg-white shadow-sm transition-transform duration-200 dark:bg-zinc-800 ${
-                                        isDark ? 'translate-x-[26px]' : 'translate-x-[3px]'
+                                    className={`absolute left-[3px] top-[3px] size-5 rounded-full bg-white shadow-sm transition-transform duration-200 dark:bg-zinc-800 ${
+                                        isDark ? 'translate-x-[28px]' : ''
                                     }`}
                                 />
                             </span>
@@ -180,7 +180,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                                             Всё прочитано
                                         </button>
                                     </div>
-                                    <div className="flex items-center justify-center py-6 text-[13px] text-[var(--color-graphite)]">
+                                    <div className="px-4 py-5 text-center text-[13px] text-[var(--color-graphite)]">
                                         Нет уведомлений
                                     </div>
                                 </section>
@@ -199,7 +199,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 </header>
 
                 {/* Page content */}
-                <main className={`flex-1 overflow-y-auto bg-white dark:bg-[var(--color-cal-surface)] ${fullBleed ? '' : 'p-4 md:p-6'}`}>
+                <main className={`flex-1 overflow-y-auto bg-white dark:bg-[var(--color-cal-workspace)] ${fullBleed ? '' : 'p-4 md:p-6'}`}>
                     {children}
                 </main>
             </div>

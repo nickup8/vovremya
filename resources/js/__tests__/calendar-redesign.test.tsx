@@ -252,6 +252,73 @@ describe('Cancel AlertDialog preserved', () => {
     });
 });
 
+describe('Dark surfaces — correct token mapping', () => {
+    it('app.css has workspace, topbar, sticky, sidebar tokens', () => {
+        const source = readSource('../../../resources/css/app.css');
+        expect(source).toContain('--color-cal-workspace: #1A1918');
+        expect(source).toContain('--color-cal-topbar: rgba(26,25,24,.92)');
+        expect(source).toContain('--color-cal-sticky: rgba(26,25,24,.96)');
+        expect(source).toContain('--color-cal-sidebar: rgba(24,23,22,.92)');
+    });
+
+    it('AdminLayout uses cal-workspace for main bg', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('cal-workspace');
+    });
+
+    it('AdminLayout uses cal-topbar for header', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('cal-topbar');
+    });
+});
+
+describe('Segmented buttons — h-full', () => {
+    it('view switch buttons have h-full', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('h-full rounded-[9px]');
+    });
+});
+
+describe('Theme switch — reference dimensions', () => {
+    it('theme switch has correct track dimensions', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('h-[28px] w-[56px]');
+        expect(source).toContain('h-10 w-[72px]');
+    });
+
+    it('topbar actions have gap-2', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('gap-2');
+    });
+});
+
+describe('Notifications — compact empty state', () => {
+    it('empty state does not use py-6 or flex centering', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).not.toContain('py-6');
+        expect(source).not.toContain('flex items-center justify-center py');
+    });
+
+    it('popover has z-[80] and overflow-hidden', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('z-[80]');
+        expect(source).toContain('overflow-hidden');
+    });
+});
+
+describe('AppointmentCard — compact mode', () => {
+    it('card has compact mode logic', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentCard.tsx');
+        expect(source).toContain('isCompact');
+        expect(source).toContain('py-[3px]');
+    });
+
+    it('compact card hides service', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentCard.tsx');
+        expect(source).toContain('!isCompact && height >= 42');
+    });
+});
+
 describe('useCalendarData — Cancelled not filtered', () => {
     it('initial state includes Cancelled appointments', async () => {
         const { useCalendarData } = await import('@/hooks/useCalendarData');

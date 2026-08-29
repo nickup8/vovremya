@@ -18,6 +18,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
     const styles = STATUS_STYLES[appointment.status];
     const endTime = getEndTime(appointment.time, appointment.duration);
     const isCancelled = appointment.status === 'cancelled';
+    const isCompact = height <= 40;
 
     const { colIndex, totalCols } = appointment;
     const widthPercent = 100 / totalCols;
@@ -47,14 +48,14 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                 <div className={`h-full w-full rounded-full ${styles.accent}`} />
             </div>
 
-            <div className={`flex min-w-0 flex-1 flex-col justify-center py-[7px] pr-2 pl-[11px] ${isCancelled ? 'line-through opacity-60' : ''}`}>
-                <span className="truncate text-[10px] font-semibold leading-[13px] tabular-nums opacity-60">
+            <div className={`flex min-w-0 flex-1 flex-col justify-center pr-2 pl-[11px] ${isCompact ? 'py-[3px]' : 'py-[7px]'} ${isCancelled ? 'line-through opacity-60' : ''}`}>
+                <span className={`truncate font-semibold tabular-nums opacity-60 ${isCompact ? 'text-[10px] leading-[12px]' : 'text-[10px] leading-[13px]'}`}>
                     {appointment.time}–{endTime}
                 </span>
-                <span className="mt-px truncate text-[12px] font-bold leading-4 text-slate-800 dark:text-zinc-100">
+                <span className={`truncate font-bold text-slate-800 dark:text-zinc-100 ${isCompact ? 'text-[12px] leading-[14px]' : 'mt-px text-[12px] leading-4'}`}>
                     {appointment.client_name}
                 </span>
-                {height >= 42 && (
+                {!isCompact && height >= 42 && (
                     <span className="mt-px truncate text-[10.5px] leading-[14px] opacity-50">
                         {appointment.service}
                     </span>
