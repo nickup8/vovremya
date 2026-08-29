@@ -156,7 +156,8 @@ export function WeekView({
         if (todayIdx < 0) return;
         didHorizontalScroll.current = true;
         const railWidth = 56; // mobile time rail
-        const colWidth = 128;
+        const totalGridWidth = scrollRef.current.scrollWidth - railWidth;
+        const colWidth = totalGridWidth / 7;
         const target = railWidth + todayIdx * colWidth - 16;
         scrollRef.current.scrollLeft = Math.max(0, target);
     }, [weekDates]);
@@ -216,14 +217,14 @@ export function WeekView({
                 <div className="sticky left-0 z-40 flex w-[56px] min-w-[56px] shrink-0 items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:w-[72px] lg:min-w-[72px]">
                     <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>
-                <div className="grid min-w-0 flex-1 grid-cols-7">
+                <div className="grid flex-1 grid-cols-[repeat(7,minmax(128px,1fr))] lg:grid-cols-7 lg:min-w-0">
                     {weekDates.map((date, idx) => {
                         const todayMark = isToday(date);
 
                         return (
                             <div
                                 key={`h-${idx}`}
-                                className="relative flex h-[44px] min-w-[128px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0 lg:h-[58px] lg:min-w-0"
+                                className="relative flex h-[44px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0 lg:h-[58px]"
                                 style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                             >
                                 {todayMark && (
@@ -281,7 +282,7 @@ export function WeekView({
                     </div>
 
                     {/* Day Columns with Appointment Cards */}
-                    <div className="grid min-w-0 flex-1 grid-cols-7">
+                    <div className="grid flex-1 grid-cols-[repeat(7,minmax(128px,1fr))] lg:grid-cols-7 lg:min-w-0">
                         {weekDates.map((date, dayIdx) => {
                             const dayAppts = getAppointmentsForDay(dayIdx);
                             const dayBlocked = getBlockedTimesForDay(dayIdx);
@@ -302,7 +303,7 @@ export function WeekView({
                             return (
                                 <div
                                     key={`col-${dayIdx}`}
-                                    className="relative min-w-[128px] overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0 lg:min-w-0"
+                                    className="relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0"
                                     style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                                 >
                                     {todayMark && (

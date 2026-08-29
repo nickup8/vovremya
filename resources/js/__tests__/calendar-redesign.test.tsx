@@ -452,13 +452,32 @@ describe('Mobile WeekView — horizontal scroll geometry', () => {
         expect(source).toContain('lg:w-[72px]');
     });
 
-    it('day columns have min-w-[128px] on mobile', () => {
+    it('mobile grid uses repeat(7,minmax(128px,1fr)) for day tracks', () => {
         const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
-        expect(source).toContain('min-w-[128px]');
+        expect(source).toContain('grid-cols-[repeat(7,minmax(128px,1fr))]');
+    });
+
+    it('header and body grids use the same mobile template', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        const matches = source.match(/grid-cols-\[repeat\(7,minmax\(128px,1fr\)\)\]/g);
+        expect(matches).not.toBeNull();
+        expect(matches!.length).toBe(2);
+    });
+
+    it('desktop override: lg:grid-cols-7 and lg:min-w-0', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('lg:grid-cols-7');
         expect(source).toContain('lg:min-w-0');
     });
 
-    it('container uses fit-content for horizontal scroll', () => {
+    it('child day cells do not carry min-w-[128px]', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        // min-w-[128px] should NOT appear on day cell/column divs
+        // (it is now owned by grid-template-columns)
+        expect(source).not.toMatch(/className="[^"]*min-w-\[128px\][^"]*"/);
+    });
+
+    it('container uses min-w-fit for horizontal scroll', () => {
         const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
         expect(source).toContain('min-w-fit');
         expect(source).toContain('lg:min-w-0');
@@ -468,6 +487,12 @@ describe('Mobile WeekView — horizontal scroll geometry', () => {
         const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
         expect(source).toContain('didHorizontalScroll');
         expect(source).toContain('window.innerWidth >= 1024');
+    });
+
+    it('today auto-scroll computes column width from DOM', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('scrollWidth');
+        expect(source).toContain('totalGridWidth');
     });
 
     it('mobile header is compact (44px vs 58px desktop)', () => {
