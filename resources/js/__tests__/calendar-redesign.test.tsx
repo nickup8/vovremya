@@ -277,6 +277,20 @@ describe('Segmented buttons — h-full', () => {
         const source = readSource('../components/calendar/DateControlPanel.tsx');
         expect(source).toContain('h-full rounded-[9px]');
     });
+
+    it('segmented outer does NOT use cal-surface-alt dark override', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        // The segmented outer should use bg-warm (which is #141312 in dark)
+        // NOT cal-surface-alt (#282725) which merges with toolbar
+        const warmLine = source.split('Представление календаря')[0].split('\n').slice(-3).join('\n');
+        expect(warmLine).not.toContain('cal-surface-alt');
+    });
+
+    it('Today button has visible border and surface bg', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('border border-[var(--color-line)]');
+        expect(source).toContain('dark:bg-[var(--color-cal-surface)]');
+    });
 });
 
 describe('Theme switch — reference dimensions', () => {
@@ -302,6 +316,12 @@ describe('Notifications — compact empty state', () => {
     it('popover has z-[80] and overflow-hidden', () => {
         const source = readSource('../layouts/AdminLayout.tsx');
         expect(source).toContain('z-[80]');
+
+    });
+
+    it('topbar has relative z-30 for stacking above calendar', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('relative z-30');
         expect(source).toContain('overflow-hidden');
     });
 });

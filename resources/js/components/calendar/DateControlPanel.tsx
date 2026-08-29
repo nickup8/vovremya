@@ -58,14 +58,14 @@ export default function DateControlPanel({
             <div className="flex items-center gap-2">
                 <button
                     onClick={onToday}
-                    className="flex h-10 items-center gap-1.5 rounded-xl px-3 text-[13px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
+                    className="flex h-10 items-center gap-1.5 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-elevated,#fff)] px-3 text-[13px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)] dark:bg-[var(--color-cal-surface)]"
                 >
                     <CalendarDaysIcon className="size-[18px]" />
                     Сегодня
                 </button>
 
                 <div
-                    className="flex h-10 items-center gap-0.5 rounded-xl bg-[var(--color-warm)] p-[3px] dark:bg-[var(--color-cal-surface-alt)]"
+                    className="flex h-10 items-center gap-0.5 rounded-xl bg-[var(--color-warm)] p-[3px]"
                     aria-label="Представление календаря"
                 >
                     {(['day', 'week', 'month'] as const).map((mode) => (

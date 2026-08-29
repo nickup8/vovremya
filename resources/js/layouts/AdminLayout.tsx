@@ -82,7 +82,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 }`}
             >
                 {/* Topbar */}
-                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-[28px] backdrop-blur-[16px] dark:bg-[var(--color-cal-topbar)]">
+                <header className="relative z-30 flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-[28px] backdrop-blur-[16px] dark:bg-[var(--color-cal-topbar)]">
                     {/* Desktop sidebar collapse toggle */}
                     <button
                         onClick={toggleCollapse}
