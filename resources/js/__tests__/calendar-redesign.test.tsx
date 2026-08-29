@@ -340,6 +340,100 @@ describe('AppointmentCard — compact mode', () => {
     });
 });
 
+describe('Mobile topbar — controls visible', () => {
+    it('mobile topbar has hamburger, bell, and new appointment', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('lg:hidden'); // hamburger
+        expect(source).toContain('size-10'); // touch targets
+        expect(source).toContain('Новая запись');
+    });
+
+    it('theme switch hidden on mobile, visible on desktop', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('hidden');
+        expect(source).toContain('lg:grid'); // theme switch desktop only
+    });
+
+    it('mobile notifications use Drawer, desktop use popover', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('lg:hidden'); // mobile drawer
+        expect(source).toContain('lg:block'); // desktop popover
+    });
+
+    it('mobile title uses smaller text', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('text-[21px]');
+        expect(source).toContain('lg:text-[25px]');
+    });
+});
+
+describe('Mobile sidebar — theme toggle', () => {
+    it('sidebar accepts onToggleTheme prop', () => {
+        const source = readSource('../components/admin/Sidebar.tsx');
+        expect(source).toContain('onToggleTheme');
+    });
+
+    it('mobile sidebar has theme toggle button', () => {
+        const source = readSource('../components/admin/Sidebar.tsx');
+        expect(source).toContain('Светлая тема');
+        expect(source).toContain('Тёмная тема');
+    });
+});
+
+describe('Mobile DateControlPanel — two-row layout', () => {
+    it('has mobile-specific padding and layout', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('px-4');
+        expect(source).toContain('lg:px-[28px]');
+    });
+
+    it('year label hidden on mobile', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('hidden');
+        expect(source).toContain('lg:inline');
+    });
+
+    it('mobile view buttons flex-1 full width', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('flex-1');
+        expect(source).toContain('w-full');
+    });
+
+    it('Today button label hidden on mobile', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        // "Сегодня" text hidden on mobile, only icon shown
+        expect(source).toContain('hidden lg:inline');
+    });
+});
+
+describe('Mobile legend — horizontal scroll', () => {
+    it('legend has overflow-x-auto and scrollbar-none', () => {
+        const source = readSource('../pages/admin/components/calendar/CalendarLegend.tsx');
+        expect(source).toContain('overflow-x-auto');
+        expect(source).toContain('whitespace-nowrap');
+        expect(source).toContain('scrollbar-none');
+    });
+
+    it('legend items are shrink-0', () => {
+        const source = readSource('../pages/admin/components/calendar/CalendarLegend.tsx');
+        expect(source).toContain('shrink-0');
+    });
+});
+
+describe('Booking mode — mobile responsive', () => {
+    it('booking banner uses flex-col on mobile', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).toContain('flex-col');
+        expect(source).toContain('lg:flex-row');
+    });
+
+    it('service selector uses flex-1 on mobile, not fixed 200px', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).toContain('flex-1');
+        expect(source).toContain('lg:w-[200px]');
+    });
+});
+
 describe('useCalendarData — Cancelled not filtered', () => {
     it('initial state includes Cancelled appointments', async () => {
         const { useCalendarData } = await import('@/hooks/useCalendarData');

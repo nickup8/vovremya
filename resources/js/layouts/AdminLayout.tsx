@@ -73,6 +73,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 onToggleCollapse={toggleCollapse}
                 mobileOpen={mobileMenuOpen}
                 onMobileClose={() => setMobileMenuOpen(false)}
+                onToggleTheme={toggleTheme}
             />
 
             {/* Main workspace */}
@@ -82,7 +83,16 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 }`}
             >
                 {/* Topbar */}
-                <header className="relative z-50 flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-[28px] backdrop-blur-[16px] dark:bg-[var(--color-cal-topbar)]">
+                <header className="relative z-50 flex h-[64px] shrink-0 items-center gap-3 border-b border-[var(--color-line)] bg-white/90 px-4 backdrop-blur-[16px] dark:bg-[var(--color-cal-topbar)] lg:h-[72px] lg:gap-4 lg:px-[28px]">
+                    {/* Hamburger — mobile only */}
+                    <button
+                        onClick={() => setMobileMenuOpen(true)}
+                        className="flex size-10 shrink-0 items-center justify-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] lg:hidden"
+                        aria-label="Открыть меню"
+                    >
+                        <Bars3Icon className="size-5" />
+                    </button>
+
                     {/* Desktop sidebar collapse toggle */}
                     <button
                         onClick={toggleCollapse}
@@ -96,54 +106,48 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                         }
                     </button>
 
-                    {/* Mobile menu button */}
-                    <button
-                        onClick={() => setMobileMenuOpen(true)}
-                        className="rounded-lg p-2 text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] lg:hidden"
-                        aria-label="Открыть меню"
-                    >
-                        <Bars3Icon className="size-5" />
-                    </button>
-
-                    {/* Page title */}
-                    <h1 className="whitespace-nowrap text-[25px] font-bold leading-8 tracking-[-.035em] text-[var(--color-ink)]">
-                        {title}
-                    </h1>
-
-                    {/* Today context */}
-                    {todayCount !== null && todayCount !== undefined && (
-                        <div className="flex items-center gap-2 text-xs text-[var(--color-graphite)]">
-                            <span className="inline-block size-1.5 rounded-full bg-[var(--color-orange)]" />
-                            <span>Сегодня</span>
-                            <span className="font-semibold text-[var(--color-graphite)]">·</span>
-                            <span className="font-semibold text-[var(--color-graphite)]">{todayCount} {todayCount === 1 ? 'запись' : todayCount < 5 ? 'записи' : 'записей'}</span>
-                        </div>
-                    )}
-
-                    {/* Spacer */}
-                    <div className="flex-1" />
+                    {/* Title block */}
+                    <div className="min-w-0 flex-1">
+                        <h1 className="truncate text-[21px] font-bold leading-7 tracking-[-.035em] text-[var(--color-ink)] lg:text-[25px] lg:leading-8">
+                            {title}
+                        </h1>
+                        {/* Today context — inline on desktop, under title on mobile */}
+                        {todayCount !== null && todayCount !== undefined && (
+                            <div className="flex items-center gap-1.5 text-[11px] leading-4 text-[var(--color-graphite)] lg:hidden">
+                                <span className="inline-block size-1.5 rounded-full bg-[var(--color-orange)]" />
+                                <span>Сегодня</span>
+                                <span className="font-semibold">·</span>
+                                <span className="font-semibold">{todayCount} {todayCount === 1 ? 'запись' : todayCount < 5 ? 'записи' : 'записей'}</span>
+                            </div>
+                        )}
+                        {todayCount !== null && todayCount !== undefined && (
+                            <div className="hidden items-center gap-2 text-xs text-[var(--color-graphite)] lg:flex">
+                                <span className="inline-block size-1.5 rounded-full bg-[var(--color-orange)]" />
+                                <span>Сегодня</span>
+                                <span className="font-semibold text-[var(--color-graphite)]">·</span>
+                                <span className="font-semibold text-[var(--color-graphite)]">{todayCount} {todayCount === 1 ? 'запись' : todayCount < 5 ? 'записи' : 'записей'}</span>
+                            </div>
+                        )}
+                    </div>
 
                     {/* Actions */}
-                    <div className="flex items-center gap-2">
+                    <div className="flex shrink-0 items-center gap-1 lg:gap-2">
                         {headerActions}
 
-                        {/* Theme switch pill */}
+                        {/* Theme switch — desktop only */}
                         <button
                             onClick={toggleTheme}
-                            className="grid h-10 w-[72px] place-items-center rounded-[10px] border-0 bg-transparent transition-colors hover:bg-[var(--color-line-soft)]"
+                            className="hidden h-10 w-[72px] place-items-center rounded-[10px] border-0 bg-transparent transition-colors hover:bg-[var(--color-line-soft)] lg:grid"
                             aria-label={isDark ? 'Переключить на светлую тему' : 'Переключить на тёмную тему'}
                             title={isDark ? 'Тёмная тема' : 'Светлая тема'}
                         >
                             <span className="relative flex h-[28px] w-[56px] items-center rounded-full border border-[var(--color-line)] bg-[var(--color-warm)]">
-                                {/* Sun icon */}
                                 <span className={`relative z-10 flex w-1/2 items-center justify-center transition-colors ${isDark ? 'text-[var(--color-graphite)]' : 'text-[var(--color-ink)]'}`}>
                                     <SunIcon className="size-3.5" />
                                 </span>
-                                {/* Moon icon */}
                                 <span className={`relative z-10 flex w-1/2 items-center justify-center transition-colors ${isDark ? 'text-[var(--color-ink)]' : 'text-[var(--color-graphite)]'}`}>
                                     <MoonIcon className="size-3.5" />
                                 </span>
-                                {/* Thumb */}
                                 <span
                                     className={`absolute left-[3px] top-[3px] size-5 rounded-full bg-white shadow-sm transition-transform duration-200 dark:bg-zinc-800 ${
                                         isDark ? 'translate-x-[28px]' : ''
@@ -152,7 +156,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                             </span>
                         </button>
 
-                        {/* Notifications shell */}
+                        {/* Notifications — always visible */}
                         <div className="relative">
                             <button
                                 onClick={(e) => { e.stopPropagation(); setNotificationsOpen(!notificationsOpen); }}
@@ -162,9 +166,10 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                             >
                                 <BellIcon className="size-5" />
                             </button>
+                            {/* Desktop popover */}
                             {notificationsOpen && (
                                 <section
-                                    className="absolute right-0 top-[48px] z-[80] w-[380px] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-[0_18px_50px_rgba(24,24,24,0.14),0_3px_12px_rgba(24,24,24,0.08)] dark:bg-[var(--color-cal-surface)] dark:border-[var(--color-cal-border)]"
+                                    className="absolute right-0 top-[48px] z-[80] hidden w-[380px] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-[0_18px_50px_rgba(24,24,24,0.14),0_3px_12px_rgba(24,24,24,0.08)] dark:bg-[var(--color-cal-surface)] dark:border-[var(--color-cal-border)] lg:block"
                                     onClick={(e) => e.stopPropagation()}
                                     aria-label="Уведомления"
                                 >
@@ -187,16 +192,41 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                             )}
                         </div>
 
-                        {/* New appointment button */}
+                        {/* New appointment — always visible */}
                         <Link
                             href="/admin/calendar"
-                            className="flex h-10 items-center gap-2 rounded-[10px] bg-[var(--color-orange)] px-3.5 text-sm font-semibold text-white shadow-sm transition-colors hover:bg-[var(--color-orange-600)]"
+                            className="flex size-10 items-center justify-center rounded-[10px] bg-[var(--color-orange)] text-white shadow-sm transition-colors hover:bg-[var(--color-orange-600)] lg:h-10 lg:w-auto lg:gap-2 lg:px-3.5 lg:text-sm lg:font-semibold"
+                            aria-label="Новая запись"
                         >
                             <PlusIcon className="size-4" />
-                            <span className="hidden sm:inline">Новая запись</span>
+                            <span className="hidden lg:inline">Новая запись</span>
                         </Link>
                     </div>
                 </header>
+
+                {/* Mobile notifications drawer */}
+                {notificationsOpen && (
+                    <div className="fixed inset-0 z-[60] lg:hidden">
+                        <div className="fixed inset-0 bg-black/30" onClick={() => setNotificationsOpen(false)} aria-hidden="true" />
+                        <div className="fixed inset-y-0 right-0 z-10 flex w-full flex-col bg-white dark:bg-[var(--color-cal-surface)]">
+                            <div className="flex items-center justify-between border-b border-[var(--color-line)] px-4 py-4">
+                                <div>
+                                    <h2 className="text-[16px] font-bold text-[var(--color-ink)]">Уведомления</h2>
+                                    <p className="text-[11px] text-[var(--color-graphite)]">Нет новых</p>
+                                </div>
+                                <button
+                                    onClick={() => setNotificationsOpen(false)}
+                                    className="flex size-10 items-center justify-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                >
+                                    <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
+                                </button>
+                            </div>
+                            <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-graphite)]">
+                                Нет уведомлений
+                            </div>
+                        </div>
+                    </div>
+                )}
 
                 {/* Page content */}
                 <main className={`flex-1 overflow-y-auto bg-white dark:bg-[var(--color-cal-workspace)] ${fullBleed ? '' : 'p-4 md:p-6'}`}>

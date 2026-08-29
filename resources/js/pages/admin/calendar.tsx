@@ -324,16 +324,16 @@ return [];
 
                             {/* ─── Booking Mode Banner ─── */}
                             {activeBookingClient && (
-                                <div className="mx-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40">
+                                <div className="mx-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40 lg:mx-6 lg:flex-row lg:items-center lg:justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className="flex size-8 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/60">
+                                        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/60">
                                             <User className="size-4 text-indigo-600 dark:text-indigo-400" />
                                         </div>
-                                        <div>
+                                        <div className="min-w-0">
                                             <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">
                                                 Режим записи
                                             </p>
-                                            <p className="text-xs text-indigo-600 dark:text-indigo-400">
+                                            <p className="truncate text-xs text-indigo-600 dark:text-indigo-400">
                                                 Клиент: {activeBookingClient.name}
                                                 {bookingModeService && (
                                                     <> — {bookingModeService.title} ({bookingModeService.duration_minutes} мин)</>
@@ -343,7 +343,7 @@ return [];
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <Select value={bookingModeServiceId} onValueChange={setBookingModeServiceId}>
-                                            <SelectTrigger className="h-8 w-[200px] border-indigo-200 bg-white text-xs dark:border-indigo-700 dark:bg-indigo-900/40">
+                                            <SelectTrigger className="h-8 flex-1 border-indigo-200 bg-white text-xs dark:border-indigo-700 dark:bg-indigo-900/40 lg:w-[200px] lg:flex-none">
                                                 <SelectValue placeholder="Выберите услугу" />
                                             </SelectTrigger>
                                             <SelectContent>
@@ -356,7 +356,7 @@ return [];
                                         </Select>
                                         <button
                                             onClick={cancelBookingMode}
-                                            className="rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900/40"
+                                            className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900/40"
                                         >
                                             Отменить
                                         </button>

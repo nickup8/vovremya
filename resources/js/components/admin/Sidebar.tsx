@@ -11,6 +11,8 @@ import {
     CreditCardIcon,
     EllipsisVerticalIcon,
     QuestionMarkCircleIcon,
+    SunIcon,
+    MoonIcon,
 } from '@heroicons/react/24/outline';
 import { useState, useEffect, useCallback, type ComponentType } from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
@@ -43,9 +45,10 @@ interface SidebarProps {
     onToggleCollapse: () => void;
     mobileOpen: boolean;
     onMobileClose: () => void;
+    onToggleTheme?: () => void;
 }
 
-export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose }: SidebarProps) {
+export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose, onToggleTheme }: SidebarProps) {
     const { url, props } = usePage();
     const { resolvedAppearance } = useAppearance();
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
@@ -321,6 +324,24 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                                     <ArrowPathIcon className="size-[18px] text-[var(--color-graphite)]" />
                                     <span>Режим клиента</span>
                                 </button>
+                                {onToggleTheme && (
+                                    <button
+                                        onClick={onToggleTheme}
+                                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                    >
+                                        {isDark ? (
+                                            <>
+                                                <SunIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                                <span>Светлая тема</span>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <MoonIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                                <span>Тёмная тема</span>
+                                            </>
+                                        )}
+                                    </button>
+                                )}
                                 <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
                                 <button
                                     onClick={() => { onMobileClose(); handleLogout(); }}
