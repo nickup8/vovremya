@@ -232,16 +232,16 @@ export default function ClientsPage() {
                     </div>
                 )}
 
-                {/* ─── Empty state: no search results ─── */}
+                {/* ─── Empty state: no search/filter results ─── */}
                 {noResults && (
                     <div className="flex flex-col items-center justify-center py-20 text-center">
                         <div className="flex size-14 items-center justify-center rounded-2xl bg-[var(--color-warm)]">
                             <MagnifyingGlassIcon className="size-7 text-[var(--color-graphite)]" />
                         </div>
                         <p className="mt-4 text-sm font-semibold text-[var(--color-ink)]">Ничего не найдено</p>
-                        <p className="mt-1 text-xs text-[var(--color-graphite)]">Попробуйте другой запрос или очистите поиск</p>
+                        <p className="mt-1 text-xs text-[var(--color-graphite)]">Попробуйте другой запрос или очистите фильтры</p>
                         <button
-                            onClick={() => setSearch('')}
+                            onClick={() => { setSearch(''); setFilter('all'); }}
                             className="mt-3 text-xs font-semibold text-[var(--color-orange)] hover:underline"
                         >
                             Очистить поиск
