@@ -205,7 +205,7 @@ export function DayView({
             style={{ minWidth: `${gridMinWidth}px` }}
         >
             {/* Day Header + Master Headers — sticky at top */}
-            <div className="sticky top-0 z-30 flex h-[36px] border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:h-auto">
+            <div className="sticky top-0 z-30 flex h-[30px] border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:h-auto">
                 <div className="sticky left-0 z-40 flex w-[56px] min-w-[56px] items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:w-[72px] lg:min-w-[72px] lg:py-3">
                     <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>

@@ -426,9 +426,9 @@ describe('Mobile DayView — compact header', () => {
         expect(source).toContain('hidden text-center lg:block'); // desktop-only content
     });
 
-    it('mobile header height is compact (36px)', () => {
+    it('mobile header height is compact (30px)', () => {
         const source = readSource('../pages/admin/components/calendar/DayView.tsx');
-        expect(source).toContain('h-[36px]');
+        expect(source).toContain('h-[30px]');
         expect(source).toContain('lg:h-auto');
     });
 
