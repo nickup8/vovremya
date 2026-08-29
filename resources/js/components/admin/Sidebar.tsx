@@ -250,7 +250,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         <>
             {/* Desktop sidebar */}
             <aside
-                className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--color-line)] bg-[var(--color-warm)] backdrop-blur-[18px] transition-[width] duration-200 lg:flex ${
+                className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--color-line)] bg-white/88 backdrop-blur-[18px] transition-[width] duration-200 dark:bg-[var(--color-cal-surface)]/90 lg:flex ${
                     collapsed ? 'w-[76px] p-[16px_10px]' : 'w-60 p-[20px_16px_16px]'
                 }`}
                 aria-label="Основная навигация"
@@ -267,7 +267,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         aria-hidden="true"
                     />
                     <aside
-                        className="relative z-10 flex h-full w-[min(288px,calc(100vw-48px))] flex-col border-r border-[var(--color-line)] bg-[var(--color-warm)] p-[20px_16px_16px]"
+                        className="relative z-10 flex h-full w-[min(288px,calc(100vw-48px))] flex-col border-r border-[var(--color-line)] bg-white/88 p-[20px_16px_16px] dark:bg-[var(--color-cal-surface)]/90"
                         aria-label="Основная навигация"
                     >
                         <div className="flex h-[52px] items-center justify-between border-b border-[var(--color-line-soft)] px-2 pb-4">

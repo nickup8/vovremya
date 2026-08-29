@@ -31,7 +31,7 @@ export function BlockedTimeCard({ blockedTime, dayDate, dayStartHour, dayEndHour
 
     return (
         <div
-            className="absolute inset-x-0 z-0 mx-1 overflow-hidden rounded-[8px] bg-zinc-100/60 dark:bg-[var(--color-cal-surface-alt)]"
+            className="absolute inset-x-0 z-0 mx-[6px] overflow-hidden rounded-[8px] bg-zinc-100/60 dark:bg-[var(--color-cal-surface-alt)]"
             style={{
                 top,
                 height,

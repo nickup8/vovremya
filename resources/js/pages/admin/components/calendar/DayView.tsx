@@ -218,11 +218,12 @@ export function DayView({
                     {visibleMasters.map((master) => (
                         <div
                             key={`h-${master.id}`}
-                            className="flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
-                            style={todayMark ? {
-                                backgroundImage: 'linear-gradient(to right, rgba(255,90,31,0.08) 0%, rgba(255,90,31,0.02) 40%, transparent 70%)',
-                            } : undefined}
+                            className="relative flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
+                            style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                         >
+                            {todayMark && (
+                                <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
+                            )}
                             <div className="text-center">
                                 <div className="text-xs font-semibold text-[var(--color-graphite)]">
                                     {dayDate.toLocaleDateString('ru-RU', { weekday: 'short' })}
@@ -246,11 +247,12 @@ export function DayView({
                             const labels: React.ReactNode[] = [];
 
                             for (let m = 0; m < 60; m += slotInterval) {
+                                const isFullHour = m === 0;
                                 labels.push(
                                     <div
                                         key={`${hour}-${m}`}
                                         style={{ height: slotHeightPx }}
-                                        className="flex items-start justify-end border-b border-[var(--color-line-soft)] pr-3 pt-0.5 font-mono text-[11px] text-[var(--color-graphite)]"
+                                        className={`flex items-start justify-end pr-3 pt-0.5 font-mono text-[11px] text-[var(--color-graphite)] ${isFullHour ? 'border-b border-[var(--color-line)]' : 'border-b border-[var(--color-line-soft)]'}`}
                                     >
                                         {m === 0 ? `${String(hour).padStart(2, '0')}:00` : ''}
                                     </div>,
@@ -287,21 +289,23 @@ export function DayView({
                                 <div
                                     key={`col-${master.id}`}
                                     className="relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0"
+                                    style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                                 >
                                     {todayMark && (
-                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-r from-orange-500/[0.07] via-orange-500/[0.02] to-transparent dark:from-orange-400/[0.09] dark:via-orange-400/[0.03] dark:to-transparent" />
+                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
                                     )}
                                     {gridHours.map((hour) => {
                                         const slots: React.ReactNode[] = [];
 
                                         for (let m = 0; m < 60; m += slotInterval) {
                                             const timeStr = `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                                            const isFullHour = m === 0;
                                             slots.push(
                                                 <DroppableSlot
                                                     key={`${hour}-${m}`}
                                                     id={`${dayDateKey}__${master.id}__${timeStr}`}
                                                     style={{ height: slotHeightPx }}
-                                                    className="group relative border-b border-[var(--color-line-soft)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                                    className={`group relative border-b transition-colors hover:bg-[var(--color-line-soft)] ${isFullHour ? 'border-[var(--color-line)]' : 'border-[var(--color-line-soft)]'}`}
                                                     onClick={() => onSlotClick(dayDateKey, timeStr, master.id)}
                                                 >
                                                     <span className="pointer-events-none absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 select-none text-[10px] font-medium text-slate-400 opacity-0 transition-opacity group-hover:opacity-100 dark:text-zinc-500">

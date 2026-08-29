@@ -24,7 +24,7 @@ export default function DateControlPanel({
     onSetView,
 }: DateControlPanelProps) {
     return (
-        <div className="flex min-h-[56px] items-center gap-3 px-6 py-2">
+        <div className="flex h-[72px] shrink-0 items-center gap-3 px-6">
             {/* Left: navigation */}
             <div className="flex items-center gap-0.5">
                 <button

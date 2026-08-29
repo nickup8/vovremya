@@ -296,7 +296,7 @@ return [];
         <>
             <Head title="Календарь — Вовремя" />
 
-            <AdminLayout title="Календарь" auth={auth} todayCount={todayCount}>
+            <AdminLayout title="Календарь" auth={auth} todayCount={todayCount} fullBleed>
                         <div className="flex h-full flex-col overflow-hidden">
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 
@@ -315,7 +315,7 @@ return [];
 
                             {/* ─── Booking Mode Banner ─── */}
                             {activeBookingClient && (
-                                <div className="flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40">
+                                <div className="mx-6 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40">
                                     <div className="flex items-center gap-3">
                                         <div className="flex size-8 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/60">
                                             <User className="size-4 text-indigo-600 dark:text-indigo-400" />
@@ -355,7 +355,7 @@ return [];
                                 </div>
                             )}
 
-                            {/* ─── Calendar Content ─── */}
+                            {/* ─── Calendar Grid (full-bleed) ─── */}
                             <div className="flex-1 min-h-0 overflow-hidden">
                             {viewMode !== 'month' && gridHours.length === 0 ? (
                                 <div className="flex flex-col items-center justify-center gap-2 py-20 text-gray-400">
@@ -410,8 +410,10 @@ return [];
                             )}
                             </div>
 
-                            {/* ─── Legend ─── */}
-                            <CalendarLegend />
+                            {/* ─── Legend (sticky footer) ─── */}
+                            <div className="flex-none border-t border-[var(--color-line)] dark:border-[var(--color-cal-border)]">
+                                <CalendarLegend />
+                            </div>
                         </div>
             </AdminLayout>
 

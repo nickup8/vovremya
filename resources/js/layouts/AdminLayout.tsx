@@ -18,9 +18,10 @@ interface AdminLayoutProps {
     auth?: { user?: Record<string, unknown> };
     headerActions?: ReactNode;
     todayCount?: number | null;
+    fullBleed?: boolean;
 }
 
-export default function AdminLayout({ children, title, auth, headerActions, todayCount }: AdminLayoutProps) {
+export default function AdminLayout({ children, title, auth, headerActions, todayCount, fullBleed }: AdminLayoutProps) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
         try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
@@ -66,7 +67,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     }, [notificationsOpen]);
 
     return (
-        <div className="flex h-screen overflow-hidden bg-[var(--color-warm)] text-[var(--color-ink)]">
+        <div className="flex h-screen overflow-hidden bg-white text-[var(--color-ink)] dark:bg-[var(--color-cal-surface)]">
             <Sidebar
                 collapsed={sidebarCollapsed}
                 onToggleCollapse={toggleCollapse}
@@ -81,7 +82,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 }`}
             >
                 {/* Topbar */}
-                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-6 backdrop-blur-[16px] dark:bg-zinc-900/90">
+                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-6 backdrop-blur-[16px] dark:bg-[var(--color-cal-surface)]/90">
                     {/* Desktop sidebar collapse toggle */}
                     <button
                         onClick={toggleCollapse}
@@ -198,7 +199,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 </header>
 
                 {/* Page content */}
-                <main className="flex-1 overflow-y-auto bg-white p-4 md:p-6 dark:bg-zinc-900">
+                <main className={`flex-1 overflow-y-auto bg-white dark:bg-[var(--color-cal-surface)] ${fullBleed ? '' : 'p-4 md:p-6'}`}>
                     {children}
                 </main>
             </div>

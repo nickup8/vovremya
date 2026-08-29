@@ -37,15 +37,17 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
             style={{
                 top,
                 height: Math.max(height, 28),
-                width: `calc(${widthPercent}% - 3px)`,
-                left: `calc(${leftPercent}% + 1.5px)`,
+                width: `calc(${widthPercent}% - 12px)`,
+                left: `calc(${leftPercent}% + 6px)`,
                 transform: CSS.Translate.toString(transform),
             }}
         >
-            {/* 3px status marker */}
-            <div className={`w-[3px] shrink-0 ${styles.accent}`} />
+            {/* 3px status marker — inset 5px top/bottom */}
+            <div className={`w-[3px] shrink-0 self-stretch py-[5px]`}>
+                <div className={`h-full w-full rounded-full ${styles.accent}`} />
+            </div>
 
-            <div className={`flex min-w-0 flex-1 flex-col justify-center px-2 py-[6px] ${isCancelled ? 'line-through opacity-60' : ''}`}>
+            <div className={`flex min-w-0 flex-1 flex-col justify-center py-[7px] pr-2 pl-[8px] ${isCancelled ? 'line-through opacity-60' : ''}`}>
                 <span className="truncate font-mono text-[10px] leading-tight opacity-60">
                     {appointment.time}–{endTime}
                 </span>

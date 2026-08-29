@@ -10,7 +10,7 @@ const LEGEND_STATUSES = [
 
 export function CalendarLegend() {
     return (
-        <div className="flex flex-wrap items-center gap-3 px-1 py-1.5 text-[11px]">
+        <div className="flex h-[44px] items-center gap-4 px-6 text-[11px]">
             {LEGEND_STATUSES.map((status) => (
                 <div key={status} className="flex items-center gap-1.5">
                     <span className={`size-[6px] rounded-full ${STATUS_STYLES[status].dot}`} />

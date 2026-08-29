@@ -105,6 +105,10 @@
     --sidebar-accent-foreground: oklch(0.205 0 0);
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.87 0 0);
+
+    /* Calendar today column — light */
+    --color-cal-today-bg: #FFFCFA;
+    --color-cal-today-wash: rgba(255, 90, 31, 0.025);
 }
 
 .dark {
@@ -152,6 +156,10 @@
     --color-cal-surface-alt: #282725;
     --color-cal-border: #333130;
     --color-cal-line: #3A3837;
+
+    /* Calendar today column — dark */
+    --color-cal-today-bg: #211B18;
+    --color-cal-today-wash: rgba(255, 90, 31, 0.055);
 }
 
 @layer base {

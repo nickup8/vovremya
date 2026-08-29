@@ -198,11 +198,11 @@ export function WeekView({
             className="relative h-full w-full overflow-x-auto overflow-y-auto scrollbar-thin"
         >
             {/* Day Headers — sticky at top */}
-            <div className="sticky top-0 z-30 flex min-w-[980px] border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
-                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
+            <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
+                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] shrink-0 items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
                     <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>
-                <div className="grid min-w-[908px] flex-1 grid-cols-7">
+                <div className="grid min-w-0 flex-1 grid-cols-7">
                     {weekDates.map((date, idx) => {
                         const todayMark = isToday(date);
 
@@ -210,11 +210,12 @@ export function WeekView({
                             <div
                                 key={`h-${idx}`}
                                 className="relative flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
-                                style={todayMark ? {
-                                    backgroundImage: 'linear-gradient(to right, rgba(255,90,31,0.08) 0%, rgba(255,90,31,0.02) 40%, transparent 70%)',
-                                } : undefined}
+                                style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                             >
-                                <div className="flex items-center gap-2.5">
+                                {todayMark && (
+                                    <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
+                                )}
+                                <div className="relative flex items-center gap-2.5">
                                     <span className="text-xs font-semibold text-[var(--color-graphite)]">
                                         {DAY_NAMES[idx]}
                                     </span>
@@ -241,19 +242,20 @@ export function WeekView({
 
             {/* Grid Body — time + slots */}
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-                <div className="flex min-w-[980px]">
+                <div className="flex">
                     {/* Time Column — sticky left */}
-                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-surface)]">
+                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] shrink-0 border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-surface)]">
                         {gridHours.map((hour) => {
                             const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
                             const labels: React.ReactNode[] = [];
 
                             for (let m = 0; m < 60; m += slotInterval) {
+                                const isFullHour = m === 0;
                                 labels.push(
                                     <div
                                         key={`${hour}-${m}`}
                                         style={{ height: slotHeightPx }}
-                                        className="flex items-start justify-end border-b border-[var(--color-line-soft)] pr-3 pt-0.5 font-mono text-[11px] text-[var(--color-graphite)]"
+                                        className={`flex items-start justify-end pr-3 pt-0.5 font-mono text-[11px] text-[var(--color-graphite)] ${isFullHour ? 'border-b border-[var(--color-line)]' : 'border-b border-[var(--color-line-soft)]'}`}
                                     >
                                         {m === 0 ? `${String(hour).padStart(2, '0')}:00` : ''}
                                     </div>,
@@ -265,7 +267,7 @@ export function WeekView({
                     </div>
 
                     {/* Day Columns with Appointment Cards */}
-                    <div className="grid min-w-[908px] flex-1 grid-cols-7">
+                    <div className="grid min-w-0 flex-1 grid-cols-7">
                         {weekDates.map((date, dayIdx) => {
                             const dayAppts = getAppointmentsForDay(dayIdx);
                             const dayBlocked = getBlockedTimesForDay(dayIdx);
@@ -287,21 +289,23 @@ export function WeekView({
                                 <div
                                     key={`col-${dayIdx}`}
                                     className="relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0"
+                                    style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                                 >
                                     {todayMark && (
-                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-r from-orange-500/[0.07] via-orange-500/[0.02] to-transparent dark:from-orange-400/[0.09] dark:via-orange-400/[0.03] dark:to-transparent" style={{ backgroundSize: '100% 100%' }} />
+                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
                                     )}
                                     {gridHours.map((hour) => {
                                         const slots: React.ReactNode[] = [];
 
                                         for (let m = 0; m < 60; m += slotInterval) {
                                             const timeStr = `${String(hour).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
+                                            const isFullHour = m === 0;
                                             slots.push(
                                                 <DroppableSlot
                                                     key={`${hour}-${m}`}
                                                     id={`${dateKey}__${timeStr}`}
                                                     style={{ height: slotHeightPx }}
-                                                    className="group relative border-b border-[var(--color-line-soft)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                                    className={`group relative border-b transition-colors hover:bg-[var(--color-line-soft)] ${isFullHour ? 'border-[var(--color-line)]' : 'border-[var(--color-line-soft)]'}`}
                                                     onMouseEnter={() => {
                                                         if (activeBookingClient && bookingModeServiceId) {
                                                             onSlotHover({ date: dateKey, time: timeStr });
