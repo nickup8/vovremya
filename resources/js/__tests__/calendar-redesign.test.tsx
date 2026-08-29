@@ -1,5 +1,4 @@
 import { describe, it, expect, vi } from 'vitest';
-import { render, screen } from '@testing-library/react';
 import { AppointmentStatus } from '@/types/appointment-status';
 import { STATUS_STYLES } from '@/pages/admin/components/calendar/constants';
 
@@ -121,26 +120,31 @@ describe('useCalendarData — Cancelled not filtered', () => {
         const { useCalendarData } = await import('@/hooks/useCalendarData');
         const { renderHook } = await import('@testing-library/react');
 
-        const cancelled = {
-            id: 'appt-cancelled',
-            client_name: 'Тест',
-            client_phone: null,
-            client_avatar_url: null,
-            service: 'Стрижка',
-            time: '10:00',
-            date: '2026-07-27',
-            duration: 60,
-            price: 1500,
-            status: AppointmentStatus.Cancelled,
-        };
-
-        const { result } = renderHook(() =>
-            useCalendarData({
-                initialAppointments: [cancelled],
-                initialBlockedTimes: [],
-                authUserId: undefined,
-                weekDateKeys: ['2026-07-27'],
-            }),
+        const { result } = renderHook(
+            ({ initialAppointments }) =>
+                useCalendarData({
+                    initialAppointments,
+                    initialBlockedTimes: [],
+                    authUserId: undefined,
+                    weekDateKeys: ['2026-07-27'],
+                    selectedId: undefined,
+                }),
+            {
+                initialProps: {
+                    initialAppointments: [{
+                        id: 'appt-cancelled',
+                        client_name: 'Тест',
+                        client_phone: null,
+                        client_avatar_url: null,
+                        service: 'Стрижка',
+                        time: '10:00',
+                        date: '2026-07-27',
+                        duration: 60,
+                        price: 1500,
+                        status: AppointmentStatus.Cancelled,
+                    }],
+                },
+            },
         );
 
         expect(result.current.localAppointments).toHaveLength(1);
