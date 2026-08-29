@@ -270,87 +270,90 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         aria-hidden="true"
                     />
                     <aside
-                        className="relative z-10 flex h-full w-[min(320px,calc(100vw-48px))] flex-col border-r border-[var(--color-line)] bg-white/88 p-[20px_16px_16px] dark:bg-[var(--color-cal-sidebar)]"
+                        className="relative z-10 flex h-[100dvh] w-[min(320px,calc(100vw-48px))] flex-col overflow-hidden border-r border-[var(--color-line)] bg-white/88 dark:bg-[var(--color-cal-sidebar)]"
                         aria-label="Основная навигация"
                     >
-                        <div className="flex h-[52px] items-center justify-between border-b border-[var(--color-line-soft)] px-2 pb-4">
-                            <img src={logoFull} alt="Вовремя" className="h-7 w-auto" />
-                            <button
-                                onClick={onMobileClose}
-                                className="flex size-10 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
-                                aria-label="Закрыть меню"
-                            >
-                                <XMarkIcon className="size-5" />
-                            </button>
+                        <div className="flex-none px-4 pt-5 pb-3">
+                            <div className="flex h-[52px] items-center justify-between border-b border-[var(--color-line-soft)] px-2 pb-4">
+                                <img src={logoFull} alt="Вовремя" className="h-7 w-auto" />
+                                <button
+                                    onClick={onMobileClose}
+                                    className="flex size-10 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                    aria-label="Закрыть меню"
+                                >
+                                    <XMarkIcon className="size-5" />
+                                </button>
+                            </div>
                         </div>
-                        <nav className="mt-3 flex flex-1 flex-col gap-1">
-                            <div className="px-3 pt-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
-                                Работа
-                            </div>
-                            {renderNavItems(WORK_ITEMS, true)}
-                            <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
-                                Система
-                            </div>
-                            {renderNavItems(SYSTEM_ITEMS, true)}
-                        </nav>
-                        <div className="flex-1" />
-                        <div className="border-t border-[var(--color-line-soft)] pt-3">
-                            <div className="flex items-center gap-2.5">
-                                <Avatar className="size-9 shrink-0">
-                                    <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
-                                    <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
-                                        {initials}
-                                    </AvatarFallback>
-                                </Avatar>
-                                <div className="min-w-0 flex-1">
-                                    <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
-                                    <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain px-4 pb-[max(16px,env(safe-area-inset-bottom))]">
+                            <nav className="flex flex-col gap-1">
+                                <div className="px-3 pt-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                                    Работа
                                 </div>
-                            </div>
-                            <div className="mt-3 flex flex-col gap-1">
-                                {canBilling && (
-                                    <Link
-                                        href="/admin/billing"
-                                        onClick={onMobileClose}
-                                        className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
-                                    >
-                                        <CreditCardIcon className="size-5 shrink-0 text-[#77736E]" />
-                                        <span>Тариф и оплата</span>
-                                    </Link>
-                                )}
-                                <button
-                                    onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
-                                    className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
-                                >
-                                    <ArrowPathIcon className="size-5 shrink-0 text-[#77736E]" />
-                                    <span>Режим клиента</span>
-                                </button>
-                                {onToggleTheme && (
+                                {renderNavItems(WORK_ITEMS, true)}
+                                <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                                    Система
+                                </div>
+                                {renderNavItems(SYSTEM_ITEMS, true)}
+                            </nav>
+                            <div className="border-t border-[var(--color-line-soft)] pt-3 mt-3">
+                                <div className="flex items-center gap-2.5">
+                                    <Avatar className="size-9 shrink-0">
+                                        <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                                        <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
+                                            {initials}
+                                        </AvatarFallback>
+                                    </Avatar>
+                                    <div className="min-w-0 flex-1">
+                                        <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
+                                        <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                                    </div>
+                                </div>
+                                <div className="mt-3 flex flex-col gap-1">
+                                    {canBilling && (
+                                        <Link
+                                            href="/admin/billing"
+                                            onClick={onMobileClose}
+                                            className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
+                                        >
+                                            <CreditCardIcon className="size-5 shrink-0 text-[#77736E]" />
+                                            <span>Тариф и оплата</span>
+                                        </Link>
+                                    )}
                                     <button
-                                        onClick={onToggleTheme}
+                                        onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
                                         className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
                                     >
-                                        {isDark ? (
-                                            <>
-                                                <SunIcon className="size-5 shrink-0 text-[#77736E]" />
-                                                <span>Светлая тема</span>
-                                            </>
-                                        ) : (
-                                            <>
-                                                <MoonIcon className="size-5 shrink-0 text-[#77736E]" />
-                                                <span>Тёмная тема</span>
-                                            </>
-                                        )}
+                                        <ArrowPathIcon className="size-5 shrink-0 text-[#77736E]" />
+                                        <span>Режим клиента</span>
                                     </button>
-                                )}
-                                <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
-                                <button
-                                    onClick={() => { onMobileClose(); handleLogout(); }}
-                                    className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
-                                >
-                                    <ArrowRightStartOnRectangleIcon className="size-5 shrink-0 text-[#77736E]" />
-                                    <span>Выйти</span>
-                                </button>
+                                    {onToggleTheme && (
+                                        <button
+                                            onClick={onToggleTheme}
+                                            className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
+                                        >
+                                            {isDark ? (
+                                                <>
+                                                    <SunIcon className="size-5 shrink-0 text-[#77736E]" />
+                                                    <span>Светлая тема</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <MoonIcon className="size-5 shrink-0 text-[#77736E]" />
+                                                    <span>Тёмная тема</span>
+                                                </>
+                                            )}
+                                        </button>
+                                    )}
+                                    <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
+                                    <button
+                                        onClick={() => { onMobileClose(); handleLogout(); }}
+                                        className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
+                                    >
+                                        <ArrowRightStartOnRectangleIcon className="size-5 shrink-0 text-[#77736E]" />
+                                        <span>Выйти</span>
+                                    </button>
+                                </div>
                             </div>
                         </div>
                     </aside>
