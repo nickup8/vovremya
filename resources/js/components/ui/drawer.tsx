@@ -27,7 +27,7 @@ function DrawerOverlay({
         <DialogPrimitive.Overlay
             data-slot="drawer-overlay"
             className={cn(
-                'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/80',
+                'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 fixed inset-0 z-50 bg-black/30 dark:bg-black/50',
                 className,
             )}
             {...props}
@@ -46,7 +46,7 @@ function DrawerContent({
             <DialogPrimitive.Content
                 data-slot="drawer-content"
                 className={cn(
-                    'bg-background data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l shadow-lg duration-200 sm:max-w-[448px]',
+                    'data-[state=open]:animate-in data-[state=closed]:animate-out data-[state=closed]:fade-out-0 data-[state=open]:fade-in-0 data-[state=closed]:slide-out-to-right data-[state=open]:slide-in-from-right fixed inset-y-0 right-0 z-50 flex h-full w-full flex-col border-l border-[var(--color-line)] bg-white shadow-lg duration-200 dark:border-[var(--color-cal-border)] dark:bg-[var(--color-cal-surface)] sm:max-w-[448px]',
                     className,
                 )}
                 {...props}
@@ -65,7 +65,7 @@ function DrawerHeader({ className, ...props }: React.ComponentProps<'div'>) {
     return (
         <div
             data-slot="drawer-header"
-            className={cn('flex flex-col gap-2 px-6 pt-6', className)}
+            className={cn('flex-none px-6 pt-5 pb-4', className)}
             {...props}
         />
     );
@@ -101,7 +101,7 @@ function DrawerBody({ className, ...props }: React.ComponentProps<'div'>) {
     return (
         <div
             data-slot="drawer-body"
-            className={cn('flex-1 overflow-y-auto px-6 py-4', className)}
+            className={cn('flex-1 min-h-0 overflow-y-auto px-6 py-4', className)}
             {...props}
         />
     );
@@ -111,7 +111,7 @@ function DrawerFooter({ className, ...props }: React.ComponentProps<'div'>) {
     return (
         <div
             data-slot="drawer-footer"
-            className={cn('flex flex-col-reverse gap-2 border-t px-6 py-4 sm:flex-row sm:justify-end', className)}
+            className={cn('flex-none w-full border-t border-[var(--color-line)] px-6 py-4 dark:border-[var(--color-cal-border)]', className)}
             {...props}
         />
     );

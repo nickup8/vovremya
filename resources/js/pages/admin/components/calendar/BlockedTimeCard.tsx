@@ -31,14 +31,15 @@ export function BlockedTimeCard({ blockedTime, dayDate, dayStartHour, dayEndHour
 
     return (
         <div
-            className="absolute inset-x-0 z-0 mx-1 overflow-hidden rounded-lg border-l-4 border-dashed border-zinc-300 bg-zinc-50 px-2 py-1 dark:border-zinc-700 dark:bg-zinc-900"
+            className="absolute inset-x-0 z-0 mx-1 overflow-hidden rounded-[8px] bg-zinc-100/60 dark:bg-[var(--color-cal-surface-alt)]"
             style={{
                 top,
                 height,
-                backgroundImage: 'repeating-linear-gradient(45deg, transparent, transparent 8px, rgba(0,0,0,0.03) 8px, rgba(0,0,0,0.03) 16px)',
+                backgroundImage: 'repeating-linear-gradient(135deg, transparent, transparent 6px, rgba(0,0,0,0.02) 6px, rgba(0,0,0,0.02) 12px)',
             }}
         >
-            <p className="truncate text-[10px] font-medium text-zinc-400 dark:text-zinc-500">
+            <div className="absolute inset-y-0 left-0 w-[3px] rounded-l-[8px] bg-zinc-300 dark:bg-zinc-600/70" />
+            <p className="truncate pl-3 pt-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
                 {blockedTime.reason}
             </p>
         </div>

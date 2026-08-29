@@ -7,47 +7,43 @@ export interface StatusStyle {
     dot: string;
 }
 
-function makeCard(accent: string, bg: string, label: string, dot: string): StatusStyle {
-    return { accent, bg, label, dot };
-}
-
 export const STATUS_STYLES: Record<AppointmentStatus, StatusStyle> = {
-    [AppointmentStatus.Booked]: makeCard(
-        'bg-blue-500',
-        'bg-blue-50 dark:bg-blue-950/40',
-        'Записан',
-        'bg-blue-500',
-    ),
-    [AppointmentStatus.PendingPayment]: makeCard(
-        'bg-blue-500',
-        'bg-blue-50 dark:bg-blue-950/40',
-        'Ожидает оплаты',
-        'bg-amber-500',
-    ),
-    [AppointmentStatus.Prepaid]: makeCard(
-        'bg-blue-500',
-        'bg-blue-50 dark:bg-blue-950/40',
-        'Предоплата',
-        'bg-violet-500',
-    ),
-    [AppointmentStatus.Paid]: makeCard(
-        'bg-emerald-500',
-        'bg-emerald-50 dark:bg-emerald-950/40',
-        'Оплачен',
-        'bg-emerald-500',
-    ),
-    [AppointmentStatus.NoShow]: makeCard(
-        'bg-red-500',
-        'bg-red-50 dark:bg-red-950/40',
-        'Неявка',
-        'bg-red-500',
-    ),
-    [AppointmentStatus.Cancelled]: makeCard(
-        'bg-zinc-400 dark:bg-zinc-600',
-        'bg-zinc-100 dark:bg-zinc-800/60',
-        'Отменён',
-        'bg-zinc-400',
-    ),
+    [AppointmentStatus.Booked]: {
+        accent: 'bg-[#3478F6]',
+        bg: 'bg-[#EFF5FF] dark:bg-[#3478F6]/10',
+        label: 'Записан',
+        dot: 'bg-[#3478F6]',
+    },
+    [AppointmentStatus.PendingPayment]: {
+        accent: 'bg-[#3478F6]',
+        bg: 'bg-[#EFF5FF] dark:bg-[#3478F6]/10',
+        label: 'Ожидает оплаты',
+        dot: 'bg-[#3478F6]',
+    },
+    [AppointmentStatus.Prepaid]: {
+        accent: 'bg-[#3478F6]',
+        bg: 'bg-[#EFF5FF] dark:bg-[#3478F6]/10',
+        label: 'Предоплата',
+        dot: 'bg-[#3478F6]',
+    },
+    [AppointmentStatus.Paid]: {
+        accent: 'bg-[#22A66F]',
+        bg: 'bg-[#EFFAF5] dark:bg-[#22A66F]/10',
+        label: 'Оплачен',
+        dot: 'bg-[#22A66F]',
+    },
+    [AppointmentStatus.NoShow]: {
+        accent: 'bg-[#E34F5F]',
+        bg: 'bg-[#FFF1F3] dark:bg-[#E34F5F]/10',
+        label: 'Неявка',
+        dot: 'bg-[#E34F5F]',
+    },
+    [AppointmentStatus.Cancelled]: {
+        accent: 'bg-[#92969D]',
+        bg: 'bg-[#F3F4F5] dark:bg-[#92969D]/10',
+        label: 'Отменён',
+        dot: 'bg-[#92969D]',
+    },
 };
 
 export const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];

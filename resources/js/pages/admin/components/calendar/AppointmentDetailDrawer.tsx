@@ -1,17 +1,15 @@
 import { useState } from 'react';
-import {
-    CalendarDays, Clock, User, Phone,
-    CheckCircle2, XCircle, Trash2, RotateCw,
-} from 'lucide-react';
+import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { getInitials } from '@/lib/utils';
 import { Button } from '@/components/ui/button';
 import {
-    Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription,
-    DrawerBody, DrawerFooter,
+    Drawer, DrawerContent, DrawerHeader, DrawerBody, DrawerFooter,
 } from '@/components/ui/drawer';
 import {
     AlertDialog, AlertDialogContent, AlertDialogHeader, AlertDialogTitle,
     AlertDialogDescription, AlertDialogFooter, AlertDialogAction, AlertDialogCancel,
 } from '@/components/ui/alert-dialog';
+import { Popover, PopoverTrigger, PopoverContent } from '@/components/ui/popover';
 import { formatPhone } from '@/lib/phone';
 import { AppointmentStatus } from '@/types/appointment-status';
 import { DAYS_RU_FULL, MONTHS_RU_GENITIVE } from '@/lib/locale';
@@ -35,13 +33,30 @@ function formatDateLong(dateStr: string): string {
     return `${DAYS_RU_FULL[d.getDay()]}, ${d.getDate()} ${MONTHS_RU_GENITIVE[d.getMonth()]} ${d.getFullYear()}`;
 }
 
+const AVAILABLE_TRANSITIONS: Partial<Record<AppointmentStatus, AppointmentStatus[]>> = {
+    [AppointmentStatus.Booked]: [AppointmentStatus.Paid, AppointmentStatus.NoShow],
+    [AppointmentStatus.PendingPayment]: [AppointmentStatus.Paid, AppointmentStatus.NoShow],
+    [AppointmentStatus.Prepaid]: [AppointmentStatus.Paid, AppointmentStatus.NoShow],
+    [AppointmentStatus.Paid]: [],
+    [AppointmentStatus.NoShow]: [],
+    [AppointmentStatus.Cancelled]: [],
+};
+
+const TRANSITION_LABELS: Partial<Record<AppointmentStatus, string>> = {
+    [AppointmentStatus.Paid]: 'Оплачен',
+    [AppointmentStatus.NoShow]: 'Неявка',
+};
+
 export function AppointmentDetailDrawer({ open, onOpenChange, selected, isProcessing, onUpdateStatus, onReschedule, onDelete }: Props) {
     const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+    const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
 
     function handleCancelConfirm() {
         setCancelConfirmOpen(false);
         onDelete();
     }
+
+    const transitions = selected ? (AVAILABLE_TRANSITIONS[selected.status] ?? []) : [];
 
     return (
         <>
@@ -50,102 +65,122 @@ export function AppointmentDetailDrawer({ open, onOpenChange, selected, isProces
                     {selected && (
                         <>
                             <DrawerHeader>
-                                <div className="flex items-center gap-2">
-                                    <DrawerTitle className="text-slate-900 dark:text-zinc-100">
-                                        {selected.client_name}
-                                    </DrawerTitle>
-                                    <span className={`inline-flex items-center rounded-full px-2 py-0.5 text-xs font-medium ${STATUS_STYLES[selected.status].bg} ${STATUS_STYLES[selected.status].dot.replace('bg-', 'text-')}`}>
-                                        {STATUS_STYLES[selected.status].label}
-                                    </span>
+                                <div className="flex items-center justify-between pr-8">
+                                    <h2 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
+                                        Запись
+                                    </h2>
                                 </div>
-                                <DrawerDescription className="text-slate-500 dark:text-zinc-400">
-                                    {selected.service}
-                                </DrawerDescription>
                             </DrawerHeader>
 
                             <DrawerBody>
-                                <div className="space-y-4">
-                                    <div className="space-y-3">
-                                        <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                            <CalendarDays className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                            {formatDateLong(selected.date)}
-                                        </div>
-                                        <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                            <Clock className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                            {selected.time} — {getEndTime(selected.time, selected.duration)}
-                                            <span className="text-xs text-slate-400 dark:text-zinc-500">({selected.duration} мин)</span>
-                                        </div>
-                                        <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                            <User className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                            {selected.client_name}
-                                        </div>
-                                        {selected.client_phone && (
-                                            <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                                <Phone className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                                <a href={`tel:+${selected.client_phone.replace(/\D/g, '')}`} className="hover:text-blue-600 dark:hover:text-blue-400">
+                                <div className="space-y-6">
+                                    {/* Client */}
+                                    <div className="flex items-center gap-3">
+                                        <Avatar className="size-10 shrink-0">
+                                            <AvatarImage src={selected.client_avatar_url ?? undefined} className="object-cover" />
+                                            <AvatarFallback className="text-xs">{getInitials(selected.client_name)}</AvatarFallback>
+                                        </Avatar>
+                                        <div className="min-w-0">
+                                            <p className="truncate text-sm font-semibold text-slate-900 dark:text-zinc-100">
+                                                {selected.client_name}
+                                            </p>
+                                            {selected.client_phone && (
+                                                <a
+                                                    href={`tel:+${selected.client_phone.replace(/\D/g, '')}`}
+                                                    className="text-sm text-slate-500 hover:text-blue-600 dark:text-zinc-400 dark:hover:text-blue-400"
+                                                >
                                                     {formatPhone(selected.client_phone)}
                                                 </a>
-                                            </div>
-                                        )}
-                                        <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                            <span className="size-4 shrink-0 text-center text-sm font-bold text-slate-400 dark:text-zinc-500">₽</span>
-                                            {selected.service} — {selected.price.toLocaleString('ru-RU')} ₽
+                                            )}
                                         </div>
-                                        {selected.master_name && (
-                                            <div className="flex items-center gap-3 text-sm text-slate-700 dark:text-zinc-300">
-                                                <User className="size-4 shrink-0 text-slate-400 dark:text-zinc-500" />
-                                                Мастер: {selected.master_name}
-                                            </div>
-                                        )}
+                                    </div>
+
+                                    {/* Details */}
+                                    <div className="space-y-3 text-sm">
+                                        <div className="flex items-baseline justify-between">
+                                            <span className="text-slate-500 dark:text-zinc-400">Время</span>
+                                            <span className="font-medium text-slate-800 dark:text-zinc-200">
+                                                {formatDateLong(selected.date)}, {selected.time}–{getEndTime(selected.time, selected.duration)}
+                                            </span>
+                                        </div>
+                                        <div className="flex items-baseline justify-between">
+                                            <span className="text-slate-500 dark:text-zinc-400">Услуга</span>
+                                            <span className="font-medium text-slate-800 dark:text-zinc-200">{selected.service}</span>
+                                        </div>
+                                        <div className="flex items-baseline justify-between">
+                                            <span className="text-slate-500 dark:text-zinc-400">Стоимость</span>
+                                            <span className="font-medium text-slate-800 dark:text-zinc-200">
+                                                {selected.price.toLocaleString('ru-RU')} ₽
+                                            </span>
+                                        </div>
+                                        <div className="flex items-center justify-between">
+                                            <span className="text-slate-500 dark:text-zinc-400">Статус</span>
+                                            {transitions.length > 0 ? (
+                                                <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
+                                                    <PopoverTrigger asChild>
+                                                        <button
+                                                            type="button"
+                                                            className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80 ${STATUS_STYLES[selected.status].bg}`}
+                                                        >
+                                                            <span className={`size-1.5 rounded-full ${STATUS_STYLES[selected.status].dot}`} />
+                                                            <span className="text-slate-700 dark:text-zinc-300">
+                                                                {STATUS_STYLES[selected.status].label}
+                                                            </span>
+                                                        </button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent align="end" sideOffset={4} className="w-48 p-1">
+                                                        {transitions.map((status) => (
+                                                            <button
+                                                                key={status}
+                                                                type="button"
+                                                                disabled={isProcessing}
+                                                                onClick={() => {
+                                                                    setStatusPopoverOpen(false);
+                                                                    onUpdateStatus(status);
+                                                                }}
+                                                                className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                                            >
+                                                                <span className={`size-2 rounded-full ${STATUS_STYLES[status].dot}`} />
+                                                                {TRANSITION_LABELS[status] ?? STATUS_STYLES[status].label}
+                                                            </button>
+                                                        ))}
+                                                    </PopoverContent>
+                                                </Popover>
+                                            ) : (
+                                                <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[selected.status].bg}`}>
+                                                    <span className={`size-1.5 rounded-full ${STATUS_STYLES[selected.status].dot}`} />
+                                                    <span className="text-slate-700 dark:text-zinc-300">
+                                                        {STATUS_STYLES[selected.status].label}
+                                                    </span>
+                                                </span>
+                                            )}
+                                        </div>
                                     </div>
                                 </div>
                             </DrawerBody>
 
-                            <DrawerFooter>
-                                {selected.status !== AppointmentStatus.Paid && selected.status !== AppointmentStatus.Cancelled && (
-                                    <Button
-                                        onClick={() => onUpdateStatus(AppointmentStatus.Paid)}
-                                        disabled={isProcessing}
-                                        className="justify-start rounded-lg bg-emerald-50 text-emerald-700 hover:bg-emerald-100 dark:bg-emerald-950/40 dark:text-emerald-300 dark:hover:bg-emerald-950/60"
-                                    >
-                                        <CheckCircle2 className="size-4" />
-                                        Оплата получена
-                                    </Button>
-                                )}
-                                {selected.status !== AppointmentStatus.NoShow && selected.status !== AppointmentStatus.Cancelled && (
-                                    <Button
-                                        onClick={() => onUpdateStatus(AppointmentStatus.NoShow)}
-                                        disabled={isProcessing}
-                                        variant="outline"
-                                        className="justify-start rounded-lg border-rose-200 text-rose-600 hover:bg-rose-50 dark:border-rose-800 dark:text-rose-400 dark:hover:bg-rose-950/40"
-                                    >
-                                        <XCircle className="size-4" />
-                                        Не пришёл
-                                    </Button>
-                                )}
-                                {selected.status !== AppointmentStatus.Cancelled && (
-                                    <>
+                            {selected.status !== AppointmentStatus.Cancelled && (
+                                <DrawerFooter>
+                                    <div className="flex gap-3">
                                         <Button
                                             onClick={onReschedule}
                                             disabled={isProcessing}
                                             variant="outline"
-                                            className="justify-start rounded-lg"
+                                            className="flex-1 rounded-lg"
                                         >
-                                            <RotateCw className="size-4" />
-                                            Перенести запись
+                                            Изменить
                                         </Button>
                                         <Button
                                             onClick={() => setCancelConfirmOpen(true)}
                                             disabled={isProcessing}
                                             variant="outline"
-                                            className="justify-start rounded-lg border-slate-200 text-slate-500 hover:bg-slate-50 dark:border-zinc-700 dark:text-zinc-400 dark:hover:bg-zinc-800"
+                                            className="rounded-lg border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
                                         >
-                                            <Trash2 className="size-4" />
                                             Отменить запись
                                         </Button>
-                                    </>
-                                )}
-                            </DrawerFooter>
+                                    </div>
+                                </DrawerFooter>
+                            )}
                         </>
                     )}
                 </DrawerContent>

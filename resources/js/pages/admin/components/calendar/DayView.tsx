@@ -62,7 +62,7 @@ function CurrentTimeLine({ dayStartHour, gridHours }: CurrentTimeLineProps) {
         <div className="pointer-events-none absolute inset-x-0 z-20" style={{ top }}>
             <div className="absolute -left-1 top-1/2 size-2 -translate-y-1/2 rounded-full bg-[var(--color-orange)] shadow-[0_0_0_3px_white] dark:shadow-[0_0_0_3px_var(--color-warm)]" />
             <div className="h-px bg-[var(--color-orange)]" />
-            <span className="absolute right-1 -top-2.5 rounded bg-white px-1 py-0.5 text-[9px] font-bold text-[var(--color-orange)] dark:bg-zinc-900">
+            <span className="absolute right-1 -top-2.5 rounded bg-white px-1 py-0.5 text-[9px] font-bold text-[var(--color-orange)] dark:bg-[var(--color-cal-surface)]">
                 {timeLabel}
             </span>
         </div>
@@ -205,8 +205,8 @@ export function DayView({
             style={{ minWidth: `${gridMinWidth}px` }}
         >
             {/* Day Header + Master Headers — sticky at top */}
-            <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-zinc-900/96">
-                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-zinc-900/96">
+            <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
+                <div className="sticky left-0 z-40 flex w-[72px] min-w-[72px] items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-surface)]/96">
                     <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>
                 <div
@@ -220,7 +220,7 @@ export function DayView({
                             key={`h-${master.id}`}
                             className="flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
                             style={todayMark ? {
-                                backgroundImage: 'linear-gradient(to bottom, rgba(255,90,31,0.1) 0%, rgba(255,90,31,0.03) 100%)',
+                                backgroundImage: 'linear-gradient(to right, rgba(255,90,31,0.08) 0%, rgba(255,90,31,0.02) 40%, transparent 70%)',
                             } : undefined}
                         >
                             <div className="text-center">
@@ -240,7 +240,7 @@ export function DayView({
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
                 <div className="relative flex">
                     {/* Time Column — sticky left */}
-                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] border-r border-[var(--color-line-soft)] bg-white dark:bg-zinc-900">
+                    <div className="sticky left-0 z-20 w-[72px] min-w-[72px] border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-surface)]">
                         {gridHours.map((hour) => {
                             const slotHeightPx = (slotInterval / 60) * HOUR_HEIGHT;
                             const labels: React.ReactNode[] = [];
@@ -289,7 +289,7 @@ export function DayView({
                                     className="relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0"
                                 >
                                     {todayMark && (
-                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-orange-500/[0.08] via-orange-500/[0.03] to-transparent dark:from-orange-400/[0.1] dark:via-orange-400/[0.04] dark:to-transparent" />
+                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-r from-orange-500/[0.07] via-orange-500/[0.02] to-transparent dark:from-orange-400/[0.09] dark:via-orange-400/[0.03] dark:to-transparent" />
                                     )}
                                     {gridHours.map((hour) => {
                                         const slots: React.ReactNode[] = [];
@@ -354,7 +354,7 @@ export function DayView({
 
                 <DragOverlay>
                     {activeAppointment ? (
-                        <div className="pointer-events-none z-50 w-56 rounded-lg border-l-4 border-blue-500 bg-white px-2 py-1 shadow-lg">
+                        <div className="pointer-events-none z-50 w-56 rounded-lg border-l-4 border-blue-500 bg-white px-2 py-1 shadow-lg dark:bg-[var(--color-cal-surface)]">
                             <p className="font-mono text-[10px] text-gray-400">
                                 {activeAppointment.time} – {getEndTime(activeAppointment.time, activeAppointment.duration)}
                             </p>

@@ -146,6 +146,12 @@
     --color-line: #302E2B;
     --color-line-soft: #272522;
     --color-orange-100: #382018;
+
+    /* IRSI admin/calendar scoped dark surfaces — warm graphite */
+    --color-cal-surface: #201F1D;
+    --color-cal-surface-alt: #282725;
+    --color-cal-border: #333130;
+    --color-cal-line: #3A3837;
 }
 
 @layer base {

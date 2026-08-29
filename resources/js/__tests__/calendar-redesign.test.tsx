@@ -58,9 +58,9 @@ describe('STATUS_STYLES — all statuses defined', () => {
         expect(STATUS_STYLES[status].dot).toBeTruthy();
     });
 
-    it('legacy statuses (PendingPayment, Prepaid) use Booked visual fallback (blue accent)', () => {
-        expect(STATUS_STYLES[AppointmentStatus.PendingPayment].accent).toBe('bg-blue-500');
-        expect(STATUS_STYLES[AppointmentStatus.Prepaid].accent).toBe('bg-blue-500');
+    it('legacy statuses (PendingPayment, Prepaid) use Booked visual fallback (same accent)', () => {
+        expect(STATUS_STYLES[AppointmentStatus.PendingPayment].accent).toBe(STATUS_STYLES[AppointmentStatus.Booked].accent);
+        expect(STATUS_STYLES[AppointmentStatus.Prepaid].accent).toBe(STATUS_STYLES[AppointmentStatus.Booked].accent);
     });
 });
 
@@ -77,6 +77,42 @@ describe('Cancelled appointment visibility', () => {
         expect(s.accent).toBeTruthy();
         expect(s.bg).toBeTruthy();
         expect(s.label).toBe('Отменён');
+    });
+});
+
+describe('AppointmentCard — text-left alignment', () => {
+    it('AppointmentCard renders with text-left (verified via source)', () => {
+        // AppointmentCard uses text-left class on the button element
+        // This is a source-level check; render test requires DnD context
+        const cardSource = require('fs').readFileSync(
+            require('path').resolve(__dirname, '../pages/admin/components/calendar/AppointmentCard.tsx'),
+            'utf-8',
+        );
+        expect(cardSource).toContain('text-left');
+    });
+});
+
+describe('BreakZone — no dashed legacy style', () => {
+    it('BreakZone source does not contain border-dashed', () => {
+        const source = require('fs').readFileSync(
+            require('path').resolve(__dirname, '../pages/admin/components/calendar/BreakZone.tsx'),
+            'utf-8',
+        );
+        expect(source).not.toContain('border-dashed');
+        expect(source).not.toContain('border-l-4');
+        expect(source).toContain('w-[3px]');
+    });
+});
+
+describe('Drawer — title is "Запись"', () => {
+    it('Drawer source contains "Запись" as title', () => {
+        const source = require('fs').readFileSync(
+            require('path').resolve(__dirname, '../pages/admin/components/calendar/AppointmentDetailDrawer.tsx'),
+            'utf-8',
+        );
+        expect(source).toContain('Запись');
+        expect(source).toContain('Изменить');
+        expect(source).toContain('Отменить запись');
     });
 });
 

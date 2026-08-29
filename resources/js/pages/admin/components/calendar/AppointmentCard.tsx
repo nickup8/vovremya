@@ -33,7 +33,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
             {...listeners}
             {...attributes}
             onClick={onClick}
-            className={`absolute z-10 flex cursor-pointer overflow-hidden rounded-md transition-all duration-150 hover:shadow-md ${styles.bg} ${isDragging ? 'opacity-40 shadow-lg' : 'shadow-xs'} group`}
+            className={`absolute z-10 flex cursor-pointer overflow-hidden rounded-[8px] text-left transition-shadow duration-150 hover:shadow-md ${styles.bg} ${isDragging ? 'opacity-40 shadow-lg' : 'shadow-xs'}`}
             style={{
                 top,
                 height: Math.max(height, 28),
@@ -42,18 +42,18 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                 transform: CSS.Translate.toString(transform),
             }}
         >
-            {/* Status accent bar */}
+            {/* 3px status marker */}
             <div className={`w-[3px] shrink-0 ${styles.accent}`} />
 
-            <div className={`flex min-w-0 flex-1 flex-col justify-center px-1.5 py-0.5 ${isCancelled ? 'line-through opacity-60' : ''}`}>
-                <span className="truncate font-mono text-[9px] leading-tight text-slate-500 dark:text-zinc-400">
+            <div className={`flex min-w-0 flex-1 flex-col justify-center px-2 py-[6px] ${isCancelled ? 'line-through opacity-60' : ''}`}>
+                <span className="truncate font-mono text-[10px] leading-tight opacity-60">
                     {appointment.time}–{endTime}
                 </span>
-                <span className="truncate text-[11px] font-semibold leading-tight text-slate-800 dark:text-zinc-200">
+                <span className="truncate text-[12px] font-semibold leading-snug text-slate-800 dark:text-zinc-100">
                     {appointment.client_name}
                 </span>
                 {height >= 48 && (
-                    <span className="truncate text-[10px] leading-tight text-slate-500 dark:text-zinc-400">
+                    <span className="truncate text-[11px] leading-tight opacity-50">
                         {appointment.service}
                     </span>
                 )}
