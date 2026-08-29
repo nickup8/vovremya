@@ -47,5 +47,5 @@ export const STATUS_STYLES: Record<AppointmentStatus, StatusStyle> = {
 };
 
 export const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
-export const HOUR_HEIGHT = 80;
+export const HOUR_HEIGHT = 72;
 export const MINUTE_HEIGHT = HOUR_HEIGHT / 60;

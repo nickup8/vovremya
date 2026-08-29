@@ -1,6 +1,6 @@
 import { describe, it, expect, vi } from 'vitest';
 import { AppointmentStatus } from '@/types/appointment-status';
-import { STATUS_STYLES } from '@/pages/admin/components/calendar/constants';
+import { STATUS_STYLES, HOUR_HEIGHT, MINUTE_HEIGHT } from '@/pages/admin/components/calendar/constants';
 
 vi.mock('@/echo-config', () => ({
     echo: () => ({
@@ -12,6 +12,12 @@ vi.mock('@/echo-config', () => ({
         leave: () => {},
     }),
 }));
+
+const readSource = (relative: string) =>
+    require('fs').readFileSync(
+        require('path').resolve(__dirname, relative),
+        'utf-8',
+    );
 
 describe('Calendar Legend statuses', () => {
     const LEGEND_STATUSES = [
@@ -79,39 +85,134 @@ describe('Cancelled appointment visibility', () => {
     });
 });
 
+describe('Calendar density — HOUR_HEIGHT and grid', () => {
+    it('HOUR_HEIGHT is 72px', () => {
+        expect(HOUR_HEIGHT).toBe(72);
+    });
+
+    it('MINUTE_HEIGHT is HOUR_HEIGHT / 60', () => {
+        expect(MINUTE_HEIGHT).toBeCloseTo(72 / 60);
+    });
+
+    it('15-minute slot = 18px', () => {
+        expect(15 * MINUTE_HEIGHT).toBeCloseTo(18);
+    });
+});
+
 describe('AppointmentCard — text-left alignment', () => {
-    it('AppointmentCard renders with text-left (verified via source)', () => {
-        // AppointmentCard uses text-left class on the button element
-        // This is a source-level check; render test requires DnD context
-        const cardSource = require('fs').readFileSync(
-            require('path').resolve(__dirname, '../pages/admin/components/calendar/AppointmentCard.tsx'),
-            'utf-8',
-        );
-        expect(cardSource).toContain('text-left');
+    it('AppointmentCard renders with text-left', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentCard.tsx');
+        expect(source).toContain('text-left');
+    });
+
+    it('AppointmentCard uses reference typography', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentCard.tsx');
+        expect(source).toContain('font-bold');
+        expect(source).toContain('font-semibold');
     });
 });
 
 describe('BreakZone — no dashed legacy style', () => {
     it('BreakZone source does not contain border-dashed', () => {
-        const source = require('fs').readFileSync(
-            require('path').resolve(__dirname, '../pages/admin/components/calendar/BreakZone.tsx'),
-            'utf-8',
-        );
+        const source = readSource('../pages/admin/components/calendar/BreakZone.tsx');
         expect(source).not.toContain('border-dashed');
         expect(source).not.toContain('border-l-4');
         expect(source).toContain('w-[3px]');
     });
 });
 
-describe('Drawer — title is "Запись"', () => {
-    it('Drawer source contains "Запись" as title', () => {
-        const source = require('fs').readFileSync(
-            require('path').resolve(__dirname, '../pages/admin/components/calendar/AppointmentDetailDrawer.tsx'),
-            'utf-8',
-        );
+describe('View switch — segmented reference structure', () => {
+    it('DateControlPanel has h-10 segmented control', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('h-10');
+        expect(source).toContain('rounded-xl');
+        expect(source).toContain('rounded-[9px]');
+        expect(source).toContain('px-[13px]');
+        expect(source).toContain('text-[13px]');
+        expect(source).toContain('font-semibold');
+    });
+
+    it('Today button has h-10', () => {
+        const source = readSource('../components/calendar/DateControlPanel.tsx');
+        expect(source).toContain('flex h-10 items-center');
+    });
+});
+
+describe('Notifications — no forced oversized empty state', () => {
+    it('Notification popover does not use py-12 or min-h-[68px]', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).not.toContain('py-12');
+        expect(source).not.toContain('min-h-[68px]');
+    });
+
+    it('Notification popover uses content-sized height', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('Нет уведомлений');
+        expect(source).toContain('w-[340px]');
+    });
+});
+
+describe('Drawer — quick status actions', () => {
+    it('Drawer has Paid quick action button', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
+        expect(source).toContain('Оплачено');
+    });
+
+    it('Drawer has NoShow quick action button', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
+        expect(source).toContain('Не пришёл');
+    });
+
+    it('Paid button uses existing status handler (onUpdateStatus)', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
+        expect(source).toContain('onUpdateStatus(AppointmentStatus.Paid)');
+    });
+
+    it('NoShow button uses existing status handler (onUpdateStatus)', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
+        expect(source).toContain('onUpdateStatus(AppointmentStatus.NoShow)');
+    });
+
+    it('Drawer title is "Запись"', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
         expect(source).toContain('Запись');
         expect(source).toContain('Изменить');
         expect(source).toContain('Отменить запись');
+    });
+});
+
+describe('Drawer — edit state', () => {
+    it('Drawer has editMode prop and edit state', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
+        expect(source).toContain('editMode');
+        expect(source).toContain('Редактировать запись');
+    });
+
+    it('Edit state has date and time inputs', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
+        expect(source).toContain('type="date"');
+        expect(source).toContain('Select value={editTime}');
+    });
+
+    it('Legacy RescheduleDialog modal is NOT opened from drawer', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        // onReschedule should point to openDrawerEdit, not openReschedule
+        expect(source).toContain('onReschedule={openDrawerEdit}');
+    });
+
+    it('Drawer uses submitRescheduleInDrawer (not submitReschedule)', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).toContain('submitRescheduleInDrawer');
+        expect(source).toContain('setDrawerEditMode(false)');
+    });
+});
+
+describe('Cancel AlertDialog preserved', () => {
+    it('Drawer source contains AlertDialog confirmation', () => {
+        const source = readSource('../pages/admin/components/calendar/AppointmentDetailDrawer.tsx');
+        expect(source).toContain('AlertDialog');
+        expect(source).toContain('Отменить запись?');
+        expect(source).toContain('Да, отменить');
     });
 });
 

@@ -32,6 +32,7 @@ export default function CalendarPage() {
     // ═══════════════ Selected Appointment State (hoisted for both hooks) ═══════════════
     const [selected, setSelected] = useState<Appointment | null>(null);
     const [sheetOpen, setSheetOpen] = useState(false);
+    const [drawerEditMode, setDrawerEditMode] = useState(false);
 
     // ═══════════════ UI Navigation State ═══════════════
     const [weekOffset, setWeekOffset] = useState(0);
@@ -157,6 +158,7 @@ export default function CalendarPage() {
         deleteAppointment,
         openReschedule,
         submitReschedule,
+        submitRescheduleInDrawer,
         confirmRescheduleWithBreak,
         cancelReschedule,
         confirmOutsideHours,
@@ -186,6 +188,13 @@ export default function CalendarPage() {
 
     const rescheduleByDragDay = (apptId: string, newDate: string, newTime: string, newMasterId: string, prevMasterId?: string) =>
         rescheduleByDrag(apptId, newDate, newTime, newMasterId, false, prevMasterId);
+
+    function openDrawerEdit() {
+        if (!selected) return;
+        setRescheduleDate(selected.date);
+        setRescheduleTime(selected.time);
+        setDrawerEditMode(true);
+    }
 
     const openDayFromMonth = (dateKey: string) => {
         const clicked = new Date(dateKey + 'T00:00:00');
@@ -424,8 +433,16 @@ return [];
                 selected={selected}
                 isProcessing={isProcessing}
                 onUpdateStatus={updateStatus}
-                onReschedule={openReschedule}
+                onReschedule={openDrawerEdit}
                 onDelete={deleteAppointment}
+                editMode={drawerEditMode}
+                onEditModeChange={setDrawerEditMode}
+                editDate={rescheduleDate}
+                editTime={rescheduleTime}
+                onEditDateChange={setRescheduleDate}
+                onEditTimeChange={setRescheduleTime}
+                onEditSubmit={() => submitRescheduleInDrawer(() => setDrawerEditMode(false))}
+                timeOptions={timeOptions}
             />
 
             {/* ─── Break Intersection Warning Dialog ─── */}

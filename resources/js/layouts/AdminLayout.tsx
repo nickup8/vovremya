@@ -164,23 +164,15 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                             </button>
                             {notificationsOpen && (
                                 <section
-                                    className="absolute right-0 top-12 z-[80] w-[380px] max-h-[min(560px,calc(100vh-92px))] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-lg dark:bg-zinc-900"
+                                    className="absolute right-0 top-12 z-[80] w-[340px] rounded-xl border border-[var(--color-line)] bg-white shadow-lg dark:bg-[var(--color-cal-surface)] dark:border-[var(--color-cal-border)]"
                                     onClick={(e) => e.stopPropagation()}
                                     aria-label="Уведомления"
                                 >
-                                    <div className="flex min-h-[68px] items-center justify-between border-b border-[var(--color-line-soft)] px-4 py-3.5">
-                                        <div>
-                                            <div className="text-[15px] font-bold tracking-tight">Уведомления</div>
-                                            <div className="text-[11px] text-[var(--color-graphite)]">Нет новых</div>
-                                        </div>
-                                        <button
-                                            disabled
-                                            className="rounded-md px-1 py-1.5 text-xs font-semibold text-[var(--color-graphite)]"
-                                        >
-                                            Всё прочитано
-                                        </button>
+                                    <div className="flex items-center justify-between border-b border-[var(--color-line-soft)] px-4 py-3">
+                                        <div className="text-[14px] font-semibold text-[var(--color-ink)]">Уведомления</div>
+                                        <span className="text-[11px] text-[var(--color-graphite)]">Нет новых</span>
                                     </div>
-                                    <div className="flex items-center justify-center py-12 text-sm text-[var(--color-graphite)]">
+                                    <div className="flex items-center justify-center py-8 text-[13px] text-[var(--color-graphite)]">
                                         Нет уведомлений
                                     </div>
                                 </section>

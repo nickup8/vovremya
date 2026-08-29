@@ -232,6 +232,58 @@ return;
         });
     }
 
+    function submitRescheduleInDrawer(onSuccess?: () => void) {
+        if (!selected || !rescheduleDate || !rescheduleTime) {
+return;
+}
+
+        const apptId = selected.id;
+        const prevDate = selected.date;
+        const prevTime = selected.time;
+        applyOptimisticMove(apptId, rescheduleDate, rescheduleTime);
+
+        router.patch(`/admin/appointments/${apptId}/status`, {
+            start_time: `${rescheduleDate} ${rescheduleTime}:00`,
+        }, {
+            preserveScroll: true,
+            preserveState: true,
+            only: ['appointments'],
+            onError: (errors: Record<string, string>) => {
+                if (errors.lunch_intersection) {
+                    setBreakWarningMessage(errors.lunch_intersection);
+                    setPendingReschedule({ appointmentId: apptId, date: rescheduleDate, time: rescheduleTime });
+                    setBreakWarningOpen(true);
+
+                    return;
+                }
+
+                if (errors.outside_working_hours) {
+                    setOutsideHoursMessage(errors.outside_working_hours);
+                    setPendingOutsideHours({ appointmentId: apptId, date: rescheduleDate, time: rescheduleTime });
+                    setOutsideHoursOpen(true);
+
+                    return;
+                }
+
+                rollbackAppointment(apptId);
+
+                if (errors.time) {
+                    toast.error(errors.time);
+                }
+            },
+            onSuccess: () => {
+                confirmOptimistic(apptId);
+                toast.success('Запись перенесена', {
+                    action: {
+                        label: 'Отменить',
+                        onClick: () => rescheduleByDrag(apptId, prevDate, prevTime, undefined, true),
+                    },
+                });
+                onSuccess?.();
+            },
+        });
+    }
+
     // ═══════════════ Warning Dialogs ═══════════════
     function submitNewAppointmentIgnoreBreak() {
         if (!newAppointmentForm.data.client_id || !newAppointmentForm.data.service_id || !newAppointmentForm.data.date || !newAppointmentForm.data.time) {
@@ -554,6 +606,7 @@ return;
         deleteAppointment,
         openReschedule,
         submitReschedule,
+        submitRescheduleInDrawer,
         confirmRescheduleWithBreak,
         cancelReschedule,
         confirmOutsideHours,
