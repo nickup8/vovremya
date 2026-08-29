@@ -270,16 +270,17 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         aria-hidden="true"
                     />
                     <aside
-                        className="relative z-10 flex h-full w-[min(288px,calc(100vw-48px))] flex-col border-r border-[var(--color-line)] bg-white/88 p-[20px_16px_16px] dark:bg-[var(--color-cal-surface)]/90"
+                        className="relative z-10 flex h-full w-[min(320px,calc(100vw-48px))] flex-col border-r border-[var(--color-line)] bg-white/88 p-[20px_16px_16px] dark:bg-[var(--color-cal-sidebar)]"
                         aria-label="Основная навигация"
                     >
                         <div className="flex h-[52px] items-center justify-between border-b border-[var(--color-line-soft)] px-2 pb-4">
                             <img src={logoFull} alt="Вовремя" className="h-7 w-auto" />
                             <button
                                 onClick={onMobileClose}
-                                className="rounded-md p-1.5 text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)]"
+                                className="flex size-10 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                aria-label="Закрыть меню"
                             >
-                                <XMarkIcon className="size-4" />
+                                <XMarkIcon className="size-5" />
                             </button>
                         </div>
                         <nav className="mt-3 flex flex-1 flex-col gap-1">
@@ -311,32 +312,32 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                                     <Link
                                         href="/admin/billing"
                                         onClick={onMobileClose}
-                                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                        className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
                                     >
-                                        <CreditCardIcon className="size-[18px] text-[var(--color-graphite)]" />
-                                        <span>Тариф · {tariffName}</span>
+                                        <CreditCardIcon className="size-5 shrink-0 text-[#77736E]" />
+                                        <span>Тариф и оплата</span>
                                     </Link>
                                 )}
                                 <button
                                     onClick={() => { onMobileClose(); router.post('/switch-to-client'); }}
-                                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                    className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
                                 >
-                                    <ArrowPathIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                    <ArrowPathIcon className="size-5 shrink-0 text-[#77736E]" />
                                     <span>Режим клиента</span>
                                 </button>
                                 {onToggleTheme && (
                                     <button
                                         onClick={onToggleTheme}
-                                        className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                        className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
                                     >
                                         {isDark ? (
                                             <>
-                                                <SunIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                                <SunIcon className="size-5 shrink-0 text-[#77736E]" />
                                                 <span>Светлая тема</span>
                                             </>
                                         ) : (
                                             <>
-                                                <MoonIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                                <MoonIcon className="size-5 shrink-0 text-[#77736E]" />
                                                 <span>Тёмная тема</span>
                                             </>
                                         )}
@@ -345,9 +346,9 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                                 <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
                                 <button
                                     onClick={() => { onMobileClose(); handleLogout(); }}
-                                    className="flex items-center gap-2.5 rounded-lg px-2.5 py-1.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                    className="flex h-11 items-center gap-3 rounded-[10px] px-3 text-sm font-medium text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]"
                                 >
-                                    <ArrowRightStartOnRectangleIcon className="size-[18px] text-[var(--color-graphite)]" />
+                                    <ArrowRightStartOnRectangleIcon className="size-5 shrink-0 text-[#77736E]" />
                                     <span>Выйти</span>
                                 </button>
                             </div>
