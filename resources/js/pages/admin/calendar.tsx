@@ -19,7 +19,7 @@ import { WeekView } from './components/calendar/WeekView';
 import { DayView } from './components/calendar/DayView';
 import { MonthView } from './components/calendar/MonthView';
 import { CalendarLegend } from './components/calendar/CalendarLegend';
-import { AppointmentDetailDialog } from './components/calendar/AppointmentDetailDialog';
+import { AppointmentDetailDrawer } from './components/calendar/AppointmentDetailDrawer';
 import { RescheduleDialog } from './components/calendar/RescheduleDialog';
 import { NewAppointmentDialog } from './components/calendar/NewAppointmentDialog';
 import { WarningDialog } from './components/calendar/WarningDialog';
@@ -415,8 +415,8 @@ return [];
                         </div>
             </AdminLayout>
 
-            {/* ─── Appointment Detail Dialog ─── */}
-            <AppointmentDetailDialog
+            {/* ─── Appointment Detail Drawer ─── */}
+            <AppointmentDetailDrawer
                 open={sheetOpen}
                 onOpenChange={setSheetOpen}
                 selected={selected}

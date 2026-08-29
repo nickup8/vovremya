@@ -156,10 +156,11 @@ return;
                     toast.error(errors.status);
                 }
             },
+            onSuccess: () => {
+                toast.success('Запись отменена');
+            },
             onFinish: () => {
                 setIsProcessing(false);
-                setSheetOpen(false);
-                setSelected(null);
             },
         });
     }

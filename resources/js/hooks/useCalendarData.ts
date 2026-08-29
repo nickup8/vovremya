@@ -24,7 +24,7 @@ export function useCalendarData({
 }: UseCalendarDataParams) {
     // ═══════════════ State ═══════════════
     const [localAppointments, setLocalAppointments] = useState<Appointment[]>(
-        initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled),
+        initialAppointments,
     );
 
     // ═══════════════ Optimistic update state ═══════════════
@@ -79,17 +79,15 @@ return prev;
     // ═══════════════ Sync with Inertia props ═══════════════
     useEffect(() => {
         setLocalAppointments((prev) => {
-            const incoming = initialAppointments.filter((a) => a.status !== AppointmentStatus.Cancelled);
-            const incomingIds = new Set(incoming.map((a) => a.id));
+            const incomingIds = new Set(initialAppointments.map((a) => a.id));
             const wsAdded = prev.filter(
                 (a) =>
                     wsAddedIds.current.has(a.id) &&
-                    !incomingIds.has(a.id) &&
-                    a.status !== AppointmentStatus.Cancelled,
+                    !incomingIds.has(a.id),
             );
             incomingIds.forEach((id) => wsAddedIds.current.delete(id));
 
-            const filteredIncoming = incoming.filter(
+            const filteredIncoming = initialAppointments.filter(
                 (a) => !pendingOptimisticIds.current.has(a.id),
             );
 
@@ -130,26 +128,14 @@ return prev;
                 });
             })
             .listen('.AppointmentStatusChanged', (appointment: Appointment) => {
-                setLocalAppointments((prev) => {
-                    if (appointment.status === AppointmentStatus.Cancelled) {
-                        wsAddedIds.current.delete(appointment.id);
-
-                        return prev.filter((a) => a.id !== appointment.id);
-                    }
-
-                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
-                });
+                setLocalAppointments((prev) =>
+                    prev.map((a) => (a.id === appointment.id ? appointment : a)),
+                );
             })
             .listen('.AppointmentRescheduled', (appointment: Appointment) => {
-                setLocalAppointments((prev) => {
-                    if (appointment.status === AppointmentStatus.Cancelled) {
-                        wsAddedIds.current.delete(appointment.id);
-
-                        return prev.filter((a) => a.id !== appointment.id);
-                    }
-
-                    return prev.map((a) => (a.id === appointment.id ? appointment : a));
-                });
+                setLocalAppointments((prev) =>
+                    prev.map((a) => (a.id === appointment.id ? appointment : a)),
+                );
             })
             .listen('.AppointmentVisitConfirmed', (appointment: Appointment) => {
                 setLocalAppointments((prev) =>

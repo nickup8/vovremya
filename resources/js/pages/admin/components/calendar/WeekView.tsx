@@ -211,7 +211,7 @@ export function WeekView({
                                 key={`h-${idx}`}
                                 className="relative flex h-[58px] items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
                                 style={todayMark ? {
-                                    backgroundImage: 'linear-gradient(to bottom, rgba(255,90,31,0.06) 0%, rgba(255,90,31,0.02) 100%)',
+                                    backgroundImage: 'linear-gradient(to bottom, rgba(255,90,31,0.1) 0%, rgba(255,90,31,0.03) 100%)',
                                 } : undefined}
                             >
                                 <div className="flex items-center gap-2.5">
@@ -287,10 +287,10 @@ export function WeekView({
                                 <div
                                     key={`col-${dayIdx}`}
                                     className="relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0"
-                                    style={todayMark ? {
-                                        backgroundImage: 'linear-gradient(to bottom, rgba(255,90,31,0.04) 0%, rgba(255,90,31,0.015) 30%, transparent 70%)',
-                                    } : undefined}
                                 >
+                                    {todayMark && (
+                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-b from-orange-500/[0.08] via-orange-500/[0.03] to-transparent dark:from-orange-400/[0.1] dark:via-orange-400/[0.04] dark:to-transparent" />
+                                    )}
                                     {gridHours.map((hour) => {
                                         const slots: React.ReactNode[] = [];
 

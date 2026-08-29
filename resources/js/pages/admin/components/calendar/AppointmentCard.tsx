@@ -1,8 +1,5 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
-import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
-import { getInitials } from '@/lib/utils';
-import { Check, Clock } from 'lucide-react';
 import type { AppointmentWithCollision } from './types';
 import { STATUS_STYLES } from './constants';
 import { timeToMinutes, getEndTime } from './helpers';
@@ -20,10 +17,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
     const height = appointment.duration * MINUTE_HEIGHT;
     const styles = STATUS_STYLES[appointment.status];
     const endTime = getEndTime(appointment.time, appointment.duration);
-    const showPrice = appointment.duration >= 45;
-
-    const isConfirmed = !!appointment.client_confirmed_at;
-    const isAwaiting = !isConfirmed && !!appointment.reminder_24h_sent_at;
+    const isCancelled = appointment.status === 'cancelled';
 
     const { colIndex, totalCols } = appointment;
     const widthPercent = 100 / totalCols;
@@ -39,54 +33,29 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
             {...listeners}
             {...attributes}
             onClick={onClick}
-            className={`absolute z-10 cursor-pointer overflow-hidden rounded-lg border-l-4 px-2 py-1 shadow-xs transition-shadow duration-200 hover:-translate-y-0.5 hover:shadow-md ${styles.card}`}
+            className={`absolute z-10 flex cursor-pointer overflow-hidden rounded-md transition-all duration-150 hover:shadow-md ${styles.bg} ${isDragging ? 'opacity-40 shadow-lg' : 'shadow-xs'} group`}
             style={{
                 top,
-                height: Math.max(height, 32),
-                width: `calc(${widthPercent}% - 4px)`,
-                left: `calc(${leftPercent}% + 2px)`,
+                height: Math.max(height, 28),
+                width: `calc(${widthPercent}% - 3px)`,
+                left: `calc(${leftPercent}% + 1.5px)`,
                 transform: CSS.Translate.toString(transform),
-                opacity: isDragging ? 0.4 : undefined,
             }}
         >
-            {isConfirmed && (
-                <span
-                    className="absolute right-1 top-1 z-20 flex size-3.5 items-center justify-center rounded-full bg-emerald-500 text-white shadow-sm"
-                    title="Клиент подтвердил визит"
-                >
-                    <Check className="size-2.5" strokeWidth={3} />
+            {/* Status accent bar */}
+            <div className={`w-[3px] shrink-0 ${styles.accent}`} />
+
+            <div className={`flex min-w-0 flex-1 flex-col justify-center px-1.5 py-0.5 ${isCancelled ? 'line-through opacity-60' : ''}`}>
+                <span className="truncate font-mono text-[9px] leading-tight text-slate-500 dark:text-zinc-400">
+                    {appointment.time}–{endTime}
                 </span>
-            )}
-            {isAwaiting && (
-                <span
-                    className="absolute right-1 top-1 z-20 flex size-3.5 items-center justify-center rounded-full bg-zinc-300 text-zinc-600 shadow-sm"
-                    title="Ожидает подтверждения"
-                >
-                    <Clock className="size-2.5" strokeWidth={2.5} />
+                <span className="truncate text-[11px] font-semibold leading-tight text-slate-800 dark:text-zinc-200">
+                    {appointment.client_name}
                 </span>
-            )}
-            <div className="flex h-full flex-col justify-between">
-                <div>
-                    <p className="font-mono text-[10px] opacity-75">
-                        {appointment.time} – {endTime}
-                    </p>
-                    <div className="flex items-center gap-1">
-                        <Avatar className="size-5 shrink-0">
-                            <AvatarImage src={appointment.client_avatar_url ?? undefined} className="object-cover" />
-                            <AvatarFallback className="text-[8px]">{getInitials(appointment.client_name)}</AvatarFallback>
-                        </Avatar>
-                        <p className="truncate text-xs font-semibold leading-tight">
-                            {appointment.client_name}
-                        </p>
-                    </div>
-                    <p className="truncate text-[11px] leading-tight opacity-80">
+                {height >= 48 && (
+                    <span className="truncate text-[10px] leading-tight text-slate-500 dark:text-zinc-400">
                         {appointment.service}
-                    </p>
-                </div>
-                {showPrice && (
-                    <p className="text-[10px] opacity-60">
-                        {appointment.price.toLocaleString('ru-RU')} ₽
-                    </p>
+                    </span>
                 )}
             </div>
         </button>
