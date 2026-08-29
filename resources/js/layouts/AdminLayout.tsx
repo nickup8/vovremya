@@ -82,7 +82,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 }`}
             >
                 {/* Topbar */}
-                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-6 backdrop-blur-[16px] dark:bg-[var(--color-cal-surface)]/90">
+                <header className="flex h-[72px] shrink-0 items-center gap-4 border-b border-[var(--color-line)] bg-white/90 px-[28px] backdrop-blur-[16px] dark:bg-[var(--color-cal-surface)]/90">
                     {/* Desktop sidebar collapse toggle */}
                     <button
                         onClick={toggleCollapse}
@@ -164,15 +164,23 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                             </button>
                             {notificationsOpen && (
                                 <section
-                                    className="absolute right-0 top-12 z-[80] w-[340px] rounded-xl border border-[var(--color-line)] bg-white shadow-lg dark:bg-[var(--color-cal-surface)] dark:border-[var(--color-cal-border)]"
+                                    className="absolute right-0 top-[48px] z-[80] w-[380px] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-[0_18px_50px_rgba(24,24,24,0.14),0_3px_12px_rgba(24,24,24,0.08)] dark:bg-[var(--color-cal-surface)] dark:border-[var(--color-cal-border)]"
                                     onClick={(e) => e.stopPropagation()}
                                     aria-label="Уведомления"
                                 >
-                                    <div className="flex items-center justify-between border-b border-[var(--color-line-soft)] px-4 py-3">
-                                        <div className="text-[14px] font-semibold text-[var(--color-ink)]">Уведомления</div>
-                                        <span className="text-[11px] text-[var(--color-graphite)]">Нет новых</span>
+                                    <div className="flex items-center justify-between gap-4 border-b border-[var(--color-line-soft)] px-4 py-[14px]">
+                                        <div>
+                                            <div className="text-[15px] leading-5 font-bold tracking-[-0.015em] text-[var(--color-ink)]">Уведомления</div>
+                                            <div className="mt-px text-[11px] leading-4 text-[var(--color-graphite)]">Нет новых</div>
+                                        </div>
+                                        <button
+                                            disabled
+                                            className="shrink-0 rounded-[7px] px-1 py-1.5 text-[12px] leading-[18px] font-semibold text-[var(--color-graphite)]"
+                                        >
+                                            Всё прочитано
+                                        </button>
                                     </div>
-                                    <div className="flex items-center justify-center py-8 text-[13px] text-[var(--color-graphite)]">
+                                    <div className="flex items-center justify-center py-6 text-[13px] text-[var(--color-graphite)]">
                                         Нет уведомлений
                                     </div>
                                 </section>

@@ -85,6 +85,30 @@ describe('Cancelled appointment visibility', () => {
     });
 });
 
+describe('Golos Text — self-hosted font', () => {
+    it('app.css contains @font-face for Golos Text', () => {
+        const source = readSource('../../../resources/css/app.css');
+        expect(source).toContain("font-family: 'Golos Text'");
+        expect(source).toContain('.woff2');
+    });
+
+    it('app.blade.php does not load Google Fonts CDN', () => {
+        const source = readSource('../../../resources/views/app.blade.php');
+        expect(source).not.toContain('fonts.googleapis.com');
+        expect(source).not.toContain('fonts.gstatic.com');
+    });
+
+    it('font files exist in public/fonts', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const fontsDir = path.resolve(__dirname, '../../../public/fonts');
+        expect(fs.existsSync(fontsDir)).toBe(true);
+        const files = fs.readdirSync(fontsDir);
+        const woff2Files = files.filter((f: string) => f.endsWith('.woff2'));
+        expect(woff2Files.length).toBeGreaterThanOrEqual(2);
+    });
+});
+
 describe('Calendar density — HOUR_HEIGHT and grid', () => {
     it('HOUR_HEIGHT is 72px', () => {
         expect(HOUR_HEIGHT).toBe(72);
@@ -138,17 +162,29 @@ describe('View switch — segmented reference structure', () => {
     });
 });
 
-describe('Notifications — no forced oversized empty state', () => {
-    it('Notification popover does not use py-12 or min-h-[68px]', () => {
+describe('Notifications — reference structure', () => {
+    it('Notification popover uses 380px width and rounded-2xl', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('w-[380px]');
+        expect(source).toContain('rounded-2xl');
+    });
+
+    it('Notification popover has no forced oversized height', () => {
         const source = readSource('../layouts/AdminLayout.tsx');
         expect(source).not.toContain('py-12');
         expect(source).not.toContain('min-h-[68px]');
     });
 
-    it('Notification popover uses content-sized height', () => {
+    it('Notification header has title and subtitle', () => {
         const source = readSource('../layouts/AdminLayout.tsx');
-        expect(source).toContain('Нет уведомлений');
-        expect(source).toContain('w-[340px]');
+        expect(source).toContain('Уведомления');
+        expect(source).toContain('Нет новых');
+        expect(source).toContain('Всё прочитано');
+    });
+
+    it('Notification popover has proper shadow', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('shadow-[0_18px_50px');
     });
 });
 

@@ -47,15 +47,15 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                 <div className={`h-full w-full rounded-full ${styles.accent}`} />
             </div>
 
-            <div className={`flex min-w-0 flex-1 flex-col justify-center py-[7px] pr-2 pl-[8px] ${isCancelled ? 'line-through opacity-60' : ''}`}>
-                <span className="truncate font-mono text-[10px] font-semibold leading-[13px] opacity-60">
+            <div className={`flex min-w-0 flex-1 flex-col justify-center py-[7px] pr-2 pl-[11px] ${isCancelled ? 'line-through opacity-60' : ''}`}>
+                <span className="truncate text-[10px] font-semibold leading-[13px] tabular-nums opacity-60">
                     {appointment.time}–{endTime}
                 </span>
-                <span className="truncate text-[12px] font-bold leading-4 text-slate-800 dark:text-zinc-100">
+                <span className="mt-px truncate text-[12px] font-bold leading-4 text-slate-800 dark:text-zinc-100">
                     {appointment.client_name}
                 </span>
                 {height >= 42 && (
-                    <span className="truncate text-[10.5px] leading-[14px] opacity-50">
+                    <span className="mt-px truncate text-[10.5px] leading-[14px] opacity-50">
                         {appointment.service}
                     </span>
                 )}
