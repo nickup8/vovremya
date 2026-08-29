@@ -230,22 +230,27 @@ export function WeekView({
                                 {todayMark && (
                                     <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
                                 )}
-                                <div className="relative flex items-center gap-2.5">
+                                <div className="relative flex items-center gap-2 lg:gap-2.5">
                                     <span className="text-xs font-semibold text-[var(--color-graphite)]">
                                         {DAY_NAMES[idx]}
                                     </span>
-                                    <span
-                                        className={`flex size-[30px] items-center justify-center rounded-full text-sm font-bold ${
-                                            todayMark
-                                                ? 'bg-[var(--color-orange)] text-white shadow-[0_5px_14px_rgba(255,90,31,0.2)]'
-                                                : 'text-[var(--color-ink)]'
-                                        }`}
-                                    >
-                                        {date.getDate()}
-                                    </span>
+                                    {todayMark ? (
+                                        <div className="flex flex-col items-center lg:contents">
+                                            <span className="flex size-[30px] items-center justify-center rounded-full text-sm font-bold bg-[var(--color-orange)] text-white shadow-[0_5px_14px_rgba(255,90,31,0.2)]">
+                                                {date.getDate()}
+                                            </span>
+                                            <span className="text-[9px] font-bold text-[var(--color-orange)] whitespace-nowrap lg:hidden">
+                                                Сегодня
+                                            </span>
+                                        </div>
+                                    ) : (
+                                        <span className="flex size-[30px] items-center justify-center rounded-full text-sm font-bold text-[var(--color-ink)]">
+                                            {date.getDate()}
+                                        </span>
+                                    )}
                                 </div>
                                 {todayMark && (
-                                    <span className="absolute bottom-1 text-[9px] font-bold text-[var(--color-orange)]">
+                                    <span className="hidden text-[9px] font-bold text-[var(--color-orange)] lg:absolute lg:bottom-1 lg:block">
                                         Сегодня
                                     </span>
                                 )}

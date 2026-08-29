@@ -500,6 +500,31 @@ describe('Mobile WeekView — horizontal scroll geometry', () => {
         expect(source).toContain('h-[44px]');
         expect(source).toContain('lg:h-[58px]');
     });
+
+    it('mobile today header has grouped date wrapper (flex-col)', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('flex flex-col items-center lg:contents');
+    });
+
+    it('mobile today label is inside date wrapper, not absolute to cell', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        // Mobile "Сегодня" is inside flex-col wrapper, hidden on desktop
+        expect(source).toContain('whitespace-nowrap lg:hidden');
+        // Desktop "Сегодня" is absolute to cell, hidden on mobile
+        expect(source).toContain('lg:absolute lg:bottom-1 lg:block');
+    });
+
+    it('today date circle remains 30x30 orange', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('size-[30px]');
+        expect(source).toContain('bg-[var(--color-orange)]');
+    });
+
+    it('week grid tracks unchanged (128px mobile, 7 fluid desktop)', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('grid-cols-[repeat(7,minmax(128px,1fr))]');
+        expect(source).toContain('lg:grid-cols-7');
+    });
 });
 
 describe('Mobile legend — horizontal scroll', () => {
