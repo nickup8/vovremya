@@ -460,7 +460,8 @@ describe('Mobile WeekView — horizontal scroll geometry', () => {
 
     it('container uses fit-content for horizontal scroll', () => {
         const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
-        expect(source).toContain("minWidth: 'fit-content'");
+        expect(source).toContain('min-w-fit');
+        expect(source).toContain('lg:min-w-0');
     });
 
     it('today auto-scroll is one-time only', () => {

@@ -212,11 +212,11 @@ export function WeekView({
             className="relative h-full w-full overflow-x-auto overflow-y-auto scrollbar-thin"
         >
             {/* Day Headers — sticky at top */}
-            <div className="sticky top-0 z-30 flex border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)]" style={{ minWidth: 'fit-content' }}>
+            <div className="sticky top-0 z-30 flex min-w-fit border-b border-[var(--color-line)] bg-white/96 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:min-w-0">
                 <div className="sticky left-0 z-40 flex w-[56px] min-w-[56px] shrink-0 items-center justify-center border-r border-[var(--color-line-soft)] bg-white/96 py-3 backdrop-blur-sm dark:bg-[var(--color-cal-sticky)] lg:w-[72px] lg:min-w-[72px]">
                     <span className="text-[10px] font-semibold text-[var(--color-graphite)]">{formatGmtOffset(timezone)}</span>
                 </div>
-                <div className="grid flex-1 grid-cols-7">
+                <div className="grid min-w-0 flex-1 grid-cols-7">
                     {weekDates.map((date, idx) => {
                         const todayMark = isToday(date);
 
@@ -256,7 +256,7 @@ export function WeekView({
 
             {/* Grid Body — time + slots */}
             <DndContext sensors={sensors} onDragStart={handleDragStart} onDragOver={handleDragOver} onDragEnd={handleDragEnd}>
-                <div className="flex" style={{ minWidth: 'fit-content' }}>
+                <div className="flex min-w-fit lg:min-w-0">
                     {/* Time Column — sticky left */}
                     <div className="sticky left-0 z-20 w-[56px] min-w-[56px] shrink-0 border-r border-[var(--color-line-soft)] bg-white dark:bg-[var(--color-cal-workspace)] lg:w-[72px] lg:min-w-[72px]">
                         {gridHours.map((hour) => {
@@ -281,7 +281,7 @@ export function WeekView({
                     </div>
 
                     {/* Day Columns with Appointment Cards */}
-                    <div className="grid flex-1 grid-cols-7">
+                    <div className="grid min-w-0 flex-1 grid-cols-7">
                         {weekDates.map((date, dayIdx) => {
                             const dayAppts = getAppointmentsForDay(dayIdx);
                             const dayBlocked = getBlockedTimesForDay(dayIdx);
