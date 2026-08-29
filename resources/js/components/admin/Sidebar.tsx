@@ -131,7 +131,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
     const profileDropdown = profileMenuOpen ? (
         <div
-            className="absolute bottom-full left-0 mb-1 w-56 rounded-xl border border-[var(--color-line)] bg-white p-1.5 shadow-lg dark:bg-zinc-900"
+            className="absolute bottom-full left-0 mb-1 w-full max-w-56 rounded-xl border border-[var(--color-line)] bg-white p-1.5 shadow-lg dark:bg-zinc-900 lg:w-56 lg:max-w-none"
             onClick={(e) => e.stopPropagation()}
             role="menu"
         >
@@ -319,7 +319,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                             <XMarkIcon className="size-5" />
                         </button>
                         {/* Same content as desktop */}
-                        <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain pb-[max(0px,env(safe-area-inset-bottom))]">
+                        <div className="min-h-0 flex-1 overflow-x-hidden overflow-y-auto overscroll-contain pb-[max(0px,env(safe-area-inset-bottom))]">
                             {sidebarContent}
                         </div>
                     </aside>
