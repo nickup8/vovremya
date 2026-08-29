@@ -218,8 +218,26 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
             {/* Profile section */}
             <div className="border-t border-[var(--color-line-soft)] pt-3">
-                <div className={`flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
-                    {/* Avatar — always clickable to open profile menu */}
+                {/* Mobile: whole profile row is trigger */}
+                <button
+                    onClick={toggleProfile}
+                    className="flex w-full items-center gap-2.5 rounded-lg p-1.5 text-left transition-colors hover:bg-[var(--color-line-soft)] lg:hidden"
+                    aria-label="Меню профиля"
+                    aria-expanded={profileMenuOpen}
+                >
+                    <Avatar className="size-9 shrink-0">
+                        <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                        <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
+                            {initials}
+                        </AvatarFallback>
+                    </Avatar>
+                    <div className="min-w-0 flex-1">
+                        <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
+                        <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                    </div>
+                </button>
+                {/* Desktop: avatar + name + ellipsis */}
+                <div className={`hidden lg:flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
                     <button
                         onClick={toggleProfile}
                         className="shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)]"
@@ -250,13 +268,13 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                             </button>
                         </>
                     )}
-                    {/* Dropdown positioned relative to the profile row */}
-                    {profileMenuOpen && (
-                        <div className="relative">
-                            {profileDropdown}
-                        </div>
-                    )}
                 </div>
+                {/* Dropdown — shared content, positioned above trigger */}
+                {profileMenuOpen && (
+                    <div className="relative">
+                        {profileDropdown}
+                    </div>
+                )}
 
                 {/* Version */}
                 {!collapsed && (
@@ -282,7 +300,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
             {/* Mobile overlay + sidebar */}
             {mobileOpen && (
-                <div className="fixed inset-0 z-50 lg:hidden">
+                <div className="fixed inset-0 z-[70] lg:hidden">
                     <div
                         className="fixed inset-0 bg-black/40 backdrop-blur-[2px]"
                         onClick={onMobileClose}
