@@ -319,9 +319,10 @@ describe('Notifications — compact empty state', () => {
 
     });
 
-    it('topbar has relative z-30 for stacking above calendar', () => {
+    it('topbar has relative z-50 strictly above calendar z-30', () => {
         const source = readSource('../layouts/AdminLayout.tsx');
-        expect(source).toContain('relative z-30');
+        expect(source).toContain('relative z-50');
+        expect(source).not.toContain('relative z-30');
         expect(source).toContain('overflow-hidden');
     });
 });
