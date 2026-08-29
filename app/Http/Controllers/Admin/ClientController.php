@@ -50,6 +50,7 @@ class ClientController extends Controller
                     'user_id' => $client->user_id,
                     'is_blocked' => $client->is_blocked,
                     'avatar_url' => $client->avatar_url,
+                    'notes' => $client->notes,
                     'total_bookings' => $client->total_bookings,
                     'completed_bookings' => $client->completed_bookings,
                     'ltv' => (float) $ltv,

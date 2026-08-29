@@ -1,5 +1,5 @@
-import { useState, useMemo, useCallback } from 'react';
-import { Head, router, usePage } from '@inertiajs/react';
+import { useState, useMemo, useCallback, useRef } from 'react';
+import { Head, router, usePage, Link } from '@inertiajs/react';
 import { toast } from 'sonner';
 import {
     MagnifyingGlassIcon,
@@ -7,10 +7,12 @@ import {
     UsersIcon,
     XMarkIcon,
     PhoneIcon,
-    PencilIcon,
-    ShieldCheckIcon,
+    PencilSquareIcon,
     NoSymbolIcon,
+    ShieldCheckIcon,
     CalendarDaysIcon,
+    EllipsisHorizontalIcon,
+    ChevronDownIcon,
 } from '@heroicons/react/24/outline';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -31,6 +33,7 @@ import type { Client, Paginated, PageProps } from '@/types/app';
 /* ═══════════════ Helpers ═══════════════ */
 
 type FilterType = 'all' | 'active' | 'blocked';
+type SortType = 'last_visit' | 'name';
 
 const FILTER_TABS: { key: FilterType; label: string }[] = [
     { key: 'all', label: 'Все' },
@@ -49,19 +52,153 @@ function formatCurrency(value: number): string {
     return value.toLocaleString('ru-RU') + ' ₽';
 }
 
+/* ═══════════════ Client Card ═══════════════ */
+
+function ClientCard({
+    client,
+    onOpen,
+    onBook,
+    onEdit,
+    onToggleBlock,
+}: {
+    client: Client;
+    onOpen: () => void;
+    onBook: (e: React.MouseEvent) => void;
+    onEdit: (e: React.MouseEvent) => void;
+    onToggleBlock: (e: React.MouseEvent) => void;
+}) {
+    const [menuOpen, setMenuOpen] = useState(false);
+    const menuRef = useRef<HTMLDivElement>(null);
+    const initials = getInitials(client.name);
+
+    return (
+        <article
+            className="group relative min-w-0 cursor-pointer rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-4 transition-colors hover:border-[var(--color-graphite)]/30 hover:bg-[var(--color-surface-hover)]"
+            onClick={onOpen}
+            tabIndex={0}
+            onKeyDown={(e) => { if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button')) onOpen(); }}
+        >
+            {/* Header */}
+            <div className="grid grid-cols-[42px_minmax(0,1fr)_auto] items-center gap-[11px]">
+                <Avatar className="size-[42px] shrink-0">
+                    <AvatarImage src={client.avatar_url ?? undefined} alt={client.name} className="object-cover" />
+                    <AvatarFallback className="bg-[var(--color-avatar)] text-xs font-bold text-[var(--color-ink)]">
+                        {initials}
+                    </AvatarFallback>
+                </Avatar>
+                <div className="min-w-0">
+                    <p className="truncate text-sm font-bold text-[var(--color-ink)]">{client.name}</p>
+                    {client.phone && (
+                        <a
+                            href={`tel:+${client.phone.replace(/\D/g, '')}`}
+                            onClick={(e) => e.stopPropagation()}
+                            className="mt-0.5 flex items-center gap-1 font-mono text-[11.5px] text-[var(--color-graphite)] hover:text-[var(--color-orange)]"
+                        >
+                            <PhoneIcon className="size-[13px] shrink-0" />
+                            {formatPhone(client.phone)}
+                        </a>
+                    )}
+                </div>
+                {client.is_blocked && (
+                    <span className="inline-flex shrink-0 items-center gap-1.5 rounded-full bg-[var(--color-red-bg)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--color-red)]">
+                        <span className="size-1.5 rounded-full bg-[var(--color-red)]" />
+                        Заблокирован
+                    </span>
+                )}
+            </div>
+
+            {/* Stats */}
+            <div className="my-4 grid grid-cols-3 gap-0 border-y border-[var(--color-line-soft)] py-3">
+                <div className="border-r border-[var(--color-line-soft)] px-3 first:pl-0 last:border-r-0 last:pr-0">
+                    <p className="text-[10.5px] text-[var(--color-graphite)]">Визиты</p>
+                    <p className="mt-0.5 text-[13px] font-bold tabular-nums text-[var(--color-ink)]">{client.completed_bookings ?? 0}</p>
+                </div>
+                <div className="border-r border-[var(--color-line-soft)] px-3 first:pl-0 last:border-r-0 last:pr-0">
+                    <p className="text-[10.5px] text-[var(--color-graphite)]">LTV</p>
+                    <p className="mt-0.5 text-[13px] font-bold tabular-nums text-[var(--color-ink)]">{formatCurrency(client.ltv ?? 0)}</p>
+                </div>
+                <div className="border-r border-[var(--color-line-soft)] px-3 first:pl-0 last:border-r-0 last:pr-0">
+                    <p className="text-[10.5px] text-[var(--color-graphite)]">Последний визит</p>
+                    <p className="mt-0.5 truncate text-[13px] font-bold tabular-nums text-[var(--color-ink)]">{formatDate(client.last_visit ?? null)}</p>
+                </div>
+            </div>
+
+            {/* Footer */}
+            <div className="flex items-center justify-end gap-1.5">
+                <button
+                    onClick={onBook}
+                    className="inline-flex h-[34px] items-center gap-1.5 rounded-lg px-2.5 text-xs font-semibold text-[var(--color-orange)] transition-colors hover:bg-[var(--color-orange-100)]"
+                >
+                    <CalendarDaysIcon className="size-4" />
+                    Записать
+                </button>
+                <div className="relative" ref={menuRef}>
+                    <button
+                        onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
+                        className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        aria-label="Действия с клиентом"
+                        aria-expanded={menuOpen}
+                    >
+                        <EllipsisHorizontalIcon className="size-4" />
+                    </button>
+                    {menuOpen && (
+                        <>
+                            <div className="fixed inset-0 z-30" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
+                            <div
+                                className="absolute bottom-[40px] right-0 z-40 w-[190px] rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-1.5 shadow-lg"
+                                onClick={(e) => e.stopPropagation()}
+                                role="menu"
+                            >
+                                <button
+                                    onClick={(e) => { setMenuOpen(false); onEdit(e); }}
+                                    className="flex h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 text-[12.5px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                    role="menuitem"
+                                >
+                                    <PencilSquareIcon className="size-[17px] text-[var(--color-graphite)]" />
+                                    Редактировать
+                                </button>
+                                <button
+                                    onClick={(e) => { setMenuOpen(false); onToggleBlock(e); }}
+                                    className="flex h-[38px] w-full items-center gap-2.5 rounded-lg px-2.5 text-[12.5px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                    role="menuitem"
+                                >
+                                    {client.is_blocked ? (
+                                        <>
+                                            <ShieldCheckIcon className="size-[17px] text-[var(--color-graphite)]" />
+                                            Разблокировать
+                                        </>
+                                    ) : (
+                                        <>
+                                            <NoSymbolIcon className="size-[17px] text-[var(--color-graphite)]" />
+                                            Заблокировать
+                                        </>
+                                    )}
+                                </button>
+                            </div>
+                        </>
+                    )}
+                </div>
+            </div>
+        </article>
+    );
+}
+
 /* ═══════════════ Main Clients Page ═══════════════ */
 
 export default function ClientsPage() {
     const { clients: paginatedClients, auth } = usePage<PageProps & { clients: Paginated<Client> }>().props;
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FilterType>('all');
+    const [sort, setSort] = useState<SortType>('last_visit');
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [drawerMode, setDrawerMode] = useState<'view' | 'create' | 'edit'>('create');
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
     const [formName, setFormName] = useState('');
     const [formPhone, setFormPhone] = useState('');
+    const [formNotes, setFormNotes] = useState('');
     const [isProcessing, setIsProcessing] = useState(false);
     const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
+    const [blockTarget, setBlockTarget] = useState<Client | null>(null);
 
     const initialClients = paginatedClients?.data ?? [];
 
@@ -77,13 +214,24 @@ export default function ClientsPage() {
         }
         if (filter === 'active') result = result.filter((c) => !c.is_blocked);
         else if (filter === 'blocked') result = result.filter((c) => c.is_blocked);
+
+        if (sort === 'name') {
+            result = [...result].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
+        } else {
+            result = [...result].sort((a, b) => {
+                const da = a.last_visit ? new Date(a.last_visit).getTime() : 0;
+                const db = b.last_visit ? new Date(b.last_visit).getTime() : 0;
+                return db - da;
+            });
+        }
         return result;
-    }, [initialClients, search, filter]);
+    }, [initialClients, search, filter, sort]);
 
     const openCreate = useCallback(() => {
         setSelectedClient(null);
         setFormName('');
         setFormPhone('');
+        setFormNotes('');
         setDrawerMode('create');
         setDrawerOpen(true);
     }, []);
@@ -94,12 +242,14 @@ export default function ClientsPage() {
         setDrawerOpen(true);
     }, []);
 
-    const openEdit = useCallback(() => {
-        if (!selectedClient) return;
-        setFormName(selectedClient.name);
-        setFormPhone(selectedClient.phone || '');
+    const openEdit = useCallback((client: Client) => {
+        setSelectedClient(client);
+        setFormName(client.name);
+        setFormPhone(client.phone || '');
+        setFormNotes(client.notes || '');
         setDrawerMode('edit');
-    }, [selectedClient]);
+        setDrawerOpen(true);
+    }, []);
 
     const closeDrawer = useCallback(() => {
         setDrawerOpen(false);
@@ -108,19 +258,27 @@ export default function ClientsPage() {
             setDrawerMode('create');
             setFormName('');
             setFormPhone('');
+            setFormNotes('');
         }, 200);
     }, []);
 
+    function handleBlockClick(client: Client) {
+        setBlockTarget(client);
+        setBlockConfirmOpen(true);
+    }
+
     function handleToggleBlock() {
-        if (!selectedClient || isProcessing) return;
+        if (!blockTarget || isProcessing) return;
         setIsProcessing(true);
-        router.post(`/admin/clients/${selectedClient.id}/toggle-block`, {}, {
+        router.post(`/admin/clients/${blockTarget.id}/toggle-block`, {}, {
             preserveScroll: true,
             onSuccess: () => {
-                toast.success(selectedClient.is_blocked
-                    ? `${selectedClient.name} разблокирован`
-                    : `${selectedClient.name} заблокирован`);
-                closeDrawer();
+                toast.success(blockTarget.is_blocked
+                    ? `${blockTarget.name} разблокирован`
+                    : `${blockTarget.name} заблокирован`);
+                setBlockConfirmOpen(false);
+                setBlockTarget(null);
+                if (selectedClient?.id === blockTarget.id) closeDrawer();
             },
             onError: (errors) => {
                 toast.error(Object.values(errors)[0] || 'Не удалось изменить статус');
@@ -133,9 +291,10 @@ export default function ClientsPage() {
         if (!formName.trim() || !formPhone.trim() || isProcessing) return;
         setIsProcessing(true);
         const phone = stripPhoneMask(formPhone);
+        const notes = formNotes.trim() || undefined;
 
         if (drawerMode === 'edit' && selectedClient) {
-            router.put(`/admin/clients/${selectedClient.id}`, { name: formName, phone }, {
+            router.put(`/admin/clients/${selectedClient.id}`, { name: formName, phone, notes }, {
                 preserveScroll: true,
                 onSuccess: () => {
                     toast.success('Данные клиента обновлены');
@@ -147,7 +306,7 @@ export default function ClientsPage() {
                 },
             });
         } else {
-            router.post('/admin/clients', { name: formName, phone }, {
+            router.post('/admin/clients', { name: formName, phone, notes }, {
                 preserveScroll: true,
                 onSuccess: () => {
                     toast.success('Клиент добавлен');
@@ -163,21 +322,34 @@ export default function ClientsPage() {
 
     const isEmpty = initialClients.length === 0;
     const noResults = !isEmpty && clients.length === 0;
+    const countLabel = `${clients.length} ${clients.length === 1 ? 'клиент' : clients.length < 5 ? 'клиента' : 'клиентов'}`;
 
     return (
         <>
             <Head title="Клиенты — Вовремя" />
 
-            <AdminLayout title="Клиенты" auth={auth}>
+            <AdminLayout
+                title="Клиенты"
+                auth={auth}
+                headerActions={
+                    <Button
+                        onClick={openCreate}
+                        className="h-10 gap-1.5 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                    >
+                        <PlusIcon className="size-4" />
+                        <span className="hidden lg:inline">Добавить клиента</span>
+                    </Button>
+                }
+            >
                 {/* ─── Toolbar ─── */}
-                <div className="mb-5 flex flex-wrap items-center gap-3">
-                    <div className="relative max-w-[360px] flex-1">
-                        <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-[18px] -translate-y-1/2 text-[var(--color-graphite)]" />
+                <div className="mb-4 flex min-h-[64px] items-center gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[10px_12px]">
+                    <div className="relative min-w-0 flex-1">
+                        <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[var(--color-graphite)]" />
                         <Input
                             value={search}
                             onChange={(e) => setSearch(e.target.value)}
                             placeholder="Поиск по имени или телефону"
-                            className="h-10 border-[var(--color-line)] bg-[var(--color-warm)] pl-9 pr-8 text-sm placeholder:text-[var(--color-graphite)]"
+                            className="h-[42px] border-[var(--color-line)] bg-[var(--color-surface)] pl-[42px] pr-8 text-[13px] placeholder:text-[var(--color-graphite)]"
                         />
                         {search && (
                             <button
@@ -188,14 +360,14 @@ export default function ClientsPage() {
                             </button>
                         )}
                     </div>
-                    <div className="flex rounded-[10px] bg-[var(--color-warm)] p-1">
+                    <div className="flex h-10 shrink-0 gap-0.5 rounded-xl bg-[var(--color-warm)] p-[3px]">
                         {FILTER_TABS.map((tab) => (
                             <button
                                 key={tab.key}
                                 onClick={() => setFilter(tab.key)}
-                                className={`rounded-lg px-3 py-1.5 text-xs font-medium transition-colors ${
+                                className={`rounded-[9px] px-3 text-[13px] font-semibold transition-colors ${
                                     filter === tab.key
-                                        ? 'bg-white text-[var(--color-ink)] shadow-sm dark:bg-zinc-700'
+                                        ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
                                         : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                                 }`}
                             >
@@ -203,24 +375,28 @@ export default function ClientsPage() {
                             </button>
                         ))}
                     </div>
-                    <div className="ml-auto">
-                        <Button
-                            onClick={openCreate}
-                            className="h-10 gap-1.5 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]"
-                        >
-                            <PlusIcon className="size-4" />
-                            Новый клиент
-                        </Button>
-                    </div>
                 </div>
+
+                {/* ─── Meta row ─── */}
+                {!isEmpty && !noResults && (
+                    <div className="flex items-center justify-between gap-5 px-1 pb-2.5 pt-[18px]">
+                        <p className="text-xs tabular-nums text-[var(--color-graphite)]">{countLabel}</p>
+                        <button
+                            onClick={() => setSort(sort === 'last_visit' ? 'name' : 'last_visit')}
+                            className="h-[34px] rounded-lg px-2 text-xs font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        >
+                            {sort === 'last_visit' ? 'По последнему визиту ↓' : 'По имени А–Я'}
+                        </button>
+                    </div>
+                )}
 
                 {/* ─── Empty state: no clients at all ─── */}
                 {isEmpty && (
-                    <div className="flex flex-col items-center justify-center py-20 text-center">
-                        <div className="flex size-14 items-center justify-center rounded-2xl bg-[var(--color-warm)]">
-                            <UsersIcon className="size-7 text-[var(--color-graphite)]" />
+                    <div className="mx-auto mt-8 flex min-h-[220px] max-w-[360px] flex-col items-center justify-center rounded-[16px] border border-dashed border-[var(--color-line)] bg-[var(--color-surface)]/70 px-6 text-center">
+                        <div className="mb-3 flex size-12 items-center justify-center rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)]">
+                            <UsersIcon className="size-[22px] text-[var(--color-graphite)]" />
                         </div>
-                        <p className="mt-4 text-sm font-semibold text-[var(--color-ink)]">Клиентов пока нет</p>
+                        <p className="text-[15px] font-semibold text-[var(--color-ink)]">Клиентов пока нет</p>
                         <p className="mt-1 text-xs text-[var(--color-graphite)]">Добавьте первого клиента, чтобы начать работу</p>
                         <Button
                             onClick={openCreate}
@@ -234,308 +410,214 @@ export default function ClientsPage() {
 
                 {/* ─── Empty state: no search/filter results ─── */}
                 {noResults && (
-                    <div className="flex flex-col items-center justify-center py-20 text-center">
-                        <div className="flex size-14 items-center justify-center rounded-2xl bg-[var(--color-warm)]">
-                            <MagnifyingGlassIcon className="size-7 text-[var(--color-graphite)]" />
+                    <div className="mx-auto mt-8 flex min-h-[220px] max-w-[360px] flex-col items-center justify-center rounded-[16px] border border-dashed border-[var(--color-line)] bg-[var(--color-surface)]/70 px-6 text-center">
+                        <div className="mb-3 flex size-12 items-center justify-center rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)]">
+                            <MagnifyingGlassIcon className="size-[22px] text-[var(--color-graphite)]" />
                         </div>
-                        <p className="mt-4 text-sm font-semibold text-[var(--color-ink)]">Ничего не найдено</p>
-                        <p className="mt-1 text-xs text-[var(--color-graphite)]">Попробуйте другой запрос или очистите фильтры</p>
+                        <p className="text-[15px] font-semibold text-[var(--color-ink)]">Ничего не найдено</p>
+                        <p className="mt-1 text-xs text-[var(--color-graphite)]">Измените запрос или фильтр.</p>
                         <button
                             onClick={() => { setSearch(''); setFilter('all'); }}
                             className="mt-3 text-xs font-semibold text-[var(--color-orange)] hover:underline"
                         >
-                            Очистить поиск
+                            Очистить фильтры
                         </button>
                     </div>
                 )}
 
-                {/* ─── Desktop table ─── */}
+                {/* ─── Client cards grid ─── */}
                 {!isEmpty && !noResults && (
-                    <>
-                        {/* Desktop table */}
-                        <div className="hidden overflow-hidden rounded-xl border border-[var(--color-line)] lg:block">
-                            <table className="w-full">
-                                <thead>
-                                    <tr className="border-b border-[var(--color-line)] bg-[var(--color-warm)]">
-                                        <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-graphite)]">Клиент</th>
-                                        <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-graphite)]">Телефон</th>
-                                        <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-graphite)]">Визитов</th>
-                                        <th className="px-4 py-3 text-left text-[11px] font-semibold uppercase tracking-wider text-[var(--color-graphite)]">Последний визит</th>
-                                        <th className="px-4 py-3 text-right text-[11px] font-semibold uppercase tracking-wider text-[var(--color-graphite)]">LTV</th>
-                                    </tr>
-                                </thead>
-                                <tbody>
-                                    {clients.map((client) => {
-                                        const initials = getInitials(client.name);
-                                        return (
-                                            <tr
-                                                key={client.id}
-                                                onClick={() => openView(client)}
-                                                className="cursor-pointer border-b border-[var(--color-line-soft)] transition-colors last:border-b-0 hover:bg-[var(--color-warm)]"
-                                            >
-                                                <td className="px-4 py-3.5">
-                                                    <div className="flex items-center gap-3">
-                                                        <Avatar className="size-9 shrink-0">
-                                                            <AvatarImage src={client.avatar_url ?? undefined} alt={client.name} className="object-cover" />
-                                                            <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
-                                                                {initials}
-                                                            </AvatarFallback>
-                                                        </Avatar>
-                                                        <div className="min-w-0">
-                                                            <p className="truncate text-sm font-semibold text-[var(--color-ink)]">{client.name}</p>
-                                                            {client.is_blocked && (
-                                                                <span className="text-[11px] font-medium text-red-500">Заблокирован</span>
-                                                            )}
-                                                        </div>
-                                                    </div>
-                                                </td>
-                                                <td className="px-4 py-3.5">
-                                                    {client.phone ? (
-                                                        <a
-                                                            href={`tel:+${client.phone.replace(/\D/g, '')}`}
-                                                            onClick={(e) => e.stopPropagation()}
-                                                            className="font-mono text-sm text-[var(--color-graphite)] hover:text-[var(--color-orange)]"
-                                                        >
-                                                            {formatPhone(client.phone)}
-                                                        </a>
-                                                    ) : (
-                                                        <span className="text-sm text-[var(--color-graphite)]/50">—</span>
-                                                    )}
-                                                </td>
-                                                <td className="px-4 py-3.5 text-sm text-[var(--color-graphite)]">
-                                                    {client.completed_bookings ?? 0}
-                                                </td>
-                                                <td className="px-4 py-3.5 text-sm text-[var(--color-graphite)]">
-                                                    {formatDate(client.last_visit ?? null)}
-                                                </td>
-                                                <td className="px-4 py-3.5 text-right text-sm font-semibold text-[var(--color-ink)]">
-                                                    {formatCurrency(client.ltv ?? 0)}
-                                                </td>
-                                            </tr>
-                                        );
-                                    })}
-                                </tbody>
-                            </table>
-                        </div>
+                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                        {clients.map((client) => (
+                            <ClientCard
+                                key={client.id}
+                                client={client}
+                                onOpen={() => openView(client)}
+                                onBook={(e) => { e.stopPropagation(); router.get('/admin/calendar', { client_id: client.id }); }}
+                                onEdit={(e) => { e.stopPropagation(); openEdit(client); }}
+                                onToggleBlock={(e) => { e.stopPropagation(); handleBlockClick(client); }}
+                            />
+                        ))}
+                    </div>
+                )}
 
-                        {/* Mobile list */}
-                        <div className="flex flex-col gap-0.5 lg:hidden">
-                            {clients.map((client) => {
-                                const initials = getInitials(client.name);
-                                return (
-                                    <button
-                                        key={client.id}
-                                        onClick={() => openView(client)}
-                                        className="flex items-center gap-3 rounded-xl px-3 py-3 text-left transition-colors hover:bg-[var(--color-warm)] active:bg-[var(--color-line-soft)]"
-                                    >
-                                        <Avatar className="size-10 shrink-0">
-                                            <AvatarImage src={client.avatar_url ?? undefined} alt={client.name} className="object-cover" />
-                                            <AvatarFallback className="bg-[var(--color-line)] text-sm font-bold text-[var(--color-ink)]">
-                                                {initials}
-                                            </AvatarFallback>
-                                        </Avatar>
-                                        <div className="min-w-0 flex-1">
-                                            <p className="truncate text-sm font-semibold text-[var(--color-ink)]">{client.name}</p>
-                                            <p className="mt-0.5 font-mono text-xs text-[var(--color-graphite)]">
-                                                {client.phone ? formatPhone(client.phone) : '—'}
-                                            </p>
-                                        </div>
-                                        <div className="text-right">
-                                            <p className="text-xs text-[var(--color-graphite)]">{client.completed_bookings ?? 0} визитов</p>
-                                            {client.is_blocked && (
-                                                <span className="text-[11px] font-medium text-red-500">Заблокирован</span>
-                                            )}
-                                        </div>
-                                    </button>
-                                );
-                            })}
+                {/* ─── Pagination ─── */}
+                {!isEmpty && !noResults && paginatedClients && paginatedClients.last_page > 1 && (
+                    <div className="mt-[18px] flex min-h-[56px] items-center justify-between gap-4 border-t border-[var(--color-line-soft)] pt-3.5">
+                        <p className="text-xs tabular-nums text-[var(--color-graphite)]">
+                            {paginatedClients.from}–{paginatedClients.to} из {paginatedClients.total}
+                        </p>
+                        <div className="flex items-center gap-1">
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-[34px] min-w-[34px] px-2"
+                                disabled={paginatedClients.current_page <= 1}
+                                onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page - 1}`)}
+                            >
+                                <ChevronDownIcon className="size-4 rotate-90" />
+                            </Button>
+                            <Button
+                                variant="outline"
+                                size="sm"
+                                className="h-[34px] min-w-[34px] px-2"
+                                disabled={paginatedClients.current_page >= paginatedClients.last_page}
+                                onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page + 1}`)}
+                            >
+                                <ChevronDownIcon className="size-4 -rotate-90" />
+                            </Button>
                         </div>
-
-                        {/* Pagination */}
-                        {paginatedClients && paginatedClients.last_page > 1 && (
-                            <div className="mt-4 flex items-center justify-between">
-                                <p className="text-xs text-[var(--color-graphite)]">
-                                    {paginatedClients.from}–{paginatedClients.to} из {paginatedClients.total}
-                                </p>
-                                <div className="flex gap-1">
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={paginatedClients.current_page <= 1}
-                                        onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page - 1}`)}
-                                    >
-                                        Назад
-                                    </Button>
-                                    <Button
-                                        variant="outline"
-                                        size="sm"
-                                        disabled={paginatedClients.current_page >= paginatedClients.last_page}
-                                        onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page + 1}`)}
-                                    >
-                                        Далее
-                                    </Button>
-                                </div>
-                            </div>
-                        )}
-                    </>
+                    </div>
                 )}
             </AdminLayout>
 
-            {/* ─── Client Drawer (view / create / edit) ─── */}
-            <Drawer open={drawerOpen} onOpenChange={(open) => { if (!open) closeDrawer(); }}>
+            {/* ─── Client Detail Drawer ─── */}
+            <Drawer open={drawerOpen && drawerMode === 'view'} onOpenChange={(open) => { if (!open) closeDrawer(); }}>
                 <DrawerContent>
                     <DrawerHeader>
-                        <DrawerTitle>
-                            {drawerMode === 'create' && 'Новый клиент'}
-                            {drawerMode === 'edit' && 'Редактировать клиента'}
-                            {drawerMode === 'view' && 'Клиент'}
-                        </DrawerTitle>
+                        <DrawerTitle>Клиент</DrawerTitle>
                     </DrawerHeader>
-
                     <DrawerBody>
-                        {/* VIEW MODE */}
-                        {drawerMode === 'view' && selectedClient && (
+                        {selectedClient && (
                             <div className="space-y-5">
-                                <div className="flex items-center gap-3">
+                                {/* Identity */}
+                                <div className="flex items-center gap-3 border-b border-[var(--color-line-soft)] pb-[18px]">
                                     <Avatar className="size-12 shrink-0">
                                         <AvatarImage src={selectedClient.avatar_url ?? undefined} alt={selectedClient.name} className="object-cover" />
-                                        <AvatarFallback className="bg-[var(--color-line)] text-base font-bold text-[var(--color-ink)]">
+                                        <AvatarFallback className="bg-[var(--color-avatar)] text-base font-bold text-[var(--color-ink)]">
                                             {getInitials(selectedClient.name)}
                                         </AvatarFallback>
                                     </Avatar>
                                     <div className="min-w-0">
-                                        <p className="text-base font-semibold text-[var(--color-ink)]">{selectedClient.name}</p>
-                                        {selectedClient.is_blocked && (
-                                            <span className="inline-flex items-center gap-1 text-[11px] font-semibold text-red-500">
-                                                <NoSymbolIcon className="size-3" />
-                                                Заблокирован
-                                            </span>
+                                        <p className="text-[15px] font-bold text-[var(--color-ink)]">{selectedClient.name}</p>
+                                        {selectedClient.phone && (
+                                            <a
+                                                href={`tel:+${selectedClient.phone.replace(/\D/g, '')}`}
+                                                className="mt-0.5 flex items-center gap-1 text-xs text-[var(--color-graphite)] hover:text-[var(--color-orange)]"
+                                            >
+                                                <PhoneIcon className="size-3" />
+                                                {formatPhone(selectedClient.phone)}
+                                            </a>
                                         )}
                                     </div>
                                 </div>
 
-                                <div className="space-y-3">
-                                    {selectedClient.phone && (
-                                        <div className="flex items-center gap-3">
-                                            <PhoneIcon className="size-[18px] shrink-0 text-[var(--color-graphite)]" />
-                                            <a
-                                                href={`tel:+${selectedClient.phone.replace(/\D/g, '')}`}
-                                                className="font-mono text-sm text-[var(--color-ink)] hover:text-[var(--color-orange)]"
-                                            >
-                                                {formatPhone(selectedClient.phone)}
-                                            </a>
+                                {/* Section: Клиент */}
+                                <div>
+                                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[.07em] text-[var(--color-graphite)]">Клиент</p>
+                                    <div className="divide-y divide-[var(--color-line-soft)]">
+                                        <div className="grid min-h-[44px] grid-cols-[125px_minmax(0,1fr)] items-center text-[13px]">
+                                            <dt className="text-[var(--color-graphite)]">Статус</dt>
+                                            <dd className="font-semibold">
+                                                {selectedClient.is_blocked ? (
+                                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-red-bg)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--color-red)]">
+                                                        <span className="size-1.5 rounded-full bg-[var(--color-red)]" />
+                                                        Заблокирован
+                                                    </span>
+                                                ) : (
+                                                    <span className="inline-flex items-center gap-1.5 rounded-full bg-[var(--color-green-bg)] px-2 py-0.5 text-[10.5px] font-bold text-[var(--color-green)]">
+                                                        <span className="size-1.5 rounded-full bg-[var(--color-green)]" />
+                                                        Активен
+                                                    </span>
+                                                )}
+                                            </dd>
                                         </div>
-                                    )}
-                                </div>
-
-                                <div className="grid grid-cols-2 gap-3">
-                                    <div className="rounded-xl bg-[var(--color-warm)] p-3">
-                                        <p className="text-[11px] text-[var(--color-graphite)]">Визитов</p>
-                                        <p className="mt-0.5 text-lg font-bold text-[var(--color-ink)]">{selectedClient.completed_bookings ?? 0}</p>
-                                    </div>
-                                    <div className="rounded-xl bg-[var(--color-warm)] p-3">
-                                        <p className="text-[11px] text-[var(--color-graphite)]">LTV</p>
-                                        <p className="mt-0.5 text-lg font-bold text-[var(--color-ink)]">{formatCurrency(selectedClient.ltv ?? 0)}</p>
-                                    </div>
-                                    <div className="col-span-2 rounded-xl bg-[var(--color-warm)] p-3">
-                                        <p className="text-[11px] text-[var(--color-graphite)]">Последний визит</p>
-                                        <p className="mt-0.5 text-sm font-semibold text-[var(--color-ink)]">{formatDate(selectedClient.last_visit ?? null)}</p>
+                                        <div className="grid min-h-[44px] grid-cols-[125px_minmax(0,1fr)] items-center text-[13px]">
+                                            <dt className="text-[var(--color-graphite)]">Визиты</dt>
+                                            <dd className="font-semibold">{selectedClient.completed_bookings ?? 0}</dd>
+                                        </div>
+                                        <div className="grid min-h-[44px] grid-cols-[125px_minmax(0,1fr)] items-center text-[13px]">
+                                            <dt className="text-[var(--color-graphite)]">LTV</dt>
+                                            <dd className="font-semibold">{formatCurrency(selectedClient.ltv ?? 0)}</dd>
+                                        </div>
+                                        <div className="grid min-h-[44px] grid-cols-[125px_minmax(0,1fr)] items-center text-[13px]">
+                                            <dt className="text-[var(--color-graphite)]">Последний визит</dt>
+                                            <dd className="font-semibold">{formatDate(selectedClient.last_visit ?? null)}</dd>
+                                        </div>
                                     </div>
                                 </div>
 
-                                <button
-                                    onClick={() => router.get('/admin/calendar', { client_id: selectedClient.id })}
-                                    className="flex w-full items-center gap-2 rounded-xl border border-[var(--color-line)] px-4 py-3 text-sm font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-warm)]"
-                                >
-                                    <CalendarDaysIcon className="size-5 text-[var(--color-graphite)]" />
-                                    Записать на приём
-                                </button>
-                            </div>
-                        )}
-
-                        {/* CREATE / EDIT MODE */}
-                        {(drawerMode === 'create' || drawerMode === 'edit') && (
-                            <div className="space-y-4">
+                                {/* Section: Заметка */}
                                 <div>
-                                    <label className="mb-1.5 block text-[12px] font-semibold text-[var(--color-graphite)]">
-                                        Имя
-                                    </label>
-                                    <Input
-                                        value={formName}
-                                        onChange={(e) => setFormName(e.target.value)}
-                                        placeholder="Имя клиента"
-                                        className="h-11 border-[var(--color-line)] bg-[var(--color-warm)]"
-                                        autoFocus
-                                    />
-                                </div>
-                                <div>
-                                    <label className="mb-1.5 block text-[12px] font-semibold text-[var(--color-graphite)]">
-                                        Телефон
-                                    </label>
-                                    <PhoneInput
-                                        value={formPhone}
-                                        onChange={setFormPhone}
-                                        placeholder="+7 (911) 123-45-67"
-                                        className="h-11 border-[var(--color-line)] bg-[var(--color-warm)]"
-                                    />
+                                    <p className="mb-2 text-[11px] font-bold uppercase tracking-[.07em] text-[var(--color-graphite)]">Заметка</p>
+                                    <div className="rounded-[10px] bg-[var(--color-warm)] p-3 text-[12.5px] leading-[19px] text-[var(--color-graphite)]">
+                                        {selectedClient.notes || 'Нет заметки'}
+                                    </div>
                                 </div>
                             </div>
                         )}
                     </DrawerBody>
-
                     <DrawerFooter>
-                        {drawerMode === 'view' && selectedClient && (
-                            <div className="flex gap-2">
-                                <Button
-                                    onClick={openEdit}
-                                    variant="outline"
-                                    className="h-11 flex-1 gap-2 text-sm font-semibold"
-                                >
-                                    <PencilIcon className="size-4" />
-                                    Редактировать
-                                </Button>
-                                <Button
-                                    onClick={() => setBlockConfirmOpen(true)}
-                                    variant="outline"
-                                    className={`h-11 gap-2 text-sm font-semibold ${
-                                        selectedClient.is_blocked
-                                            ? 'border-emerald-200 text-emerald-600 hover:bg-emerald-50 dark:border-emerald-800 dark:text-emerald-400'
-                                            : 'border-red-200 text-red-600 hover:bg-red-50 dark:border-red-800 dark:text-red-400'
-                                    }`}
-                                >
-                                    {selectedClient.is_blocked ? (
-                                        <>
-                                            <ShieldCheckIcon className="size-4" />
-                                            Разблокировать
-                                        </>
-                                    ) : (
-                                        <>
-                                            <NoSymbolIcon className="size-4" />
-                                            Заблокировать
-                                        </>
-                                    )}
-                                </Button>
-                            </div>
+                        {selectedClient && (
+                            <Button
+                                onClick={() => router.get('/admin/calendar', { client_id: selectedClient.id })}
+                                className="h-11 flex-1 gap-2 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                            >
+                                <CalendarDaysIcon className="size-[18px]" />
+                                Создать запись
+                            </Button>
                         )}
+                    </DrawerFooter>
+                </DrawerContent>
+            </Drawer>
 
-                        {(drawerMode === 'create' || drawerMode === 'edit') && (
-                            <div className="flex gap-2">
-                                <Button
-                                    variant="outline"
-                                    onClick={() => { if (selectedClient) { setDrawerMode('view'); } else { closeDrawer(); } }}
-                                    className="h-11 flex-1 text-sm font-semibold"
-                                >
-                                    Отмена
-                                </Button>
-                                <Button
-                                    onClick={handleSubmit}
-                                    disabled={!formName.trim() || !formPhone.trim() || isProcessing}
-                                    className="h-11 flex-1 gap-1.5 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]"
-                                >
-                                    {drawerMode === 'edit' ? 'Сохранить' : 'Создать клиента'}
-                                </Button>
+            {/* ─── Create / Edit Drawer ─── */}
+            <Drawer open={drawerOpen && (drawerMode === 'create' || drawerMode === 'edit')} onOpenChange={(open) => { if (!open) closeDrawer(); }}>
+                <DrawerContent>
+                    <DrawerHeader>
+                        <DrawerTitle>
+                            {drawerMode === 'edit' ? 'Редактировать клиента' : 'Новый клиент'}
+                        </DrawerTitle>
+                    </DrawerHeader>
+                    <DrawerBody>
+                        <div className="space-y-4">
+                            <div className="grid gap-[7px]">
+                                <label className="text-[12px] font-semibold text-[var(--color-graphite)]">Имя</label>
+                                <Input
+                                    value={formName}
+                                    onChange={(e) => setFormName(e.target.value)}
+                                    placeholder="Например, Анна Смирнова"
+                                    className="h-11 border-[var(--color-line)] bg-[var(--color-surface)]"
+                                    autoFocus
+                                />
                             </div>
-                        )}
+                            <div className="grid gap-[7px]">
+                                <label className="text-[12px] font-semibold text-[var(--color-graphite)]">Телефон</label>
+                                <PhoneInput
+                                    value={formPhone}
+                                    onChange={setFormPhone}
+                                    placeholder="+7 (___) ___-__-__"
+                                    className="h-11 border-[var(--color-line)] bg-[var(--color-surface)]"
+                                />
+                            </div>
+                            <div className="grid gap-[7px]">
+                                <label className="text-[12px] font-semibold text-[var(--color-graphite)]">Заметка</label>
+                                <Input
+                                    value={formNotes}
+                                    onChange={(e) => setFormNotes(e.target.value)}
+                                    placeholder="Необязательно"
+                                    className="h-11 border-[var(--color-line)] bg-[var(--color-surface)]"
+                                />
+                            </div>
+                        </div>
+                    </DrawerBody>
+                    <DrawerFooter>
+                        <div className="flex gap-2">
+                            <Button
+                                onClick={handleSubmit}
+                                disabled={!formName.trim() || !formPhone.trim() || isProcessing}
+                                className="h-11 flex-1 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                            >
+                                {drawerMode === 'edit' ? 'Сохранить изменения' : 'Добавить клиента'}
+                            </Button>
+                            <Button
+                                variant="outline"
+                                onClick={closeDrawer}
+                                className="h-11 text-sm font-semibold"
+                            >
+                                Отмена
+                            </Button>
+                        </div>
                     </DrawerFooter>
                 </DrawerContent>
             </Drawer>
@@ -545,12 +627,12 @@ export default function ClientsPage() {
                 <AlertDialogContent>
                     <AlertDialogHeader>
                         <AlertDialogTitle>
-                            {selectedClient?.is_blocked ? 'Разблокировать клиента?' : 'Заблокировать клиента?'}
+                            {blockTarget?.is_blocked ? 'Разблокировать клиента?' : 'Заблокировать клиента?'}
                         </AlertDialogTitle>
                         <AlertDialogDescription>
-                            {selectedClient?.is_blocked
-                                ? `${selectedClient?.name} снова сможет записываться на приём.`
-                                : `${selectedClient?.name} не сможет записываться на приём. Активные записи будут отменены.`
+                            {blockTarget?.is_blocked
+                                ? `${blockTarget?.name} снова сможет записываться на приём.`
+                                : `${blockTarget?.name} не сможет записываться на приём. Активные записи будут отменены.`
                             }
                         </AlertDialogDescription>
                     </AlertDialogHeader>
@@ -558,12 +640,12 @@ export default function ClientsPage() {
                         <AlertDialogCancel>Отмена</AlertDialogCancel>
                         <AlertDialogAction
                             onClick={handleToggleBlock}
-                            className={selectedClient?.is_blocked
+                            className={blockTarget?.is_blocked
                                 ? 'bg-emerald-600 text-white hover:bg-emerald-700'
                                 : 'bg-red-600 text-white hover:bg-red-700'
                             }
                         >
-                            {selectedClient?.is_blocked ? 'Разблокировать' : 'Заблокировать'}
+                            {blockTarget?.is_blocked ? 'Разблокировать' : 'Заблокировать'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
