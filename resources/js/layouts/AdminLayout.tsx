@@ -11,6 +11,20 @@ import { Toaster } from '@/components/ui/sonner';
 import { useAppearance } from '@/hooks/use-appearance';
 
 const SIDEBAR_COLLAPSED_KEY = 'vovremya-sidebar-collapsed';
+const LG_BREAKPOINT = 1024;
+
+function useIsDesktop() {
+    const [isDesktop, setIsDesktop] = useState(() =>
+        typeof window !== 'undefined' ? window.innerWidth >= LG_BREAKPOINT : true,
+    );
+    useEffect(() => {
+        const mql = window.matchMedia(`(min-width: ${LG_BREAKPOINT}px)`);
+        const handler = (e: MediaQueryListEvent) => setIsDesktop(e.matches);
+        mql.addEventListener('change', handler);
+        return () => mql.removeEventListener('change', handler);
+    }, []);
+    return isDesktop;
+}
 
 interface AdminLayoutProps {
     children: ReactNode;
@@ -30,6 +44,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     const { appearance, updateAppearance } = useAppearance();
 
     const isDark = appearance === 'dark';
+    const isDesktop = useIsDesktop();
 
     const toggleCollapse = useCallback(() => {
         setSidebarCollapsed((prev) => {
@@ -166,10 +181,10 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                             >
                                 <BellIcon className="size-5" />
                             </button>
-                            {/* Desktop popover */}
-                            {notificationsOpen && (
+                            {/* Desktop popover — only mounted on desktop */}
+                            {notificationsOpen && isDesktop && (
                                 <section
-                                    className="absolute right-0 top-[48px] z-[80] hidden w-[380px] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-[0_18px_50px_rgba(24,24,24,0.14),0_3px_12px_rgba(24,24,24,0.08)] dark:bg-[var(--color-cal-surface)] dark:border-[var(--color-cal-border)] lg:block"
+                                    className="absolute right-0 top-[48px] z-[80] w-[380px] overflow-hidden rounded-2xl border border-[var(--color-line)] bg-white shadow-[0_18px_50px_rgba(24,24,24,0.14),0_3px_12px_rgba(24,24,24,0.08)] dark:bg-[var(--color-cal-surface)] dark:border-[var(--color-cal-border)]"
                                     onClick={(e) => e.stopPropagation()}
                                     aria-label="Уведомления"
                                 >
@@ -204,9 +219,9 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                     </div>
                 </header>
 
-                {/* Mobile notifications drawer */}
-                {notificationsOpen && (
-                    <div className="fixed inset-0 z-[60] lg:hidden">
+                {/* Mobile notifications drawer — only mounted on mobile */}
+                {notificationsOpen && !isDesktop && (
+                    <div className="fixed inset-0 z-[60]">
                         <div className="fixed inset-0 bg-black/30" onClick={() => setNotificationsOpen(false)} aria-hidden="true" />
                         <div className="fixed inset-y-0 right-0 z-10 flex w-full flex-col bg-white dark:bg-[var(--color-cal-surface)]">
                             <div className="flex items-center justify-between border-b border-[var(--color-line)] px-4 py-4">

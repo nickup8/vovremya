@@ -354,10 +354,13 @@ describe('Mobile topbar — controls visible', () => {
         expect(source).toContain('lg:grid'); // theme switch desktop only
     });
 
-    it('mobile notifications use Drawer, desktop use popover', () => {
+    it('mobile notifications use Drawer, desktop use popover — conditionally rendered', () => {
         const source = readSource('../layouts/AdminLayout.tsx');
-        expect(source).toContain('lg:hidden'); // mobile drawer
-        expect(source).toContain('lg:block'); // desktop popover
+        expect(source).toContain('isDesktop'); // conditional rendering
+        expect(source).toContain('notificationsOpen && isDesktop'); // desktop-only mount
+        expect(source).toContain('notificationsOpen && !isDesktop'); // mobile-only mount
+        // No CSS-only hiding — both should NOT be in DOM simultaneously
+        expect(source).not.toContain('hidden lg:block');
     });
 
     it('mobile title uses smaller text', () => {
