@@ -28,12 +28,20 @@ class ClientController extends Controller
 
         $perPage = (int) $request->query('per_page', 3); // TODO: revert to 12 after visual acceptance
         $sort = $request->query('sort', 'last_visit_desc');
+        $search = $request->query('search', '');
+        $filter = $request->query('filter', 'all');
+
         $allowedSorts = ['last_visit_desc', 'name_asc'];
         if (! in_array($sort, $allowedSorts)) {
             $sort = 'last_visit_desc';
         }
+        $allowedFilters = ['all', 'active', 'blocked'];
+        if (! in_array($filter, $allowedFilters)) {
+            $filter = 'all';
+        }
 
-        $clients = Client::forWorkspaceOrMaster($user)
+        // 1. Base query with aggregates
+        $query = Client::forWorkspaceOrMaster($user)
             ->with(['appointments' => fn ($q) => $q->where('status', AppointmentStatus::Paid)])
             ->withCount(['appointments as total_bookings' => function ($q) {
                 $q->where('status', '!=', AppointmentStatus::Cancelled);
@@ -43,16 +51,36 @@ class ClientController extends Controller
             }])
             ->withMax('appointments as last_visit', 'start_time');
 
+        // 2. Search
+        if ($search !== '') {
+            $query->where(function ($q) use ($search) {
+                $q->where('name', 'like', "%{$search}%")
+                  ->orWhere('phone', 'like', "%{$search}%");
+            });
+        }
+
+        // 3. Filter
+        if ($filter === 'active') {
+            $query->where('is_blocked', false);
+        } elseif ($filter === 'blocked') {
+            $query->where('is_blocked', true);
+        }
+
+        // 4. Sort
         if ($sort === 'name_asc') {
-            $clients = $clients->orderBy('name', 'asc');
+            $query->orderBy('name', 'asc');
         }
+        // last_visit_desc is applied after collection (aggregate sort)
 
-        $clients = $clients->get();
+        // 5. Get all matching clients
+        $clients = $query->get();
 
+        // Apply collection-level sort for last_visit_desc (null last_visit → end)
         if ($sort === 'last_visit_desc') {
-            $clients = $clients->sortByDesc(fn ($c) => $c->last_visit ?? '')->values();
+            $clients = $clients->sortBy(fn ($c) => $c->last_visit ?? '')->reverse()->values();
         }
 
+        // 6. Map to DTO
         $clients = $clients->map(function (Client $client) {
             $ltv = $client->appointments
                 ->where('status', AppointmentStatus::Paid)
@@ -73,6 +101,7 @@ class ClientController extends Controller
             ];
         });
 
+        // 7. Paginate
         $total = $clients->count();
         $page = (int) $request->query('page', 1);
         $lastPage = max(1, (int) ceil($total / $perPage));

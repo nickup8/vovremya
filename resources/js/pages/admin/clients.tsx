@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback, useRef } from 'react';
+import { useState, useCallback, useRef, useEffect } from 'react';
 import { Head, router, usePage, Link } from '@inertiajs/react';
 import { toast } from 'sonner';
 import {
@@ -85,7 +85,7 @@ function ClientCard({
 
     return (
         <article
-            className="group relative min-w-0 cursor-pointer overflow-visible rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-4 transition-colors hover:border-[var(--color-graphite)]/30 hover:bg-[var(--color-surface-hover)]"
+            className="group relative min-w-0 cursor-pointer overflow-visible rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-4 transition-colors hover:border-[var(--color-graphite)]/40"
             onClick={onOpen}
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button')) onOpen(); }}
@@ -199,11 +199,12 @@ function ClientCard({
 
 export default function ClientsPage() {
     const { clients: paginatedClients, auth } = usePage<PageProps & { clients: Paginated<Client> }>().props;
-    const [search, setSearch] = useState('');
-    const [filter, setFilter] = useState<FilterType>('all');
-    const [sort, setSort] = useState<SortType>(
-        () => (new URLSearchParams(window.location.search).get('sort') === 'name_asc' ? 'name_asc' : 'last_visit_desc'),
-    );
+
+    const urlParams = new URLSearchParams(window.location.search);
+    const [search, setSearch] = useState(() => urlParams.get('search') ?? '');
+    const [filter, setFilter] = useState<FilterType>(() => (urlParams.get('filter') as FilterType) ?? 'all');
+    const [sort, setSort] = useState<SortType>(() => (urlParams.get('sort') as SortType) ?? 'last_visit_desc');
+
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [drawerMode, setDrawerMode] = useState<'view' | 'create' | 'edit'>('create');
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -214,23 +215,19 @@ export default function ClientsPage() {
     const [blockConfirmOpen, setBlockConfirmOpen] = useState(false);
     const [blockTarget, setBlockTarget] = useState<Client | null>(null);
 
-    const initialClients = paginatedClients?.data ?? [];
+    const clients = paginatedClients?.data ?? [];
 
-    const clients = useMemo(() => {
-        let result = initialClients;
-        if (search.trim()) {
-            const q = search.toLowerCase();
-            result = result.filter(
-                (c) =>
-                    c.name.toLowerCase().includes(q) ||
-                    (c.phone && c.phone.includes(q)),
-            );
-        }
-        if (filter === 'active') result = result.filter((c) => !c.is_blocked);
-        else if (filter === 'blocked') result = result.filter((c) => c.is_blocked);
+    const queryParams = useCallback((overrides: Record<string, unknown> = {}) => ({
+        search, filter, sort, ...overrides,
+    }), [search, filter, sort]);
 
-        return result;
-    }, [initialClients, search, filter]);
+    // Debounced search → server
+    useEffect(() => {
+        const timer = setTimeout(() => {
+            router.get('/admin/clients', { search, filter, sort }, { preserveState: true, preserveScroll: true, replace: true });
+        }, 300);
+        return () => clearTimeout(timer);
+    }, [search]);
 
     const openCreate = useCallback(() => {
         setSelectedClient(null);
@@ -325,9 +322,10 @@ export default function ClientsPage() {
         }
     }
 
-    const isEmpty = initialClients.length === 0;
-    const noResults = !isEmpty && clients.length === 0;
     const totalCount = paginatedClients?.total ?? 0;
+    const hasActiveFilters = search.trim() !== '' || filter !== 'all';
+    const isEmpty = totalCount === 0 && !hasActiveFilters;
+    const noResults = totalCount === 0 && hasActiveFilters;
     const countLabel = `${totalCount} ${totalCount === 1 ? 'клиент' : totalCount % 10 >= 2 && totalCount % 10 <= 4 && (totalCount % 100 < 10 || totalCount % 100 >= 20) ? 'клиента' : 'клиентов'}`;
 
     return (
@@ -349,9 +347,9 @@ export default function ClientsPage() {
                     </Button>
                 }
             >
-                <div className="min-h-full bg-[var(--color-warm)] p-4 md:p-6">
+                <div className="min-h-full bg-[var(--color-warm)] p-3 md:p-7">
                 {/* ─── Toolbar ─── */}
-                <div className="mb-4 flex min-h-[64px] flex-col gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[10px_12px] md:flex-row md:items-center">
+                <div className="mb-3 flex min-h-[64px] flex-col gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[10px_12px] md:flex-row md:items-center">
                     <div className="relative min-w-0 flex-1">
                         <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[var(--color-graphite)]" />
                         <Input
@@ -373,7 +371,10 @@ export default function ClientsPage() {
                         {FILTER_TABS.map((tab) => (
                             <button
                                 key={tab.key}
-                                onClick={() => setFilter(tab.key)}
+                                onClick={() => {
+                                    setFilter(tab.key);
+                                    router.get('/admin/clients', queryParams({ filter: tab.key }), { preserveState: true, preserveScroll: true });
+                                }}
                                 className={`flex-1 rounded-[9px] px-3 text-[13px] font-semibold transition-colors md:flex-none ${
                                     filter === tab.key
                                         ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
@@ -388,13 +389,13 @@ export default function ClientsPage() {
 
                 {/* ─── Meta row ─── */}
                 {!isEmpty && !noResults && (
-                    <div className="flex items-center justify-between gap-5 px-1 pb-2.5 pt-[18px]">
+                    <div className="flex items-center justify-between gap-5 px-1 pb-2 pt-3">
                         <p className="text-xs tabular-nums text-[var(--color-graphite)]">{countLabel}</p>
                         <button
                             onClick={() => {
                                 const next: SortType = sort === 'last_visit_desc' ? 'name_asc' : 'last_visit_desc';
                                 setSort(next);
-                                router.get('/admin/clients', { sort: next }, { preserveState: true, preserveScroll: true });
+                                router.get('/admin/clients', queryParams({ sort: next }), { preserveState: true, preserveScroll: true });
                             }}
                             className="h-[34px] rounded-lg px-2 text-xs font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
                         >
@@ -430,7 +431,7 @@ export default function ClientsPage() {
                         <p className="text-[15px] font-semibold text-[var(--color-ink)]">Ничего не найдено</p>
                         <p className="mt-1 text-xs text-[var(--color-graphite)]">Измените запрос или фильтр.</p>
                         <button
-                            onClick={() => { setSearch(''); setFilter('all'); }}
+                            onClick={() => { setSearch(''); setFilter('all'); router.get('/admin/clients', {}, { preserveState: true }); }}
                             className="mt-3 text-xs font-semibold text-[var(--color-orange)] hover:underline"
                         >
                             Очистить фильтры
@@ -464,7 +465,7 @@ export default function ClientsPage() {
                             <button
                                 className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg px-2 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:hover:bg-transparent"
                                 disabled={paginatedClients.current_page <= 1}
-                                onClick={() => router.get('/admin/clients', { page: paginatedClients.current_page - 1, sort }, { preserveState: true, preserveScroll: true })}
+                                onClick={() => router.get('/admin/clients', queryParams({ page: paginatedClients.current_page - 1 }), { preserveState: true, preserveScroll: true })}
                             >
                                 <ChevronDownIcon className="size-4 rotate-90" />
                             </button>
@@ -474,7 +475,7 @@ export default function ClientsPage() {
                                 ) : (
                                     <button
                                         key={p}
-                                        onClick={() => router.get('/admin/clients', { page: p, sort }, { preserveState: true, preserveScroll: true })}
+                                        onClick={() => router.get('/admin/clients', queryParams({ page: p }), { preserveState: true, preserveScroll: true })}
                                         className={`flex h-[34px] min-w-[34px] items-center justify-center rounded-lg px-2 text-[13px] font-semibold transition-colors ${
                                             p === paginatedClients.current_page
                                                 ? 'bg-[var(--color-orange-100)] text-[var(--color-orange)]'
@@ -488,7 +489,7 @@ export default function ClientsPage() {
                             <button
                                 className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg px-2 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:hover:bg-transparent"
                                 disabled={paginatedClients.current_page >= paginatedClients.last_page}
-                                onClick={() => router.get('/admin/clients', { page: paginatedClients.current_page + 1, sort }, { preserveState: true, preserveScroll: true })}
+                                onClick={() => router.get('/admin/clients', queryParams({ page: paginatedClients.current_page + 1 }), { preserveState: true, preserveScroll: true })}
                             >
                                 <ChevronDownIcon className="size-4 -rotate-90" />
                             </button>
