@@ -185,6 +185,69 @@ class ServiceCatalogControllerTest extends TestCase
         $this->assertSame(2, ServiceCatalog::count());
     }
 
+    // ── Store validation ─────────────────────────────────
+
+    public function test_store_requires_title(): void
+    {
+        $owner = User::factory()->master()->create();
+        $ws = Workspace::create([
+            'name' => 'Solo WS ' . Str::random(6),
+            'owner_id' => $owner->id,
+        ]);
+        $owner->update(['workspace_id' => $ws->id, 'role' => UserRole::Owner]);
+
+        $response = $this->actingAs($owner)->post('/admin/catalog', [
+            'base_price' => 1500,
+            'base_duration' => 30,
+        ]);
+
+        $response->assertSessionHasErrors('title');
+        $this->assertDatabaseCount('service_catalog', 0);
+    }
+
+    public function test_store_requires_price_and_duration(): void
+    {
+        $owner = User::factory()->master()->create();
+        $ws = Workspace::create([
+            'name' => 'Solo WS ' . Str::random(6),
+            'owner_id' => $owner->id,
+        ]);
+        $owner->update(['workspace_id' => $ws->id, 'role' => UserRole::Owner]);
+
+        $response = $this->actingAs($owner)->post('/admin/catalog', [
+            'title' => 'Маникюр',
+            'base_price' => -10,
+            'base_duration' => 0,
+        ]);
+
+        $response->assertSessionHasErrors(['base_price', 'base_duration']);
+        $this->assertDatabaseCount('service_catalog', 0);
+    }
+
+    public function test_store_creates_inactive_service(): void
+    {
+        $owner = User::factory()->master()->create();
+        $ws = Workspace::create([
+            'name' => 'Solo WS ' . Str::random(6),
+            'owner_id' => $owner->id,
+        ]);
+        $owner->update(['workspace_id' => $ws->id, 'role' => UserRole::Owner]);
+
+        $response = $this->actingAs($owner)->post('/admin/catalog', [
+            'title' => 'Скрытая услуга',
+            'base_price' => 900,
+            'base_duration' => 20,
+            'is_active' => false,
+        ]);
+
+        $response->assertRedirect();
+        $this->assertDatabaseHas('service_catalog', [
+            'workspace_id' => $ws->id,
+            'title' => 'Скрытая услуга',
+            'is_active' => false,
+        ]);
+    }
+
     // ── Update ───────────────────────────────────────────
 
     public function test_owner_can_update_catalog_item(): void
@@ -221,6 +284,29 @@ class ServiceCatalogControllerTest extends TestCase
 
         $catalog->refresh();
         $this->assertSame('3000.00', $catalog->base_price);
+    }
+
+    public function test_update_reactivates_inactive_service(): void
+    {
+        [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $ws->id,
+            'title' => 'Педикюр',
+            'base_price' => 1500,
+            'base_duration' => 30,
+            'is_active' => false,
+        ]);
+
+        $response = $this->actingAs($owner)->put("/admin/catalog/{$catalog->id}", [
+            'title' => 'Педикюр',
+            'base_price' => 1500,
+            'base_duration' => 30,
+            'is_active' => true,
+        ]);
+
+        $response->assertRedirect();
+        $catalog->refresh();
+        $this->assertTrue($catalog->is_active);
     }
 
     public function test_update_duplicate_title_rejected(): void

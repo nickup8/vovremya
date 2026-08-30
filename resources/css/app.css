@@ -57,6 +57,9 @@
     --color-line: #E7E4DF;
     --color-line-soft: #F0EEEA;
 
+    /* Global admin page background — change once to restyle Clients/Services */
+    --color-admin-page-bg: var(--color-warm);
+
     --radius-lg: var(--radius);
     --radius-md: calc(var(--radius) - 2px);
     --radius-sm: calc(var(--radius) - 4px);

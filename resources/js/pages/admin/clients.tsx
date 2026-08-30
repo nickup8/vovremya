@@ -347,7 +347,7 @@ export default function ClientsPage() {
                     </Button>
                 }
             >
-                <div className="min-h-full bg-[var(--color-warm)] p-3 md:p-7">
+                <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
                 {/* ─── Toolbar ─── */}
                 <div className="mb-3 flex min-h-[64px] flex-col gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[10px_12px] md:flex-row md:items-center">
                     <div className="relative min-w-0 flex-1">
