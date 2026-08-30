@@ -3,8 +3,8 @@ import { usePage, Link } from '@inertiajs/react';
 import {
     Bars3Icon, BellIcon, PlusIcon,
     SunIcon, MoonIcon,
-    Bars3BottomLeftIcon,
 } from '@heroicons/react/24/outline';
+import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
 import type { ReactNode } from 'react';
 import Sidebar from '@/components/admin/Sidebar';
 import { Toaster } from '@/components/ui/sonner';
@@ -116,7 +116,10 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                         aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Сложить боковую панель'}
                         aria-pressed={sidebarCollapsed}
                     >
-                        <Bars3BottomLeftIcon className="size-5" />
+                        {sidebarCollapsed
+                            ? <PanelLeftOpen className="size-[18px]" strokeWidth={1.75} />
+                            : <PanelLeftClose className="size-[18px]" strokeWidth={1.75} />
+                        }
                     </button>
 
                     {/* Title block */}

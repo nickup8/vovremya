@@ -52,6 +52,18 @@ function formatCurrency(value: number): string {
     return value.toLocaleString('ru-RU') + ' ₽';
 }
 
+function getPageNumbers(current: number, last: number): (number | 'ellipsis')[] {
+    if (last <= 7) return Array.from({ length: last }, (_, i) => i + 1);
+    const pages: (number | 'ellipsis')[] = [1];
+    if (current > 3) pages.push('ellipsis');
+    for (let i = Math.max(2, current - 1); i <= Math.min(last - 1, current + 1); i++) {
+        pages.push(i);
+    }
+    if (current < last - 2) pages.push('ellipsis');
+    pages.push(last);
+    return pages;
+}
+
 /* ═══════════════ Client Card ═══════════════ */
 
 function ClientCard({
@@ -315,7 +327,8 @@ export default function ClientsPage() {
 
     const isEmpty = initialClients.length === 0;
     const noResults = !isEmpty && clients.length === 0;
-    const countLabel = `${clients.length} ${clients.length === 1 ? 'клиент' : clients.length < 5 ? 'клиента' : 'клиентов'}`;
+    const totalCount = paginatedClients?.total ?? 0;
+    const countLabel = `${totalCount} ${totalCount === 1 ? 'клиент' : totalCount % 10 >= 2 && totalCount % 10 <= 4 && (totalCount % 100 < 10 || totalCount % 100 >= 20) ? 'клиента' : 'клиентов'}`;
 
     return (
         <>
@@ -443,29 +456,42 @@ export default function ClientsPage() {
 
                 {/* ─── Pagination ─── */}
                 {!isEmpty && !noResults && paginatedClients && paginatedClients.last_page > 1 && (
-                    <div className="mt-[18px] flex min-h-[56px] items-center justify-between gap-4 border-t border-[var(--color-line-soft)] pt-3.5">
+                    <div className="mt-[18px] flex min-h-[56px] flex-wrap items-center justify-between gap-4 border-t border-[var(--color-line-soft)] pt-3.5">
                         <p className="text-xs tabular-nums text-[var(--color-graphite)]">
                             {paginatedClients.from}–{paginatedClients.to} из {paginatedClients.total}
                         </p>
                         <div className="flex items-center gap-1">
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-[34px] min-w-[34px] px-2"
+                            <button
+                                className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg px-2 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:hover:bg-transparent"
                                 disabled={paginatedClients.current_page <= 1}
                                 onClick={() => router.get('/admin/clients', { page: paginatedClients.current_page - 1, sort }, { preserveState: true, preserveScroll: true })}
                             >
                                 <ChevronDownIcon className="size-4 rotate-90" />
-                            </Button>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                className="h-[34px] min-w-[34px] px-2"
+                            </button>
+                            {getPageNumbers(paginatedClients.current_page, paginatedClients.last_page).map((p, i) =>
+                                p === 'ellipsis' ? (
+                                    <span key={`e${i}`} className="flex h-[34px] min-w-[34px] items-center justify-center text-xs text-[var(--color-graphite)]">…</span>
+                                ) : (
+                                    <button
+                                        key={p}
+                                        onClick={() => router.get('/admin/clients', { page: p, sort }, { preserveState: true, preserveScroll: true })}
+                                        className={`flex h-[34px] min-w-[34px] items-center justify-center rounded-lg px-2 text-[13px] font-semibold transition-colors ${
+                                            p === paginatedClients.current_page
+                                                ? 'bg-[var(--color-orange-100)] text-[var(--color-orange)]'
+                                                : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)]'
+                                        }`}
+                                    >
+                                        {p}
+                                    </button>
+                                ),
+                            )}
+                            <button
+                                className="flex h-[34px] min-w-[34px] items-center justify-center rounded-lg px-2 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:opacity-40 disabled:hover:bg-transparent"
                                 disabled={paginatedClients.current_page >= paginatedClients.last_page}
                                 onClick={() => router.get('/admin/clients', { page: paginatedClients.current_page + 1, sort }, { preserveState: true, preserveScroll: true })}
                             >
                                 <ChevronDownIcon className="size-4 -rotate-90" />
-                            </Button>
+                            </button>
                         </div>
                     </div>
                 )}
