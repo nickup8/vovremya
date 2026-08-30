@@ -6,11 +6,6 @@ vi.mock('@inertiajs/react', () => ({
     router: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), visit: vi.fn() },
 }));
 vi.mock('@/components/ui/button', () => ({ Button: ({ children, ...p }: any) => React.createElement('button', p, children) }));
-vi.mock('lucide-react', () => {
-    const Icon = () => null;
-
-    return { Copy: Icon, Check: Icon, Plus: Icon, Pencil: Icon, Lock: Icon, Link2: Icon };
-});
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 import { ChannelsTab, TopChannelsBlock   } from '@/components/admin/ChannelsAnalytics';

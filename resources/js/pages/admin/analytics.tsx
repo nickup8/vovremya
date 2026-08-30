@@ -1,12 +1,12 @@
 import { useState, useMemo, useCallback } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
-    Download, Calendar, ChevronLeft, ChevronRight,
-    Gauge, TrendingDown, TrendingUp, CalendarDays, AlertTriangle,
-} from 'lucide-react';
+    ArrowDownTrayIcon, CalendarIcon, ChevronLeftIcon, ChevronRightIcon,
+    ArrowTrendingUpIcon, ArrowTrendingDownIcon, ClockIcon, CalendarDaysIcon,
+    ExclamationTriangleIcon, MagnifyingGlassIcon, PaperAirplaneIcon,
+    ArrowsRightLeftIcon, CheckIcon,
+} from '@heroicons/react/24/outline';
 import AdminLayout from '@/layouts/AdminLayout';
-import { Button } from '@/components/ui/button';
-import { Card, CardHeader, CardTitle, CardDescription, CardContent } from '@/components/ui/card';
 import { ChannelsTab, TopChannelsBlock } from '@/components/admin/ChannelsAnalytics';
 import type { ChannelSource, TrackingLinkItem } from '@/components/admin/ChannelsAnalytics';
 
@@ -80,81 +80,12 @@ const PERIOD_TABS: { key: string; label: string }[] = [
     { key: 'custom', label: 'Период' },
 ];
 
-/* ═══════════════ Stat Card ═══════════════ */
-
-function StatCard({ icon: Icon, label, value, badge, subtitle, color, valueClassName }: {
-    icon: React.ElementType;
-    label: string;
-    value: string;
-    badge?: React.ReactNode;
-    subtitle?: string;
-    color: string;
-    valueClassName?: string;
-}) {
-    const colorMap: Record<string, { bg: string; text: string }> = {
-        emerald: { bg: 'bg-emerald-50 dark:bg-emerald-950/40', text: 'text-emerald-600 dark:text-emerald-400' },
-        blue: { bg: 'bg-blue-50 dark:bg-blue-950/40', text: 'text-blue-600 dark:text-blue-400' },
-        red: { bg: 'bg-red-50 dark:bg-red-950/40', text: 'text-red-600 dark:text-red-400' },
-        rose: { bg: 'bg-rose-50 dark:bg-rose-950/40', text: 'text-rose-600 dark:text-rose-400' },
-    };
-    const c = colorMap[color] || colorMap.blue;
-
-    return (
-        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="mb-3">
-                <div className={`flex size-10 items-center justify-center rounded-lg ${c.bg}`}>
-                    <Icon className={`size-5 ${c.text}`} />
-                </div>
-            </div>
-            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">{label}</p>
-            <div className="flex flex-col gap-1">
-                <p className={`text-2xl font-bold text-slate-900 dark:text-zinc-100 ${valueClassName ?? ''}`}>{value}</p>
-                <div className="flex items-center">
-                    {badge}
-                    {subtitle && (
-                        <span className="ml-2 text-xs text-slate-400 dark:text-zinc-500">{subtitle}</span>
-                    )}
-                </div>
-            </div>
-        </div>
-    );
-}
-
-/* ═══════════════ Trend Badge ═══════════════ */
-
-function TrendBadge({ value, prevValue, format = 'percent' }: { value: number; prevValue?: number; format?: 'currency' | 'percent' | 'number' }) {
-    const suffix = format === 'currency' ? ' ₽' : format === 'percent' ? '%' : '';
-    const tooltipText = prevValue !== undefined
-        ? `\u0412 \u043F\u0440\u043E\u0448\u043B\u043E\u043C \u043F\u0435\u0440\u0438\u043E\u0434\u0435: ${prevValue.toLocaleString('ru-RU')}${suffix}`
-        : '';
-
-    if (value === 0) {
-        return <span title={tooltipText} className="ml-2 rounded bg-slate-500/10 px-1.5 py-0.5 text-xs font-medium text-slate-500 dark:bg-slate-500/20 dark:text-slate-400">0{suffix}</span>;
-    }
-
-    const isPositive = value > 0;
-    const colorClass = isPositive
-        ? 'bg-emerald-500/15 text-emerald-700 dark:bg-emerald-500/10 dark:text-emerald-400'
-        : 'bg-rose-500/15 text-rose-700 dark:bg-rose-500/10 dark:text-rose-400';
-    const arrow = isPositive ? '\u2191' : '\u2193';
-
-    return (
-        <span title={tooltipText} className={`ml-2 rounded px-1.5 py-0.5 text-xs font-medium ${colorClass}`}>
-            {arrow} {Math.abs(value).toLocaleString('ru-RU')}{suffix}
-        </span>
-    );
-}
-
 /* ═══════════════ Helpers ═══════════════ */
 
 /** Форматирует строку 'YYYY-MM-DD' в локальную дату без сдвига часового пояса */
 function safeFormatDate(dateStr: string): string {
-    if (!dateStr) {
-return '';
-}
-
+    if (!dateStr) return '';
     const [y, m, d] = dateStr.split('T')[0].split('-').map(Number);
-
     return new Date(y, m - 1, d).toLocaleDateString('ru-RU', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
@@ -163,7 +94,6 @@ function toLocalDateString(d: Date): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-
     return `${y}-${m}-${day}`;
 }
 
@@ -179,9 +109,7 @@ function formatMedianSeconds(seconds: number | null): string {
 
 /** Вычисляет границы периода по его типу и смещению */
 function computePeriodDates(period: string, offset: number): { from: string; to: string } | null {
-    if (period === 'custom') {
-return null;
-}
+    if (period === 'custom') return null;
 
     const now = new Date();
     let start: Date;
@@ -220,6 +148,72 @@ return null;
     return { from: toLocalDateString(start), to: toLocalDateString(end) };
 }
 
+const revenueSubtitle: Record<string, string> = {
+    day: 'Почасовая выручка за сегодня',
+    week: 'Выручка по дням недели',
+    month: 'Ежедневная выручка за месяц',
+    year: 'Ежемесячная выручка за год',
+    custom: 'Выручка за выбранный период',
+};
+
+/* ═══════════════ Trend Chip ═══════════════ */
+
+function TrendChip({ value, prevValue, format = 'percent' }: { value: number; prevValue?: number; format?: 'currency' | 'percent' | 'number' }) {
+    const suffix = format === 'currency' ? ' ₽' : format === 'percent' ? '%' : '';
+    const tooltip = prevValue !== undefined ? `В прошлом периоде: ${prevValue.toLocaleString('ru-RU')}${suffix}` : '';
+
+    if (value === 0) {
+        return (
+            <span title={tooltip} className="inline-flex min-h-[22px] w-max items-center rounded-[7px] bg-[var(--color-surface-hover)] px-[7px] text-[10.5px] font-bold text-[var(--color-graphite)]">
+                0{suffix}
+            </span>
+        );
+    }
+
+    const isPositive = value > 0;
+    const cls = isPositive
+        ? 'bg-[var(--color-paid-bg)] text-[var(--color-paid)]'
+        : 'bg-[var(--color-noshow-bg)] text-[var(--color-noshow)]';
+
+    return (
+        <span title={tooltip} className={`inline-flex min-h-[22px] w-max items-center gap-0.5 rounded-[7px] px-[7px] text-[10.5px] font-bold ${cls}`}>
+            {isPositive ? '↑' : '↓'} {Math.abs(value).toLocaleString('ru-RU')}{suffix}
+        </span>
+    );
+}
+
+/* ═══════════════ KPI Card ═══════════════ */
+
+type KpiTone = 'positive' | 'neutral' | 'booked' | 'danger';
+
+function KpiCard({ icon: Icon, tone, label, value, change, meta }: {
+    icon: React.ElementType;
+    tone: KpiTone;
+    label: string;
+    value: string;
+    change?: React.ReactNode;
+    meta?: string;
+}) {
+    const iconTone: Record<KpiTone, string> = {
+        positive: 'bg-[var(--color-paid-bg)] text-[var(--color-paid)]',
+        booked: 'bg-[var(--color-warm)] text-[var(--color-graphite)]',
+        neutral: 'bg-[var(--color-warm)] text-[var(--color-graphite)]',
+        danger: 'bg-[var(--color-noshow-bg)] text-[var(--color-noshow)]',
+    };
+
+    return (
+        <article className="grid min-h-[150px] content-start gap-2 rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[18px]">
+            <div className={`mb-1 grid size-9 place-items-center rounded-[10px] ${iconTone[tone]}`}>
+                <Icon className="size-[18px]" />
+            </div>
+            <p className="text-[11.5px] leading-4 text-[var(--color-graphite)]">{label}</p>
+            <p className="text-[26px] font-bold leading-8 tracking-[-.035em] text-[var(--color-ink)]">{value}</p>
+            {change}
+            {meta && <p className="text-[11px] leading-4 text-[var(--color-graphite)]">{meta}</p>}
+        </article>
+    );
+}
+
 /* ═══════════════ Main Analytics Page ═══════════════ */
 
 export default function AnalyticsPage() {
@@ -239,15 +233,8 @@ export default function AnalyticsPage() {
     // Текущие query-параметры периода (сохраняются при переключении вкладок).
     function currentPeriodParams(): Record<string, string> {
         const p: Record<string, string> = { period: activePeriod };
-
-        if (props.dateFrom) {
-p.date_from = props.dateFrom;
-}
-
-        if (props.dateTo) {
-p.date_to = props.dateTo;
-}
-
+        if (props.dateFrom) p.date_from = props.dateFrom;
+        if (props.dateTo) p.date_to = props.dateTo;
         return p;
     }
 
@@ -266,8 +253,8 @@ p.date_to = props.dateTo;
     });
     const [periodOffset, setPeriodOffset] = useState(0);
 
-    const totalValue = chartData.reduce((sum, point) => sum + point.value, 0);
-    const totalCount = chartData.reduce((sum, point) => sum + point.count, 0);
+    const totalValue = chartData.reduce((sum: number, point: ChartPoint) => sum + point.value, 0);
+    const totalCount = chartData.reduce((sum: number, point: ChartPoint) => sum + point.count, 0);
 
     // Вычисления для карточки «Клиентская база»
     const totalClients = metrics.new_clients_count + metrics.returning_clients_count;
@@ -297,9 +284,7 @@ p.date_to = props.dateTo;
     }
 
     function handleCustomApply() {
-        if (! dates.from || ! dates.to) {
-return;
-}
+        if (! dates.from || ! dates.to) return;
 
         router.get('/admin/analytics', {
             period: 'custom',
@@ -318,10 +303,7 @@ return;
     }, [activePeriod, periodOffset]);
 
     const presetDateRange = useMemo(() => {
-        if (!computedDates) {
-return null;
-}
-
+        if (!computedDates) return null;
         return `${safeFormatDate(computedDates.from)} — ${safeFormatDate(computedDates.to)}`;
     }, [computedDates]);
 
@@ -329,15 +311,11 @@ return null;
         const newOffset = periodOffset + delta;
         setPeriodOffset(newOffset);
 
-        if (activePeriod === 'custom') {
-return;
-}
+        if (activePeriod === 'custom') return;
 
         const bounds = computePeriodDates(activePeriod, newOffset);
 
-        if (!bounds) {
-return;
-}
+        if (!bounds) return;
 
         router.get('/admin/analytics', {
             period: activePeriod,
@@ -351,36 +329,34 @@ return;
         });
     }, [periodOffset, activePeriod, activeTab]);
 
-    const stats = [
+    const kpis = [
         {
-            icon: trends.avg_check >= 0 ? TrendingUp : TrendingDown,
+            icon: trends.avg_check >= 0 ? ArrowTrendingUpIcon : ArrowTrendingDownIcon,
+            tone: (trends.avg_check >= 0 ? 'positive' : 'danger') as KpiTone,
             label: 'Средний чек',
             value: Math.round(metrics.avg_check).toLocaleString('ru-RU') + ' ₽',
-            badge: <TrendBadge value={trends.avg_check} prevValue={prev_metrics.avg_check} format="currency" />,
-            color: trends.avg_check >= 0 ? 'emerald' : 'red',
+            change: <TrendChip value={trends.avg_check} prevValue={prev_metrics.avg_check} format="currency" />,
         },
         {
-            icon: Gauge,
+            icon: ClockIcon,
+            tone: 'booked' as KpiTone,
             label: 'Посещаемость',
             value: metrics.attendance_rate + '%',
-            badge: null,
-            color: 'blue',
+            meta: `${metrics.total_visits} из ${funnelTotal} визитов состоялись`,
         },
         {
-            icon: CalendarDays,
+            icon: CalendarDaysIcon,
+            tone: (metrics.utilization_percentage > 100 ? 'danger' : 'positive') as KpiTone,
             label: 'Заполняемость графика',
             value: `${metrics.utilization_percentage}%`,
-            badge: <TrendBadge value={trends.utilization} prevValue={prev_metrics.utilization} format="percent" />,
-            color: metrics.utilization_percentage > 100 ? 'rose' : 'emerald',
-            valueClassName: metrics.utilization_percentage > 100 ? 'text-red-600 dark:text-red-400' : undefined,
+            change: <TrendChip value={trends.utilization} prevValue={prev_metrics.utilization} format="percent" />,
         },
         {
-            icon: AlertTriangle,
+            icon: ExclamationTriangleIcon,
+            tone: 'danger' as KpiTone,
             label: 'Упущенная выгода',
             value: Math.round(metrics.lost_revenue).toLocaleString('ru-RU') + ' ₽',
-            badge: null,
-            subtitle: `${metrics.cancelled_count} отмен / ${metrics.no_show_count} неявок`,
-            color: 'rose',
+            meta: `${metrics.cancelled_count} отмен / ${metrics.no_show_count} неявок`,
         },
     ];
 
@@ -388,412 +364,393 @@ return;
         <>
             <Head title="Аналитика — Вовремя" />
 
-            <AdminLayout title="Аналитика" auth={auth}>
-                <div className="space-y-6">
-                            {/* ─── Period Selector + Export ─── */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-4 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <div className="flex flex-wrap items-center justify-between gap-3">
-                                    <div className="flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-zinc-800">
-                                        {PERIOD_TABS.map(({ key, label }) => (
-                                            <button
-                                                key={key}
-                                                onClick={() => handlePeriodChange(key)}
-                                                className={`rounded-md px-3 py-1.5 text-xs font-medium transition-colors ${
-                                                    activePeriod === key
-                                                        ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
-                                                        : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-                                                }`}
-                                            >
-                                                {label}
-                                            </button>
-                                        ))}
+            <AdminLayout title="Аналитика" auth={auth} hideNewAppointment fullBleed>
+                <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
+                    <div className="grid max-w-[1320px] gap-4">
+                        {/* ─── Period Controls + Export ─── */}
+                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[14px] md:p-5">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="flex w-max max-w-full items-center gap-1.5 overflow-x-auto rounded-[14px] bg-[var(--color-warm)] p-1.5 shadow-[inset_0_0_0_1px_var(--color-line-soft)]">
+                                    {PERIOD_TABS.map(({ key, label }) => (
+                                        <button
+                                            key={key}
+                                            onClick={() => handlePeriodChange(key)}
+                                            className={`h-9 shrink-0 rounded-[10px] px-4 text-sm font-semibold transition-colors ${
+                                                activePeriod === key
+                                                    ? 'bg-[var(--color-orange)] text-white shadow-[0_8px_16px_rgba(255,90,31,0.18)]'
+                                                    : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-ink)]'
+                                            }`}
+                                        >
+                                            {label}
+                                        </button>
+                                    ))}
+                                </div>
+                                <button className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3.5 text-sm font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:w-10 max-md:px-0">
+                                    <ArrowDownTrayIcon className="size-[18px]" />
+                                    <span className="max-md:hidden">Экспорт</span>
+                                </button>
+                            </div>
+
+                            {/* ─── Custom Date Range ─── */}
+                            {activePeriod === 'custom' && (
+                                <div className="mt-3.5 flex flex-wrap items-center gap-3 border-t border-[var(--color-line)] pt-3.5">
+                                    <div className="flex items-center gap-2">
+                                        <CalendarIcon className="size-4 text-[var(--color-graphite)]" />
+                                        <span className="text-xs font-medium text-[var(--color-graphite)]">С</span>
+                                        <input
+                                            type="date"
+                                            value={dates.from}
+                                            onChange={(e) => setDates((d) => ({ ...d, from: e.target.value }))}
+                                            className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-ink)] focus:border-[var(--color-orange)] focus:outline-none focus:ring-2 focus:ring-[var(--color-orange-100)]"
+                                        />
                                     </div>
-                                    <button className="flex items-center gap-1.5 rounded-md bg-slate-100 px-3 py-1.5 text-xs font-medium text-slate-700 hover:bg-slate-200 dark:bg-zinc-800 dark:text-zinc-300 dark:hover:bg-zinc-700">
-                                        <Download className="size-3.5" />
-                                        Экспорт
+                                    <span className="text-xs text-[var(--color-graphite)]">—</span>
+                                    <div className="flex items-center gap-2">
+                                        <span className="text-xs font-medium text-[var(--color-graphite)]">По</span>
+                                        <input
+                                            type="date"
+                                            value={dates.to}
+                                            onChange={(e) => setDates((d) => ({ ...d, to: e.target.value }))}
+                                            className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-ink)] focus:border-[var(--color-orange)] focus:outline-none focus:ring-2 focus:ring-[var(--color-orange-100)]"
+                                        />
+                                    </div>
+                                    <button
+                                        onClick={handleCustomApply}
+                                        disabled={!dates.from || !dates.to}
+                                        className="rounded-[10px] bg-[var(--color-orange)] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
+                                    >
+                                        Применить
                                     </button>
                                 </div>
-
-                                {/* ─── Custom Date Range ─── */}
-                                {activePeriod === 'custom' && (
-                                    <div className="mt-3 flex flex-wrap items-center gap-3 border-t border-slate-100 pt-3 dark:border-zinc-800">
-                                        <div className="flex items-center gap-2">
-                                            <Calendar className="size-4 text-slate-400 dark:text-zinc-500" />
-                                            <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">С</span>
-                                            <input
-                                                type="date"
-                                                value={dates.from}
-                                                onChange={(e) => setDates((d) => ({ ...d, from: e.target.value }))}
-                                                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:focus:border-blue-400"
-                                            />
-                                        </div>
-                                        <span className="text-xs text-slate-400 dark:text-zinc-500">—</span>
-                                        <div className="flex items-center gap-2">
-                                            <span className="text-xs font-medium text-slate-500 dark:text-zinc-400">По</span>
-                                            <input
-                                                type="date"
-                                                value={dates.to}
-                                                onChange={(e) => setDates((d) => ({ ...d, to: e.target.value }))}
-                                                className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-1.5 text-xs text-slate-700 focus:border-blue-500 focus:outline-none focus:ring-1 focus:ring-blue-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300 dark:focus:border-blue-400"
-                                            />
-                                        </div>
-                                        <button
-                                            onClick={handleCustomApply}
-                                            disabled={!dates.from || !dates.to}
-                                            className="rounded-lg bg-blue-600 px-4 py-1.5 text-xs font-medium text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50 dark:bg-blue-500 dark:hover:bg-blue-600"
-                                        >
-                                            Применить
-                                        </button>
-                                    </div>
-                                )}
-
-                                {activePeriod !== 'custom' && presetDateRange && (
-                                    <div className="mt-3 flex items-center gap-3 border-t border-slate-100 pt-3 dark:border-zinc-800">
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="size-7"
-                                            onClick={() => handleOffsetChange(-1)}
-                                        >
-                                            <ChevronLeft className="size-4" />
-                                        </Button>
-                                        <p className="text-sm text-slate-500 dark:text-zinc-400">
-                                            {presetDateRange}
-                                        </p>
-                                        <Button
-                                            variant="outline"
-                                            size="icon"
-                                            className="size-7"
-                                            onClick={() => handleOffsetChange(1)}
-                                        >
-                                            <ChevronRight className="size-4" />
-                                        </Button>
-                                    </div>
-                                )}
-                            </div>
-
-                            {/* ─── Tabs: Обзор / Каналы записи ─── */}
-                            <div className="flex gap-1 rounded-lg bg-slate-100 p-1 dark:bg-zinc-800">
-                                <button
-                                    onClick={() => switchTab('overview')}
-                                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                                        activeTab === 'overview'
-                                            ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
-                                            : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-                                    }`}
-                                >
-                                    Обзор
-                                </button>
-                                <button
-                                    onClick={() => switchTab('channels')}
-                                    className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                                        activeTab === 'channels'
-                                            ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
-                                            : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-                                    }`}
-                                >
-                                    Каналы записи
-                                </button>
-                                {autoFillFeature && (
-                                    <button
-                                        onClick={() => switchTab('autofill')}
-                                        className={`rounded-md px-4 py-1.5 text-sm font-medium transition-colors ${
-                                            activeTab === 'autofill'
-                                                ? 'bg-white text-slate-900 shadow-sm dark:bg-zinc-700 dark:text-zinc-100'
-                                                : 'text-slate-600 hover:text-slate-900 dark:text-zinc-400 dark:hover:text-zinc-200'
-                                        }`}
-                                    >
-                                        Автозаполнение
-                                    </button>
-                                )}
-                            </div>
-
-                            {/* ─── Channels Tab ─── */}
-                            {activeTab === 'channels' && (
-                                <ChannelsTab
-                                    feature={channelsFeature}
-                                    channels={props.channels ?? null}
-                                    trackingLinks={props.tracking_links ?? null}
-                                />
                             )}
 
-                            {/* ─── AutoFill Tab ─── */}
-                            {activeTab === 'autofill' && autoFillFeature && (
-                                <div className="space-y-6">
-                                    {/* Funnel */}
-                                    <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                        <h3 className="mb-1 font-semibold text-slate-900 dark:text-zinc-100">Воронка автозаполнения</h3>
-                                        <p className="mb-5 text-xs text-slate-500 dark:text-zinc-400">Запросы → Отправлено → Перенесено</p>
-                                        {autoFill ? (
-                                            <div className="flex items-center gap-4">
-                                                <div className="flex-1 rounded-lg bg-blue-50 p-4 text-center dark:bg-blue-950/40">
-                                                    <p className="text-2xl font-bold text-blue-600 dark:text-blue-400">{autoFill.requests_created}</p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Запросов</p>
+                            {activePeriod !== 'custom' && presetDateRange && (
+                                <div className="mt-3.5 flex items-center gap-2 border-t border-[var(--color-line)] pt-3.5">
+                                    <button
+                                        onClick={() => handleOffsetChange(-1)}
+                                        className="grid size-10 shrink-0 place-items-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                        aria-label="Предыдущий период"
+                                    >
+                                        <ChevronLeftIcon className="size-[18px]" />
+                                    </button>
+                                    <p className="text-[15px] font-semibold text-[var(--color-ink)]">{presetDateRange}</p>
+                                    <button
+                                        onClick={() => handleOffsetChange(1)}
+                                        className="grid size-10 shrink-0 place-items-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                        aria-label="Следующий период"
+                                    >
+                                        <ChevronRightIcon className="size-[18px]" />
+                                    </button>
+                                </div>
+                            )}
+                        </section>
+                        {/* ─── Tabs ─── */}
+                        <div role="tablist" aria-label="Раздел аналитики" className="flex h-[43px] items-center gap-6 overflow-x-auto border-b border-[var(--color-line)]">
+                            <button
+                                role="tab"
+                                aria-selected={activeTab === 'overview'}
+                                onClick={() => switchTab('overview')}
+                                className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                    activeTab === 'overview'
+                                        ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                        : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                }`}
+                            >
+                                Обзор
+                            </button>
+                            <button
+                                role="tab"
+                                aria-selected={activeTab === 'channels'}
+                                onClick={() => switchTab('channels')}
+                                className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                    activeTab === 'channels'
+                                        ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                        : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                }`}
+                            >
+                                Каналы записи
+                            </button>
+                            {autoFillFeature && (
+                                <button
+                                    role="tab"
+                                    aria-selected={activeTab === 'autofill'}
+                                    onClick={() => switchTab('autofill')}
+                                    className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                        activeTab === 'autofill'
+                                            ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                            : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                    }`}
+                                >
+                                    Автозаполнение
+                                </button>
+                            )}
+                        </div>
+                        {/* ─── Channels Tab ─── */}
+                        {activeTab === 'channels' && (
+                            <ChannelsTab
+                                feature={channelsFeature}
+                                channels={props.channels ?? null}
+                                trackingLinks={props.tracking_links ?? null}
+                            />
+                        )}
+                        {/* ─── AutoFill Tab ─── */}
+                        {activeTab === 'autofill' && autoFillFeature && (
+                            <div className="grid gap-4">
+                                {/* Process chain — 3 события */}
+                                <article className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+                                    <div className="mb-4 flex items-start justify-between gap-4">
+                                        <div>
+                                            <h2 className="text-[18px] font-bold leading-6 tracking-[-.02em] text-[var(--color-ink)]">Автозаполнение</h2>
+                                            <p className="mt-1 text-xs leading-[17px] text-[var(--color-graphite)]">Как сервис помогает переносить записи на освободившееся более раннее время</p>
+                                        </div>
+                                        <span className="inline-flex h-7 shrink-0 items-center rounded-full bg-[var(--color-warm)] px-2.5 text-[11px] font-semibold text-[var(--color-graphite)]">За выбранный период</span>
+                                    </div>
+                                    <div className="grid gap-3 sm:grid-cols-3">
+                                        {[
+                                            { icon: MagnifyingGlassIcon, tone: 'neutral', label: 'Запросов на поиск', value: autoFill?.requests_created ?? 0, hint: 'Клиенты попросили найти время раньше' },
+                                            { icon: PaperAirplaneIcon, tone: 'booked', label: 'Предложений отправлено', value: autoFill?.offers_sent ?? 0, hint: 'Клиентам отправлены найденные варианты' },
+                                            { icon: ArrowsRightLeftIcon, tone: 'paid', label: 'Переносов выполнено', value: autoFill?.offers_accepted ?? 0, hint: 'Записи перенесены на более раннее время' },
+                                        ].map((ev) => {
+                                            const iconTone = ev.tone === 'booked'
+                                                ? 'bg-[var(--color-warm)] text-[var(--color-graphite)]'
+                                                : ev.tone === 'paid'
+                                                    ? 'bg-[var(--color-paid-bg)] text-[var(--color-paid)]'
+                                                    : 'bg-[var(--color-warm)] text-[var(--color-graphite)]';
+                                            return (
+                                                <div key={ev.label} className="grid min-h-[142px] grid-cols-[38px_minmax(0,1fr)] content-start gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-4">
+                                                    <div className={`grid size-[38px] place-items-center rounded-[10px] ${iconTone}`}>
+                                                        <ev.icon className="size-[18px]" />
+                                                    </div>
+                                                    <div className="grid content-start">
+                                                        <span className="text-xs leading-[17px] text-[var(--color-graphite)]">{ev.label}</span>
+                                                        <strong className="mt-1 text-[30px] font-bold leading-[34px] tracking-[-.035em] text-[var(--color-ink)]">{ev.value}</strong>
+                                                        <small className="mt-1.5 text-[11px] leading-4 text-[var(--color-graphite)]">{ev.hint}</small>
+                                                    </div>
                                                 </div>
-                                                <div className="text-lg text-slate-300 dark:text-zinc-600">→</div>
-                                                <div className="flex-1 rounded-lg bg-indigo-50 p-4 text-center dark:bg-indigo-950/40">
-                                                    <p className="text-2xl font-bold text-indigo-600 dark:text-indigo-400">{autoFill.offers_sent}</p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Отправлено</p>
+                                            );
+                                        })}
+                                    </div>
+                                </article>
+
+                                {/* 2 метрики */}
+                                <div className="grid gap-4 sm:grid-cols-2">
+                                    <article className="grid min-h-[180px] content-start gap-3 rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+                                        <div className="flex items-start justify-between gap-3.5">
+                                            <div>
+                                                <div className="text-xs leading-[17px] text-[var(--color-graphite)]">Доля принятых</div>
+                                                <div className="mt-1.5 text-[34px] font-bold leading-[38px] tracking-[-.04em] text-[var(--color-ink)]">{autoFill ? `${autoFill.acceptance_rate}%` : '—'}</div>
+                                            </div>
+                                            <div className="grid size-[38px] place-items-center rounded-[10px] bg-[var(--color-paid-bg)] text-[var(--color-paid)]">
+                                                <CheckIcon className="size-[18px]" />
+                                            </div>
+                                        </div>
+                                        <div className="h-2.5 overflow-hidden rounded-full bg-[var(--color-warm)]">
+                                            <span className="block h-full rounded-full bg-[var(--color-paid)]" style={{ width: `${autoFill?.acceptance_rate ?? 0}%` }} />
+                                        </div>
+                                        <p className="text-xs leading-[17px] text-[var(--color-graphite)]">Доля отправленных предложений, принятых клиентами.</p>
+                                    </article>
+
+                                    <article className="grid min-h-[180px] content-start gap-3 rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+                                        <div className="flex items-start justify-between gap-3.5">
+                                            <div>
+                                                <div className="text-xs leading-[17px] text-[var(--color-graphite)]">Медианное время ответа</div>
+                                                <div className="mt-1.5 text-[34px] font-bold leading-[38px] tracking-[-.04em] text-[var(--color-ink)]">{formatMedianSeconds(autoFill?.median_time_to_accept_seconds ?? null)}</div>
+                                            </div>
+                                            <div className="grid size-[38px] place-items-center rounded-[10px] bg-[var(--color-warm)] text-[var(--color-graphite)]">
+                                                <ClockIcon className="size-[18px]" />
+                                            </div>
+                                        </div>
+                                        <p className="text-xs leading-[17px] text-[var(--color-graphite)]">Насколько быстро клиенты реагируют на предложение о переносе.</p>
+                                    </article>
+                                </div>
+                            </div>
+                        )}
+                        {/* ─── Overview Tab ─── */}
+                        {activeTab === 'overview' && (
+                            <div className="grid gap-4">
+                                {/* KPI grid */}
+                                <div className="grid grid-cols-1 gap-4 min-[601px]:grid-cols-2 min-[1181px]:grid-cols-4">
+                                    {kpis.map((kpi) => (
+                                        <KpiCard key={kpi.label} {...kpi} />
+                                    ))}
+                                </div>
+
+                                {/* Row 1: Revenue + Ranking */}
+                                <div className="grid grid-cols-1 gap-4 min-[1181px]:grid-cols-2">
+                                    {/* Выручка по периодам */}
+                                    <article className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+                                        <header className="mb-[18px]">
+                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Выручка по периодам</h2>
+                                            <p className="mt-[3px] text-[11.5px] leading-4 text-[var(--color-graphite)]">{revenueSubtitle[activePeriod]}</p>
+                                        </header>
+
+                                        {/* Dynamic summary */}
+                                        <div className="flex min-h-[3.75rem] flex-col items-start justify-end">
+                                            <div className="flex flex-wrap items-center gap-2 transition-all duration-300">
+                                                <strong className="text-[28px] font-bold leading-[34px] tracking-[-.035em] text-[var(--color-ink)]">
+                                                    {activePoint ? `${Math.round(activePoint.value).toLocaleString('ru-RU')} ₽` : `${Math.round(totalValue).toLocaleString('ru-RU')} ₽`}
+                                                </strong>
+                                                {!activePoint && (
+                                                    <>
+                                                        <TrendChip value={trends.revenue} prevValue={prev_metrics.revenue} format="currency" />
+                                                        <span className="text-[11px] text-[var(--color-graphite)]">к прошлому периоду</span>
+                                                    </>
+                                                )}
+                                            </div>
+                                            <div className="mt-0.5 text-[11px] text-[var(--color-graphite)] transition-all duration-300">
+                                                {activePoint ? (
+                                                    <>{activePoint.label} <span className="mx-1.5 text-[var(--color-line)]">·</span> Записей: {activePoint.count}</>
+                                                ) : (
+                                                    <>Итого за период <span className="mx-1.5 text-[var(--color-line)]">·</span> Записей: {totalCount}</>
+                                                )}
+                                            </div>
+                                        </div>
+
+                                        {Array.isArray(chartData) && chartData.length > 0 ? (
+                                            <div className="relative mt-4 w-full overflow-x-auto scrollbar-none">
+                                                {/* Gridlines */}
+                                                <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
+                                                    {[...Array(4)].map((_, i) => (
+                                                        <div key={i} className="w-full border-t border-[var(--color-line-soft)]" />
+                                                    ))}
                                                 </div>
-                                                <div className="text-lg text-slate-300 dark:text-zinc-600">→</div>
-                                                <div className="flex-1 rounded-lg bg-emerald-50 p-4 text-center dark:bg-emerald-950/40">
-                                                    <p className="text-2xl font-bold text-emerald-600 dark:text-emerald-400">{autoFill.offers_accepted}</p>
-                                                    <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">Перенесено</p>
+                                                <div
+                                                    className={`relative z-10 flex items-end gap-2 px-2 pb-8 pt-2 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
+                                                    style={{ height: '212px' }}
+                                                    onMouseLeave={() => setActivePoint(null)}
+                                                >
+                                                    {chartData.map((point, i) => (
+                                                        <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
+                                                            <div
+                                                                role="button"
+                                                                tabIndex={0}
+                                                                aria-label={`${point.label}: ${Math.round(point.value).toLocaleString('ru-RU')} ₽`}
+                                                                data-active={activePoint?.label === point.label ? 'true' : 'false'}
+                                                                className={`w-full max-w-8 cursor-default rounded-t-[8px] transition-all duration-300 ${
+                                                                    activePoint
+                                                                        ? activePoint.label === point.label
+                                                                            ? 'bg-[var(--color-orange)] opacity-100'
+                                                                            : 'bg-[var(--color-graphite)] opacity-25'
+                                                                        : 'bg-[var(--color-graphite)] opacity-60'
+                                                                }`}
+                                                                style={{ height: `${point.percent}%`, minHeight: point.percent > 0 ? '4px' : '0' }}
+                                                                onMouseEnter={() => setActivePoint(point)}
+                                                                onClick={() => setActivePoint(point)}
+                                                            />
+                                                            <span className="w-full truncate text-center text-[10.5px] font-medium text-[var(--color-graphite)]">
+                                                                {point.label}
+                                                            </span>
+                                                        </div>
+                                                    ))}
                                                 </div>
                                             </div>
                                         ) : (
-                                            <p className="py-4 text-center text-sm text-slate-400 dark:text-zinc-500">Нет данных за выбранный период</p>
+                                            <div className="flex h-48 items-center justify-center">
+                                                <p className="text-sm text-[var(--color-graphite)]">Нет данных за период</p>
+                                            </div>
                                         )}
-                                    </div>
+                                    </article>
 
-                                    {/* Metric Cards */}
-                                    <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-3">
-                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Запросов на поиск</p>
-                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill?.requests_created ?? 0}</p>
-                                        </div>
-                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Предложений отправлено</p>
-                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill?.offers_sent ?? 0}</p>
-                                        </div>
-                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Переносов выполнено</p>
-                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill?.offers_accepted ?? 0}</p>
-                                        </div>
-                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Доля принятых</p>
-                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{autoFill ? `${autoFill.acceptance_rate}%` : '—'}</p>
-                                        </div>
-                                        <div className="rounded-xl border border-slate-200 bg-white p-5 transition-shadow hover:shadow-sm dark:border-zinc-800 dark:bg-zinc-900">
-                                            <p className="mb-1 text-xs text-slate-500 dark:text-zinc-400">Медианное время ответа</p>
-                                            <p className="text-2xl font-bold text-slate-900 dark:text-zinc-100">{formatMedianSeconds(autoFill?.median_time_to_accept_seconds ?? null)}</p>
-                                        </div>
-                                    </div>
-                                </div>
-                            )}
-
-                            {/* ─── Overview Tab ─── */}
-                            {activeTab === 'overview' && (
-                            <div className="space-y-6">
-                            {/* ─── Stat Cards ─── */}
-                            <div className="grid grid-cols-1 gap-4 md:grid-cols-2 lg:grid-cols-4">
-                                {stats.map((stat) => (
-                                    <StatCard key={stat.label} {...stat} />
-                                ))}
-                            </div>
-
-                            {/* ─── Charts Row ─── */}
-                            <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-                                {/* График загрузки */}
-                                <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                    <div className="mb-5">
-                                        <h3 className="font-semibold text-slate-900 dark:text-zinc-100">Выручка по периодам</h3>
-                                        <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                            {activePeriod === 'day' && 'Почасовая выручка за сегодня'}
-                                            {activePeriod === 'week' && 'Выручка по дням недели'}
-                                            {activePeriod === 'month' && 'Ежедневная выручка за месяц'}
-                                            {activePeriod === 'year' && 'Ежемесячная выручка за год'}
-                                            {activePeriod === 'custom' && 'Выручка за выбранный период'}
-                                        </p>
-                                    </div>
-                                    {/* Dynamic Aggregate Header */}
-                                    <div className="mb-6 flex min-h-[4rem] flex-col items-start justify-end">
-                                        <div className="flex items-center gap-3 transition-all duration-300">
-                                            <div className="text-3xl font-bold tracking-tight text-slate-900 dark:text-white">
-                                                {activePoint ? `${Math.round(activePoint.value).toLocaleString('ru-RU')} ₽` : `${Math.round(totalValue).toLocaleString('ru-RU')} ₽`}
-                                            </div>
-                                            {!activePoint && (
-                                                <div className="flex items-center">
-                                                    <TrendBadge value={trends.revenue} prevValue={prev_metrics.revenue} format="currency" />
-                                                    <span className="ml-2 text-xs text-slate-500">к прошлому периоду</span>
-                                                </div>
-                                            )}
-                                        </div>
-                                        <div className="mt-1 text-sm font-medium text-slate-500 transition-all duration-300 dark:text-slate-400">
-                                            {activePoint ? (
-                                                <>{activePoint.label} <span className="mx-1.5 text-slate-300 dark:text-slate-600">&middot;</span> Записей: {activePoint.count}</>
-                                            ) : (
-                                                <>Итого за период <span className="mx-1.5 text-slate-300 dark:text-slate-600">&middot;</span> Записей: {totalCount}</>
-                                            )}
-                                        </div>
-                                    </div>
-
-                                    {Array.isArray(chartData) && chartData.length > 0 ? (
-                                        <div className="relative w-full overflow-x-auto scrollbar-none">
-                                            {/* Background grid */}
-                                            <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
-                                                {[...Array(4)].map((_, i) => (
-                                                    <div key={i} className="w-full border-t border-slate-200 dark:border-slate-700/50" />
-                                                ))}
-                                            </div>
-                                            <div
-                                                className={`relative z-10 flex items-end gap-2 px-2 pb-8 pt-2 ${chartData.length > 15 ? 'min-w-[700px]' : ''}`}
-                                                style={{ height: '220px' }}
-                                                onMouseLeave={() => setActivePoint(null)}
-                                            >
-                                                {chartData.map((point, i) => (
-                                                    <div key={i} className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-2">
-                                                        <div
-                                                            className={`w-full max-w-10 cursor-default rounded-t-md bg-gradient-to-t from-blue-600 to-blue-400 transition-opacity duration-300 dark:from-blue-500 dark:to-blue-400 ${
-                                                                activePoint && activePoint.label !== point.label ? 'opacity-30' : 'opacity-100'
-                                                            }`}
-                                                            style={{ height: `${point.percent}%`, minHeight: point.percent > 0 ? '4px' : '0' }}
-                                                            onMouseEnter={() => setActivePoint(point)}
-                                                            onClick={() => setActivePoint(point)}
-                                                        />
-                                                        <span className="w-full truncate text-center text-[10px] font-medium text-slate-500 dark:text-zinc-400">
-                                                            {point.label}
-                                                        </span>
+                                    {/* Рейтинг услуг */}
+                                    <article className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+                                        <header className="mb-[18px]">
+                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Рейтинг услуг</h2>
+                                            <p className="mt-[3px] text-[11.5px] leading-4 text-[var(--color-graphite)]">Популярность процедур</p>
+                                        </header>
+                                        <div className="grid gap-4">
+                                            {metrics.top_services.length > 0 ? metrics.top_services.map((service: { name: string; count: number; percentage: number }, index: number) => (
+                                                <div key={index} className="grid gap-2">
+                                                    <div className="flex items-center justify-between gap-3 text-[12.5px]">
+                                                        <strong className="truncate font-semibold text-[var(--color-ink)]">{service.name}</strong>
+                                                        <span className="shrink-0 font-bold text-[var(--color-ink)]">{service.percentage}% <small className="text-[10.5px] font-medium text-[var(--color-graphite)]">({service.count})</small></span>
                                                     </div>
-                                                ))}
-                                            </div>
-                                        </div>
-                                    ) : (
-                                        <div className="flex h-48 items-center justify-center">
-                                            <p className="text-sm text-slate-400 dark:text-zinc-500">Нет данных за период</p>
-                                        </div>
-                                    )}
-                                </div>
-
-                                {/* Рейтинг услуг */}
-                                <div className="rounded-xl border border-slate-100 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                    <div className="mb-5">
-                                        <h3 className="font-semibold text-slate-900 dark:text-zinc-100">Рейтинг услуг</h3>
-                                        <p className="text-xs text-slate-500 dark:text-zinc-400">Популярность процедур</p>
-                                    </div>
-                                    <div className="space-y-3">
-                                        {metrics.top_services.length > 0 ? metrics.top_services.map((service, index) => (
-                                            <div key={index} className="space-y-2">
-                                                <div className="flex items-center justify-between text-sm">
-                                                    <span className="font-medium text-slate-700 dark:text-zinc-300">{service.name}</span>
-                                                    <span className="font-bold text-slate-900 dark:text-zinc-100">{service.percentage}% <span className="ml-1 font-normal text-slate-400 dark:text-zinc-500">({service.count})</span></span>
+                                                    <div className="h-2 overflow-hidden rounded-full bg-[var(--color-warm)]">
+                                                        <span className="block h-full rounded-full bg-[var(--color-orange)] transition-all duration-500" style={{ width: `${service.percentage}%` }} />
+                                                    </div>
                                                 </div>
-                                                <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-zinc-800">
-                                                    <div
-                                                        className="h-full rounded-full bg-gradient-to-r from-indigo-500 to-purple-500 transition-all duration-500"
-                                                        style={{ width: `${service.percentage}%` }}
-                                                    />
-                                                </div>
-                                            </div>
-                                        )) : (
-                                            <p className="py-4 text-center text-sm text-slate-400 dark:text-zinc-500">
-                                                Нет данных за выбранный период
-                                            </p>
-                                        )}
-                                    </div>
-                                </div>
-                            </div>
-
-                            {/* ─── Client Analytics Row ─── */}
-                            <div className="mt-6 grid grid-cols-1 gap-6 lg:grid-cols-2">
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle>Клиентская база</CardTitle>
-                                        <CardDescription>Новые и постоянные клиенты за период</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="flex flex-col items-center gap-8 sm:flex-row">
-                                        {/* Donut Chart */}
-                                        <div className="relative flex h-48 w-48 shrink-0 items-center justify-center rounded-full"
-                                            style={{ background: `conic-gradient(#6366f1 ${returningPct}%, #60a5fa ${returningPct}% 100%)` }}>
-                                            <div className="flex h-32 w-32 items-center justify-center rounded-full bg-white dark:bg-zinc-900">
-                                                <div className="text-center">
-                                                    <div className="text-2xl font-bold">{totalClients}</div>
-                                                    <div className="text-xs text-slate-500">Всего</div>
-                                                </div>
-                                            </div>
-                                        </div>
-
-                                        {/* Легенда */}
-                                        <div className="w-full flex-1 space-y-4">
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="h-3 w-3 rounded-full bg-indigo-500"></div>
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Постоянные</span>
-                                                </div>
-                                                <div className="text-sm font-bold">
-                                                    {returningPct}% <span className="ml-1 font-normal text-slate-400">({metrics.returning_clients_count})</span>
-                                                </div>
-                                            </div>
-                                            <div className="flex items-center justify-between">
-                                                <div className="flex items-center gap-2">
-                                                    <div className="h-3 w-3 rounded-full bg-blue-400"></div>
-                                                    <span className="text-sm font-medium text-slate-700 dark:text-slate-300">Новые</span>
-                                                </div>
-                                                <div className="text-sm font-bold">
-                                                    {newPct}% <span className="ml-1 font-normal text-slate-400">({metrics.new_clients_count})</span>
-                                                </div>
-                                            </div>
-
-                                            {metrics.first_visit_conversion !== null && metrics.first_visit_conversion > 0 && (
-                                                <div className="mt-4 rounded-lg bg-slate-50 p-3 dark:bg-slate-800/50">
-                                                    <div className="text-xs text-slate-500">Конверсия первого визита</div>
-                                                    <div className="mt-0.5 text-sm font-medium">{metrics.first_visit_conversion}% новых клиентов записываются повторно</div>
-                                                </div>
+                                            )) : (
+                                                <p className="py-4 text-center text-sm text-[var(--color-graphite)]">Нет данных за выбранный период</p>
                                             )}
                                         </div>
-                                    </CardContent>
-                                </Card>
+                                    </article>
+                                </div>
 
-                                <Card>
-                                    <CardHeader>
-                                        <CardTitle>Воронка визитов</CardTitle>
-                                        <CardDescription>Статусы записей и упущенная выгода</CardDescription>
-                                    </CardHeader>
-                                    <CardContent className="space-y-6">
-                                        {/* Успешные визиты */}
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                    <div className="h-2 w-2 rounded-full bg-emerald-500"></div>
-                                                    Успешно завершены
+                                {/* Row 2: Client base + Funnel */}
+                                <div className="grid grid-cols-1 gap-4 min-[1181px]:grid-cols-2">
+                                    {/* Клиентская база */}
+                                    <article className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+                                        <header className="mb-[18px]">
+                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Клиентская база</h2>
+                                            <p className="mt-[3px] text-[11.5px] leading-4 text-[var(--color-graphite)]">Новые и постоянные клиенты за период</p>
+                                        </header>
+                                        <div className="flex flex-col items-center gap-6 sm:flex-row sm:gap-6">
+                                            <div
+                                                className="relative grid size-[150px] shrink-0 place-items-center rounded-full"
+                                                style={{ background: `conic-gradient(var(--color-orange) 0 ${newPct}%, var(--color-graphite) ${newPct}% 100%)` }}
+                                                aria-label={`Всего ${totalClients} клиентов`}
+                                            >
+                                                <div className="grid size-[104px] place-items-center rounded-full bg-[var(--color-surface-elevated)]">
+                                                    <div className="text-center">
+                                                        <div className="text-2xl font-bold tracking-[-.04em] text-[var(--color-ink)]">{totalClients}</div>
+                                                        <div className="text-[11px] text-[var(--color-graphite)]">Всего</div>
+                                                    </div>
                                                 </div>
-                                                <span className="font-bold">{paidPct}% <span className="ml-1 font-normal text-slate-400">({metrics.total_visits})</span></span>
                                             </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                <div className="h-full rounded-full bg-emerald-500" style={{ width: `${paidPct}%` }}></div>
+                                            <div className="grid w-full flex-1 gap-3.5">
+                                                <div className="flex items-center justify-between gap-4 text-[12.5px]">
+                                                    <span className="flex items-center gap-2 text-[var(--color-graphite)]"><i className="size-2 rounded-full bg-[var(--color-graphite)]" />Постоянные</span>
+                                                    <strong className="font-bold text-[var(--color-ink)]">{returningPct}% <small className="text-[10.5px] font-medium text-[var(--color-graphite)]">({metrics.returning_clients_count})</small></strong>
+                                                </div>
+                                                <div className="flex items-center justify-between gap-4 text-[12.5px]">
+                                                    <span className="flex items-center gap-2 text-[var(--color-graphite)]"><i className="size-2 rounded-full bg-[var(--color-orange)]" />Новые</span>
+                                                    <strong className="font-bold text-[var(--color-ink)]">{newPct}% <small className="text-[10.5px] font-medium text-[var(--color-graphite)]">({metrics.new_clients_count})</small></strong>
+                                                </div>
+                                                {metrics.first_visit_conversion !== null && metrics.first_visit_conversion > 0 && (
+                                                    <div className="mt-1 rounded-[10px] bg-[var(--color-warm)] p-3">
+                                                        <div className="text-[11px] text-[var(--color-graphite)]">Конверсия первого визита</div>
+                                                        <div className="mt-0.5 text-[12.5px] font-medium text-[var(--color-ink)]">{metrics.first_visit_conversion}% новых клиентов записываются повторно</div>
+                                                    </div>
+                                                )}
                                             </div>
                                         </div>
+                                    </article>
 
-                                        {/* Отмены */}
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                    <div className="h-2 w-2 rounded-full bg-amber-400"></div>
-                                                    Отменены клиентом
+                                    {/* Воронка визитов */}
+                                    <article className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+                                        <header className="mb-[18px]">
+                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Воронка визитов</h2>
+                                            <p className="mt-[3px] text-[11.5px] leading-4 text-[var(--color-graphite)]">Статусы записей и упущенная выгода</p>
+                                        </header>
+                                        <div className="grid gap-5">
+                                            {[
+                                                { dot: 'var(--color-paid)', label: 'Успешно завершены', pct: paidPct, count: metrics.total_visits },
+                                                { dot: 'var(--color-pending)', label: 'Отменены клиентом', pct: cancelPct, count: metrics.cancelled_count },
+                                                { dot: 'var(--color-noshow)', label: 'Неявки (No-show)', pct: noShowPct, count: metrics.no_show_count },
+                                            ].map((row) => (
+                                                <div key={row.label} className="grid gap-2">
+                                                    <div className="flex items-center justify-between gap-3 text-[12.5px]">
+                                                        <span className="flex items-center gap-2 font-semibold text-[var(--color-ink)]"><i className="size-[7px] rounded-full" style={{ background: row.dot }} />{row.label}</span>
+                                                        <strong className="font-bold text-[var(--color-ink)]">{row.pct}% <small className="text-[10.5px] font-medium text-[var(--color-graphite)]">({row.count})</small></strong>
+                                                    </div>
+                                                    <div className="h-2 overflow-hidden rounded-full bg-[var(--color-warm)]">
+                                                        <span className="block h-full rounded-full" style={{ width: `${row.pct}%`, background: row.dot }} />
+                                                    </div>
                                                 </div>
-                                                <span className="font-bold">{cancelPct}% <span className="ml-1 font-normal text-slate-400">({metrics.cancelled_count})</span></span>
-                                            </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                <div className="h-full rounded-full bg-amber-400" style={{ width: `${cancelPct}%` }}></div>
-                                            </div>
+                                            ))}
                                         </div>
+                                    </article>
+                                </div>
 
-                                        {/* Неявки */}
-                                        <div className="space-y-2">
-                                            <div className="flex items-center justify-between text-sm">
-                                                <div className="flex items-center gap-2 font-medium text-slate-700 dark:text-slate-300">
-                                                    <div className="h-2 w-2 rounded-full bg-rose-500"></div>
-                                                    Неявки (No-show)
-                                                </div>
-                                                <span className="font-bold">{noShowPct}% <span className="ml-1 font-normal text-slate-400">({metrics.no_show_count})</span></span>
-                                            </div>
-                                            <div className="h-2 w-full overflow-hidden rounded-full bg-slate-100 dark:bg-slate-800">
-                                                <div className="h-full rounded-full bg-rose-500" style={{ width: `${noShowPct}%` }}></div>
-                                            </div>
-                                        </div>
-                                    </CardContent>
-                                </Card>
+                                {/* TOP-5 каналов */}
+                                <TopChannelsBlock
+                                    channels={props.top_channels ?? null}
+                                    feature={channelsFeature}
+                                    onSeeAll={() => switchTab('channels')}
+                                />
                             </div>
-
-                            {/* ─── TOP-5 каналов записи ─── */}
-                            <TopChannelsBlock
-                                channels={props.top_channels ?? null}
-                                feature={channelsFeature}
-                                onSeeAll={() => switchTab('channels')}
-                            />
-                            </div>
-                            )}
-                        </div>
+                        )}
+                    </div>
+                </div>
             </AdminLayout>
         </>
     );

@@ -153,6 +153,14 @@
     --color-green: #16A34A;
     --color-green-bg: #F0FDF4;
 
+    /* Analytics status tokens — light */
+    --color-paid: #22A66F;
+    --color-paid-bg: #EFFAF5;
+    --color-pending: #F29B21;
+    --color-pending-bg: #FFF7EA;
+    --color-noshow: #E34F5F;
+    --color-noshow-bg: #FFF1F3;
+
     /* Calendar today column — light */
     --color-cal-today-bg: #FFFCFA;
     --color-cal-today-wash: rgba(255, 90, 31, 0.025);
@@ -207,6 +215,14 @@
     --color-red-bg: rgba(248,113,113,0.12);
     --color-green: #4ADE80;
     --color-green-bg: rgba(74,222,128,0.12);
+
+    /* Analytics status tokens — dark */
+    --color-paid: #4ADE80;
+    --color-paid-bg: #172A22;
+    --color-pending: #F5B74E;
+    --color-pending-bg: #302515;
+    --color-noshow: #F08A96;
+    --color-noshow-bg: #321B20;
 
     /* IRSI admin/calendar scoped dark surfaces */
     --color-cal-workspace: #1A1918;
