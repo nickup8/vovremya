@@ -445,7 +445,7 @@ export default function AnalyticsPage() {
                             )}
                         </section>
                         {/* ─── Tabs ─── */}
-                        <div role="tablist" aria-label="Раздел аналитики" className="flex h-[43px] items-center gap-6 overflow-x-auto border-b border-[var(--color-line)] max-md:h-11">
+                        <div role="tablist" aria-label="Раздел аналитики" className="flex h-[43px] items-center gap-6 overflow-x-auto overflow-y-hidden border-b border-[var(--color-line)] max-md:h-11">
                             <button
                                 role="tab"
                                 aria-selected={activeTab === 'overview'}
