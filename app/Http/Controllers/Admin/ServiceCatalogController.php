@@ -104,13 +104,20 @@ class ServiceCatalogController extends Controller
             }
         }
 
-        $catalog->update([
+        $attributes = [
             'title' => $validated['title'],
-            'category' => $validated['category'] ?? null,
             'base_price' => $validated['base_price'],
             'base_duration' => $validated['base_duration'],
             'is_active' => $validated['is_active'] ?? true,
-        ]);
+        ];
+
+        // Обновляем category только если она явно передана — иначе
+        // сохраняем существующее значение в БД (UI больше её не отправляет).
+        if ($request->has('category')) {
+            $attributes['category'] = $validated['category'] ?? null;
+        }
+
+        $catalog->update($attributes);
 
         Log::info('Catalog service updated', [
             'admin_id' => auth()->id(),

@@ -48,8 +48,7 @@ function formatPrice(value: number): string {
 }
 
 function formatMeta(item: CatalogItem): string {
-    const duration = `${item.base_duration} мин`;
-    return item.category ? `${duration} · ${item.category}` : duration;
+    return `${item.base_duration} мин`;
 }
 
 /* ═══════════════ Service Row ═══════════════ */
@@ -142,7 +141,6 @@ export default function ServiceCatalogPage() {
     const [editingItem, setEditingItem] = useState<CatalogItem | null>(null);
 
     const [title, setTitle] = useState('');
-    const [category, setCategory] = useState('');
     const [basePrice, setBasePrice] = useState('');
     const [baseDuration, setBaseDuration] = useState('');
     const [isActive, setIsActive] = useState(true);
@@ -160,7 +158,6 @@ export default function ServiceCatalogPage() {
     const openCreate = useCallback(() => {
         setEditingItem(null);
         setTitle('');
-        setCategory('');
         setBasePrice('');
         setBaseDuration('');
         setIsActive(true);
@@ -172,7 +169,6 @@ export default function ServiceCatalogPage() {
     const openEdit = useCallback((item: CatalogItem) => {
         setEditingItem(item);
         setTitle(item.title);
-        setCategory(item.category ?? '');
         setBasePrice(item.base_price.toString());
         setBaseDuration(item.base_duration.toString());
         setIsActive(item.is_active);
@@ -197,7 +193,6 @@ export default function ServiceCatalogPage() {
 
         const payload = {
             title,
-            category: category.trim() || null,
             base_price: Number(basePrice),
             base_duration: Number(baseDuration),
             is_active: isActive,
@@ -259,7 +254,7 @@ export default function ServiceCatalogPage() {
                 }
             >
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
-                    <div className="mx-auto w-full max-w-[1320px]">
+                    <div className="w-full max-w-[1320px]">
                         <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)]">
                             <div className="flex items-center justify-between gap-4 px-5 pb-3.5 pt-5 md:px-[22px]">
                                 <div className="min-w-0">
@@ -320,16 +315,6 @@ export default function ServiceCatalogPage() {
                                     autoFocus
                                 />
                                 {formErrors.title && <p className="text-xs text-[var(--color-red)]">{formErrors.title}</p>}
-                            </div>
-
-                            <div className="grid gap-[7px]">
-                                <label className="text-[12px] font-semibold text-[var(--color-ink)]">Категория</label>
-                                <Input
-                                    value={category}
-                                    onChange={(e) => setCategory(e.target.value)}
-                                    placeholder="Ногтевой сервис, Парикмахерская..."
-                                    className="h-11 border-[var(--color-line)] bg-[var(--color-surface)]"
-                                />
                             </div>
 
                             <div className="grid grid-cols-1 gap-[14px] sm:grid-cols-2">

@@ -286,6 +286,33 @@ class ServiceCatalogControllerTest extends TestCase
         $this->assertSame('3000.00', $catalog->base_price);
     }
 
+    public function test_update_without_category_preserves_existing_category(): void
+    {
+        [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $ws->id,
+            'title' => 'Маникюр',
+            'category' => 'Ногтевой сервис',
+            'base_price' => 1500,
+            'base_duration' => 30,
+            'is_active' => true,
+        ]);
+
+        // UI больше не отправляет category — payload без этого поля.
+        $response = $this->actingAs($owner)->put("/admin/catalog/{$catalog->id}", [
+            'title' => 'Маникюр',
+            'base_price' => 1800,
+            'base_duration' => 40,
+            'is_active' => true,
+        ]);
+
+        $response->assertRedirect();
+        $catalog->refresh();
+        $this->assertSame('Ногтевой сервис', $catalog->category);
+        $this->assertSame('1800.00', $catalog->base_price);
+        $this->assertSame(40, $catalog->base_duration);
+    }
+
     public function test_update_reactivates_inactive_service(): void
     {
         [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
