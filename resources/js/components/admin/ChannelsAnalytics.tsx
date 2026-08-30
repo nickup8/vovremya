@@ -47,7 +47,7 @@ export function ChannelsUpgradeCard({ compact = false }: { compact?: boolean }) 
                     : 'Создавайте tracking-ссылки для Instagram, VK, 2GIS и партнёров. Смотрите записи, отмены, завершённые визиты, новых и возвращающихся клиентов и выручку по каждому источнику. Доступно на тарифе Профи.'}
             </p>
             <Button
-                className="mt-4 h-10 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                className="mt-4 h-10 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)] max-md:min-h-11"
                 onClick={() => router.visit('/admin/billing')}
             >
                 Перейти на Профи
@@ -77,7 +77,7 @@ export function TopChannelsBlock({
                 {feature && (
                     <button
                         onClick={onSeeAll}
-                        className="shrink-0 rounded-[7px] px-1 py-1.5 text-[13px] font-semibold text-[var(--color-orange)] hover:underline"
+                        className="shrink-0 rounded-[7px] px-1 py-1.5 text-[13px] font-semibold text-[var(--color-orange)] hover:underline max-md:inline-flex max-md:min-h-11 max-md:items-center"
                     >
                         Смотреть все
                     </button>
@@ -165,7 +165,7 @@ function TrackingLinksManager({ links }: { links: TrackingLinkItem[] }) {
                     <p className="mt-1 text-xs text-[var(--color-graphite)]">Уникальные ссылки на виджет для каждого источника</p>
                 </div>
                 {!creating && (
-                    <Button size="sm" className="h-9 gap-1.5 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]" onClick={() => setCreating(true)}>
+                    <Button size="sm" className="h-9 gap-1.5 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)] max-md:min-h-11" onClick={() => setCreating(true)}>
                         <PlusIcon className="size-4" /> Создать
                     </Button>
                 )}
@@ -182,8 +182,8 @@ function TrackingLinksManager({ links }: { links: TrackingLinkItem[] }) {
                         autoFocus
                         onKeyDown={(e) => e.key === 'Enter' && handleCreate()}
                     />
-                    <Button size="sm" className="h-9 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]" onClick={handleCreate} disabled={!newName.trim()}>Сохранить</Button>
-                    <Button size="sm" variant="outline" className="h-9 text-sm font-semibold" onClick={() => {
+                    <Button size="sm" className="h-9 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)] max-md:min-h-11" onClick={handleCreate} disabled={!newName.trim()}>Сохранить</Button>
+                    <Button size="sm" variant="outline" className="h-9 text-sm font-semibold max-md:min-h-11" onClick={() => {
                         setCreating(false); setNewName('');
                     }}>Отмена</Button>
                 </div>
@@ -210,8 +210,8 @@ function TrackingLinksManager({ links }: { links: TrackingLinkItem[] }) {
                                         autoFocus
                                         onKeyDown={(e) => e.key === 'Enter' && handleRename(link.id)}
                                     />
-                                    <Button size="sm" className="h-9 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)]" onClick={() => handleRename(link.id)}>OK</Button>
-                                    <Button size="sm" variant="outline" className="h-9 text-sm font-semibold" onClick={() => setEditingId(null)}>Отмена</Button>
+                                    <Button size="sm" className="h-9 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)] max-md:min-h-11 max-md:min-w-11" onClick={() => handleRename(link.id)}>OK</Button>
+                                    <Button size="sm" variant="outline" className="h-9 text-sm font-semibold max-md:min-h-11" onClick={() => setEditingId(null)}>Отмена</Button>
                                 </div>
                             ) : (
                                 <>
@@ -231,7 +231,7 @@ function TrackingLinksManager({ links }: { links: TrackingLinkItem[] }) {
                                         <button
                                             title="Копировать ссылку"
                                             onClick={() => handleCopy(link)}
-                                            className="grid size-9 place-items-center rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                            className="grid size-9 place-items-center rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:size-11"
                                         >
                                             {copiedId === link.id ? <CheckIcon className="size-[18px] text-[var(--color-paid)]" /> : <ClipboardDocumentIcon className="size-[18px]" />}
                                         </button>
@@ -240,13 +240,13 @@ function TrackingLinksManager({ links }: { links: TrackingLinkItem[] }) {
                                             onClick={() => {
                                                 setEditingId(link.id); setEditName(link.name);
                                             }}
-                                            className="grid size-9 place-items-center rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                            className="grid size-9 place-items-center rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:size-11"
                                         >
                                             <PencilSquareIcon className="size-[18px]" />
                                         </button>
                                         <button
                                             onClick={() => handleToggle(link)}
-                                            className="rounded-[10px] px-2.5 py-2 text-xs font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
+                                            className="rounded-[10px] px-2.5 py-2 text-xs font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)] max-md:inline-flex max-md:min-h-11 max-md:items-center"
                                         >
                                             {link.is_active ? 'Отключить' : 'Включить'}
                                         </button>

@@ -375,7 +375,7 @@ export default function AnalyticsPage() {
                                         <button
                                             key={key}
                                             onClick={() => handlePeriodChange(key)}
-                                            className={`h-9 shrink-0 rounded-[10px] px-4 text-sm font-semibold transition-colors ${
+                                            className={`h-9 shrink-0 rounded-[10px] px-4 text-sm font-semibold transition-colors max-md:min-h-11 ${
                                                 activePeriod === key
                                                     ? 'bg-[var(--color-orange)] text-white shadow-[0_8px_16px_rgba(255,90,31,0.18)]'
                                                     : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-ink)]'
@@ -385,7 +385,7 @@ export default function AnalyticsPage() {
                                         </button>
                                     ))}
                                 </div>
-                                <button className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3.5 text-sm font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:w-10 max-md:px-0">
+                                <button className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3.5 text-sm font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:size-11 max-md:min-h-11 max-md:min-w-11 max-md:px-0">
                                     <ArrowDownTrayIcon className="size-[18px]" />
                                     <span className="max-md:hidden">Экспорт</span>
                                 </button>
@@ -401,7 +401,7 @@ export default function AnalyticsPage() {
                                             type="date"
                                             value={dates.from}
                                             onChange={(e) => setDates((d) => ({ ...d, from: e.target.value }))}
-                                            className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-ink)] focus:border-[var(--color-orange)] focus:outline-none focus:ring-2 focus:ring-[var(--color-orange-100)]"
+                                            className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-ink)] focus:border-[var(--color-orange)] focus:outline-none focus:ring-2 focus:ring-[var(--color-orange-100)] max-md:min-h-11"
                                         />
                                     </div>
                                     <span className="text-xs text-[var(--color-graphite)]">—</span>
@@ -411,13 +411,13 @@ export default function AnalyticsPage() {
                                             type="date"
                                             value={dates.to}
                                             onChange={(e) => setDates((d) => ({ ...d, to: e.target.value }))}
-                                            className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-ink)] focus:border-[var(--color-orange)] focus:outline-none focus:ring-2 focus:ring-[var(--color-orange-100)]"
+                                            className="rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-2 text-xs text-[var(--color-ink)] focus:border-[var(--color-orange)] focus:outline-none focus:ring-2 focus:ring-[var(--color-orange-100)] max-md:min-h-11"
                                         />
                                     </div>
                                     <button
                                         onClick={handleCustomApply}
                                         disabled={!dates.from || !dates.to}
-                                        className="rounded-[10px] bg-[var(--color-orange)] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
+                                        className="rounded-[10px] bg-[var(--color-orange)] px-4 py-2 text-xs font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50 max-md:min-h-11"
                                     >
                                         Применить
                                     </button>
@@ -428,7 +428,7 @@ export default function AnalyticsPage() {
                                 <div className="mt-3.5 flex items-center gap-2 border-t border-[var(--color-line)] pt-3.5">
                                     <button
                                         onClick={() => handleOffsetChange(-1)}
-                                        className="grid size-10 shrink-0 place-items-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                        className="grid size-10 shrink-0 place-items-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:size-11"
                                         aria-label="Предыдущий период"
                                     >
                                         <ChevronLeftIcon className="size-[18px]" />
@@ -436,7 +436,7 @@ export default function AnalyticsPage() {
                                     <p className="text-[15px] font-semibold text-[var(--color-ink)]">{presetDateRange}</p>
                                     <button
                                         onClick={() => handleOffsetChange(1)}
-                                        className="grid size-10 shrink-0 place-items-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                        className="grid size-10 shrink-0 place-items-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:size-11"
                                         aria-label="Следующий период"
                                     >
                                         <ChevronRightIcon className="size-[18px]" />
@@ -445,12 +445,12 @@ export default function AnalyticsPage() {
                             )}
                         </section>
                         {/* ─── Tabs ─── */}
-                        <div role="tablist" aria-label="Раздел аналитики" className="flex h-[43px] items-center gap-6 overflow-x-auto border-b border-[var(--color-line)]">
+                        <div role="tablist" aria-label="Раздел аналитики" className="flex h-[43px] items-center gap-6 overflow-x-auto border-b border-[var(--color-line)] max-md:h-11">
                             <button
                                 role="tab"
                                 aria-selected={activeTab === 'overview'}
                                 onClick={() => switchTab('overview')}
-                                className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors max-md:h-11 ${
                                     activeTab === 'overview'
                                         ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
                                         : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
@@ -462,7 +462,7 @@ export default function AnalyticsPage() {
                                 role="tab"
                                 aria-selected={activeTab === 'channels'}
                                 onClick={() => switchTab('channels')}
-                                className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors max-md:h-11 ${
                                     activeTab === 'channels'
                                         ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
                                         : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
@@ -475,7 +475,7 @@ export default function AnalyticsPage() {
                                     role="tab"
                                     aria-selected={activeTab === 'autofill'}
                                     onClick={() => switchTab('autofill')}
-                                    className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                    className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors max-md:h-11 ${
                                         activeTab === 'autofill'
                                             ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
                                             : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
