@@ -73,7 +73,7 @@ function ClientCard({
 
     return (
         <article
-            className="group relative min-w-0 cursor-pointer rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-4 transition-colors hover:border-[var(--color-graphite)]/30 hover:bg-[var(--color-surface-hover)]"
+            className="group relative min-w-0 cursor-pointer overflow-visible rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-4 transition-colors hover:border-[var(--color-graphite)]/30 hover:bg-[var(--color-surface-hover)]"
             onClick={onOpen}
             tabIndex={0}
             onKeyDown={(e) => { if (e.key === 'Enter' && !(e.target as HTMLElement).closest('button')) onOpen(); }}
@@ -145,7 +145,7 @@ function ClientCard({
                         <>
                             <div className="fixed inset-0 z-30" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
                             <div
-                                className="absolute bottom-[40px] right-0 z-40 w-[190px] rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-1.5 shadow-lg"
+                                className="absolute bottom-[40px] right-0 z-40 w-[190px] rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.16)] backdrop-blur-sm"
                                 onClick={(e) => e.stopPropagation()}
                                 role="menu"
                             >
@@ -324,6 +324,7 @@ export default function ClientsPage() {
             <AdminLayout
                 title="Клиенты"
                 auth={auth}
+                hideNewAppointment
                 headerActions={
                     <Button
                         onClick={openCreate}
@@ -335,7 +336,7 @@ export default function ClientsPage() {
                 }
             >
                 {/* ─── Toolbar ─── */}
-                <div className="mb-4 flex min-h-[64px] items-center gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[10px_12px]">
+                <div className="mb-4 flex min-h-[64px] flex-col gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[10px_12px] md:flex-row md:items-center">
                     <div className="relative min-w-0 flex-1">
                         <MagnifyingGlassIcon className="absolute left-3 top-1/2 size-5 -translate-y-1/2 text-[var(--color-graphite)]" />
                         <Input
@@ -358,7 +359,7 @@ export default function ClientsPage() {
                             <button
                                 key={tab.key}
                                 onClick={() => setFilter(tab.key)}
-                                className={`rounded-[9px] px-3 text-[13px] font-semibold transition-colors ${
+                                className={`flex-1 rounded-[9px] px-3 text-[13px] font-semibold transition-colors md:flex-none ${
                                     filter === tab.key
                                         ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
                                         : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
