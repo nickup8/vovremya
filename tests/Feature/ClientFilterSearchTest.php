@@ -228,4 +228,90 @@ class ClientFilterSearchTest extends TestCase
             ->where('clients.data.0.name', 'Анна Заблокированная')
         );
     }
+
+    public function test_search_name_case_insensitive(): void
+    {
+        $this->actingAs($this->master);
+
+        $this->createClient('анна', '+79001110001');
+        $this->createClient('АННА', '+79001110002');
+        $this->createClient('Борис', '+79001110003');
+
+        $response = $this->get(route('admin.clients', ['search' => 'Анна', 'per_page' => 20]));
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('clients.total', 2)
+        );
+    }
+
+    public function test_search_phone_case_insensitive(): void
+    {
+        $this->actingAs($this->master);
+
+        $this->createClient('Клиент', '+79001234567');
+        $this->createClient('Другой', '+79009876543');
+
+        $response = $this->get(route('admin.clients', ['search' => '123', 'per_page' => 20]));
+
+        $response->assertInertia(fn ($page) => $page
+            ->where('clients.total', 1)
+            ->where('clients.data.0.phone', '+79001234567')
+        );
+    }
+
+    public function test_filter_sort_pagination_across_page_boundary(): void
+    {
+        $this->actingAs($this->master);
+
+        // Create 7 active clients with names that sort reverse-alphabetically
+        $names = ['Жора', 'Елена', 'Дарья', 'Вера', 'Глеб', 'Борис', 'Анна'];
+        foreach ($names as $i => $name) {
+            $this->createClient($name, '+7900111' . str_pad((string) $i, 3, '0', STR_PAD_LEFT), false);
+        }
+        $this->createClient('Заблокированная', '+79001110099', true);
+
+        // Page 1: active + name_asc + per_page=3 → Анна, Борис, Вера
+        $p1 = $this->get(route('admin.clients', [
+            'filter' => 'active',
+            'sort' => 'name_asc',
+            'per_page' => 3,
+        ]));
+
+        $p1->assertInertia(fn ($page) => $page
+            ->where('clients.total', 7)
+            ->where('clients.last_page', 3)
+            ->where('clients.current_page', 1)
+            ->where('clients.data.0.name', 'Анна')
+            ->where('clients.data.1.name', 'Борис')
+            ->where('clients.data.2.name', 'Вера')
+        );
+
+        // Page 2: Глеб, Дарья, Елена
+        $p2 = $this->get(route('admin.clients', [
+            'filter' => 'active',
+            'sort' => 'name_asc',
+            'per_page' => 3,
+            'page' => 2,
+        ]));
+
+        $p2->assertInertia(fn ($page) => $page
+            ->where('clients.current_page', 2)
+            ->where('clients.data.0.name', 'Глеб')
+            ->where('clients.data.1.name', 'Дарья')
+            ->where('clients.data.2.name', 'Елена')
+        );
+
+        // Page 3: Жора
+        $p3 = $this->get(route('admin.clients', [
+            'filter' => 'active',
+            'sort' => 'name_asc',
+            'per_page' => 3,
+            'page' => 3,
+        ]));
+
+        $p3->assertInertia(fn ($page) => $page
+            ->where('clients.current_page', 3)
+            ->where('clients.data.0.name', 'Жора')
+        );
+    }
 }

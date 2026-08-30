@@ -51,11 +51,11 @@ class ClientController extends Controller
             }])
             ->withMax('appointments as last_visit', 'start_time');
 
-        // 2. Search
+        // 2. Search (ILIKE for case-insensitive)
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
-                $q->where('name', 'like', "%{$search}%")
-                  ->orWhere('phone', 'like', "%{$search}%");
+                $q->where('name', 'ilike', "%{$search}%")
+                  ->orWhere('phone', 'ilike', "%{$search}%");
             });
         }
 
@@ -66,22 +66,18 @@ class ClientController extends Controller
             $query->where('is_blocked', true);
         }
 
-        // 4. Sort
+        // 4. Sort at DB level
         if ($sort === 'name_asc') {
             $query->orderBy('name', 'asc');
-        }
-        // last_visit_desc is applied after collection (aggregate sort)
-
-        // 5. Get all matching clients
-        $clients = $query->get();
-
-        // Apply collection-level sort for last_visit_desc (null last_visit → end)
-        if ($sort === 'last_visit_desc') {
-            $clients = $clients->sortBy(fn ($c) => $c->last_visit ?? '')->reverse()->values();
+        } else {
+            $query->orderByRaw('last_visit DESC NULLS LAST');
         }
 
-        // 6. Map to DTO
-        $clients = $clients->map(function (Client $client) {
+        // 5. Paginate at DB level
+        $paginator = $query->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
+
+        // 6. Map to DTO (LTV computed from eager-loaded paid appointments)
+        $data = $paginator->getCollection()->map(function (Client $client) {
             $ltv = $client->appointments
                 ->where('status', AppointmentStatus::Paid)
                 ->sum(fn ($a) => $a->display_price);
@@ -101,22 +97,15 @@ class ClientController extends Controller
             ];
         });
 
-        // 7. Paginate
-        $total = $clients->count();
-        $page = (int) $request->query('page', 1);
-        $lastPage = max(1, (int) ceil($total / $perPage));
-        $page = min($page, $lastPage);
-        $clients = $clients->slice(($page - 1) * $perPage, $perPage)->values();
-
         return Inertia::render('admin/clients', [
             'clients' => [
-                'data' => $clients,
-                'total' => $total,
-                'per_page' => $perPage,
-                'current_page' => $page,
-                'last_page' => $lastPage,
-                'from' => $total > 0 ? ($page - 1) * $perPage + 1 : null,
-                'to' => min($page * $perPage, $total) ?: null,
+                'data' => $data,
+                'total' => $paginator->total(),
+                'per_page' => $paginator->perPage(),
+                'current_page' => $paginator->currentPage(),
+                'last_page' => $paginator->lastPage(),
+                'from' => $paginator->firstItem(),
+                'to' => $paginator->lastItem(),
             ],
         ]);
     }
