@@ -27,6 +27,11 @@ class ClientController extends Controller
         }
 
         $perPage = (int) $request->query('per_page', 20);
+        $sort = $request->query('sort', 'last_visit_desc');
+        $allowedSorts = ['last_visit_desc', 'name_asc'];
+        if (! in_array($sort, $allowedSorts)) {
+            $sort = 'last_visit_desc';
+        }
 
         $clients = Client::forWorkspaceOrMaster($user)
             ->with(['appointments' => fn ($q) => $q->where('status', AppointmentStatus::Paid)])
@@ -36,37 +41,53 @@ class ClientController extends Controller
             ->withCount(['appointments as completed_bookings' => function ($q) {
                 $q->where('status', AppointmentStatus::Paid);
             }])
-            ->withMax('appointments as last_visit', 'start_time')
-            ->get()
-            ->map(function (Client $client) {
-                $ltv = $client->appointments
-                    ->where('status', AppointmentStatus::Paid)
-                    ->sum(fn ($a) => $a->display_price);
+            ->withMax('appointments as last_visit', 'start_time');
 
-                return [
-                    'id' => $client->id,
-                    'name' => $client->name,
-                    'phone' => $client->phone,
-                    'user_id' => $client->user_id,
-                    'is_blocked' => $client->is_blocked,
-                    'avatar_url' => $client->avatar_url,
-                    'notes' => $client->notes,
-                    'total_bookings' => $client->total_bookings,
-                    'completed_bookings' => $client->completed_bookings,
-                    'ltv' => (float) $ltv,
-                    'last_visit' => $client->last_visit,
-                ];
-            });
+        if ($sort === 'name_asc') {
+            $clients = $clients->orderBy('name', 'asc');
+        }
+
+        $clients = $clients->get();
+
+        if ($sort === 'last_visit_desc') {
+            $clients = $clients->sortByDesc(fn ($c) => $c->last_visit ?? '')->values();
+        }
+
+        $clients = $clients->map(function (Client $client) {
+            $ltv = $client->appointments
+                ->where('status', AppointmentStatus::Paid)
+                ->sum(fn ($a) => $a->display_price);
+
+            return [
+                'id' => $client->id,
+                'name' => $client->name,
+                'phone' => $client->phone,
+                'user_id' => $client->user_id,
+                'is_blocked' => $client->is_blocked,
+                'avatar_url' => $client->avatar_url,
+                'notes' => $client->notes,
+                'total_bookings' => $client->total_bookings,
+                'completed_bookings' => $client->completed_bookings,
+                'ltv' => (float) $ltv,
+                'last_visit' => $client->last_visit,
+            ];
+        });
 
         $total = $clients->count();
-        $clients = $clients->slice(($request->query('page', 1) - 1) * $perPage, $perPage)->values();
+        $page = (int) $request->query('page', 1);
+        $lastPage = max(1, (int) ceil($total / $perPage));
+        $page = min($page, $lastPage);
+        $clients = $clients->slice(($page - 1) * $perPage, $perPage)->values();
 
         return Inertia::render('admin/clients', [
             'clients' => [
                 'data' => $clients,
                 'total' => $total,
                 'per_page' => $perPage,
-                'current_page' => (int) $request->query('page', 1),
+                'current_page' => $page,
+                'last_page' => $lastPage,
+                'from' => $total > 0 ? ($page - 1) * $perPage + 1 : null,
+                'to' => min($page * $perPage, $total) ?: null,
             ],
         ]);
     }
@@ -121,6 +142,7 @@ class ClientController extends Controller
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'required|string|max:20',
+            'notes' => 'nullable|string|max:1000',
         ]);
 
         $duplicate = Client::where('user_id', $master->id)

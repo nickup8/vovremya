@@ -33,7 +33,7 @@ import type { Client, Paginated, PageProps } from '@/types/app';
 /* ═══════════════ Helpers ═══════════════ */
 
 type FilterType = 'all' | 'active' | 'blocked';
-type SortType = 'last_visit' | 'name';
+type SortType = 'last_visit_desc' | 'name_asc';
 
 const FILTER_TABS: { key: FilterType; label: string }[] = [
     { key: 'all', label: 'Все' },
@@ -189,7 +189,9 @@ export default function ClientsPage() {
     const { clients: paginatedClients, auth } = usePage<PageProps & { clients: Paginated<Client> }>().props;
     const [search, setSearch] = useState('');
     const [filter, setFilter] = useState<FilterType>('all');
-    const [sort, setSort] = useState<SortType>('last_visit');
+    const [sort, setSort] = useState<SortType>(
+        () => (new URLSearchParams(window.location.search).get('sort') === 'name_asc' ? 'name_asc' : 'last_visit_desc'),
+    );
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [drawerMode, setDrawerMode] = useState<'view' | 'create' | 'edit'>('create');
     const [selectedClient, setSelectedClient] = useState<Client | null>(null);
@@ -215,17 +217,8 @@ export default function ClientsPage() {
         if (filter === 'active') result = result.filter((c) => !c.is_blocked);
         else if (filter === 'blocked') result = result.filter((c) => c.is_blocked);
 
-        if (sort === 'name') {
-            result = [...result].sort((a, b) => a.name.localeCompare(b.name, 'ru'));
-        } else {
-            result = [...result].sort((a, b) => {
-                const da = a.last_visit ? new Date(a.last_visit).getTime() : 0;
-                const db = b.last_visit ? new Date(b.last_visit).getTime() : 0;
-                return db - da;
-            });
-        }
         return result;
-    }, [initialClients, search, filter, sort]);
+    }, [initialClients, search, filter]);
 
     const openCreate = useCallback(() => {
         setSelectedClient(null);
@@ -382,10 +375,14 @@ export default function ClientsPage() {
                     <div className="flex items-center justify-between gap-5 px-1 pb-2.5 pt-[18px]">
                         <p className="text-xs tabular-nums text-[var(--color-graphite)]">{countLabel}</p>
                         <button
-                            onClick={() => setSort(sort === 'last_visit' ? 'name' : 'last_visit')}
+                            onClick={() => {
+                                const next: SortType = sort === 'last_visit_desc' ? 'name_asc' : 'last_visit_desc';
+                                setSort(next);
+                                router.get('/admin/clients', { sort: next }, { preserveState: true, preserveScroll: true });
+                            }}
                             className="h-[34px] rounded-lg px-2 text-xs font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
                         >
-                            {sort === 'last_visit' ? 'По последнему визиту ↓' : 'По имени А–Я'}
+                            {sort === 'last_visit_desc' ? 'По последнему визиту ↓' : 'По имени А–Я'}
                         </button>
                     </div>
                 )}
@@ -427,7 +424,7 @@ export default function ClientsPage() {
 
                 {/* ─── Client cards grid ─── */}
                 {!isEmpty && !noResults && (
-                    <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
+                    <div className="grid grid-cols-1 gap-3 min-[1021px]:grid-cols-2 min-[1501px]:grid-cols-3">
                         {clients.map((client) => (
                             <ClientCard
                                 key={client.id}
@@ -453,7 +450,7 @@ export default function ClientsPage() {
                                 size="sm"
                                 className="h-[34px] min-w-[34px] px-2"
                                 disabled={paginatedClients.current_page <= 1}
-                                onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page - 1}`)}
+                                onClick={() => router.get('/admin/clients', { page: paginatedClients.current_page - 1, sort }, { preserveState: true, preserveScroll: true })}
                             >
                                 <ChevronDownIcon className="size-4 rotate-90" />
                             </Button>
@@ -462,7 +459,7 @@ export default function ClientsPage() {
                                 size="sm"
                                 className="h-[34px] min-w-[34px] px-2"
                                 disabled={paginatedClients.current_page >= paginatedClients.last_page}
-                                onClick={() => router.get(`/admin/clients?page=${paginatedClients.current_page + 1}`)}
+                                onClick={() => router.get('/admin/clients', { page: paginatedClients.current_page + 1, sort }, { preserveState: true, preserveScroll: true })}
                             >
                                 <ChevronDownIcon className="size-4 -rotate-90" />
                             </Button>
