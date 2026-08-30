@@ -156,7 +156,7 @@ class ClientSortPaginationTest extends TestCase
             $this->createClient('Клиент ' . $i, '+7900111' . str_pad((string) $i, 3, '0', STR_PAD_LEFT));
         }
 
-        $response = $this->get(route('admin.clients'));
+        $response = $this->get(route('admin.clients', ['per_page' => 20]));
 
         $response->assertStatus(200);
         $response->assertInertia(fn ($page) => $page

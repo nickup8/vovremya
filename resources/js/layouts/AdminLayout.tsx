@@ -3,7 +3,7 @@ import { usePage, Link } from '@inertiajs/react';
 import {
     Bars3Icon, BellIcon, PlusIcon,
     SunIcon, MoonIcon,
-    ChevronLeftIcon, ChevronRightIcon,
+    Bars3BottomLeftIcon,
 } from '@heroicons/react/24/outline';
 import type { ReactNode } from 'react';
 import Sidebar from '@/components/admin/Sidebar';
@@ -116,10 +116,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                         aria-label={sidebarCollapsed ? 'Развернуть боковую панель' : 'Сложить боковую панель'}
                         aria-pressed={sidebarCollapsed}
                     >
-                        {sidebarCollapsed
-                            ? <ChevronRightIcon className="size-5" />
-                            : <ChevronLeftIcon className="size-5" />
-                        }
+                        <Bars3BottomLeftIcon className="size-5" />
                     </button>
 
                     {/* Title block */}
@@ -148,8 +145,6 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
 
                     {/* Actions */}
                     <div className="flex shrink-0 items-center gap-1 lg:gap-2">
-                        {headerActions}
-
                         {/* Theme switch — desktop only */}
                         <button
                             onClick={toggleTheme}
@@ -207,6 +202,9 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                                 </section>
                             )}
                         </div>
+
+                        {/* Page-specific CTA — always rightmost */}
+                        {headerActions}
 
                         {/* New appointment — hidden when page provides its own primary CTA */}
                         {!hideNewAppointment && (

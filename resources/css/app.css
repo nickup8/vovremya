@@ -140,6 +140,16 @@
     --sidebar-border: oklch(0.922 0 0);
     --sidebar-ring: oklch(0.87 0 0);
 
+    /* Surface & semantic tokens — light */
+    --color-surface: #FFFFFF;
+    --color-surface-elevated: #FFFFFF;
+    --color-surface-hover: rgba(0,0,0,0.03);
+    --color-avatar: #F0EEEA;
+    --color-red: #DC2626;
+    --color-red-bg: #FEF2F2;
+    --color-green: #16A34A;
+    --color-green-bg: #F0FDF4;
+
     /* Calendar today column — light */
     --color-cal-today-bg: #FFFCFA;
     --color-cal-today-wash: rgba(255, 90, 31, 0.025);
@@ -184,6 +194,16 @@
     --color-line: #302E2B;
     --color-line-soft: #272522;
     --color-orange-100: #382018;
+
+    /* Surface & semantic tokens — dark */
+    --color-surface: #1A1918;
+    --color-surface-elevated: #252321;
+    --color-surface-hover: rgba(255,255,255,0.06);
+    --color-avatar: #302E2B;
+    --color-red: #F87171;
+    --color-red-bg: rgba(248,113,113,0.12);
+    --color-green: #4ADE80;
+    --color-green-bg: rgba(74,222,128,0.12);
 
     /* IRSI admin/calendar scoped dark surfaces */
     --color-cal-workspace: #1A1918;

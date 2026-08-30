@@ -135,7 +135,7 @@ function ClientCard({
                 <div className="relative" ref={menuRef}>
                     <button
                         onClick={(e) => { e.stopPropagation(); setMenuOpen(!menuOpen); }}
-                        className="inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                        className={`inline-flex h-[34px] w-[34px] items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] ${menuOpen ? 'bg-[var(--color-surface-hover)]' : ''}`}
                         aria-label="Действия с клиентом"
                         aria-expanded={menuOpen}
                     >
@@ -145,7 +145,7 @@ function ClientCard({
                         <>
                             <div className="fixed inset-0 z-30" onClick={(e) => { e.stopPropagation(); setMenuOpen(false); }} />
                             <div
-                                className="absolute bottom-[40px] right-0 z-40 w-[190px] rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.16)] backdrop-blur-sm"
+                                className="absolute bottom-[40px] right-0 z-40 w-[190px] rounded-xl border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-1.5 shadow-[0_8px_24px_rgba(0,0,0,0.16)]"
                                 onClick={(e) => e.stopPropagation()}
                                 role="menu"
                             >
@@ -325,6 +325,7 @@ export default function ClientsPage() {
                 title="Клиенты"
                 auth={auth}
                 hideNewAppointment
+                fullBleed
                 headerActions={
                     <Button
                         onClick={openCreate}
@@ -335,6 +336,7 @@ export default function ClientsPage() {
                     </Button>
                 }
             >
+                <div className="min-h-full bg-[var(--color-warm)] p-4 md:p-6">
                 {/* ─── Toolbar ─── */}
                 <div className="mb-4 flex min-h-[64px] flex-col gap-3 rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[10px_12px] md:flex-row md:items-center">
                     <div className="relative min-w-0 flex-1">
@@ -467,6 +469,7 @@ export default function ClientsPage() {
                         </div>
                     </div>
                 )}
+                </div>
             </AdminLayout>
 
             {/* ─── Client Detail Drawer ─── */}
