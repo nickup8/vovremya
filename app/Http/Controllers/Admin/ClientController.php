@@ -26,7 +26,7 @@ class ClientController extends Controller
                 ->with('error', 'У вас нет доступа к базе клиентов.');
         }
 
-        $perPage = (int) $request->query('per_page', 3); // TODO: revert to 12 after visual acceptance
+        $perPage = (int) $request->query('per_page', 12);
         $sort = $request->query('sort', 'last_visit_desc');
         $search = $request->query('search', '');
         $filter = $request->query('filter', 'all');
