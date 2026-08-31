@@ -263,7 +263,7 @@ export default function AnalyticsPage() {
     const totalValue = chartData.reduce((sum: number, point: ChartPoint) => sum + point.value, 0);
     const totalCount = chartData.reduce((sum: number, point: ChartPoint) => sum + point.count, 0);
 
-    // Вычисления для карточки «Клиентская база»
+    // Вычисления для карточки «Клиенты за период»
     const totalClients = metrics.new_clients_count + metrics.returning_clients_count;
     const returningPct = totalClients > 0 ? Math.round((metrics.returning_clients_count / totalClients) * 100) : 0;
     const newPct = totalClients > 0 ? 100 - returningPct : 0;
@@ -685,10 +685,10 @@ export default function AnalyticsPage() {
 
                                 {/* Row 2: Client base + Funnel */}
                                 <div className="grid grid-cols-1 gap-4 min-[1181px]:grid-cols-2">
-                                    {/* Клиентская база */}
+                                    {/* Клиенты за период */}
                                     <article className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
                                         <header className="mb-[18px]">
-                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Клиентская база</h2>
+                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Клиенты за период</h2>
                                             <p className="mt-[3px] text-[11.5px] leading-4 text-[var(--color-graphite)]">Новые и постоянные клиенты за период</p>
                                         </header>
                                         <div className="flex flex-col items-center gap-6 sm:flex-row sm:gap-6">
