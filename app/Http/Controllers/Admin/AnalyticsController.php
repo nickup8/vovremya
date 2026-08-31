@@ -267,7 +267,7 @@ class AnalyticsController extends Controller
             };
         }
 
-        $now = Carbon::now();
+        $anchor = $dateFrom ? Carbon::parse($dateFrom) : Carbon::now();
 
         return match ($period) {
             'day' => array_map(
@@ -276,12 +276,12 @@ class AnalyticsController extends Controller
             ),
             'week' => ['1', '2', '3', '4', '5', '6', '7'],
             'month' => collect()
-                ->range(1, $now->daysInMonth)
-                ->map(fn ($d) => $now->copy()->startOfMonth()->addDays($d - 1)->format('Y-m-d'))
+                ->range(1, $anchor->daysInMonth)
+                ->map(fn ($d) => $anchor->copy()->startOfMonth()->addDays($d - 1)->format('Y-m-d'))
                 ->toArray(),
             'year' => collect()
                 ->range(1, 12)
-                ->map(fn ($m) => $now->copy()->startOfYear()->addMonths($m - 1)->format('Y-m'))
+                ->map(fn ($m) => $anchor->copy()->startOfYear()->addMonths($m - 1)->format('Y-m'))
                 ->toArray(),
             default => [],
         };
@@ -308,7 +308,7 @@ class AnalyticsController extends Controller
             };
         }
 
-        $now = Carbon::now();
+        $anchor = $dateFrom ? Carbon::parse($dateFrom) : Carbon::now();
 
         return match ($period) {
             'day' => array_map(
@@ -317,7 +317,7 @@ class AnalyticsController extends Controller
             ),
             'week' => ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
             'month' => collect()
-                ->range(1, $now->daysInMonth)
+                ->range(1, $anchor->daysInMonth)
                 ->map(fn ($d) => (string) $d)
                 ->toArray(),
             'year' => ['Янв', 'Фев', 'Мар', 'Апр', 'Май', 'Июн', 'Июл', 'Авг', 'Сен', 'Окт', 'Ноя', 'Дек'],
