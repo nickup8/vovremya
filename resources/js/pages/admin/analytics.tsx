@@ -1,4 +1,4 @@
-import { useState, useMemo, useCallback } from 'react';
+import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
     ArrowDownTrayIcon, CalendarIcon, ChevronLeftIcon, ChevronRightIcon,
@@ -252,6 +252,12 @@ export default function AnalyticsPage() {
         to: props.dateTo || '',
     });
     const [periodOffset, setPeriodOffset] = useState(0);
+
+    useEffect(() => {
+        if (!props.dateFrom && !props.dateTo) {
+            setPeriodOffset(0);
+        }
+    }, [props.dateFrom, props.dateTo]);
 
     const totalValue = chartData.reduce((sum: number, point: ChartPoint) => sum + point.value, 0);
     const totalCount = chartData.reduce((sum: number, point: ChartPoint) => sum + point.count, 0);

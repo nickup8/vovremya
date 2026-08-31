@@ -142,3 +142,51 @@ describe('Analytics · Period controls', () => {
         expect(screen.getByText('Выручка по периодам')).toBeInTheDocument();
     });
 });
+
+describe('Analytics · Regression: stale periodOffset', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockProps = buildProps();
+    });
+
+    it('periodOffset сбрасывается в 0 при чистой навигации (dateFrom/dateTo = null)', () => {
+        const { rerender } = render(<AnalyticsPage />);
+
+        fireEvent.click(screen.getByLabelText('Предыдущий период'));
+
+        mockProps = buildProps({
+            activePeriod: 'week',
+            dateFrom: '2026-08-24',
+            dateTo: '2026-08-30',
+        });
+        rerender(<AnalyticsPage />);
+        const prevWeekRange = screen.getByText(/—/).textContent;
+
+        mockProps = buildProps({
+            activePeriod: 'week',
+            dateFrom: null,
+            dateTo: null,
+        });
+        rerender(<AnalyticsPage />);
+
+        const currentWeekRange = screen.getByText(/—/).textContent;
+        expect(currentWeekRange).not.toBe(prevWeekRange);
+    });
+
+    it('periodOffset НЕ сбрасывается если dateFrom/dateTo присутствуют', () => {
+        const { rerender } = render(<AnalyticsPage />);
+
+        fireEvent.click(screen.getByLabelText('Предыдущий период'));
+        const prevWeekRange = screen.getByText(/—/).textContent;
+
+        mockProps = buildProps({
+            activePeriod: 'week',
+            dateFrom: '2026-08-24',
+            dateTo: '2026-08-30',
+        });
+        rerender(<AnalyticsPage />);
+
+        const rangeAfter = screen.getByText(/—/).textContent;
+        expect(rangeAfter).toBe(prevWeekRange);
+    });
+});
