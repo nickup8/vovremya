@@ -59,10 +59,7 @@ class AnalyticsController extends Controller
         // Операционный набор по start_time (utilization, отмены, неявки, посещаемость).
         $appointments = Appointment::whereIn('master_id', $masterIds)
             ->with(['masterService.catalog'])
-            ->whereBetween('start_time', [
-                $dateStart.' 00:00:00',
-                $dateEnd.' 23:59:59',
-            ])
+            ->whereBetween('start_time', [$periodStartUtc, $periodEndUtc])
             ->get();
 
         // Финансовый набор по completed_at (выручка, завершённые, средний чек, график, услуги, NEW/RETURNING).
@@ -88,10 +85,7 @@ class AnalyticsController extends Controller
         $prevEndUtc = Carbon::parse($prevEnd->toDateString(), $tz)->endOfDay()->utc();
 
         $prevAppointments = Appointment::whereIn('master_id', $masterIds)
-            ->whereBetween('start_time', [
-                $prevStart->copy()->startOfDay()->toDateTimeString(),
-                $prevEnd->copy()->endOfDay()->toDateTimeString(),
-            ])
+            ->whereBetween('start_time', [$prevStartUtc, $prevEndUtc])
             ->get();
         $prevCompleted = Appointment::whereIn('master_id', $masterIds)
             ->where('status', AppointmentStatus::Paid)
