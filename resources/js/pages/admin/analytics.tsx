@@ -108,6 +108,39 @@ function formatMedianSeconds(seconds: number | null): string {
     return m > 0 ? `${h} ч ${m} мин.` : `${h} ч`;
 }
 
+/** Вычисляет calendar offset между dateFrom и текущим периодом (без DST-зависимости). */
+function getPeriodOffset(period: string, dateFrom: string): number {
+    const [fy, fm, fd] = dateFrom.split('-').map(Number);
+    const now = new Date();
+    const ny = now.getFullYear();
+    const nm = now.getMonth();
+    const nd = now.getDate();
+
+    switch (period) {
+        case 'day': {
+            const fromUtc = Date.UTC(fy, fm - 1, fd);
+            const nowUtc = Date.UTC(ny, nm, nd);
+            return Math.round((fromUtc - nowUtc) / 86400000);
+        }
+        case 'week': {
+            const day = now.getDay();
+            const diff = day === 0 ? 6 : day - 1;
+            const nowMondayUtc = Date.UTC(ny, nm, nd - diff);
+            const fromMonday = new Date(fy, fm - 1, fd);
+            const fday = fromMonday.getDay();
+            const fdiff = fday === 0 ? 6 : fday - 1;
+            const fromMondayUtc = Date.UTC(fy, fm - 1, fd - fdiff);
+            return Math.round((fromMondayUtc - nowMondayUtc) / (7 * 86400000));
+        }
+        case 'month':
+            return (fy - ny) * 12 + (fm - 1 - nm);
+        case 'year':
+            return fy - ny;
+        default:
+            return 0;
+    }
+}
+
 /** Вычисляет границы периода по его типу и смещению */
 function computePeriodDates(period: string, offset: number): { from: string; to: string } | null {
     if (period === 'custom') return null;
@@ -257,8 +290,10 @@ export default function AnalyticsPage() {
     useEffect(() => {
         if (!props.dateFrom && !props.dateTo) {
             setPeriodOffset(0);
+        } else if (props.dateFrom && activePeriod !== 'custom') {
+            setPeriodOffset(getPeriodOffset(activePeriod, props.dateFrom));
         }
-    }, [props.dateFrom, props.dateTo]);
+    }, [props.dateFrom, props.dateTo, activePeriod]);
 
     const totalValue = chartData.reduce((sum: number, point: ChartPoint) => sum + point.value, 0);
     const totalCount = chartData.reduce((sum: number, point: ChartPoint) => sum + point.count, 0);

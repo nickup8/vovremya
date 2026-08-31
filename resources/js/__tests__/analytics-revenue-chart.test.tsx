@@ -209,3 +209,94 @@ describe('Analytics · Regression: trends format', () => {
         expect(screen.getByText(/↑ 8%/)).toBeInTheDocument();
     });
 });
+
+describe('Analytics · Regression: periodOffset sync', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+    });
+
+    it('clean Analytics без dates → offset 0, label текущей недели', () => {
+        mockProps = buildProps({ dateFrom: null, dateTo: null });
+        render(<AnalyticsPage />);
+        // Должна отображаться текущая неделя (содержит «—»).
+        expect(screen.getByText(/—/)).toBeInTheDocument();
+    });
+
+    it('explicit previous week → label соответствует previous week', () => {
+        const now = new Date();
+        const day = now.getDay();
+        const diff = day === 0 ? 6 : day - 1;
+        const prevMonday = new Date(now);
+        prevMonday.setDate(now.getDate() - diff - 7);
+        const prevSunday = new Date(prevMonday);
+        prevSunday.setDate(prevMonday.getDate() + 6);
+
+        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+        mockProps = buildProps({
+            activePeriod: 'week',
+            dateFrom: fmt(prevMonday),
+            dateTo: fmt(prevSunday),
+        });
+        render(<AnalyticsPage />);
+
+        // Label должен содержать даты previous week, а не текущей.
+        const label = screen.getByText(/—/).textContent!;
+        expect(label).toContain(String(prevMonday.getDate()));
+    });
+
+    it('explicit previous month (31→30 дней) → корректный label', () => {
+        // Июль 2025 (31 день) → dateFrom = 2025-07-01
+        mockProps = buildProps({
+            activePeriod: 'month',
+            dateFrom: '2025-07-01',
+            dateTo: '2025-07-31',
+        });
+        render(<AnalyticsPage />);
+
+        const label = screen.getByText(/—/).textContent!;
+        expect(label).toContain('1 июля');
+        expect(label).toContain('31 июля');
+    });
+
+    it('explicit previous year (leap 2024) → корректный label', () => {
+        mockProps = buildProps({
+            activePeriod: 'year',
+            dateFrom: '2024-01-01',
+            dateTo: '2024-12-31',
+        });
+        render(<AnalyticsPage />);
+
+        const label = screen.getByText(/—/).textContent!;
+        expect(label).toContain('2024');
+    });
+
+    it('обычный ← / → продолжает работать', () => {
+        mockProps = buildProps();
+        const { rerender } = render(<AnalyticsPage />);
+
+        const initialLabel = screen.getByText(/—/).textContent;
+
+        // Клик «Предыдущий период».
+        fireEvent.click(screen.getByLabelText('Предыдущий период'));
+
+        // Simulate server response with previous week dates.
+        const now = new Date();
+        const day = now.getDay();
+        const diff = day === 0 ? 6 : day - 1;
+        const prevMonday = new Date(now);
+        prevMonday.setDate(now.getDate() - diff - 7);
+        const prevSunday = new Date(prevMonday);
+        prevSunday.setDate(prevMonday.getDate() + 6);
+        const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+        mockProps = buildProps({
+            dateFrom: fmt(prevMonday),
+            dateTo: fmt(prevSunday),
+        });
+        rerender(<AnalyticsPage />);
+
+        const newLabel = screen.getByText(/—/).textContent;
+        expect(newLabel).not.toBe(initialLabel);
+    });
+});
