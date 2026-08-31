@@ -407,6 +407,25 @@ class AnalyticsController extends Controller
         if ($dateFrom && $dateTo) {
             $start = Carbon::parse($dateFrom);
             $end = Carbon::parse($dateTo);
+
+            if ($period === 'month') {
+                $prevMonthEnd = $start->copy()->startOfMonth()->subDay();
+
+                return [
+                    $prevMonthEnd->copy()->startOfMonth(),
+                    $prevMonthEnd,
+                ];
+            }
+
+            if ($period === 'year') {
+                $prevYearEnd = $start->copy()->startOfYear()->subDay();
+
+                return [
+                    $prevYearEnd->copy()->startOfYear(),
+                    $prevYearEnd,
+                ];
+            }
+
             $duration = $start->diffInDays($end);
 
             return [
