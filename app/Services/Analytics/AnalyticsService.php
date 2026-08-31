@@ -23,7 +23,7 @@ class AnalyticsService
             AppointmentStatus::NoShow,
             AppointmentStatus::Cancelled,
         ]))->count();
-        $attendanceRate = $totalEnded > 0 ? round(($totalVisits / $totalEnded) * 100) : 100;
+        $attendanceRate = $totalEnded > 0 ? round(($totalVisits / $totalEnded) * 100) : 0;
 
         $cancelled = $appointments->filter(fn ($app) => $app->status === AppointmentStatus::Cancelled);
         $noShows = $appointments->filter(fn ($app) => $app->status === AppointmentStatus::NoShow);

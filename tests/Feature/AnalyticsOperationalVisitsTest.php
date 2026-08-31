@@ -116,4 +116,19 @@ class AnalyticsOperationalVisitsTest extends TestCase
         // attendance_rate = 1 / (1 + 0 + 1) = 50%.
         $this->assertEquals(50, $metrics['attendance_rate']);
     }
+
+    public function test_empty_period_attendance_rate_is_zero(): void
+    {
+        // Нет ни одной записи в периоде → attendance_rate = 0, не 100.
+        $response = $this->actingAs($this->master)
+            ->get(route('admin.analytics', ['period' => 'day']))
+            ->assertOk();
+
+        $metrics = $response->viewData('page')['props']['metrics'];
+
+        $this->assertEquals(0, $metrics['attendance_rate']);
+        $this->assertSame(0, $metrics['operational_total_visits']);
+        $this->assertSame(0, $metrics['cancelled_count']);
+        $this->assertSame(0, $metrics['no_show_count']);
+    }
 }
