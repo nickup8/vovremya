@@ -49,8 +49,8 @@ class AnalyticsController extends Controller
         }
 
         $tz = $user->getTimezone();
-        $dateStart = $dateFrom ?? $this->getPeriodStart($period)->toDateString();
-        $dateEnd = $dateTo ?? Carbon::now()->toDateString();
+        $dateStart = $dateFrom ?? $this->getPeriodStart($period, $tz)->toDateString();
+        $dateEnd = $dateTo ?? $this->getPeriodEnd($period, $tz)->toDateString();
 
         // Границы периода в timezone мастера → UTC для сравнения с PostgreSQL timestamps.
         $periodStartUtc = Carbon::parse($dateStart, $tz)->startOfDay()->utc();
@@ -83,7 +83,7 @@ class AnalyticsController extends Controller
 
         $utilization = $this->analyticsService->calculateUtilization($targetMasters, $appointments, $dateStart, $dateEnd);
 
-        [$prevStart, $prevEnd] = $this->getPreviousPeriodDates($period, $dateFrom, $dateTo);
+        [$prevStart, $prevEnd] = $this->getPreviousPeriodDates($period, $dateFrom, $dateTo, $tz);
         $prevStartUtc = Carbon::parse($prevStart->toDateString(), $tz)->startOfDay()->utc();
         $prevEndUtc = Carbon::parse($prevEnd->toDateString(), $tz)->endOfDay()->utc();
 
@@ -382,18 +382,33 @@ class AnalyticsController extends Controller
         ];
     }
 
-    private function getPeriodStart(string $period)
+    private function getPeriodStart(string $period, string $tz = 'UTC')
     {
+        $now = Carbon::now($tz);
+
         return match ($period) {
-            'day' => now()->startOfDay(),
-            'week' => now()->startOfWeek(),
-            'month' => now()->startOfMonth(),
-            'year' => now()->startOfYear(),
-            default => now()->startOfMonth(),
+            'day' => $now->copy()->startOfDay(),
+            'week' => $now->copy()->startOfWeek(),
+            'month' => $now->copy()->startOfMonth(),
+            'year' => $now->copy()->startOfYear(),
+            default => $now->copy()->startOfMonth(),
         };
     }
 
-    private function getPreviousPeriodDates(string $period, ?string $dateFrom, ?string $dateTo): array
+    private function getPeriodEnd(string $period, string $tz = 'UTC')
+    {
+        $now = Carbon::now($tz);
+
+        return match ($period) {
+            'day' => $now->copy()->endOfDay(),
+            'week' => $now->copy()->endOfWeek(),
+            'month' => $now->copy()->endOfMonth(),
+            'year' => $now->copy()->endOfYear(),
+            default => $now->copy()->endOfMonth(),
+        };
+    }
+
+    private function getPreviousPeriodDates(string $period, ?string $dateFrom, ?string $dateTo, string $tz = 'UTC'): array
     {
         if ($dateFrom && $dateTo) {
             $start = Carbon::parse($dateFrom);
@@ -406,12 +421,14 @@ class AnalyticsController extends Controller
             ];
         }
 
+        $now = Carbon::now($tz);
+
         return match ($period) {
-            'day' => [now()->startOfDay()->subDay(), now()->startOfDay()->subSecond()],
-            'week' => [now()->startOfWeek()->subWeek(), now()->startOfWeek()->subDay()],
-            'month' => [now()->startOfMonth()->subMonth(), now()->startOfMonth()->subDay()],
-            'year' => [now()->startOfYear()->subYear(), now()->startOfYear()->subDay()],
-            default => [now()->startOfMonth()->subMonth(), now()->startOfMonth()->subDay()],
+            'day' => [$now->copy()->startOfDay()->subDay(), $now->copy()->startOfDay()->subSecond()],
+            'week' => [$now->copy()->startOfWeek()->subWeek(), $now->copy()->startOfWeek()->subDay()],
+            'month' => [$now->copy()->startOfMonth()->subMonth(), $now->copy()->startOfMonth()->subDay()],
+            'year' => [$now->copy()->startOfYear()->subYear(), $now->copy()->startOfYear()->subDay()],
+            default => [$now->copy()->startOfMonth()->subMonth(), $now->copy()->startOfMonth()->subDay()],
         };
     }
 }
