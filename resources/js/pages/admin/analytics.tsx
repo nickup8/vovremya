@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import {
-    ArrowDownTrayIcon, CalendarIcon, ChevronLeftIcon, ChevronRightIcon,
+    CalendarIcon, ChevronLeftIcon, ChevronRightIcon,
     ArrowTrendingUpIcon, ArrowTrendingDownIcon, ClockIcon, CalendarDaysIcon,
     ExclamationTriangleIcon, MagnifyingGlassIcon, PaperAirplaneIcon,
     ArrowsRightLeftIcon, CheckIcon,
@@ -410,28 +410,22 @@ export default function AnalyticsPage() {
             <AdminLayout title="Аналитика" auth={auth} hideNewAppointment fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
                     <div className="grid max-w-[1320px] gap-4">
-                        {/* ─── Period Controls + Export ─── */}
+                        {/* ─── Period Controls ─── */}
                         <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[14px] md:p-5">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div className="flex w-max max-w-full items-center gap-1.5 overflow-x-auto rounded-[14px] bg-[var(--color-warm)] p-1.5 shadow-[inset_0_0_0_1px_var(--color-line-soft)]">
-                                    {PERIOD_TABS.map(({ key, label }) => (
-                                        <button
-                                            key={key}
-                                            onClick={() => handlePeriodChange(key)}
-                                            className={`h-9 shrink-0 rounded-[10px] px-4 text-sm font-semibold transition-colors max-md:min-h-11 ${
-                                                activePeriod === key
-                                                    ? 'bg-[var(--color-orange)] text-white shadow-[0_8px_16px_rgba(255,90,31,0.18)]'
-                                                    : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-ink)]'
-                                            }`}
-                                        >
-                                            {label}
-                                        </button>
-                                    ))}
-                                </div>
-                                <button className="flex h-10 shrink-0 items-center justify-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3.5 text-sm font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)] max-md:size-11 max-md:min-h-11 max-md:min-w-11 max-md:px-0">
-                                    <ArrowDownTrayIcon className="size-[18px]" />
-                                    <span className="max-md:hidden">Экспорт</span>
-                                </button>
+                            <div className="flex w-max max-w-full items-center gap-1.5 overflow-x-auto rounded-[14px] bg-[var(--color-warm)] p-1.5 shadow-[inset_0_0_0_1px_var(--color-line-soft)]">
+                                {PERIOD_TABS.map(({ key, label }) => (
+                                    <button
+                                        key={key}
+                                        onClick={() => handlePeriodChange(key)}
+                                        className={`h-9 shrink-0 rounded-[10px] px-4 text-sm font-semibold transition-colors max-md:min-h-11 ${
+                                            activePeriod === key
+                                                ? 'bg-[var(--color-orange)] text-white shadow-[0_8px_16px_rgba(255,90,31,0.18)]'
+                                                : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-ink)]'
+                                        }`}
+                                    >
+                                        {label}
+                                    </button>
+                                ))}
                             </div>
 
                             {/* ─── Custom Date Range ─── */}
