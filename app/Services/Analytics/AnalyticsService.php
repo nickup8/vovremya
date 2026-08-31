@@ -33,6 +33,7 @@ class AnalyticsService
         return [
             'revenue' => $revenue,
             'total_visits' => $totalVisits,
+            'operational_total_visits' => $totalVisits,
             'avg_check' => $avgCheck,
             'attendance_rate' => $attendanceRate,
             'lost_revenue' => $lostRevenue,

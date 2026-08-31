@@ -15,6 +15,7 @@ import type { ChannelSource, TrackingLinkItem } from '@/components/admin/Channel
 interface Metrics {
     revenue: number;
     total_visits: number;
+    operational_total_visits?: number;
     avg_check: number;
     attendance_rate: number;
     lost_revenue: number;
@@ -268,8 +269,9 @@ export default function AnalyticsPage() {
     const newPct = totalClients > 0 ? 100 - returningPct : 0;
 
     // Вычисления для карточки «Воронка визитов»
-    const funnelTotal = metrics.total_visits + metrics.cancelled_count + metrics.no_show_count;
-    const paidPct = funnelTotal > 0 ? Math.round((metrics.total_visits / funnelTotal) * 100) : 0;
+    const opVisits = metrics.operational_total_visits ?? metrics.total_visits;
+    const funnelTotal = opVisits + metrics.cancelled_count + metrics.no_show_count;
+    const paidPct = funnelTotal > 0 ? Math.round((opVisits / funnelTotal) * 100) : 0;
     const cancelPct = funnelTotal > 0 ? Math.round((metrics.cancelled_count / funnelTotal) * 100) : 0;
     const noShowPct = funnelTotal > 0 ? Math.round((metrics.no_show_count / funnelTotal) * 100) : 0;
 
@@ -348,7 +350,7 @@ export default function AnalyticsPage() {
             tone: 'booked' as KpiTone,
             label: 'Посещаемость',
             value: metrics.attendance_rate + '%',
-            meta: `${metrics.total_visits} из ${funnelTotal} визитов состоялись`,
+            meta: `${opVisits} из ${funnelTotal} визитов состоялись`,
         },
         {
             icon: CalendarDaysIcon,
@@ -729,7 +731,7 @@ export default function AnalyticsPage() {
                                         </header>
                                         <div className="grid gap-5">
                                             {[
-                                                { dot: 'var(--color-paid)', label: 'Успешно завершены', pct: paidPct, count: metrics.total_visits },
+                                                { dot: 'var(--color-paid)', label: 'Успешно завершены', pct: paidPct, count: opVisits },
                                                 { dot: 'var(--color-pending)', label: 'Отменены клиентом', pct: cancelPct, count: metrics.cancelled_count },
                                                 { dot: 'var(--color-noshow)', label: 'Неявки (No-show)', pct: noShowPct, count: metrics.no_show_count },
                                             ].map((row) => (
