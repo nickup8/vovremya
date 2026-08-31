@@ -268,7 +268,7 @@ export default function AnalyticsPage() {
     const returningPct = totalClients > 0 ? Math.round((metrics.returning_clients_count / totalClients) * 100) : 0;
     const newPct = totalClients > 0 ? 100 - returningPct : 0;
 
-    // Вычисления для карточки «Воронка визитов»
+    // Вычисления для карточки «Исходы записей»
     const opVisits = metrics.operational_total_visits ?? metrics.total_visits;
     const funnelTotal = opVisits + metrics.cancelled_count + metrics.no_show_count;
     const paidPct = funnelTotal > 0 ? Math.round((opVisits / funnelTotal) * 100) : 0;
@@ -723,10 +723,10 @@ export default function AnalyticsPage() {
                                         </div>
                                     </article>
 
-                                    {/* Воронка визитов */}
+                                    {/* Исходы записей */}
                                     <article className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
                                         <header className="mb-[18px]">
-                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Воронка визитов</h2>
+                                            <h2 className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">Исходы записей</h2>
                                             <p className="mt-[3px] text-[11.5px] leading-4 text-[var(--color-graphite)]">Статусы записей и упущенная выгода</p>
                                         </header>
                                         <div className="grid gap-5">
