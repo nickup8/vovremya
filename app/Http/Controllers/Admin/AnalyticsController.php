@@ -278,7 +278,7 @@ class AnalyticsController extends Controller
         return match ($period) {
             'day' => array_map(
                 fn ($h) => sprintf('%02d:00', $h),
-                range(8, 20)
+                range(0, 23)
             ),
             'week' => ['1', '2', '3', '4', '5', '6', '7'],
             'month' => collect()
@@ -319,7 +319,7 @@ class AnalyticsController extends Controller
         return match ($period) {
             'day' => array_map(
                 fn ($h) => sprintf('%02d:00', $h),
-                range(8, 20)
+                range(0, 23)
             ),
             'week' => ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'],
             'month' => collect()

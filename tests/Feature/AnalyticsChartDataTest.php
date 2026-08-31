@@ -112,11 +112,11 @@ class AnalyticsChartDataTest extends TestCase
             array_column($year, 'label'),
         );
 
-        // day → почасовые бакеты 08:00..20:00 (13 штук)
+        // day → почасовые бакеты 00:00..23:00 (24 штуки)
         $day = $this->chartData('day');
-        $this->assertCount(13, $day);
-        $this->assertSame('08:00', $day[0]['label']);
-        $this->assertSame('20:00', $day[12]['label']);
+        $this->assertCount(24, $day);
+        $this->assertSame('00:00', $day[0]['label']);
+        $this->assertSame('23:00', $day[23]['label']);
     }
 
     // ── Empty state ───────────────────────────────────────
@@ -131,5 +131,55 @@ class AnalyticsChartDataTest extends TestCase
         foreach ($chart as $bucket) {
             $this->assertSame(0.0, (float) $bucket['percent']);
         }
+    }
+
+    // ── Day chart covers full 24h ─────────────────────────
+
+    public function test_day_chartdata_covers_all_24_hours(): void
+    {
+        $tz = 'Europe/Moscow';
+        // UTC-время: 06:00 Moscow = 03:00 UTC, 22:00 Moscow = 19:00 UTC.
+        $today = Carbon::now();
+
+        // Раннее утро (06:00 Moscow) — вне старого диапазона 08–20.
+        Appointment::factory()->forMaster($this->master)->create([
+            'status' => AppointmentStatus::Paid,
+            'price' => 1000,
+            'duration' => 60,
+            'start_time' => $today->copy()->setTime(2, 0),
+            'completed_at' => $today->copy()->setTime(3, 0),
+        ]);
+
+        // Поздний вечер (22:00 Moscow) — вне старого диапазона 08–20.
+        Appointment::factory()->forMaster($this->master)->create([
+            'status' => AppointmentStatus::Paid,
+            'price' => 2000,
+            'duration' => 60,
+            'start_time' => $today->copy()->setTime(18, 0),
+            'completed_at' => $today->copy()->setTime(19, 0),
+        ]);
+
+        $response = $this->actingAs($this->master)
+            ->get(route('admin.analytics', ['period' => 'day']))
+            ->assertOk();
+
+        $page = $response->viewData('page')['props'];
+        $chart = $page['chartData'];
+        $metrics = $page['metrics'];
+
+        // 24 hourly buckets.
+        $this->assertCount(24, $chart);
+
+        // Обе записи попали в правильные buckets.
+        $bucket06 = collect($chart)->firstWhere('label', '06:00');
+        $bucket22 = collect($chart)->firstWhere('label', '22:00');
+        $this->assertNotNull($bucket06);
+        $this->assertNotNull($bucket22);
+        $this->assertSame(1000.0, (float) $bucket06['value']);
+        $this->assertSame(2000.0, (float) $bucket22['value']);
+
+        // Сумма chartData совпадает с metrics.
+        $this->assertSame((float) $metrics['revenue'], (float) array_sum(array_column($chart, 'value')));
+        $this->assertSame((int) $metrics['total_visits'], (int) array_sum(array_column($chart, 'count')));
     }
 }
