@@ -341,7 +341,7 @@ export default function AnalyticsPage() {
             tone: (trends.avg_check >= 0 ? 'positive' : 'danger') as KpiTone,
             label: 'Средний чек',
             value: Math.round(metrics.avg_check).toLocaleString('ru-RU') + ' ₽',
-            change: <TrendChip value={trends.avg_check} prevValue={prev_metrics.avg_check} format="currency" />,
+            change: <TrendChip value={trends.avg_check} prevValue={prev_metrics.avg_check} format="percent" />,
         },
         {
             icon: ClockIcon,
@@ -598,7 +598,7 @@ export default function AnalyticsPage() {
                                                 </strong>
                                                 {!activePoint && (
                                                     <>
-                                                        <TrendChip value={trends.revenue} prevValue={prev_metrics.revenue} format="currency" />
+                                                        <TrendChip value={trends.revenue} prevValue={prev_metrics.revenue} format="percent" />
                                                         <span className="text-[11px] text-[var(--color-graphite)]">к прошлому периоду</span>
                                                     </>
                                                 )}

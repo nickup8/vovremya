@@ -190,3 +190,22 @@ describe('Analytics · Regression: stale periodOffset', () => {
         expect(rangeAfter).toBe(prevWeekRange);
     });
 });
+
+describe('Analytics · Regression: trends format', () => {
+    beforeEach(() => {
+        vi.clearAllMocks();
+        mockProps = buildProps();
+    });
+
+    it('avg_check trend отображается в процентах, не в валюте', () => {
+        render(<AnalyticsPage />);
+        // trends.avg_check = 320 → "↑ 320%" (не "↑ 320 ₽")
+        expect(screen.getByText(/↑ 320%/)).toBeInTheDocument();
+    });
+
+    it('revenue trend отображается в процентах, не в валюте', () => {
+        render(<AnalyticsPage />);
+        // trends.revenue = 8 → "↑ 8%" (не "↑ 8 ₽")
+        expect(screen.getByText(/↑ 8%/)).toBeInTheDocument();
+    });
+});
