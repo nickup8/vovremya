@@ -40,7 +40,10 @@ class CalendarApiController extends Controller
         $appointments = Appointment::whereIn('master_id', $masterIds)
             ->with(['client', 'master'])
             ->whereBetween('start_time', [$utcStart, $utcEnd])
-            ->whereNotNull('client_id')
+            ->where(function ($q) {
+                $q->whereNotNull('client_id')
+                  ->orWhereNotNull('source');
+            })
             ->get()
             ->map(function (Appointment $a) {
                 $tz = $a->master->getTimezone();

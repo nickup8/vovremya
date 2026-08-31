@@ -55,7 +55,10 @@ class CalendarController extends Controller
                     $rangeStart,
                     $rangeEnd,
                 ])
-                ->whereNotNull('client_id')
+                ->where(function ($q) {
+                    $q->whereNotNull('client_id')
+                      ->orWhereNotNull('source');
+                })
                 ->get()
                 ->map(function (Appointment $a) {
                     $tz = $a->master->getTimezone();
@@ -129,7 +132,10 @@ class CalendarController extends Controller
                     $rangeStart,
                     $rangeEnd,
                 ])
-                ->whereNotNull('client_id')
+                ->where(function ($q) {
+                    $q->whereNotNull('client_id')
+                      ->orWhereNotNull('source');
+                })
                 ->get()
                 ->map(function (Appointment $a) use ($tz) {
                     return [
