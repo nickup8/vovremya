@@ -362,7 +362,7 @@ export default function AnalyticsPage() {
         {
             icon: ExclamationTriangleIcon,
             tone: 'danger' as KpiTone,
-            label: 'Упущенная выгода',
+            label: 'Потенциальные потери',
             value: Math.round(metrics.lost_revenue).toLocaleString('ru-RU') + ' ₽',
             meta: `${metrics.cancelled_count} отмен / ${metrics.no_show_count} неявок`,
         },
