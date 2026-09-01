@@ -11,6 +11,7 @@ import {
     Clock,
     Copy,
     Check,
+    Lock,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -932,20 +933,42 @@ return;
         <>
             <Head title="Настройки профиля — Вовремя" />
 
-            <AdminLayout title="Настройки профиля" auth={auth}>
+            <AdminLayout title="Настройки профиля" auth={auth} hideNewAppointment fullBleed>
+                <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
+                    <div className="mx-auto max-w-[1280px]">
                         <TimezoneConfirmBanner
                             confirmed={profile.timezone_confirmed}
                         />
 
-                        <div className="max-w-4xl space-y-6">
-                            {/* ═══ Tabs ═══ */}
-                            <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
-                                <TabsList className="mb-6 w-full justify-start gap-1 overflow-x-auto scrollbar-none">
-                                    <TabsTrigger value="profile">Профиль</TabsTrigger>
-                                    <TabsTrigger value="booking">Запись и оплата</TabsTrigger>
-                                    <TabsTrigger value="notifications">Уведомления</TabsTrigger>
-                                    <TabsTrigger value="schedule">Расписание</TabsTrigger>
-                                </TabsList>
+                        {/* ═══ Underline Tabs ═══ */}
+                        <div className="mb-6 flex items-center gap-6 overflow-x-auto border-b border-[var(--color-line)] scrollbar-none">
+                            {(['profile', 'booking', 'notifications', 'schedule'] as const).map((tab) => {
+                                const labels: Record<string, string> = {
+                                    profile: 'Профиль',
+                                    booking: 'Запись и оплата',
+                                    notifications: 'Уведомления',
+                                    schedule: 'Расписание',
+                                };
+                                const isActive = activeTab === tab;
+
+                                return (
+                                    <button
+                                        key={tab}
+                                        type="button"
+                                        onClick={() => handleTabChange(tab)}
+                                        className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                            isActive
+                                                ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                                : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                        }`}
+                                    >
+                                        {labels[tab]}
+                                    </button>
+                                );
+                            })}
+                        </div>
+
+                        <Tabs value={activeTab} onValueChange={handleTabChange} className="w-full">
 
                             {/* ═══ Tab: Profile ═══ */}
                             <TabsContent value="profile">
@@ -953,285 +976,267 @@ return;
                                 onSubmit={(e) => {
  e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Профиль сохранён') }); 
 }}
-                                className="space-y-6"
+                                className="space-y-0"
                             >
 
-                            {/* ═══ Card 1: Master Profile ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <h3 className="mb-4 text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                    Профиль мастера
-                                </h3>
-
-                                {/* Avatar */}
-                                <div className="mb-6 flex items-center gap-4">
-                                    <Avatar className="size-16">
-                                        <AvatarImage src={profile.avatar_url ?? undefined} alt={userName} className="object-cover" />
-                                        <AvatarFallback className="bg-gradient-to-br from-blue-500 to-indigo-600 text-xl font-bold text-white">
-                                            {initials}
-                                        </AvatarFallback>
-                                    </Avatar>
-                                    <input
-                                        ref={fileInputRef}
-                                        type="file"
-                                        accept="image/*"
-                                        className="hidden"
-                                        onChange={handleAvatarChange}
-                                    />
-                                    <div className="flex items-center gap-2">
-                                        <Button
+                            {/* ═══ Profile Header ═══ */}
+                            <div className="mb-8 flex flex-wrap items-center gap-5">
+                                <Avatar className="size-24 rounded-[16px]">
+                                    <AvatarImage src={profile.avatar_url ?? undefined} alt={userName} className="object-cover" />
+                                    <AvatarFallback className="bg-[var(--color-avatar)] text-2xl font-bold text-[var(--color-graphite)]">
+                                        {initials}
+                                    </AvatarFallback>
+                                </Avatar>
+                                <input
+                                    ref={fileInputRef}
+                                    type="file"
+                                    accept="image/*"
+                                    className="hidden"
+                                    onChange={handleAvatarChange}
+                                />
+                                <div className="min-w-0 flex-1">
+                                    <h2 className="truncate text-[18px] font-bold leading-[22px] tracking-[-.02em] text-[var(--color-ink)]">
+                                        {userName}
+                                    </h2>
+                                    <p className="mt-0.5 text-[13px] text-[var(--color-graphite)]">
+                                        Профиль мастера
+                                    </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                    <Button
+                                        type="button"
+                                        variant="outline"
+                                        className="h-9 rounded-[10px] border-[var(--color-line)] px-3.5 text-[13px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]"
+                                        onClick={() => fileInputRef.current?.click()}
+                                    >
+                                        <Pencil className="size-3.5" />
+                                        Изменить фото
+                                    </Button>
+                                    {profile.avatar_url && (
+                                        <button
                                             type="button"
-                                            variant="outline"
-                                            size="sm"
-                                            className="rounded-lg"
                                             onClick={() =>
-                                                fileInputRef.current?.click()
+                                                router.delete('/admin/settings/avatar', {
+                                                    preserveScroll: true,
+                                                    onSuccess: () => toast.success('Фото удалено'),
+                                                })
                                             }
+                                            className="inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-semibold text-[var(--color-red)] transition-colors hover:bg-[var(--color-red-bg)]"
                                         >
-                                            <Pencil className="size-3.5" />
-                                            Изменить фото
-                                        </Button>
-                                        {profile.avatar_url && (
-                                            <Button
-                                                type="button"
-                                                variant="outline"
-                                                size="sm"
-                                                className="rounded-lg text-red-600 hover:bg-red-50 hover:text-red-700 dark:text-red-400 dark:hover:bg-red-950/40"
-                                                onClick={() =>
-                                                    router.delete('/admin/settings/avatar', {
-                                                        preserveScroll: true,
-                                                        onSuccess: () => toast.success('Фото удалено'),
-                                                    })
-                                                }
-                                            >
-                                                <Trash2 className="size-3.5" />
-                                                Удалить
-                                            </Button>
-                                        )}
-                                    </div>
-                                </div>
-
-                                {/* Fields Grid */}
-                                <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                    {/* Row 1: Имя | Телефон */}
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Имя
-                                        </label>
-                                        <Input
-                                            value={profileForm.data.name}
-                                            onChange={(e) =>
-                                                profileForm.setData(
-                                                    'name',
-                                                    e.target.value,
-                                                )
-                                            }
-                                            placeholder="ИП Климин П. А."
-                                            className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                        />
-                                        {profileForm.errors.name && (
-                                            <p className="mt-1 text-xs text-red-500">
-                                                {profileForm.errors.name}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Телефон
-                                        </label>
-                                        <PhoneInput
-                                            value={profileForm.data.phone ?? ''}
-                                            onChange={(val) =>
-                                                profileForm.setData(
-                                                    'phone',
-                                                    stripPhoneMask(val),
-                                                )
-                                            }
-                                            placeholder="+7 (911) 123-45-67"
-                                            className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                        />
-                                        {profileForm.errors.phone && (
-                                            <p className="mt-1 text-xs text-red-500">
-                                                {profileForm.errors.phone}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Row 2: Telegram ID | ID профиля в Max */}
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Telegram ID
-                                        </label>
-                                        <Input
-                                            value={profileForm.data.telegram_id}
-                                            onChange={(e) =>
-                                                profileForm.setData(
-                                                    'telegram_id',
-                                                    e.target.value,
-                                                )
-                                            }
-                                            placeholder="555666777"
-                                            className="bg-slate-50 font-mono placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                        />
-                                        {profileForm.errors.telegram_id && (
-                                            <p className="mt-1 text-xs text-red-500">
-                                                {profileForm.errors.telegram_id}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            ID профиля в Max
-                                        </label>
-                                        <Input
-                                            value={profileForm.data.max_id}
-                                            onChange={(e) =>
-                                                profileForm.setData(
-                                                    'max_id',
-                                                    e.target.value,
-                                                )
-                                            }
-                                            placeholder="12345678"
-                                            className="bg-slate-50 font-mono placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                        />
-                                        {profileForm.errors.max_id && (
-                                            <p className="mt-1 text-xs text-red-500">
-                                                {profileForm.errors.max_id}
-                                            </p>
-                                        )}
-                                    </div>
-
-                                    {/* Row 3: Slug профиля | Часовой пояс */}
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Slug профиля
-                                        </label>
-                                        <div className="flex items-center">
-                                            <span className="shrink-0 rounded-l-lg border border-r-0 border-slate-200 bg-slate-100 px-3 py-2 text-sm text-slate-500 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-400">
-                                                {typeof window !== 'undefined' ? window.location.origin : ''}/book/
-                                            </span>
-                                            <Input
-                                                value={profileForm.data.master_slug}
-                                                onChange={(e) =>
-                                                    profileForm.setData(
-                                                        'master_slug',
-                                                        e.target.value
-                                                            .toLowerCase()
-                                                            .replace(
-                                                                /[^a-z0-9_-]/g,
-                                                                '',
-                                                            ),
-                                                    )
-                                                }
-                                                placeholder="nails_studio"
-                                                className="rounded-l-none bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                            />
-                                            <Button
-                                                type="button"
-                                                variant="ghost"
-                                                size="icon"
-                                                className="ml-1 shrink-0"
-                                                onClick={() => {
-                                                    const slug = profileForm.data.master_slug;
-
-                                                    if (!slug) {
-                                                        return;
-                                                    }
-
-                                                    const url = `${window.location.origin}/book/${slug}`;
-                                                    navigator.clipboard.writeText(url).then(() => {
-                                                        setIsCopied(true);
-                                                        toast.success('Ссылка скопирована');
-                                                        setTimeout(() => setIsCopied(false), 2000);
-                                                    });
-                                                }}
-                                            >
-                                                {isCopied ? (
-                                                    <Check className="size-4 text-emerald-500 dark:text-green-400" />
-                                                ) : (
-                                                    <Copy className="size-4 text-muted-foreground" />
-                                                )}
-                                            </Button>
-                                        </div>
-                                        {profileForm.errors.master_slug && (
-                                            <p className="mt-1 text-xs text-red-500">
-                                                {profileForm.errors.master_slug}
-                                            </p>
-                                        )}
-                                    </div>
-                                    <div>
-                                        <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                            Часовой пояс
-                                        </label>
-                                        <Select
-                                            value={profile.timezone}
-                                            onValueChange={(value) => {
-                                                router.patch(
-                                                    '/admin/settings/timezone',
-                                                    { timezone: value },
-                                                    {
-                                                        preserveScroll: true,
-                                                        preserveState: false,
-                                                        only: ['profile'],
-                                                    },
-                                                );
-                                            }}
-                                        >
-                                            <SelectTrigger className="w-full">
-                                                <SelectValue />
-                                            </SelectTrigger>
-                                            <SelectContent>
-                                                <SelectItem value="Europe/Kaliningrad">Kaliningrad (UTC+2)</SelectItem>
-                                                <SelectItem value="Europe/Moscow">Moscow (UTC+3)</SelectItem>
-                                                <SelectItem value="Europe/Samara">Samara (UTC+4)</SelectItem>
-                                                <SelectItem value="Asia/Yekaterinburg">Yekaterinburg (UTC+5)</SelectItem>
-                                                <SelectItem value="Asia/Omsk">Omsk (UTC+6)</SelectItem>
-                                                <SelectItem value="Asia/Krasnoyarsk">Krasnoyarsk (UTC+7)</SelectItem>
-                                                <SelectItem value="Asia/Irkutsk">Irkutsk (UTC+8)</SelectItem>
-                                                <SelectItem value="Asia/Yakutsk">Yakutsk (UTC+9)</SelectItem>
-                                                <SelectItem value="Asia/Vladivostok">Vladivostok (UTC+10)</SelectItem>
-                                                <SelectItem value="Asia/Magadan">Magadan (UTC+11)</SelectItem>
-                                                <SelectItem value="Asia/Kamchatka">Kamchatka (UTC+12)</SelectItem>
-                                            </SelectContent>
-                                        </Select>
-                                    </div>
-                                </div>
-
-                                {/* Address - full width */}
-                                <div className="mt-4">
-                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                        Адрес
-                                    </label>
-                                    <Input
-                                        value={profileForm.data.address}
-                                        onChange={(e) =>
-                                            profileForm.setData(
-                                                'address',
-                                                e.target.value,
-                                            )
-                                        }
-                                        placeholder="г. Москва, ул. Примерная, д. 1"
-                                        className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                    />
-                                    {profileForm.errors.address && (
-                                        <p className="mt-1 text-xs text-red-500">
-                                            {profileForm.errors.address}
-                                        </p>
+                                            Удалить
+                                        </button>
                                     )}
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-2">
+                            {/* ═══ Основная информация ═══ */}
+                            <div className="border-t border-[var(--color-line)] py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Основная информация
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
+                                                Имя
+                                            </label>
+                                            <Input
+                                                value={profileForm.data.name}
+                                                onChange={(e) =>
+                                                    profileForm.setData('name', e.target.value)
+                                                }
+                                                placeholder="ИП Климин П. А."
+                                                className="h-[42px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] placeholder:text-[var(--color-graphite)] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                            />
+                                            {profileForm.errors.name && (
+                                                <p className="mt-1 text-xs text-[var(--color-red)]">
+                                                    {profileForm.errors.name}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
+                                                Телефон
+                                            </label>
+                                            <PhoneInput
+                                                value={profileForm.data.phone ?? ''}
+                                                onChange={(val) =>
+                                                    profileForm.setData('phone', stripPhoneMask(val))
+                                                }
+                                                placeholder="+7 (911) 123-45-67"
+                                                className="h-[42px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] placeholder:text-[var(--color-graphite)] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                            />
+                                            {profileForm.errors.phone && (
+                                                <p className="mt-1 text-xs text-[var(--color-red)]">
+                                                    {profileForm.errors.phone}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div className="min-[520px]:col-span-2">
+                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
+                                                Адрес
+                                            </label>
+                                            <Input
+                                                value={profileForm.data.address}
+                                                onChange={(e) =>
+                                                    profileForm.setData('address', e.target.value)
+                                                }
+                                                placeholder="г. Москва, ул. Примерная, д. 1"
+                                                className="h-[42px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] placeholder:text-[var(--color-graphite)] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                            />
+                                            {profileForm.errors.address && (
+                                                <p className="mt-1 text-xs text-[var(--color-red)]">
+                                                    {profileForm.errors.address}
+                                                </p>
+                                            )}
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ═══ Публичный профиль ═══ */}
+                            <div className="border-t border-[var(--color-line)] py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Публичный профиль
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
+                                                Slug профиля
+                                            </label>
+                                            <div className="flex h-[42px] items-center overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] focus-within:ring-2 focus-within:ring-[var(--color-orange)] focus-within:ring-offset-0">
+                                                <span className="shrink-0 select-none border-r border-[var(--color-line)] bg-[var(--color-line-soft)] px-3 text-[13px] text-[var(--color-graphite)]">
+                                                    {typeof window !== 'undefined' ? window.location.origin : ''}/book/
+                                                </span>
+                                                <input
+                                                    type="text"
+                                                    value={profileForm.data.master_slug}
+                                                    onChange={(e) =>
+                                                        profileForm.setData(
+                                                            'master_slug',
+                                                            e.target.value
+                                                                .toLowerCase()
+                                                                .replace(/[^a-z0-9_-]/g, ''),
+                                                        )
+                                                    }
+                                                    placeholder="nails_studio"
+                                                    className="h-full min-w-0 flex-1 bg-transparent px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-graphite)]"
+                                                />
+                                                <button
+                                                    type="button"
+                                                    onClick={() => {
+                                                        const slug = profileForm.data.master_slug;
+                                                        if (!slug) return;
+                                                        const url = `${window.location.origin}/book/${slug}`;
+                                                        navigator.clipboard.writeText(url).then(() => {
+                                                            setIsCopied(true);
+                                                            toast.success('Ссылка скопирована');
+                                                            setTimeout(() => setIsCopied(false), 2000);
+                                                        });
+                                                    }}
+                                                    className="flex shrink-0 items-center justify-center px-3 text-[var(--color-graphite)] transition-colors hover:text-[var(--color-ink)]"
+                                                    title="Скопировать ссылку"
+                                                >
+                                                    {isCopied ? (
+                                                        <Check className="size-4 text-[var(--color-paid)]" />
+                                                    ) : (
+                                                        <Copy className="size-4" />
+                                                    )}
+                                                </button>
+                                            </div>
+                                            {profileForm.errors.master_slug && (
+                                                <p className="mt-1 text-xs text-[var(--color-red)]">
+                                                    {profileForm.errors.master_slug}
+                                                </p>
+                                            )}
+                                        </div>
+                                        <div>
+                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
+                                                Часовой пояс
+                                            </label>
+                                            <Select
+                                                value={profile.timezone}
+                                                onValueChange={(value) => {
+                                                    router.patch(
+                                                        '/admin/settings/timezone',
+                                                        { timezone: value },
+                                                        {
+                                                            preserveScroll: true,
+                                                            preserveState: false,
+                                                            only: ['profile'],
+                                                        },
+                                                    );
+                                                }}
+                                            >
+                                                <SelectTrigger className="h-[42px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="Europe/Kaliningrad">Kaliningrad (UTC+2)</SelectItem>
+                                                    <SelectItem value="Europe/Moscow">Moscow (UTC+3)</SelectItem>
+                                                    <SelectItem value="Europe/Samara">Samara (UTC+4)</SelectItem>
+                                                    <SelectItem value="Asia/Yekaterinburg">Yekaterinburg (UTC+5)</SelectItem>
+                                                    <SelectItem value="Asia/Omsk">Omsk (UTC+6)</SelectItem>
+                                                    <SelectItem value="Asia/Krasnoyarsk">Krasnoyarsk (UTC+7)</SelectItem>
+                                                    <SelectItem value="Asia/Irkutsk">Irkutsk (UTC+8)</SelectItem>
+                                                    <SelectItem value="Asia/Yakutsk">Yakutsk (UTC+9)</SelectItem>
+                                                    <SelectItem value="Asia/Vladivostok">Vladivostok (UTC+10)</SelectItem>
+                                                    <SelectItem value="Asia/Magadan">Magadan (UTC+11)</SelectItem>
+                                                    <SelectItem value="Asia/Kamchatka">Kamchatka (UTC+12)</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ═══ Интеграции ═══ */}
+                            <div className="border-t border-[var(--color-line)] py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Интеграции
+                                    </div>
+                                    <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
+                                        <div>
+                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
+                                                Telegram ID
+                                            </label>
+                                            <div className="flex h-[42px] items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-line-soft)] px-3">
+                                                <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-[var(--color-graphite)]">
+                                                    {profileForm.data.telegram_id || '—'}
+                                                </span>
+                                                <Lock className="size-3.5 shrink-0 text-[var(--color-graphite)]" />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
+                                                ID профиля в Max
+                                            </label>
+                                            <div className="flex h-[42px] items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-line-soft)] px-3">
+                                                <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-[var(--color-graphite)]">
+                                                    {profileForm.data.max_id || '—'}
+                                                </span>
+                                                <Lock className="size-3.5 shrink-0 text-[var(--color-graphite)]" />
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ═══ Save Area ═══ */}
+                            <div className="flex justify-end gap-2 border-t border-[var(--color-line)] pt-6">
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="rounded-lg"
+                                    className="h-10 rounded-[10px] border-[var(--color-line)] px-4 text-[13px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]"
                                 >
                                     Отмена
                                 </Button>
                                 <Button
                                     type="submit"
                                     disabled={profileForm.processing}
-                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                                    className="h-10 rounded-[10px] bg-[var(--color-orange)] px-5 text-[13px] font-semibold text-white hover:bg-[var(--color-orange-600)]"
                                 >
                                     {profileForm.processing
                                         ? 'Сохранение...'
@@ -1618,7 +1623,8 @@ return;
 
                             </TabsContent>
                             </Tabs>
-                        </div>
+                    </div>
+                </div>
             </AdminLayout>
 
             {/* Modals */}
