@@ -66,7 +66,7 @@ class BookingFlowStatusTest extends TestCase
     }
 
     #[Test]
-    public function prepayment_custom_creates_pending_payment_status(): void
+    public function prepayment_custom_creates_booked_status(): void
     {
         $master = $this->createMaster([
             'booking_flow_type' => 'prepayment_custom',
@@ -84,7 +84,7 @@ class BookingFlowStatusTest extends TestCase
             'telegram',
         );
 
-        $this->assertEquals(AppointmentStatus::PendingPayment, $appointment->status);
+        $this->assertEquals(AppointmentStatus::Booked, $appointment->status);
     }
 
     #[Test]

@@ -83,8 +83,6 @@ class NotificationSettingsTest extends TestCase
                 'telegram_notifications' => false,
                 'max_notifications' => false,
                 'reminder_hours_before_final' => 3,
-                'booking_flow_type' => 'prepayment_custom',
-                'custom_prepayment_message' => 'Pay here',
             ],
         ]);
 
@@ -98,8 +96,6 @@ class NotificationSettingsTest extends TestCase
 
         $this->assertSame('Europe/Moscow', $user->getTimezone());
         $this->assertTrue($user->isTimezoneConfirmed());
-        $this->assertSame('prepayment_custom', $user->getBookingFlowType());
-        $this->assertSame('Pay here', $user->getCustomPrepaymentMessage());
         $this->assertSame(24, $user->cancellation_deadline_hours);
         $this->assertTrue($user->autofill_enabled);
         $this->assertTrue($user->telegram_notifications);

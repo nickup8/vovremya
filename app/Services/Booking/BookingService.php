@@ -146,11 +146,7 @@ class BookingService
                 abort(422, 'Это время уже занято, выберите другой слот.');
             }
 
-            $appointmentStatus = $status ?? (
-                $master->getBookingFlowType() === 'prepayment_custom'
-                    ? AppointmentStatus::PendingPayment
-                    : AppointmentStatus::Booked
-            );
+            $appointmentStatus = $status ?? AppointmentStatus::Booked;
 
             $allowedInitialStatuses = [AppointmentStatus::Booked, AppointmentStatus::PendingPayment];
 

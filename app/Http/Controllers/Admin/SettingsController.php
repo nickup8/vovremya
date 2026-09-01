@@ -87,8 +87,6 @@ class SettingsController extends Controller
                 'max_notifications' => $user->max_notifications,
                 'timezone' => $user->getTimezone(),
                 'timezone_confirmed' => $user->isTimezoneConfirmed(),
-                'booking_flow_type' => $user->getBookingFlowType(),
-                'custom_prepayment_message' => $user->getCustomPrepaymentMessage(),
                 'reminder_hours_before_final' => $user->getReminderHoursBeforeFinal(),
                 'autofill_enabled' => $user->autofill_enabled,
                 'has_slot_autofill' => $user->hasFeature('slot_autofill'),
@@ -121,8 +119,6 @@ class SettingsController extends Controller
             'deposit_percent' => 'nullable|integer|min:1|max:100',
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
-            'booking_flow_type' => ['nullable', Rule::in(['free_verification', 'prepayment_custom'])],
-            'custom_prepayment_message' => ['nullable', 'string', 'max:1000'],
             'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([0, 1, 2, 3, 12])],
             'cancellation_deadline_hours' => 'nullable|integer|min:1|max:168',
             'autofill_enabled' => 'boolean',
@@ -147,7 +143,7 @@ class SettingsController extends Controller
             unset($validated['autofill_enabled']);
         }
 
-        $jsonFields = ['booking_flow_type', 'custom_prepayment_message', 'reminder_hours_before_final'];
+        $jsonFields = ['reminder_hours_before_final'];
         $settingsData = array_intersect_key($validated, array_flip($jsonFields));
         $columnData = array_diff_key($validated, array_flip($jsonFields));
 

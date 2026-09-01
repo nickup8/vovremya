@@ -18,8 +18,6 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { PhoneInput } from '@/components/PhoneInput';
 import { stripPhoneMask } from '@/lib/phone';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
-import { Textarea } from '@/components/ui/textarea';
 import { Tabs, TabsList, TabsTrigger, TabsContent } from '@/components/ui/tabs';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -55,8 +53,6 @@ interface Profile {
     max_notifications: boolean;
     timezone: string;
     timezone_confirmed: boolean;
-    booking_flow_type: string;
-    custom_prepayment_message: string | null;
     reminder_hours_before_final: number;
     autofill_enabled: boolean;
     has_slot_autofill: boolean;
@@ -825,8 +821,6 @@ export default function SettingsPage() {
         max_notifications: false,
         timezone: 'Europe/Moscow',
         timezone_confirmed: false,
-        booking_flow_type: 'free_verification',
-        custom_prepayment_message: null,
         reminder_hours_before_final: 3,
     };
     const workingHours = rawWorkingHours || [];
@@ -889,10 +883,6 @@ return;
     }, [profile?.id]);
 
     const bookingFlowForm = useForm({
-        booking_flow_type: profile.booking_flow_type,
-        custom_prepayment_message: profile.custom_prepayment_message || '',
-        deposit_timeout: profile.deposit_timeout?.toString() || '15',
-        deposit_percent: profile.deposit_percent?.toString() || '30',
         cancellation_deadline_hours: profile.cancellation_deadline_hours?.toString() || '',
         autofill_enabled: profile.autofill_enabled,
     });
@@ -1311,127 +1301,6 @@ return;
 }}
                                 className="space-y-6"
                             >
-
-                            {/* ═══ Card: Режим записи ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                    Режим записи
-                                </h3>
-                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
-                                    Как клиенты записываются к вам
-                                </p>
-
-                                <RadioGroup
-                                    value={bookingFlowForm.data.booking_flow_type}
-                                    onValueChange={(value) => bookingFlowForm.setData('booking_flow_type', value)}
-                                    className="space-y-3"
-                                >
-                                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
-                                        <RadioGroupItem value="free_verification" id="flow-free" className="mt-0.5" />
-                                        <div>
-                                            <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
-                                                Свободная запись
-                                            </p>
-                                            <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                Клиент записывается, вы подтверждаете вручную
-                                            </p>
-                                        </div>
-                                    </label>
-
-                                    <label className="flex cursor-pointer items-start gap-3 rounded-lg border border-slate-200 p-4 transition-colors hover:bg-slate-50 dark:border-zinc-700 dark:hover:bg-zinc-800/50 [&:has([data-state=checked])]:border-blue-600 [&:has([data-state=checked])]:bg-blue-50/50 dark:[&:has([data-state=checked])]:border-blue-500 dark:[&:has([data-state=checked])]:bg-blue-950/20">
-                                        <RadioGroupItem value="prepayment_custom" id="flow-prepay" className="mt-0.5" />
-                                        <div>
-                                            <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
-                                                Предоплата по реквизитам
-                                            </p>
-                                            <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                Клиент вносит предоплату и присылает подтверждение
-                                            </p>
-                                        </div>
-                                    </label>
-                                </RadioGroup>
-
-                                {bookingFlowForm.data.booking_flow_type === 'prepayment_custom' && (
-                                    <div className="mt-4 space-y-4">
-                                        <div>
-                                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                                Реквизиты и инструкция для клиента
-                                            </label>
-                                            <Textarea
-                                                value={bookingFlowForm.data.custom_prepayment_message}
-                                                onChange={(e) => bookingFlowForm.setData('custom_prepayment_message', e.target.value)}
-                                                placeholder="Например: Переведите 500 ₽ на карту 0000 0000 0000 0000 (Сбербанк) и пришлите скриншот в этот чат"
-                                                maxLength={1000}
-                                                rows={4}
-                                                className="bg-slate-50 placeholder:text-zinc-400 dark:bg-zinc-800 dark:placeholder:text-zinc-600"
-                                            />
-                                            <p className="mt-1 text-right text-xs text-slate-400 dark:text-zinc-500">
-                                                {bookingFlowForm.data.custom_prepayment_message.length}/1000
-                                            </p>
-                                            {bookingFlowForm.errors.custom_prepayment_message && (
-                                                <p className="mt-1 text-xs text-red-500">
-                                                    {bookingFlowForm.errors.custom_prepayment_message}
-                                                </p>
-                                            )}
-                                        </div>
-
-                                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                                            <div>
-                                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                                    Процент предоплаты
-                                                </label>
-                                                <div className="relative">
-                                                    <Input
-                                                        type="number"
-                                                        min="1"
-                                                        max="100"
-                                                        value={bookingFlowForm.data.deposit_percent}
-                                                        onChange={(e) => bookingFlowForm.setData('deposit_percent', Number(e.target.value) || 0)}
-                                                        className="bg-slate-50 pr-8 dark:bg-zinc-800"
-                                                    />
-                                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-zinc-500">
-                                                        %
-                                                    </span>
-                                                </div>
-                                                <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-                                                    Сколько процентов от стоимости услуги клиент вносит заранее
-                                                </p>
-                                                {bookingFlowForm.errors.deposit_percent && (
-                                                    <p className="mt-1 text-xs text-red-500">
-                                                        {bookingFlowForm.errors.deposit_percent}
-                                                    </p>
-                                                )}
-                                            </div>
-                                            <div>
-                                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                                    Время на оплату
-                                                </label>
-                                                <div className="relative">
-                                                    <Input
-                                                        type="number"
-                                                        min="5"
-                                                        max="1440"
-                                                        value={bookingFlowForm.data.deposit_timeout}
-                                                        onChange={(e) => bookingFlowForm.setData('deposit_timeout', Number(e.target.value) || 0)}
-                                                        className="bg-slate-50 pr-12 dark:bg-zinc-800"
-                                                    />
-                                                    <span className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-sm text-slate-400 dark:text-zinc-500">
-                                                        мин
-                                                    </span>
-                                                </div>
-                                                <p className="mt-1 text-xs text-slate-500 dark:text-zinc-400">
-                                                    Сколько минут слот удерживается в ожидании оплаты. После — освобождается автоматически
-                                                </p>
-                                                {bookingFlowForm.errors.deposit_timeout && (
-                                                    <p className="mt-1 text-xs text-red-500">
-                                                        {bookingFlowForm.errors.deposit_timeout}
-                                                    </p>
-                                                )}
-                                            </div>
-                                        </div>
-                                    </div>
-                                )}
-                            </div>
 
                             {/* ═══ Card: Дедлайн отмены онлайн ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
