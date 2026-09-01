@@ -57,6 +57,7 @@ class SchedulePageTest extends TestCase
             ->has('profile')
             ->where('profile.id', $this->master->id)
             ->where('profile.slot_interval', 30)
+            ->where('profile.timezone', 'Europe/Moscow')
         );
     }
 
@@ -65,6 +66,7 @@ class SchedulePageTest extends TestCase
         $otherMaster = User::factory()->master()->create([
             'slot_interval' => 60,
             'workspace_id' => $this->ws->id,
+            'settings' => ['timezone' => 'Asia/Vladivostok', 'timezone_confirmed' => true],
         ]);
 
         $response = $this->actingAs($this->master)
@@ -74,6 +76,7 @@ class SchedulePageTest extends TestCase
         $response->assertInertia(fn ($page) => $page
             ->where('profile.id', $otherMaster->id)
             ->where('profile.slot_interval', 60)
+            ->where('profile.timezone', 'Asia/Vladivostok')
         );
     }
 

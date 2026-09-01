@@ -7,6 +7,7 @@ import type { WorkingHour } from '@/components/admin/schedule/WorkingHoursCard';
 interface ScheduleProfile {
     id: string;
     slot_interval: number;
+    timezone: string;
 }
 
 interface PageProps {
@@ -25,11 +26,11 @@ export default function SchedulePage() {
             <Head title="Расписание — Вовремя" />
 
             <AdminLayout title="Расписание" auth={auth}>
-                <div className="mx-auto max-w-[960px] space-y-0">
+                <div className="max-w-[1280px] space-y-0">
 
                     {/* ═══ Недоступное время ═══ */}
                     <div className="py-6">
-                        <BlockedTimesCard masterId={profile.id} />
+                        <BlockedTimesCard masterId={profile.id} timezone={profile.timezone} />
                     </div>
 
                     {/* ═══ Рабочие часы ═══ */}

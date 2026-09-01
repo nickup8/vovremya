@@ -20,7 +20,25 @@ const BLOCKED_REASONS = [
     'Другое',
 ];
 
-export default function BlockedTimesCard({ masterId }: { masterId?: string }) {
+function formatBlockedTimeRange(startIso: string, endIso: string, timezone: string): string {
+    const opts: Intl.DateTimeFormatOptions = { timeZone: timezone, hour12: false };
+    const start = new Date(startIso);
+    const end = new Date(endIso);
+
+    const dateStr = (d: Date) => d.toLocaleDateString('ru-RU', { ...opts, day: '2-digit', month: '2-digit', year: 'numeric' });
+    const timeStr = (d: Date) => d.toLocaleTimeString('ru-RU', { ...opts, hour: '2-digit', minute: '2-digit' });
+
+    const startDay = dateStr(start);
+    const endDay = dateStr(end);
+
+    if (startDay === endDay) {
+        return `${startDay} · ${timeStr(start)}–${timeStr(end)}`;
+    }
+
+    return `${startDay} ${timeStr(start)} — ${endDay} ${timeStr(end)}`;
+}
+
+export default function BlockedTimesCard({ masterId, timezone }: { masterId?: string; timezone: string }) {
     const { blockedTimes: rawBlockedTimes } = usePage<{ blockedTimes: BlockedTime[] }>().props;
     const blockedTimes = rawBlockedTimes || [];
     const [dialogOpen, setDialogOpen] = useState(false);
@@ -103,7 +121,7 @@ return;
                                     {bt.reason}
                                 </p>
                                 <p className="text-[12px] text-[var(--color-graphite)]">
-                                    {new Date(bt.start_datetime).toLocaleDateString('ru-RU')} — {new Date(bt.end_datetime).toLocaleDateString('ru-RU')}
+                                    {formatBlockedTimeRange(bt.start_datetime, bt.end_datetime, timezone)}
                                 </p>
                             </div>
                             <button
