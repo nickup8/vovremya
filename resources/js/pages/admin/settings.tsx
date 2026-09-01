@@ -875,13 +875,7 @@ return;
 
         const channelName = `App.Models.User.${profile.id}`;
         const channel = echo< 'reverb' >().private(channelName)
-            .listen('.UserChannelsUpdated', (e: { user: Profile }) => {
-                profileForm.setData({
-                    telegram_notifications: e.user.telegram_notifications,
-                    max_notifications: e.user.max_notifications,
-                    telegram_id: e.user.telegram_id || '',
-                    max_id: e.user.max_id || '',
-                });
+            .listen('.UserChannelsUpdated', () => {
                 router.reload({
                     only: ['profile'],
                     preserveScroll: true,
@@ -897,12 +891,25 @@ return;
     const bookingFlowForm = useForm({
         booking_flow_type: profile.booking_flow_type,
         custom_prepayment_message: profile.custom_prepayment_message || '',
-        reminder_hours_before_final: profile.reminder_hours_before_final,
         deposit_timeout: profile.deposit_timeout?.toString() || '15',
         deposit_percent: profile.deposit_percent?.toString() || '30',
         cancellation_deadline_hours: profile.cancellation_deadline_hours?.toString() || '',
         autofill_enabled: profile.autofill_enabled,
     });
+
+    const notificationsForm = useForm({
+        telegram_notifications: profile.telegram_notifications,
+        max_notifications: profile.max_notifications,
+        reminder_hours_before_final: profile.reminder_hours_before_final,
+    });
+
+    useEffect(() => {
+        notificationsForm.setData({
+            telegram_notifications: profile.telegram_notifications,
+            max_notifications: profile.max_notifications,
+            reminder_hours_before_final: profile.reminder_hours_before_final,
+        });
+    }, [profile.telegram_notifications, profile.max_notifications, profile.reminder_hours_before_final]);
 
     const handleAvatarChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const file = e.target.files?.[0];
@@ -1376,32 +1383,6 @@ return;
                                 )}
                             </div>
 
-                            {/* ═══ Card: Финальное напоминание ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                    Финальное напоминание
-                                </h3>
-                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
-                                    За сколько часов до записи отправить клиенту финальное напоминание
-                                </p>
-
-                                <Select
-                                    value={String(bookingFlowForm.data.reminder_hours_before_final)}
-                                    onValueChange={(value) => bookingFlowForm.setData('reminder_hours_before_final', Number(value))}
-                                >
-                                    <SelectTrigger className="w-full">
-                                        <SelectValue placeholder="Выберите интервал" />
-                                    </SelectTrigger>
-                                    <SelectContent>
-                                        <SelectItem value="0">Не отправлять</SelectItem>
-                                        <SelectItem value="1">За 1 час</SelectItem>
-                                        <SelectItem value="2">За 2 часа</SelectItem>
-                                        <SelectItem value="3">За 3 часа</SelectItem>
-                                        <SelectItem value="12">За 12 часов</SelectItem>
-                                    </SelectContent>
-                                </Select>
-                            </div>
-
                             {/* ═══ Card: Дедлайн отмены онлайн ═══ */}
                             <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
                                 <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
@@ -1478,105 +1459,96 @@ return;
                             <TabsContent value="notifications">
                             <form
                                 onSubmit={(e) => {
- e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Уведомления сохранены') }); 
+ e.preventDefault(); notificationsForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Уведомления сохранены') }); 
 }}
-                                className="space-y-6"
+                                className="space-y-0"
                             >
 
-                            {/* ═══ Card 3: Notification Channels ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <h3 className="mb-4 text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                    Каналы уведомлений
-                                </h3>
-                                <div className="space-y-3">
-                                    {/* Telegram */}
-                                    <div className="rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex size-9 items-center justify-center rounded-lg bg-blue-100 dark:bg-blue-900/30">
-                                                    <Send className="size-4 text-blue-600 dark:text-blue-400" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                                                        Telegram Bot
-                                                    </p>
-                                                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                        {profile.telegram_chat_id
-                                                            ? 'PUSH-уведомления о новых записях'
-                                                            : 'Сначала подключите Telegram'}
-                                                    </p>
-                                                </div>
+                            {/* ═══ Уведомления мастеру ═══ */}
+                            <div className="py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Уведомления мастеру
+                                    </div>
+                                    <div className="overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)]">
+                                        {/* Telegram */}
+                                        <div className="flex min-h-[64px] items-center gap-3 px-4 py-3">
+                                            <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-warm)]">
+                                                <Send className="size-4 text-[var(--color-graphite)]" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                    Telegram Bot
+                                                </p>
+                                                <p className="text-[12px] text-[var(--color-graphite)]">
+                                                    {profile.telegram_chat_id
+                                                        ? 'Новые записи и сервисные уведомления'
+                                                        : 'Сначала подключите Telegram'}
+                                                </p>
                                             </div>
                                             <Switch
-                                                checked={profileForm.data.telegram_notifications}
+                                                checked={notificationsForm.data.telegram_notifications}
                                                 disabled={!profile.telegram_chat_id}
                                                 onCheckedChange={(checked) => {
-                                                    if (!profile.telegram_chat_id) {
-return;
-}
-
-                                                    profileForm.setData('telegram_notifications', checked);
+                                                    if (!profile.telegram_chat_id) return;
+                                                    notificationsForm.setData('telegram_notifications', checked);
                                                 }}
                                             />
                                         </div>
                                         {!profile.telegram_chat_id && (
-                                            <div className="mt-3 flex items-center gap-3 rounded-md border border-dashed border-slate-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
-                                                <span className="text-xs text-slate-500 dark:text-zinc-400">
+                                            <div className="flex items-center gap-3 border-t border-[var(--color-line)] bg-[var(--color-line-soft)] px-4 py-2.5">
+                                                <span className="text-[12px] text-[var(--color-graphite)]">
                                                     Telegram не подключен
                                                 </span>
                                                 <a
                                                     href={profile.telegram_link_url || `https://t.me/${profile.telegram_bot_name}?start=${profile.telegram_auth_token}`}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-blue-600 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-blue-700"
+                                                    className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-[8px] bg-[var(--color-orange)] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)]"
                                                 >
                                                     <Send className="size-3" />
                                                     Подключить
                                                 </a>
                                             </div>
                                         )}
-                                    </div>
 
-                                    {/* Max */}
-                                    <div className="rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50">
-                                        <div className="flex items-center justify-between">
-                                            <div className="flex items-center gap-3">
-                                                <div className="flex size-9 items-center justify-center rounded-lg bg-slate-200 dark:bg-zinc-700">
-                                                    <MessageCircle className="size-4 text-slate-600 dark:text-zinc-300" />
-                                                </div>
-                                                <div>
-                                                    <p className="text-sm font-semibold text-slate-900 dark:text-zinc-100">
-                                                        Max Messenger
-                                                    </p>
-                                                    <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                                        {profile.max_id
-                                                            ? 'Уведомления в экосистеме Max'
-                                                            : 'Сначала подключите MAX'}
-                                                    </p>
-                                                </div>
+                                        {/* Divider */}
+                                        <div className="border-t border-[var(--color-line)]" />
+
+                                        {/* Max */}
+                                        <div className="flex min-h-[64px] items-center gap-3 px-4 py-3">
+                                            <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-warm)]">
+                                                <MessageCircle className="size-4 text-[var(--color-graphite)]" />
+                                            </div>
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                    Max Messenger
+                                                </p>
+                                                <p className="text-[12px] text-[var(--color-graphite)]">
+                                                    {profile.max_id
+                                                        ? 'Новые записи и сервисные уведомления'
+                                                        : 'Сначала подключите MAX'}
+                                                </p>
                                             </div>
                                             <Switch
-                                                checked={profileForm.data.max_notifications}
+                                                checked={notificationsForm.data.max_notifications}
                                                 disabled={!profile.max_id}
                                                 onCheckedChange={(checked) => {
-                                                    if (!profile.max_id) {
-return;
-}
-
-                                                    profileForm.setData('max_notifications', checked);
+                                                    if (!profile.max_id) return;
+                                                    notificationsForm.setData('max_notifications', checked);
                                                 }}
                                             />
                                         </div>
                                         {!profile.max_id && profile.max_link_url && (
-                                            <div className="mt-3 flex items-center gap-3 rounded-md border border-dashed border-slate-200 bg-white px-3 py-2 dark:border-zinc-700 dark:bg-zinc-900">
-                                                <span className="text-xs text-slate-500 dark:text-zinc-400">
+                                            <div className="flex items-center gap-3 border-t border-[var(--color-line)] bg-[var(--color-line-soft)] px-4 py-2.5">
+                                                <span className="text-[12px] text-[var(--color-graphite)]">
                                                     MAX не подключен
                                                 </span>
                                                 <a
                                                     href={profile.max_link_url}
                                                     target="_blank"
                                                     rel="noopener noreferrer"
-                                                    className="ml-auto inline-flex items-center gap-1.5 rounded-md bg-slate-700 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-slate-800"
+                                                    className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-[8px] bg-[var(--color-ink)] px-3 text-[11px] font-semibold text-white transition-colors hover:opacity-90"
                                                 >
                                                     <MessageCircle className="size-3" />
                                                     Подключить
@@ -1587,20 +1559,57 @@ return;
                                 </div>
                             </div>
 
-                            <div className="flex justify-end gap-2">
+                            {/* ═══ Уведомления клиентам ═══ */}
+                            <div className="border-t border-[var(--color-line)] py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Уведомления клиентам
+                                    </div>
+                                    <div className="overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)]">
+                                        <div className="flex min-h-[64px] items-center gap-4 px-4 py-3">
+                                            <div className="min-w-0 flex-1">
+                                                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                    Финальное напоминание
+                                                </p>
+                                                <p className="text-[12px] text-[var(--color-graphite)]">
+                                                    Если срок записи позволяет, за 24 часа до визита клиент дополнительно получит уведомление с подтверждением записи.
+                                                </p>
+                                            </div>
+                                            <Select
+                                                value={String(notificationsForm.data.reminder_hours_before_final)}
+                                                onValueChange={(value) => notificationsForm.setData('reminder_hours_before_final', Number(value))}
+                                            >
+                                                <SelectTrigger className="h-[36px] w-[160px] shrink-0 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
+                                                    <SelectValue />
+                                                </SelectTrigger>
+                                                <SelectContent>
+                                                    <SelectItem value="0">Не отправлять</SelectItem>
+                                                    <SelectItem value="1">За 1 час</SelectItem>
+                                                    <SelectItem value="2">За 2 часа</SelectItem>
+                                                    <SelectItem value="3">За 3 часа</SelectItem>
+                                                    <SelectItem value="12">За 12 часов</SelectItem>
+                                                </SelectContent>
+                                            </Select>
+                                        </div>
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ═══ Save Area ═══ */}
+                            <div className="flex justify-end gap-2 border-t border-[var(--color-line)] pt-6">
                                 <Button
                                     type="button"
                                     variant="outline"
-                                    className="rounded-lg"
+                                    className="h-10 rounded-[10px] border-[var(--color-line)] px-4 text-[13px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]"
                                 >
                                     Отмена
                                 </Button>
                                 <Button
                                     type="submit"
-                                    disabled={profileForm.processing}
-                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
+                                    disabled={notificationsForm.processing}
+                                    className="h-10 rounded-[10px] bg-[var(--color-orange)] px-5 text-[13px] font-semibold text-white hover:bg-[var(--color-orange-600)]"
                                 >
-                                    {profileForm.processing
+                                    {notificationsForm.processing
                                         ? 'Сохранение...'
                                         : 'Сохранить уведомления'}
                                 </Button>
