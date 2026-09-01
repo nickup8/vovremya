@@ -442,35 +442,27 @@ return h;
     }
 
     return (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                    <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
-                        График работы
-                    </h3>
-                    {isDirty && (
-                        <span className="text-xs font-medium text-amber-600 dark:text-amber-400">
-                            ● Несохранённые изменения
-                        </span>
-                    )}
+        <>
+            {/* Slot Interval */}
+            <div className="flex min-h-[64px] items-center justify-between gap-4">
+                <div>
+                    <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                        Шаг онлайн-записи
+                    </p>
+                    <p className="text-[12px] text-[var(--color-graphite)]">
+                        Минимальный интервал между слотами
+                    </p>
                 </div>
-            </div>
-
-            {/* Slot Interval Selector */}
-            <div className="mb-4 flex items-center gap-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
-                <span className="text-sm font-medium text-slate-700 dark:text-zinc-300">
-                    Интервал записи:
-                </span>
-                <div className="flex gap-1">
+                <div className="flex h-9 shrink-0 gap-0.5 rounded-[10px] bg-[var(--color-warm)] p-[3px]">
                     {SLOT_INTERVALS.map((interval) => (
                         <button
                             key={interval}
                             type="button"
                             onClick={() => setSlotInterval(interval)}
-                            className={`rounded-md px-3 py-1 text-xs font-medium transition-colors ${
+                            className={`rounded-[8px] px-3 text-[12px] font-semibold transition-colors ${
                                 slotInterval === interval
-                                    ? 'bg-blue-600 text-white'
-                                    : 'bg-slate-200 text-slate-600 hover:bg-slate-300 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600'
+                                    ? 'bg-[var(--color-orange)] text-white shadow-sm'
+                                    : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                             }`}
                         >
                             {interval} мин
@@ -479,112 +471,92 @@ return h;
                 </div>
             </div>
 
-            <div className="space-y-2">
-                {localHours.map((hour) => (
-                    <div
-                        key={hour.day_of_week}
-                        className={`rounded-lg p-3 transition-colors ${
-                            hour.is_working
-                                ? 'bg-slate-50 dark:bg-zinc-800/50'
-                                : 'bg-slate-100/50 dark:bg-zinc-800/20'
-                        }`}
-                    >
-                        <div className="flex items-center gap-3">
-                            <button
-                                type="button"
-                                onClick={() => toggleDay(hour.day_of_week)}
-                                className={`w-10 shrink-0 rounded-md px-2 py-1 text-xs font-bold transition-colors ${
-                                    hour.is_working
-                                        ? 'bg-blue-600 text-white'
-                                        : 'bg-slate-200 text-slate-500 dark:bg-zinc-700 dark:text-zinc-400'
-                                }`}
-                            >
+            {/* Divider */}
+            <div className="border-t border-[var(--color-line)]" />
+
+            {/* Working Hours Table */}
+            <div className="py-4">
+                <div className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-x-4 gap-y-1 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--color-graphite)] min-[520px]:gap-x-6">
+                    <span className="w-10" />
+                    <span>Рабочее время</span>
+                    <span>Перерыв</span>
+                    <span className="w-10 text-right" />
+                </div>
+                <div className="mt-1 space-y-0.5">
+                    {localHours.map((hour) => (
+                        <div
+                            key={hour.day_of_week}
+                            className={`grid grid-cols-[auto_1fr_1fr_auto] items-center gap-x-4 gap-y-1 rounded-[10px] px-2 py-2 transition-colors min-[520px]:gap-x-6 ${
+                                hour.is_working ? '' : 'opacity-50'
+                            }`}
+                        >
+                            <span className={`w-10 shrink-0 text-[13px] font-semibold ${hour.is_working ? 'text-[var(--color-ink)]' : 'text-[var(--color-graphite)]'}`}>
                                 {DAY_NAMES[hour.day_of_week]}
-                            </button>
+                            </span>
 
                             {hour.is_working ? (
-                                <div className="flex items-center gap-2">
-                                    <Input
-                                        type="time"
-                                        value={hour.start_time ?? ''}
-                                        onChange={(e) =>
-                                            updateTime(
-                                                hour.day_of_week,
-                                                'start_time',
-                                                e.target.value,
-                                            )
-                                        }
-                                        className="h-8 w-28 text-xs dark:bg-zinc-800"
-                                    />
-                                    <span className="text-xs text-slate-400 dark:text-zinc-500">
-                                        —
-                                    </span>
-                                    <Input
-                                        type="time"
-                                        value={hour.end_time ?? ''}
-                                        onChange={(e) =>
-                                            updateTime(
-                                                hour.day_of_week,
-                                                'end_time',
-                                                e.target.value,
-                                            )
-                                        }
-                                        className="h-8 w-28 text-xs dark:bg-zinc-800"
-                                    />
-                                </div>
+                                <>
+                                    <div className="flex items-center gap-1.5">
+                                        <Input
+                                            type="time"
+                                            value={hour.start_time ?? ''}
+                                            onChange={(e) => updateTime(hour.day_of_week, 'start_time', e.target.value)}
+                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                        />
+                                        <span className="text-[12px] text-[var(--color-graphite)]">—</span>
+                                        <Input
+                                            type="time"
+                                            value={hour.end_time ?? ''}
+                                            onChange={(e) => updateTime(hour.day_of_week, 'end_time', e.target.value)}
+                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                        />
+                                    </div>
+                                    <div className="flex items-center gap-1.5">
+                                        <Input
+                                            type="time"
+                                            value={hour.break_start_time || ''}
+                                            onChange={(e) => updateTime(hour.day_of_week, 'break_start_time', e.target.value)}
+                                            placeholder="—:—"
+                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                        />
+                                        <span className="text-[12px] text-[var(--color-graphite)]">—</span>
+                                        <Input
+                                            type="time"
+                                            value={hour.break_end_time || ''}
+                                            onChange={(e) => updateTime(hour.day_of_week, 'break_end_time', e.target.value)}
+                                            placeholder="—:—"
+                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                        />
+                                    </div>
+                                </>
                             ) : (
-                                <span className="text-xs text-slate-400 dark:text-zinc-500">
-                                    Выходной
-                                </span>
+                                <>
+                                    <span className="text-[12px] text-[var(--color-graphite)]">Выходной</span>
+                                    <span />
+                                </>
                             )}
-                        </div>
 
-                        {hour.is_working && (
-                            <div className="mt-2 flex items-center gap-3 pl-[52px]">
-                                <span className="text-[11px] font-medium text-slate-500 dark:text-zinc-400">
-                                    Обед:
-                                </span>
-                                <Input
-                                    type="time"
-                                    value={hour.break_start_time || ''}
-                                    onChange={(e) =>
-                                        updateTime(
-                                            hour.day_of_week,
-                                            'break_start_time',
-                                            e.target.value,
-                                        )
-                                    }
-                                    placeholder="Начало"
-                                    className="h-7 w-24 text-[11px] dark:bg-zinc-800"
-                                />
-                                <span className="text-[11px] text-slate-400 dark:text-zinc-500">
-                                    —
-                                </span>
-                                <Input
-                                    type="time"
-                                    value={hour.break_end_time || ''}
-                                    onChange={(e) =>
-                                        updateTime(
-                                            hour.day_of_week,
-                                            'break_end_time',
-                                            e.target.value,
-                                        )
-                                    }
-                                    placeholder="Конец"
-                                    className="h-7 w-24 text-[11px] dark:bg-zinc-800"
-                                />
-                            </div>
-                        )}
-                    </div>
-                ))}
+                            <Switch
+                                checked={hour.is_working}
+                                onCheckedChange={() => toggleDay(hour.day_of_week)}
+                                className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
+                            />
+                        </div>
+                    ))}
+                </div>
             </div>
 
-            <div className="mt-6 flex justify-end gap-2">
+            {/* Save Area */}
+            <div className="flex justify-end gap-2 border-t border-[var(--color-line)] pt-4">
                 <Button
                     type="button"
                     variant="outline"
-                    className="rounded-lg"
+                    className="h-10 rounded-[10px] border-[var(--color-line)] px-4 text-[13px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]"
                     disabled={!isDirty}
+                    onClick={() => {
+                        setLocalHours(buildHours(workingHours));
+                        setSlotInterval(initialSlotInterval);
+                    }}
                 >
                     Отмена
                 </Button>
@@ -592,13 +564,12 @@ return h;
                     type="button"
                     onClick={handleSave}
                     disabled={!isDirty || processing}
-                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                    className="h-10 rounded-[10px] bg-[var(--color-orange)] px-5 text-[13px] font-semibold text-white hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
                 >
-                    <Clock className="size-3.5" />
-                    Сохранить график
+                    {processing ? 'Сохранение…' : 'Сохранить график'}
                 </Button>
             </div>
-        </div>
+        </>
     );
 }
 
@@ -659,20 +630,19 @@ return;
     }
 
     return (
-        <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-            <div className="mb-4 flex items-center justify-between">
+        <>
+            <div className="flex items-center justify-between gap-4">
                 <div>
-                    <h3 className="text-base font-semibold text-slate-900 dark:text-zinc-100">
+                    <p className="text-[13px] font-semibold text-[var(--color-ink)]">
                         Недоступное время
-                    </h3>
-                    <p className="mt-0.5 text-sm text-slate-500 dark:text-zinc-400">
+                    </p>
+                    <p className="text-[12px] text-[var(--color-graphite)]">
                         Блокировки отпуска, обедов и прочего
                     </p>
                 </div>
                 <Button
                     type="button"
-                    size="sm"
-                    className="bg-blue-600 text-white hover:bg-blue-700"
+                    className="h-9 shrink-0 rounded-[10px] bg-[var(--color-orange)] px-3.5 text-[12px] font-semibold text-white hover:bg-[var(--color-orange-600)]"
                     onClick={() => setDialogOpen(true)}
                 >
                     <Plus className="size-3.5" />
@@ -681,34 +651,28 @@ return;
             </div>
 
             {blockedTimes.length === 0 ? (
-                <p className="py-6 text-center text-sm text-slate-400 dark:text-zinc-500">
+                <p className="py-4 text-center text-[13px] text-[var(--color-graphite)]">
                     Нет активных блокировок
                 </p>
             ) : (
-                <div className="space-y-2">
+                <div className="mt-3 space-y-1">
                     {blockedTimes.map((bt) => (
                         <div
                             key={bt.id}
-                            className="flex items-center justify-between rounded-lg bg-slate-50 p-3 dark:bg-zinc-800/50"
+                            className="flex items-center justify-between rounded-[10px] px-3 py-2.5 transition-colors hover:bg-[var(--color-surface-hover)]"
                         >
-                            <div>
-                                <p className="text-sm font-medium text-slate-900 dark:text-zinc-100">
+                            <div className="min-w-0 flex-1">
+                                <p className="text-[13px] font-medium text-[var(--color-ink)]">
                                     {bt.reason}
                                 </p>
-                                <p className="text-xs text-slate-500 dark:text-zinc-400">
-                                    {new Date(
-                                        bt.start_datetime,
-                                    ).toLocaleDateString('ru-RU')}{' '}
-                                    —{' '}
-                                    {new Date(
-                                        bt.end_datetime,
-                                    ).toLocaleDateString('ru-RU')}
+                                <p className="text-[12px] text-[var(--color-graphite)]">
+                                    {new Date(bt.start_datetime).toLocaleDateString('ru-RU')} — {new Date(bt.end_datetime).toLocaleDateString('ru-RU')}
                                 </p>
                             </div>
                             <button
                                 type="button"
                                 onClick={() => handleDelete(bt.id)}
-                                className="rounded p-1.5 text-slate-400 hover:bg-red-100 hover:text-red-600 dark:text-zinc-500 dark:hover:bg-red-900/30 dark:hover:text-red-400"
+                                className="shrink-0 rounded-[8px] p-1.5 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-red-bg)] hover:text-[var(--color-red)]"
                             >
                                 <Trash2 className="size-3.5" />
                             </button>
@@ -725,18 +689,16 @@ return;
 
                     <div className="space-y-4">
                         <div>
-                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
                                 Причина
                             </label>
                             <Select value={reason} onValueChange={setReason}>
-                                <SelectTrigger className="w-full">
+                                <SelectTrigger className="h-[42px] w-full rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px]">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
                                     {BLOCKED_REASONS.map((r) => (
-                                        <SelectItem key={r} value={r}>
-                                            {r}
-                                        </SelectItem>
+                                        <SelectItem key={r} value={r}>{r}</SelectItem>
                                     ))}
                                 </SelectContent>
                             </Select>
@@ -744,25 +706,25 @@ return;
 
                         <div className="grid grid-cols-2 gap-4">
                             <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
                                     С
                                 </label>
                                 <input
                                     type="datetime-local"
                                     value={startDate}
                                     onChange={(e) => setStartDate(e.target.value)}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    className="h-[42px] w-full rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0"
                                 />
                             </div>
                             <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
                                     По
                                 </label>
                                 <input
                                     type="datetime-local"
                                     value={endDate}
                                     onChange={(e) => setEndDate(e.target.value)}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    className="h-[42px] w-full rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0"
                                 />
                             </div>
                         </div>
@@ -771,6 +733,7 @@ return;
                             <Button
                                 type="button"
                                 variant="outline"
+                                className="h-10 rounded-[10px] border-[var(--color-line)] px-4 text-[13px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]"
                                 onClick={() => setDialogOpen(false)}
                             >
                                 Отмена
@@ -779,7 +742,7 @@ return;
                                 type="button"
                                 onClick={handleAdd}
                                 disabled={!startDate || !endDate}
-                                className="bg-blue-600 text-white hover:bg-blue-700"
+                                className="h-10 rounded-[10px] bg-[var(--color-orange)] px-5 text-[13px] font-semibold text-white hover:bg-[var(--color-orange-600)]"
                             >
                                 Добавить
                             </Button>
@@ -787,7 +750,7 @@ return;
                     </div>
                 </DialogContent>
             </Dialog>
-        </div>
+        </>
     );
 }
 
@@ -831,7 +794,7 @@ export default function SettingsPage() {
     const [isCopied, setIsCopied] = useState(false);
     const fileInputRef = useRef<HTMLInputElement>(null);
 
-    const VALID_TABS = ['profile', 'booking', 'notifications', 'schedule'] as const;
+    const VALID_TABS = ['profile', 'notifications', 'booking-schedule'] as const;
     type TabValue = (typeof VALID_TABS)[number];
 
     const getTabFromUrl = (): TabValue => {
@@ -992,9 +955,8 @@ return;
                             {(['profile', 'booking', 'notifications', 'schedule'] as const).map((tab) => {
                                 const labels: Record<string, string> = {
                                     profile: 'Профиль',
-                                    booking: 'Запись и оплата',
                                     notifications: 'Уведомления',
-                                    schedule: 'Расписание',
+                                    'booking-schedule': 'Запись и расписание',
                                 };
                                 const isActive = activeTab === tab;
 
@@ -1293,87 +1255,6 @@ return;
                             </form>
                             </TabsContent>
 
-                            {/* ═══ Tab: Booking & Payment ═══ */}
-                            <TabsContent value="booking">
-                            <form
-                                onSubmit={(e) => {
- e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); 
-}}
-                                className="space-y-6"
-                            >
-
-                            {/* ═══ Card: Дедлайн отмены онлайн ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                    Ограничение отмены онлайн
-                                </h3>
-                                <p className="mb-4 text-sm text-slate-500 dark:text-zinc-400">
-                                    За сколько часов до визита клиент уже не может отменить запись в боте. Пусто — без ограничения.
-                                </p>
-
-                                <Input
-                                    type="number"
-                                    min={1}
-                                    max={168}
-                                    placeholder="Например, 24"
-                                    className="w-full"
-                                    value={bookingFlowForm.data.cancellation_deadline_hours}
-                                    onChange={(e) =>
-                                        bookingFlowForm.setData('cancellation_deadline_hours', e.target.value)
-                                    }
-                                />
-                                {bookingFlowForm.errors.cancellation_deadline_hours && (
-                                    <p className="mt-1 text-sm text-red-600 dark:text-red-400">
-                                        {bookingFlowForm.errors.cancellation_deadline_hours}
-                                    </p>
-                                )}
-                            </div>
-
-                            {/* ═══ Card: Автозаполнение окон ═══ */}
-                            <div className="rounded-xl border border-slate-200 bg-white p-6 shadow-xs dark:border-zinc-800 dark:bg-zinc-900">
-                                <div className="flex items-start justify-between gap-4">
-                                    <div>
-                                        <h3 className="mb-1 text-base font-semibold text-slate-900 dark:text-zinc-100">
-                                            Автозаполнение окон
-                                        </h3>
-                                        <p className="text-sm text-slate-500 dark:text-zinc-400">
-                                            Если освободится время, ИРСИ сможет предложить его клиентам, которые заранее попросили сообщить о подходящем окне.
-                                        </p>
-                                    </div>
-                                    <div className="flex items-center gap-2 shrink-0">
-                                        {!profile.has_slot_autofill && (
-                                            <span className="text-xs font-medium text-slate-400 dark:text-zinc-500">Профи</span>
-                                        )}
-                                        <Switch
-                                            checked={bookingFlowForm.data.autofill_enabled}
-                                            onCheckedChange={(checked) => bookingFlowForm.setData('autofill_enabled', checked)}
-                                            disabled={!profile.has_slot_autofill}
-                                        />
-                                    </div>
-                                </div>
-                            </div>
-
-                            <div className="flex justify-end gap-2">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="rounded-lg"
-                                >
-                                    Отмена
-                                </Button>
-                                <Button
-                                    type="submit"
-                                    disabled={bookingFlowForm.processing}
-                                    className="rounded-lg bg-blue-600 px-5 py-2.5 text-sm font-semibold text-white shadow-xs hover:bg-blue-700"
-                                >
-                                    {bookingFlowForm.processing
-                                        ? 'Сохранение...'
-                                        : 'Сохранить настройки'}
-                                </Button>
-                            </div>
-                            </form>
-                            </TabsContent>
-
                             {/* ═══ Tab: Notifications ═══ */}
                             <TabsContent value="notifications">
                             <div className="space-y-0">
@@ -1535,19 +1416,130 @@ return;
                             </div>
                             </TabsContent>
 
-                            {/* ═══ Tab: Schedule ═══ */}
-                            <TabsContent value="schedule">
+                            {/* ═══ Tab: Запись и расписание ═══ */}
+                            <TabsContent value="booking-schedule">
+                            <div className="space-y-0">
 
-                            {/* ═══ Card 5: Working Hours ═══ */}
-                            <WorkingHoursCard
-                                workingHours={workingHours}
-                                slotInterval={profile.slot_interval || 30}
-                                masterId={profile.id}
-                            />
+                            {/* ═══ Section: Правила записи ═══ */}
+                            <div className="py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Правила записи
+                                    </div>
+                                    <form
+                                        onSubmit={(e) => {
+ e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); 
+}}
+                                    >
+                                        <div className="space-y-0">
+                                            {/* Cancellation */}
+                                            <div className="flex min-h-[64px] items-center justify-between gap-4">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                        Отмена онлайн-записи
+                                                    </p>
+                                                    <p className="text-[12px] text-[var(--color-graphite)]">
+                                                        За сколько часов до визита клиент уже не может отменить запись в боте. Пусто — без ограничения.
+                                                    </p>
+                                                </div>
+                                                <div className="w-[120px] shrink-0">
+                                                    <Input
+                                                        type="number"
+                                                        min={1}
+                                                        max={168}
+                                                        placeholder="Часов"
+                                                        className="h-[42px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                                        value={bookingFlowForm.data.cancellation_deadline_hours}
+                                                        onChange={(e) => bookingFlowForm.setData('cancellation_deadline_hours', e.target.value)}
+                                                    />
+                                                    {bookingFlowForm.errors.cancellation_deadline_hours && (
+                                                        <p className="mt-1 text-[11px] text-[var(--color-red)]">
+                                                            {bookingFlowForm.errors.cancellation_deadline_hours}
+                                                        </p>
+                                                    )}
+                                                </div>
+                                            </div>
 
-                            {/* ═══ Card 6: Blocked Times ═══ */}
-                            <BlockedTimesCard masterId={profile.id} />
+                                            {/* Divider */}
+                                            <div className="border-t border-[var(--color-line)]" />
 
+                                            {/* AutoFill */}
+                                            <div className="flex min-h-[64px] items-center justify-between gap-4">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                        Автозаполнение окон
+                                                    </p>
+                                                    <p className="text-[12px] text-[var(--color-graphite)]">
+                                                        Если освободится время, ИРСИ сможет предложить его клиентам, которые заранее попросили сообщить о подходящем окне.
+                                                    </p>
+                                                </div>
+                                                <div className="flex items-center gap-2 shrink-0">
+                                                    {!profile.has_slot_autofill && (
+                                                        <span className="text-[11px] font-medium text-[var(--color-graphite)]">Профи</span>
+                                                    )}
+                                                    <Switch
+                                                        checked={bookingFlowForm.data.autofill_enabled}
+                                                        onCheckedChange={(checked) => bookingFlowForm.setData('autofill_enabled', checked)}
+                                                        disabled={!profile.has_slot_autofill}
+                                                        className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
+                                                    />
+                                                </div>
+                                            </div>
+                                        </div>
+
+                                        {/* Save Area */}
+                                        <div className="flex justify-end gap-2 border-t border-[var(--color-line)] pt-4">
+                                            <Button
+                                                type="button"
+                                                variant="outline"
+                                                className="h-10 rounded-[10px] border-[var(--color-line)] px-4 text-[13px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]"
+                                                onClick={() => bookingFlowForm.reset()}
+                                            >
+                                                Отмена
+                                            </Button>
+                                            <Button
+                                                type="submit"
+                                                disabled={bookingFlowForm.processing}
+                                                className="h-10 rounded-[10px] bg-[var(--color-orange)] px-5 text-[13px] font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                                            >
+                                                {bookingFlowForm.processing
+                                                    ? 'Сохранение…'
+                                                    : 'Сохранить настройки'}
+                                            </Button>
+                                        </div>
+                                    </form>
+                                </div>
+                            </div>
+
+                            {/* ═══ Section: Рабочие часы ═══ */}
+                            <div className="border-t border-[var(--color-line)] py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Рабочие часы
+                                    </div>
+                                    <div>
+                                        <WorkingHoursCard
+                                            workingHours={workingHours}
+                                            slotInterval={profile.slot_interval || 30}
+                                            masterId={profile.id}
+                                        />
+                                    </div>
+                                </div>
+                            </div>
+
+                            {/* ═══ Section: Недоступное время ═══ */}
+                            <div className="border-t border-[var(--color-line)] py-6">
+                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
+                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                        Недоступное время
+                                    </div>
+                                    <div>
+                                        <BlockedTimesCard masterId={profile.id} />
+                                    </div>
+                                </div>
+                            </div>
+
+                            </div>
                             </TabsContent>
                             </Tabs>
                     </div>
