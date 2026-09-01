@@ -6,6 +6,7 @@ use App\Http\Controllers\Admin\CalendarController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\ServiceCatalogController;
+use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Admin\TrackingLinkController;
@@ -128,6 +129,8 @@ Route::middleware(['auth'])->group(function () {
         Route::put('/admin/tracking-links/{trackingLink}', [TrackingLinkController::class, 'update'])->name('admin.tracking-links.update');
         Route::patch('/admin/tracking-links/{trackingLink}/active', [TrackingLinkController::class, 'setActive'])->name('admin.tracking-links.active');
     });
+
+    Route::get('/admin/schedule', [ScheduleController::class, 'index'])->name('admin.schedule');
 
     Route::get('/admin/settings', [SettingsController::class, 'index'])->name('admin.settings');
     Route::put('/admin/settings', [SettingsController::class, 'update'])->name('admin.settings.update');

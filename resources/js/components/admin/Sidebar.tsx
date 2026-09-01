@@ -1,6 +1,7 @@
 import { Link, router, usePage } from '@inertiajs/react';
 import {
     CalendarDaysIcon,
+    ClockIcon,
     UsersIcon,
     ChartBarIcon,
     Cog6ToothIcon,
@@ -30,6 +31,7 @@ interface NavItem {
 
 const WORK_ITEMS: NavItem[] = [
     { icon: CalendarDaysIcon, label: 'Календарь', href: '/admin/calendar' },
+    { icon: ClockIcon, label: 'Расписание', href: '/admin/schedule' },
     { icon: UsersIcon, label: 'Клиенты', href: '/admin/clients' },
     { icon: BookOpenIcon, label: 'Услуги', href: '/admin/catalog' },
     { icon: ChartBarIcon, label: 'Аналитика', href: '/admin/analytics' },
