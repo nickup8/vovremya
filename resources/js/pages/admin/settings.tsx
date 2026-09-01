@@ -1470,9 +1470,9 @@ return;
                                     <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
                                         Уведомления мастеру
                                     </div>
-                                    <div className="overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)]">
+                                    <div>
                                         {/* Telegram */}
-                                        <div className="flex min-h-[64px] items-center gap-3 px-4 py-3">
+                                        <div className="flex min-h-[64px] items-center gap-3">
                                             <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-warm)]">
                                                 <Send className="size-4 text-[var(--color-graphite)]" />
                                             </div>
@@ -1493,10 +1493,11 @@ return;
                                                     if (!profile.telegram_chat_id) return;
                                                     notificationsForm.setData('telegram_notifications', checked);
                                                 }}
+                                                className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
                                             />
                                         </div>
                                         {!profile.telegram_chat_id && (
-                                            <div className="flex items-center gap-3 border-t border-[var(--color-line)] bg-[var(--color-line-soft)] px-4 py-2.5">
+                                            <div className="flex items-center gap-3 py-2.5 pl-12">
                                                 <span className="text-[12px] text-[var(--color-graphite)]">
                                                     Telegram не подключен
                                                 </span>
@@ -1516,7 +1517,7 @@ return;
                                         <div className="border-t border-[var(--color-line)]" />
 
                                         {/* Max */}
-                                        <div className="flex min-h-[64px] items-center gap-3 px-4 py-3">
+                                        <div className="flex min-h-[64px] items-center gap-3">
                                             <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-warm)]">
                                                 <MessageCircle className="size-4 text-[var(--color-graphite)]" />
                                             </div>
@@ -1537,10 +1538,11 @@ return;
                                                     if (!profile.max_id) return;
                                                     notificationsForm.setData('max_notifications', checked);
                                                 }}
+                                                className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
                                             />
                                         </div>
                                         {!profile.max_id && profile.max_link_url && (
-                                            <div className="flex items-center gap-3 border-t border-[var(--color-line)] bg-[var(--color-line-soft)] px-4 py-2.5">
+                                            <div className="flex items-center gap-3 py-2.5 pl-12">
                                                 <span className="text-[12px] text-[var(--color-graphite)]">
                                                     MAX не подключен
                                                 </span>
@@ -1565,32 +1567,30 @@ return;
                                     <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
                                         Уведомления клиентам
                                     </div>
-                                    <div className="overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)]">
-                                        <div className="flex min-h-[64px] items-center gap-4 px-4 py-3">
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
-                                                    Финальное напоминание
-                                                </p>
-                                                <p className="text-[12px] text-[var(--color-graphite)]">
-                                                    Если срок записи позволяет, за 24 часа до визита клиент дополнительно получит уведомление с подтверждением записи.
-                                                </p>
-                                            </div>
-                                            <Select
-                                                value={String(notificationsForm.data.reminder_hours_before_final)}
-                                                onValueChange={(value) => notificationsForm.setData('reminder_hours_before_final', Number(value))}
-                                            >
-                                                <SelectTrigger className="h-[36px] w-[160px] shrink-0 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
-                                                    <SelectValue />
-                                                </SelectTrigger>
-                                                <SelectContent>
-                                                    <SelectItem value="0">Не отправлять</SelectItem>
-                                                    <SelectItem value="1">За 1 час</SelectItem>
-                                                    <SelectItem value="2">За 2 часа</SelectItem>
-                                                    <SelectItem value="3">За 3 часа</SelectItem>
-                                                    <SelectItem value="12">За 12 часов</SelectItem>
-                                                </SelectContent>
-                                            </Select>
+                                    <div className="flex min-h-[64px] items-center gap-4">
+                                        <div className="min-w-0 flex-1">
+                                            <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                Финальное напоминание
+                                            </p>
+                                            <p className="text-[12px] text-[var(--color-graphite)]">
+                                                Если срок записи позволяет, за 24 часа до визита клиент дополнительно получит уведомление с подтверждением записи.
+                                            </p>
                                         </div>
+                                        <Select
+                                            value={String(notificationsForm.data.reminder_hours_before_final)}
+                                            onValueChange={(value) => notificationsForm.setData('reminder_hours_before_final', Number(value))}
+                                        >
+                                            <SelectTrigger className="h-[36px] w-[180px] shrink-0 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
+                                                <SelectValue />
+                                            </SelectTrigger>
+                                            <SelectContent>
+                                                <SelectItem value="0">Не отправлять</SelectItem>
+                                                <SelectItem value="1">За 1 час</SelectItem>
+                                                <SelectItem value="2">За 2 часа</SelectItem>
+                                                <SelectItem value="3">За 3 часа</SelectItem>
+                                                <SelectItem value="12">За 12 часов</SelectItem>
+                                            </SelectContent>
+                                        </Select>
                                     </div>
                                 </div>
                             </div>
