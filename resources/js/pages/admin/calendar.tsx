@@ -271,9 +271,8 @@ return [];
         const bufferEnd = new Date(visibleEnd);
         bufferEnd.setDate(bufferEnd.getDate() + 7);
 
-        const toKey = (d: Date) => d.toISOString().split('T')[0];
-        const bufferStartKey = toKey(bufferStart);
-        const bufferEndKey = toKey(bufferEnd);
+        const bufferStartKey = dateToKey(bufferStart);
+        const bufferEndKey = dateToKey(bufferEnd);
 
         if (loadedRange && loadedRange.start <= bufferStartKey && loadedRange.end >= bufferEndKey) {
             return;
@@ -281,8 +280,8 @@ return [];
 
         router.reload({
             data: {
-                start: toKey(bufferStart),
-                end: toKey(bufferEnd),
+                start: dateToKey(bufferStart),
+                end: dateToKey(bufferEnd),
             },
             preserveState: true,
             preserveScroll: true,

@@ -35,12 +35,14 @@ class CalendarController extends Controller
             'end' => 'nullable|date_format:Y-m-d',
         ]);
 
+        $tz = $master->getTimezone();
+
         $rangeStart = isset($validated['start'])
-            ? Carbon::parse($validated['start'])->startOfDay()
-            : Carbon::now()->subWeeks(3)->startOfDay();
+            ? Carbon::parse($validated['start'], $tz)->startOfDay()->utc()
+            : Carbon::now($tz)->subWeeks(3)->startOfDay()->utc();
         $rangeEnd = isset($validated['end'])
-            ? Carbon::parse($validated['end'])->endOfDay()
-            : Carbon::now()->addWeeks(3)->endOfDay();
+            ? Carbon::parse($validated['end'], $tz)->endOfDay()->utc()
+            : Carbon::now($tz)->addWeeks(3)->endOfDay()->utc();
 
         $isAdminOrOwner = $master->role->canManageTeam();
 

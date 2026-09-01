@@ -34,8 +34,10 @@ class CalendarApiController extends Controller
             $masterIds = collect([$master->id]);
         }
 
-        $utcStart = Carbon::parse($validated['start'])->startOfDay()->timezone('UTC');
-        $utcEnd = Carbon::parse($validated['end'])->endOfDay()->timezone('UTC');
+        $tz = $master->getTimezone();
+
+        $utcStart = Carbon::parse($validated['start'], $tz)->startOfDay()->utc();
+        $utcEnd = Carbon::parse($validated['end'], $tz)->endOfDay()->utc();
 
         $appointments = Appointment::whereIn('master_id', $masterIds)
             ->with(['client', 'master'])
