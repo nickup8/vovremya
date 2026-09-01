@@ -456,7 +456,7 @@ return;
                         />
 
                         {/* ═══ Underline Tabs ═══ */}
-                        <div className="mb-6 flex items-center gap-6 overflow-x-auto border-b border-[var(--color-line)] scrollbar-none">
+                        <div className="mb-6 flex items-center gap-6 overflow-x-auto overflow-y-hidden border-b border-[var(--color-line)]">
                             {VALID_TABS.map((tab) => {
                                 const labels: Record<TabValue, string> = {
                                     profile: 'Профиль',
@@ -472,7 +472,7 @@ return;
                                         onClick={() => handleTabChange(tab)}
                                         className={`relative h-[43px] shrink-0 px-0.5 text-[14px] transition-colors ${
                                             isActive
-                                                ? 'font-semibold text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:rounded-t-[2px] after:bg-[var(--color-orange)]'
+                                                ? 'font-semibold text-[var(--color-ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-[2px] after:bg-[var(--color-orange)]'
                                                 : 'font-medium text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                                         }`}
                                     >
