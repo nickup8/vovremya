@@ -935,7 +935,7 @@ return;
 
             <AdminLayout title="Настройки профиля" auth={auth} hideNewAppointment fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
-                    <div className="mx-auto max-w-[1280px]">
+                    <div className="max-w-[1280px]">
                         <TimezoneConfirmBanner
                             confirmed={profile.timezone_confirmed}
                         />
