@@ -285,7 +285,7 @@ return;
 
 /* ═══════════════ Working Hours Card ═══════════════ */
 
-const DAY_NAMES = ['Пн', 'Вт', 'Ср', 'Чт', 'Пт', 'Сб', 'Вс'];
+const DAY_NAMES = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
 const SLOT_INTERVALS = [15, 30, 60];
 
 const uiToCarbon = (uiIndex: number) => (uiIndex + 1) % 7;
@@ -453,15 +453,15 @@ return h;
                         Минимальный интервал между слотами
                     </p>
                 </div>
-                <div className="flex h-9 shrink-0 gap-0.5 rounded-[10px] bg-[var(--color-warm)] p-[3px]">
+                <div className="inline-flex shrink-0 items-center gap-[3px] rounded-[12px] border border-[var(--color-line)] bg-[var(--color-warm)] p-[3px]">
                     {SLOT_INTERVALS.map((interval) => (
                         <button
                             key={interval}
                             type="button"
                             onClick={() => setSlotInterval(interval)}
-                            className={`rounded-[8px] px-3 text-[12px] font-semibold transition-colors ${
+                            className={`h-8 rounded-[9px] px-3 text-[12px] font-semibold transition-colors ${
                                 slotInterval === interval
-                                    ? 'bg-[var(--color-orange)] text-white shadow-sm'
+                                    ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
                                     : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                             }`}
                         >
@@ -476,21 +476,21 @@ return h;
 
             {/* Working Hours Table */}
             <div className="py-4">
-                <div className="grid grid-cols-[auto_1fr_1fr_auto] items-center gap-x-4 gap-y-1 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--color-graphite)] min-[520px]:gap-x-6">
-                    <span className="w-10" />
+                <div className="hidden min-[680px]:grid min-[680px]:grid-cols-[160px_1fr_1fr_auto] items-center gap-x-4 border-b border-[var(--color-line)] pb-2 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--color-graphite)]">
+                    <span>День</span>
                     <span>Рабочее время</span>
                     <span>Перерыв</span>
-                    <span className="w-10 text-right" />
+                    <span className="w-[60px] text-right">Вых.</span>
                 </div>
-                <div className="mt-1 space-y-0.5">
+                <div>
                     {localHours.map((hour) => (
                         <div
                             key={hour.day_of_week}
-                            className={`grid grid-cols-[auto_1fr_1fr_auto] items-center gap-x-4 gap-y-1 rounded-[10px] px-2 py-2 transition-colors min-[520px]:gap-x-6 ${
+                            className={`flex min-h-[58px] flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-line)] px-0 py-2.5 transition-colors min-[680px]:grid min-[680px]:grid-cols-[160px_1fr_1fr_auto] ${
                                 hour.is_working ? '' : 'opacity-50'
                             }`}
                         >
-                            <span className={`w-10 shrink-0 text-[13px] font-semibold ${hour.is_working ? 'text-[var(--color-ink)]' : 'text-[var(--color-graphite)]'}`}>
+                            <span className={`w-full min-w-[120px] text-[13px] font-semibold min-[680px]:w-auto ${hour.is_working ? 'text-[var(--color-ink)]' : 'text-[var(--color-graphite)]'}`}>
                                 {DAY_NAMES[hour.day_of_week]}
                             </span>
 
@@ -501,14 +501,14 @@ return h;
                                             type="time"
                                             value={hour.start_time ?? ''}
                                             onChange={(e) => updateTime(hour.day_of_week, 'start_time', e.target.value)}
-                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                            className="h-10 w-24 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
                                         />
-                                        <span className="text-[12px] text-[var(--color-graphite)]">—</span>
+                                        <span className="text-[13px] text-[var(--color-graphite)]">—</span>
                                         <Input
                                             type="time"
                                             value={hour.end_time ?? ''}
                                             onChange={(e) => updateTime(hour.day_of_week, 'end_time', e.target.value)}
-                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                            className="h-10 w-24 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
                                         />
                                     </div>
                                     <div className="flex items-center gap-1.5">
@@ -517,30 +517,32 @@ return h;
                                             value={hour.break_start_time || ''}
                                             onChange={(e) => updateTime(hour.day_of_week, 'break_start_time', e.target.value)}
                                             placeholder="—:—"
-                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                            className="h-10 w-24 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
                                         />
-                                        <span className="text-[12px] text-[var(--color-graphite)]">—</span>
+                                        <span className="text-[13px] text-[var(--color-graphite)]">—</span>
                                         <Input
                                             type="time"
                                             value={hour.break_end_time || ''}
                                             onChange={(e) => updateTime(hour.day_of_week, 'break_end_time', e.target.value)}
                                             placeholder="—:—"
-                                            className="h-8 w-24 rounded-[8px] border-[var(--color-line)] bg-[var(--color-surface)] text-[12px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                            className="h-10 w-24 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
                                         />
                                     </div>
                                 </>
                             ) : (
                                 <>
-                                    <span className="text-[12px] text-[var(--color-graphite)]">Выходной</span>
+                                    <span className="text-[13px] text-[var(--color-graphite)]">Выходной</span>
                                     <span />
                                 </>
                             )}
 
-                            <Switch
-                                checked={hour.is_working}
-                                onCheckedChange={() => toggleDay(hour.day_of_week)}
-                                className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
-                            />
+                            <div className="flex w-[60px] justify-end">
+                                <Switch
+                                    checked={hour.is_working}
+                                    onCheckedChange={() => toggleDay(hour.day_of_week)}
+                                    className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
+                                />
+                            </div>
                         </div>
                     ))}
                 </div>
@@ -655,14 +657,14 @@ return;
                     Нет активных блокировок
                 </p>
             ) : (
-                <div className="mt-3 space-y-1">
+                <div className="mt-3 space-y-2">
                     {blockedTimes.map((bt) => (
                         <div
                             key={bt.id}
-                            className="flex items-center justify-between rounded-[10px] px-3 py-2.5 transition-colors hover:bg-[var(--color-surface-hover)]"
+                            className="flex min-h-[54px] items-center justify-between rounded-[10px] bg-[var(--color-warm)] px-3 py-2.5"
                         >
                             <div className="min-w-0 flex-1">
-                                <p className="text-[13px] font-medium text-[var(--color-ink)]">
+                                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
                                     {bt.reason}
                                 </p>
                                 <p className="text-[12px] text-[var(--color-graphite)]">
@@ -1433,32 +1435,35 @@ return;
                                     >
                                         <div className="space-y-0">
                                             {/* Cancellation */}
-                                            <div className="flex min-h-[64px] items-center justify-between gap-4">
+                                            <div className="flex min-h-[64px] items-center gap-3">
                                                 <div className="min-w-0 flex-1">
                                                     <p className="text-[13px] font-semibold text-[var(--color-ink)]">
-                                                        Отмена онлайн-записи
+                                                        Онлайн-отмена клиентом
                                                     </p>
                                                     <p className="text-[12px] text-[var(--color-graphite)]">
-                                                        За сколько часов до визита клиент уже не может отменить запись в боте. Пусто — без ограничения.
+                                                        Не позднее чем за
                                                     </p>
                                                 </div>
-                                                <div className="w-[120px] shrink-0">
+                                                <div className="flex items-center gap-2">
                                                     <Input
                                                         type="number"
                                                         min={1}
                                                         max={168}
-                                                        placeholder="Часов"
-                                                        className="h-[42px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
+                                                        placeholder="—"
+                                                        className="h-10 w-[72px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-center text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
                                                         value={bookingFlowForm.data.cancellation_deadline_hours}
                                                         onChange={(e) => bookingFlowForm.setData('cancellation_deadline_hours', e.target.value)}
                                                     />
-                                                    {bookingFlowForm.errors.cancellation_deadline_hours && (
-                                                        <p className="mt-1 text-[11px] text-[var(--color-red)]">
-                                                            {bookingFlowForm.errors.cancellation_deadline_hours}
-                                                        </p>
-                                                    )}
+                                                    <span className="text-[13px] text-[var(--color-graphite)]">
+                                                        часов до начала
+                                                    </span>
                                                 </div>
                                             </div>
+                                            {bookingFlowForm.errors.cancellation_deadline_hours && (
+                                                <p className="text-[11px] text-[var(--color-red)]">
+                                                    {bookingFlowForm.errors.cancellation_deadline_hours}
+                                                </p>
+                                            )}
 
                                             {/* Divider */}
                                             <div className="border-t border-[var(--color-line)]" />
@@ -1467,10 +1472,10 @@ return;
                                             <div className="flex min-h-[64px] items-center justify-between gap-4">
                                                 <div className="min-w-0 flex-1">
                                                     <p className="text-[13px] font-semibold text-[var(--color-ink)]">
-                                                        Автозаполнение окон
+                                                        Хочу раньше
                                                     </p>
                                                     <p className="text-[12px] text-[var(--color-graphite)]">
-                                                        Если освободится время, ИРСИ сможет предложить его клиентам, которые заранее попросили сообщить о подходящем окне.
+                                                        Если освободится подходящее время, ИРСИ предложит его клиентам, которые попросили сообщить о более раннем окне.
                                                     </p>
                                                 </div>
                                                 <div className="flex items-center gap-2 shrink-0">
@@ -1513,30 +1518,19 @@ return;
 
                             {/* ═══ Section: Рабочие часы ═══ */}
                             <div className="border-t border-[var(--color-line)] py-6">
-                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
-                                        Рабочие часы
-                                    </div>
-                                    <div>
-                                        <WorkingHoursCard
-                                            workingHours={workingHours}
-                                            slotInterval={profile.slot_interval || 30}
-                                            masterId={profile.id}
-                                        />
-                                    </div>
+                                <div className="mb-4 text-[13px] font-semibold text-[var(--color-graphite)]">
+                                    Рабочие часы
                                 </div>
+                                <WorkingHoursCard
+                                    workingHours={workingHours}
+                                    slotInterval={profile.slot_interval || 30}
+                                    masterId={profile.id}
+                                />
                             </div>
 
                             {/* ═══ Section: Недоступное время ═══ */}
                             <div className="border-t border-[var(--color-line)] py-6">
-                                <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
-                                        Недоступное время
-                                    </div>
-                                    <div>
-                                        <BlockedTimesCard masterId={profile.id} />
-                                    </div>
-                                </div>
+                                <BlockedTimesCard masterId={profile.id} />
                             </div>
 
                             </div>
