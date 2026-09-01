@@ -1106,7 +1106,7 @@ return;
                                                 Ссылка для онлайн-записи
                                             </label>
                                             <div className="flex h-[42px] items-center overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] focus-within:ring-2 focus-within:ring-[var(--color-orange)] focus-within:ring-offset-0">
-                                                <span className="shrink-0 select-none pl-3 text-[13px] text-[var(--color-graphite)]">
+                                                <span className="shrink-0 select-none pl-3 pr-0.5 text-[13px] text-[var(--color-graphite)]">
                                                     irsi-app.ru/book/
                                                 </span>
                                                 <input
@@ -1121,7 +1121,7 @@ return;
                                                         )
                                                     }
                                                     placeholder="nails_studio"
-                                                    className="h-full min-w-0 flex-1 bg-transparent px-1 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-graphite)]"
+                                                    className="h-full min-w-0 flex-1 bg-transparent pl-0 pr-1 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-graphite)]"
                                                 />
                                                 <button
                                                     type="button"
@@ -1169,7 +1169,7 @@ return;
                                                     );
                                                 }}
                                             >
-                                                <SelectTrigger className="h-[42px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
+                                                <SelectTrigger className="h-[42px] w-full rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
                                                     <SelectValue />
                                                 </SelectTrigger>
                                                 <SelectContent>
