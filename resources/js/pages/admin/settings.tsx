@@ -952,8 +952,8 @@ return;
 
                         {/* ═══ Underline Tabs ═══ */}
                         <div className="mb-6 flex items-center gap-6 overflow-x-auto border-b border-[var(--color-line)] scrollbar-none">
-                            {(['profile', 'booking', 'notifications', 'schedule'] as const).map((tab) => {
-                                const labels: Record<string, string> = {
+                            {VALID_TABS.map((tab) => {
+                                const labels: Record<TabValue, string> = {
                                     profile: 'Профиль',
                                     notifications: 'Уведомления',
                                     'booking-schedule': 'Запись и расписание',
