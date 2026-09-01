@@ -1103,11 +1103,11 @@ return;
                                     <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
                                         <div>
                                             <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
-                                                Slug профиля
+                                                Ссылка для онлайн-записи
                                             </label>
                                             <div className="flex h-[42px] items-center overflow-hidden rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] focus-within:ring-2 focus-within:ring-[var(--color-orange)] focus-within:ring-offset-0">
-                                                <span className="shrink-0 select-none border-r border-[var(--color-line)] bg-[var(--color-line-soft)] px-3 text-[13px] text-[var(--color-graphite)]">
-                                                    {typeof window !== 'undefined' ? window.location.origin : ''}/book/
+                                                <span className="shrink-0 select-none pl-3 text-[13px] text-[var(--color-graphite)]">
+                                                    irsi-app.ru/book/
                                                 </span>
                                                 <input
                                                     type="text"
@@ -1121,7 +1121,7 @@ return;
                                                         )
                                                     }
                                                     placeholder="nails_studio"
-                                                    className="h-full min-w-0 flex-1 bg-transparent px-3 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-graphite)]"
+                                                    className="h-full min-w-0 flex-1 bg-transparent px-1 text-[13px] text-[var(--color-ink)] outline-none placeholder:text-[var(--color-graphite)]"
                                                 />
                                                 <button
                                                     type="button"
