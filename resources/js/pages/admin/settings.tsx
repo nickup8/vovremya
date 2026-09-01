@@ -897,14 +897,64 @@ return;
         autofill_enabled: profile.autofill_enabled,
     });
 
-    const notificationsForm = useForm({
+    // ── Notifications autosave state ──
+    const [notifState, setNotifState] = useState({
         telegram_notifications: profile.telegram_notifications,
         max_notifications: profile.max_notifications,
         reminder_hours_before_final: profile.reminder_hours_before_final,
     });
+    const [saveStatus, setSaveStatus] = useState<'idle' | 'saving' | 'error'>('idle');
+    const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+    const savingRef = useRef(false);
+    const pendingRef = useRef(false);
+    const notifStateRef = useRef(notifState);
+    notifStateRef.current = notifState;
 
+    const flushSave = () => {
+        if (savingRef.current) {
+            pendingRef.current = true;
+            return;
+        }
+        savingRef.current = true;
+        setSaveStatus('saving');
+        router.put('/admin/settings', notifStateRef.current, {
+            preserveScroll: true,
+            preserveState: true,
+            onSuccess: () => {
+                savingRef.current = false;
+                if (pendingRef.current) {
+                    pendingRef.current = false;
+                    flushSave();
+                } else {
+                    setSaveStatus('idle');
+                }
+            },
+            onError: () => {
+                savingRef.current = false;
+                pendingRef.current = false;
+                setSaveStatus('error');
+                toast.error('Не удалось сохранить настройки уведомлений');
+            },
+        });
+    };
+
+    const scheduleSave = () => {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(flushSave, 400);
+    };
+
+    const setNotifField = <K extends keyof typeof notifState>(key: K, value: typeof notifState[K]) => {
+        setNotifState((prev) => {
+            const next = { ...prev, [key]: value };
+            notifStateRef.current = next;
+            return next;
+        });
+        scheduleSave();
+    };
+
+    // Sync from profile props (realtime reload) without triggering autosave
     useEffect(() => {
-        notificationsForm.setData({
+        setNotifState({
             telegram_notifications: profile.telegram_notifications,
             max_notifications: profile.max_notifications,
             reminder_hours_before_final: profile.reminder_hours_before_final,
@@ -1457,12 +1507,7 @@ return;
 
                             {/* ═══ Tab: Notifications ═══ */}
                             <TabsContent value="notifications">
-                            <form
-                                onSubmit={(e) => {
- e.preventDefault(); notificationsForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Уведомления сохранены') }); 
-}}
-                                className="space-y-0"
-                            >
+                            <div className="space-y-0">
 
                             {/* ═══ Уведомления мастеру ═══ */}
                             <div className="py-6">
@@ -1487,11 +1532,11 @@ return;
                                                 </p>
                                             </div>
                                             <Switch
-                                                checked={notificationsForm.data.telegram_notifications}
+                                                checked={notifState.telegram_notifications}
                                                 disabled={!profile.telegram_chat_id}
                                                 onCheckedChange={(checked) => {
                                                     if (!profile.telegram_chat_id) return;
-                                                    notificationsForm.setData('telegram_notifications', checked);
+                                                    setNotifField('telegram_notifications', checked);
                                                 }}
                                                 className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
                                             />
@@ -1532,11 +1577,11 @@ return;
                                                 </p>
                                             </div>
                                             <Switch
-                                                checked={notificationsForm.data.max_notifications}
+                                                checked={notifState.max_notifications}
                                                 disabled={!profile.max_id}
                                                 onCheckedChange={(checked) => {
                                                     if (!profile.max_id) return;
-                                                    notificationsForm.setData('max_notifications', checked);
+                                                    setNotifField('max_notifications', checked);
                                                 }}
                                                 className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
                                             />
@@ -1577,8 +1622,8 @@ return;
                                             </p>
                                         </div>
                                         <Select
-                                            value={String(notificationsForm.data.reminder_hours_before_final)}
-                                            onValueChange={(value) => notificationsForm.setData('reminder_hours_before_final', Number(value))}
+                                            value={String(notifState.reminder_hours_before_final)}
+                                            onValueChange={(value) => setNotifField('reminder_hours_before_final', Number(value))}
                                         >
                                             <SelectTrigger className="h-[36px] w-[180px] shrink-0 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
                                                 <SelectValue />
@@ -1595,26 +1640,30 @@ return;
                                 </div>
                             </div>
 
-                            {/* ═══ Save Area ═══ */}
-                            <div className="flex justify-end gap-2 border-t border-[var(--color-line)] pt-6">
-                                <Button
-                                    type="button"
-                                    variant="outline"
-                                    className="h-10 rounded-[10px] border-[var(--color-line)] px-4 text-[13px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]"
-                                >
-                                    Отмена
-                                </Button>
-                                <Button
-                                    type="submit"
-                                    disabled={notificationsForm.processing}
-                                    className="h-10 rounded-[10px] bg-[var(--color-orange)] px-5 text-[13px] font-semibold text-white hover:bg-[var(--color-orange-600)]"
-                                >
-                                    {notificationsForm.processing
-                                        ? 'Сохранение...'
-                                        : 'Сохранить уведомления'}
-                                </Button>
+                            {/* ═══ Autosave Status ═══ */}
+                            <div className="flex justify-end border-t border-[var(--color-line)] pt-6">
+                                <div className="flex items-center gap-2 text-[12px]">
+                                    {saveStatus === 'idle' && (
+                                        <>
+                                            <span className="size-1.5 rounded-full bg-[var(--color-paid)]" />
+                                            <span className="text-[var(--color-graphite)]">Сохраняется автоматически</span>
+                                        </>
+                                    )}
+                                    {saveStatus === 'saving' && (
+                                        <>
+                                            <span className="size-1.5 animate-pulse rounded-full bg-[var(--color-graphite)]" />
+                                            <span className="text-[var(--color-graphite)]">Сохранение…</span>
+                                        </>
+                                    )}
+                                    {saveStatus === 'error' && (
+                                        <>
+                                            <span className="size-1.5 rounded-full bg-[var(--color-red)]" />
+                                            <span className="text-[var(--color-red)]">Не удалось сохранить</span>
+                                        </>
+                                    )}
+                                </div>
                             </div>
-                            </form>
+                            </div>
                             </TabsContent>
 
                             {/* ═══ Tab: Schedule ═══ */}
