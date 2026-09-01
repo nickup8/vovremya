@@ -470,10 +470,10 @@ return;
                                         key={tab}
                                         type="button"
                                         onClick={() => handleTabChange(tab)}
-                                        className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
+                                        className={`relative h-[43px] shrink-0 px-0.5 text-[14px] transition-colors ${
                                             isActive
-                                                ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
-                                                : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                                ? 'font-semibold text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[2px] after:rounded-t-[2px] after:bg-[var(--color-orange)]'
+                                                : 'font-medium text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                                         }`}
                                     >
                                         {labels[tab]}
@@ -546,7 +546,7 @@ return;
                             {/* ═══ Основная информация ═══ */}
                             <div className="border-t border-[var(--color-line)] py-6">
                                 <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                    <div className="text-[15px] font-semibold text-[var(--color-ink)]">
                                         Основная информация
                                     </div>
                                     <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
@@ -611,7 +611,7 @@ return;
                             {/* ═══ Публичный профиль ═══ */}
                             <div className="border-t border-[var(--color-line)] py-6">
                                 <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                    <div className="text-[15px] font-semibold text-[var(--color-ink)]">
                                         Публичный профиль
                                     </div>
                                     <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
@@ -708,7 +708,7 @@ return;
                             {/* ═══ Интеграции ═══ */}
                             <div className="border-t border-[var(--color-line)] py-6">
                                 <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                    <div className="text-[15px] font-semibold text-[var(--color-ink)]">
                                         Интеграции
                                     </div>
                                     <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
@@ -767,7 +767,7 @@ return;
                             {/* ═══ Уведомления мастеру ═══ */}
                             <div className="py-6">
                                 <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                    <div className="text-[15px] font-semibold text-[var(--color-ink)]">
                                         Уведомления мастеру
                                     </div>
                                     <div>
@@ -777,7 +777,7 @@ return;
                                                 <Send className="size-4 text-[var(--color-graphite)]" />
                                             </div>
                                             <div className="min-w-0 flex-1">
-                                                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                <p className="text-[14px] font-semibold text-[var(--color-ink)]">
                                                     Telegram Bot
                                                 </p>
                                                 <p className="text-[12px] text-[var(--color-graphite)]">
@@ -822,7 +822,7 @@ return;
                                                 <MessageCircle className="size-4 text-[var(--color-graphite)]" />
                                             </div>
                                             <div className="min-w-0 flex-1">
-                                                <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                <p className="text-[14px] font-semibold text-[var(--color-ink)]">
                                                     Max Messenger
                                                 </p>
                                                 <p className="text-[12px] text-[var(--color-graphite)]">
@@ -864,12 +864,12 @@ return;
                             {/* ═══ Уведомления клиентам ═══ */}
                             <div className="border-t border-[var(--color-line)] py-6">
                                 <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                    <div className="text-[15px] font-semibold text-[var(--color-ink)]">
                                         Уведомления клиентам
                                     </div>
                                     <div className="flex min-h-[64px] items-center gap-4">
                                         <div className="min-w-0 flex-1">
-                                            <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                            <p className="text-[14px] font-semibold text-[var(--color-ink)]">
                                                 Финальное напоминание
                                             </p>
                                             <p className="text-[12px] text-[var(--color-graphite)]">
@@ -928,7 +928,7 @@ return;
                             {/* ═══ Section: Правила записи ═══ */}
                             <div className="py-6">
                                 <div className="grid gap-6 min-[720px]:grid-cols-[220px_1fr]">
-                                    <div className="text-[13px] font-semibold text-[var(--color-graphite)]">
+                                    <div className="text-[15px] font-semibold text-[var(--color-ink)]">
                                         Правила записи
                                     </div>
                                     <form
@@ -940,7 +940,7 @@ return;
                                             {/* Cancellation */}
                                             <div className="flex min-h-[64px] items-center gap-3">
                                                 <div className="min-w-0 flex-1">
-                                                    <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                    <p className="text-[14px] font-semibold text-[var(--color-ink)]">
                                                         Онлайн-отмена клиентом
                                                     </p>
                                                     <p className="text-[12px] text-[var(--color-graphite)]">
@@ -974,7 +974,7 @@ return;
                                             {/* AutoFill */}
                                             <div className="flex min-h-[64px] items-center justify-between gap-4">
                                                 <div className="min-w-0 flex-1">
-                                                    <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                                    <p className="text-[14px] font-semibold text-[var(--color-ink)]">
                                                         Хочу раньше
                                                     </p>
                                                     <p className="text-[12px] text-[var(--color-graphite)]">

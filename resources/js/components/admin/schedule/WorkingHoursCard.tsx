@@ -176,7 +176,7 @@ return h;
             {/* Slot Interval */}
             <div className="flex min-h-[64px] items-center justify-between gap-4">
                 <div>
-                    <p className="text-[13px] font-semibold text-[var(--color-ink)]">
+                    <p className="text-[14px] font-semibold text-[var(--color-ink)]">
                         Шаг онлайн-записи
                     </p>
                     <p className="text-[12px] text-[var(--color-graphite)]">
@@ -206,7 +206,7 @@ return h;
 
             {/* Working Hours Table */}
             <div className="py-4">
-                <div className="hidden min-[680px]:grid min-[680px]:grid-cols-[160px_1fr_1fr_auto] items-center gap-x-4 border-b border-[var(--color-line)] pb-2 text-[11px] font-semibold uppercase tracking-[.06em] text-[var(--color-graphite)]">
+                <div className="hidden min-[680px]:grid min-[680px]:grid-cols-[160px_1fr_1fr_auto] items-center gap-x-4 border-b border-[var(--color-line)] pb-2 text-[11px] font-semibold uppercase tracking-[.04em] text-[var(--color-graphite)]/80">
                     <span>День</span>
                     <span>Рабочее время</span>
                     <span>Перерыв</span>

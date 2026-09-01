@@ -35,7 +35,7 @@ export default function SchedulePage() {
 
                     {/* ═══ Рабочие часы ═══ */}
                     <div className="border-t border-[var(--color-line)] py-6">
-                        <div className="mb-4 text-[13px] font-semibold text-[var(--color-graphite)]">
+                        <div className="mb-4 text-[15px] font-semibold text-[var(--color-ink)]">
                             Рабочие часы
                         </div>
                         <WorkingHoursCard
