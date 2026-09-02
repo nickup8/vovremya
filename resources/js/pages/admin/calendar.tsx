@@ -312,7 +312,7 @@ return [];
                             <DateControlPanel
                                 viewMode={viewMode}
                                 dateLabel={viewMode === 'day' ? dayRangeStr : viewMode === 'week' ? dateRangeStr : monthRangeStr}
-                                yearLabel={viewMode === 'week' ? weekYearLabel : viewMode === 'day' ? String(dayDate.getFullYear()) : undefined}
+                                yearLabel={viewMode === 'week' ? weekYearLabel : undefined}
                                 onPrev={() => viewMode === 'day' ? setDayOffset((d) => d - 1) : viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
                                 onNext={() => viewMode === 'day' ? setDayOffset((d) => d + 1) : viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
                                 onToday={() => {
