@@ -489,7 +489,7 @@ export default function AnalyticsPage() {
                                 onClick={() => switchTab('overview')}
                                 className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors max-md:h-11 ${
                                     activeTab === 'overview'
-                                        ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                        ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
                                         : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                                 }`}
                             >
@@ -501,7 +501,7 @@ export default function AnalyticsPage() {
                                 onClick={() => switchTab('channels')}
                                 className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors max-md:h-11 ${
                                     activeTab === 'channels'
-                                        ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                        ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
                                         : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                                 }`}
                             >
@@ -514,7 +514,7 @@ export default function AnalyticsPage() {
                                     onClick={() => switchTab('autofill')}
                                     className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors max-md:h-11 ${
                                         activeTab === 'autofill'
-                                            ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:-bottom-px after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                            ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
                                             : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                                     }`}
                                 >

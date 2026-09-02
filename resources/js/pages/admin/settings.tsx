@@ -456,7 +456,7 @@ return;
                         />
 
                         {/* ═══ Underline Tabs ═══ */}
-                        <div className="mb-6 flex items-center gap-6 overflow-x-auto overflow-y-hidden border-b border-[var(--color-line)]">
+                        <div role="tablist" className="mb-6 flex h-[43px] items-center gap-6 overflow-x-auto overflow-y-hidden border-b border-[var(--color-line)]">
                             {VALID_TABS.map((tab) => {
                                 const labels: Record<TabValue, string> = {
                                     profile: 'Профиль',
@@ -469,11 +469,13 @@ return;
                                     <button
                                         key={tab}
                                         type="button"
+                                        role="tab"
+                                        aria-selected={isActive}
                                         onClick={() => handleTabChange(tab)}
-                                        className={`relative h-[43px] shrink-0 px-0.5 text-[14px] transition-colors ${
+                                        className={`relative h-[43px] shrink-0 px-0.5 text-[13.5px] font-semibold transition-colors ${
                                             isActive
-                                                ? 'font-semibold text-[var(--color-ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-[2px] after:rounded-t-[2px] after:bg-[var(--color-orange)]'
-                                                : 'font-medium text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                                ? 'text-[var(--color-ink)] after:absolute after:inset-x-0 after:bottom-0 after:h-[3px] after:rounded-t-[3px] after:bg-[var(--color-orange)]'
+                                                : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
                                         }`}
                                     >
                                         {labels[tab]}
