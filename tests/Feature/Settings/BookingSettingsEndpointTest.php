@@ -200,4 +200,60 @@ class BookingSettingsEndpointTest extends TestCase
 
         $this->assertNotCount(count($slots60), $slots30, 'Different slot_intervals should produce different slot counts');
     }
+
+    // ═══════════════ Cancellation deadline null ═══════════════
+
+    public function test_cancellation_deadline_null_saves_as_null(): void
+    {
+        $this->master->update(['cancellation_deadline_hours' => 24]);
+
+        $response = $this->actingAs($this->master)
+            ->put(route('admin.settings.booking.update'), [
+                'cancellation_deadline_hours' => null,
+                'slot_interval' => 30,
+            ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHasNoErrors();
+
+        $this->master->refresh();
+        $this->assertNull($this->master->cancellation_deadline_hours);
+    }
+
+    public function test_cancellation_deadline_omitted_preserves_existing(): void
+    {
+        $this->master->update(['cancellation_deadline_hours' => 24]);
+
+        $response = $this->actingAs($this->master)
+            ->put(route('admin.settings.booking.update'), [
+                'slot_interval' => 30,
+            ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHasNoErrors();
+
+        $this->master->refresh();
+        $this->assertSame(24, $this->master->cancellation_deadline_hours);
+    }
+
+    public function test_cancellation_deadline_24_and_48_still_save(): void
+    {
+        $this->actingAs($this->master)
+            ->put(route('admin.settings.booking.update'), [
+                'cancellation_deadline_hours' => 24,
+                'slot_interval' => 30,
+            ]);
+
+        $this->master->refresh();
+        $this->assertSame(24, $this->master->cancellation_deadline_hours);
+
+        $this->actingAs($this->master)
+            ->put(route('admin.settings.booking.update'), [
+                'cancellation_deadline_hours' => 48,
+                'slot_interval' => 30,
+            ]);
+
+        $this->master->refresh();
+        $this->assertSame(48, $this->master->cancellation_deadline_hours);
+    }
 }

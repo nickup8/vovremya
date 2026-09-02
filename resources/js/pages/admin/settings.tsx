@@ -972,30 +972,50 @@ return;
                                             <div className="border-t border-[var(--color-line)]" />
 
                                             {/* Cancellation */}
-                                            <div className="flex min-h-[64px] items-center gap-3">
-                                                <div className="min-w-0 flex-1">
-                                                    <p className="text-[14px] font-semibold text-[var(--color-ink)]">
-                                                        Онлайн-отмена клиентом
-                                                    </p>
-                                                    <p className="text-[12px] text-[var(--color-graphite)]">
-                                                        Не позднее чем за
-                                                    </p>
-                                                </div>
-                                                <div className="flex items-center gap-2">
-                                                    <Input
-                                                        type="number"
-                                                        min={1}
-                                                        max={168}
-                                                        placeholder="—"
-                                                        className="h-10 w-[72px] rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-center text-[13px] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-0"
-                                                        value={bookingFlowForm.data.cancellation_deadline_hours}
-                                                        onChange={(e) => bookingFlowForm.setData('cancellation_deadline_hours', e.target.value)}
-                                                    />
-                                                    <span className="text-[13px] text-[var(--color-graphite)]">
-                                                        часов до начала
-                                                    </span>
-                                                </div>
-                                            </div>
+                                            {(() => {
+                                                const canonicalOptions: { value: string; label: string }[] = [
+                                                    { value: '48', label: '48 часов' },
+                                                    { value: '24', label: '24 часа' },
+                                                    { value: '12', label: '12 часов' },
+                                                    { value: '6', label: '6 часов' },
+                                                    { value: '3', label: '3 часа' },
+                                                    { value: '1', label: '1 час' },
+                                                    { value: '', label: 'Без ограничений' },
+                                                ];
+                                                const currentValue = bookingFlowForm.data.cancellation_deadline_hours;
+                                                const isCanonical = canonicalOptions.some((o) => o.value === currentValue);
+                                                const options = isCanonical
+                                                    ? canonicalOptions
+                                                    : [...canonicalOptions.slice(0, -1), { value: currentValue, label: `${currentValue} часа` }, canonicalOptions[canonicalOptions.length - 1]];
+
+                                                return (
+                                                    <div className="flex min-h-[64px] items-center justify-between gap-4">
+                                                        <div className="min-w-0 flex-1">
+                                                            <p className="text-[14px] font-semibold text-[var(--color-ink)]">
+                                                                Онлайн-отмена клиентом
+                                                            </p>
+                                                            <p className="text-[12px] text-[var(--color-graphite)]">
+                                                                Не позднее чем за
+                                                            </p>
+                                                        </div>
+                                                        <Select
+                                                            value={currentValue}
+                                                            onValueChange={(val) => bookingFlowForm.setData('cancellation_deadline_hours', val)}
+                                                        >
+                                                            <SelectTrigger className="h-[36px] w-[180px] shrink-0 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
+                                                                <SelectValue />
+                                                            </SelectTrigger>
+                                                            <SelectContent>
+                                                                {options.map((opt) => (
+                                                                    <SelectItem key={opt.value || '__none__'} value={opt.value}>
+                                                                        {opt.label}
+                                                                    </SelectItem>
+                                                                ))}
+                                                            </SelectContent>
+                                                        </Select>
+                                                    </div>
+                                                );
+                                            })()}
                                             {bookingFlowForm.errors.cancellation_deadline_hours && (
                                                 <p className="text-[11px] text-[var(--color-red)]">
                                                     {bookingFlowForm.errors.cancellation_deadline_hours}
