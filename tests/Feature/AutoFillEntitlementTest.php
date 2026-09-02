@@ -92,8 +92,9 @@ class AutoFillEntitlementTest extends TestCase
     {
         $master = $this->createMasterWithPlan($this->proPlan);
 
-        $this->actingAs($master)->put('/admin/settings', [
+        $this->actingAs($master)->put('/admin/settings/booking', [
             'autofill_enabled' => true,
+            'slot_interval' => 30,
         ]);
 
         $this->assertTrue($master->fresh()->autofill_enabled);
@@ -104,8 +105,9 @@ class AutoFillEntitlementTest extends TestCase
         $master = $this->createMasterWithPlan($this->proPlan);
         $master->update(['autofill_enabled' => true]);
 
-        $this->actingAs($master)->put('/admin/settings', [
+        $this->actingAs($master)->put('/admin/settings/booking', [
             'autofill_enabled' => false,
+            'slot_interval' => 30,
         ]);
 
         $this->assertFalse($master->fresh()->autofill_enabled);
@@ -115,8 +117,9 @@ class AutoFillEntitlementTest extends TestCase
     {
         $master = $this->createMasterWithPlan($this->startPlan);
 
-        $this->actingAs($master)->put('/admin/settings', [
+        $this->actingAs($master)->put('/admin/settings/booking', [
             'autofill_enabled' => true,
+            'slot_interval' => 30,
         ]);
 
         $this->assertFalse($master->fresh()->autofill_enabled);
@@ -127,8 +130,9 @@ class AutoFillEntitlementTest extends TestCase
         $master = $this->createMasterWithPlan($this->startPlan);
         $master->update(['autofill_enabled' => true]);
 
-        $this->actingAs($master)->put('/admin/settings', [
+        $this->actingAs($master)->put('/admin/settings/booking', [
             'autofill_enabled' => false,
+            'slot_interval' => 30,
         ]);
 
         $this->assertFalse($master->fresh()->autofill_enabled);
@@ -195,7 +199,11 @@ class AutoFillEntitlementTest extends TestCase
         $this->actingAs($master)->put('/admin/settings', [
             'name' => 'Новое имя',
             'phone' => '+79991112233',
+        ]);
+
+        $this->actingAs($master)->put('/admin/settings/booking', [
             'autofill_enabled' => true,
+            'slot_interval' => 30,
         ]);
 
         $master->refresh();
