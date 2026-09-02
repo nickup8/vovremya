@@ -220,13 +220,10 @@ export function DayView({
                             key={`h-${master.id}`}
                             className="relative flex items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
                         >
-                            {/* Desktop: weekday + master name */}
+                            {/* Desktop: weekday */}
                             <div className="hidden text-center lg:block">
                                 <div className="text-xs font-semibold text-[var(--color-graphite)]">
                                     {dayDate.toLocaleDateString('ru-RU', { weekday: 'short' })}
-                                </div>
-                                <div className="mt-0.5 text-sm font-bold text-[var(--color-ink)]">
-                                    {master.name}
                                 </div>
                             </div>
                         </div>
