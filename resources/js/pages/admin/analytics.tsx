@@ -417,10 +417,10 @@ export default function AnalyticsPage() {
                                     <button
                                         key={key}
                                         onClick={() => handlePeriodChange(key)}
-                                        className={`h-9 shrink-0 rounded-[10px] px-4 text-sm font-semibold transition-colors max-md:min-h-11 ${
+                                        className={`h-9 shrink-0 cursor-pointer rounded-[10px] px-4 text-sm font-semibold transition-colors max-md:min-h-11 ${
                                             activePeriod === key
                                                 ? 'bg-[var(--color-orange)] text-white shadow-[0_8px_16px_rgba(255,90,31,0.18)]'
-                                                : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-elevated)] hover:text-[var(--color-ink)]'
+                                                : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]'
                                         }`}
                                     >
                                         {label}
