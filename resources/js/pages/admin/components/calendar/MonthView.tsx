@@ -48,7 +48,7 @@ export function MonthView({ appointments, centerDate, onDayColumnClick }: Props)
                             key={i}
                             type="button"
                             onClick={() => onDayColumnClick(dateKey)}
-                            className={`flex min-h-[80px] md:min-h-[120px] flex-col gap-1 bg-white p-1.5 text-left transition-colors hover:bg-[var(--color-surface-hover)] dark:bg-[var(--color-cal-surface)] dark:hover:bg-[var(--color-cal-surface-alt)] ${
+                            className={`flex min-h-[70px] md:min-h-[105px] flex-col gap-1 bg-white p-1.5 text-left transition-colors hover:bg-[var(--color-surface-hover)] dark:bg-[var(--color-cal-surface)] dark:hover:bg-[var(--color-cal-surface-alt)] ${
                                 !isCurrentMonth ? 'bg-[var(--color-surface)]/50 text-[var(--color-graphite)]/50 dark:bg-[var(--color-cal-surface-alt)]/50 dark:text-[var(--color-graphite)]/40' : ''
                             }`}
                         >
@@ -80,7 +80,7 @@ export function MonthView({ appointments, centerDate, onDayColumnClick }: Props)
                                     return (
                                         <div
                                             key={appt.id}
-                                            className={`truncate rounded px-1 py-0.5 text-[10px] font-medium leading-tight transition-colors ${style.bg} ${textColor} ${isCancelled ? 'line-through' : ''}`}
+                                            className={`truncate rounded px-1.5 py-1 text-[10px] font-medium leading-tight transition-colors ${style.bg} ${textColor} ${isCancelled ? 'line-through' : ''}`}
                                         >
                                             <span className={`mr-1 inline-block size-1.5 align-middle rounded-full ${style.dot}`} />
                                             {appt.time} — {appt.client_name}
