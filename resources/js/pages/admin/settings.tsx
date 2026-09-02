@@ -973,6 +973,7 @@ return;
 
                                             {/* Cancellation */}
                                             {(() => {
+                                                const NO_LIMIT_VALUE = '__unlimited__';
                                                 const canonicalOptions: { value: string; label: string }[] = [
                                                     { value: '48', label: '48 часов' },
                                                     { value: '24', label: '24 часа' },
@@ -980,9 +981,10 @@ return;
                                                     { value: '6', label: '6 часов' },
                                                     { value: '3', label: '3 часа' },
                                                     { value: '1', label: '1 час' },
-                                                    { value: '', label: 'Без ограничений' },
+                                                    { value: NO_LIMIT_VALUE, label: 'Без ограничений' },
                                                 ];
-                                                const currentValue = bookingFlowForm.data.cancellation_deadline_hours;
+                                                const formValue = bookingFlowForm.data.cancellation_deadline_hours;
+                                                const currentValue = formValue === '' ? NO_LIMIT_VALUE : formValue;
                                                 const isCanonical = canonicalOptions.some((o) => o.value === currentValue);
                                                 const options = isCanonical
                                                     ? canonicalOptions
@@ -1000,14 +1002,14 @@ return;
                                                         </div>
                                                         <Select
                                                             value={currentValue}
-                                                            onValueChange={(val) => bookingFlowForm.setData('cancellation_deadline_hours', val)}
+                                                            onValueChange={(val) => bookingFlowForm.setData('cancellation_deadline_hours', val === NO_LIMIT_VALUE ? '' : val)}
                                                         >
                                                             <SelectTrigger className="h-[36px] w-[180px] shrink-0 rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px] focus:ring-2 focus:ring-[var(--color-orange)] focus:ring-offset-0">
                                                                 <SelectValue />
                                                             </SelectTrigger>
                                                             <SelectContent>
                                                                 {options.map((opt) => (
-                                                                    <SelectItem key={opt.value || '__none__'} value={opt.value}>
+                                                                    <SelectItem key={opt.value} value={opt.value}>
                                                                         {opt.label}
                                                                     </SelectItem>
                                                                 ))}
