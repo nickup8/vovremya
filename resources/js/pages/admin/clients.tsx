@@ -375,10 +375,10 @@ export default function ClientsPage() {
                                     setFilter(tab.key);
                                     router.get('/admin/clients', queryParams({ filter: tab.key }), { preserveState: true, preserveScroll: true });
                                 }}
-                                className={`flex-1 rounded-[9px] px-3 text-[13px] font-semibold transition-colors md:flex-none ${
+                                className={`flex-1 cursor-pointer rounded-[9px] px-3 text-[13px] font-semibold transition-colors md:flex-none ${
                                     filter === tab.key
                                         ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
-                                        : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                        : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]'
                                 }`}
                             >
                                 {tab.label}

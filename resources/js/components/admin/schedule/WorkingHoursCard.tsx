@@ -189,10 +189,10 @@ return h;
                             key={interval}
                             type="button"
                             onClick={() => setSlotInterval(interval)}
-                            className={`h-8 rounded-[9px] px-3 text-[12px] font-semibold transition-colors ${
+                            className={`h-8 cursor-pointer rounded-[9px] px-3 text-[12px] font-semibold transition-colors ${
                                 slotInterval === interval
                                     ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
-                                    : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                    : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]'
                             }`}
                         >
                             {interval} мин

@@ -66,10 +66,10 @@ export default function DateControlPanel({
                             <button
                                 key={mode}
                                 onClick={() => onSetView(mode)}
-                                className={`h-full flex-1 rounded-[9px] px-[13px] text-[13px] font-semibold transition-all ${
+                                className={`h-full flex-1 cursor-pointer rounded-[9px] px-[13px] text-[13px] font-semibold transition-all ${
                                     viewMode === mode
                                         ? 'bg-white text-[var(--color-ink)] shadow-[0_1px_2px_rgba(24,24,24,0.18)] dark:bg-[var(--color-cal-surface)]'
-                                        : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                        : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]'
                                 }`}
                             >
                                 {mode === 'day' ? 'День' : mode === 'week' ? 'Неделя' : 'Месяц'}
@@ -122,10 +122,10 @@ export default function DateControlPanel({
                             <button
                                 key={mode}
                                 onClick={() => onSetView(mode)}
-                                className={`h-full rounded-[9px] px-[13px] text-[13px] font-semibold transition-all ${
+                                className={`h-full cursor-pointer rounded-[9px] px-[13px] text-[13px] font-semibold transition-all ${
                                     viewMode === mode
                                         ? 'bg-white text-[var(--color-ink)] shadow-[0_1px_2px_rgba(24,24,24,0.18)] dark:bg-[var(--color-cal-surface)]'
-                                        : 'text-[var(--color-graphite)] hover:text-[var(--color-ink)]'
+                                        : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]'
                                 }`}
                             >
                                 {mode === 'day' ? 'День' : mode === 'week' ? 'Неделя' : 'Месяц'}
