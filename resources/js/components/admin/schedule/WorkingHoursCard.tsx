@@ -167,17 +167,17 @@ return h;
         <>
             {/* Working Hours Table */}
             <div className="py-4">
-                <div className="hidden min-[680px]:grid min-[680px]:grid-cols-[160px_1fr_1fr_auto] items-center gap-x-4 border-b border-[var(--color-line)] pb-2 text-[11px] font-semibold uppercase tracking-[.04em] text-[var(--color-graphite)]/80">
+                <div className="hidden min-[680px]:grid min-[680px]:grid-cols-[140px_1fr_1fr_100px] items-center gap-x-4 border-b border-[var(--color-line)] pb-2 text-[11px] font-semibold uppercase tracking-[.04em] text-[var(--color-graphite)]/80">
                     <span>День</span>
                     <span>Рабочее время</span>
-                    <span>Перерыв</span>
-                    <span className="w-[60px] text-right">Вых.</span>
+                    <span>Обед</span>
+                    <span className="text-right">Рабочий день</span>
                 </div>
                 <div>
                     {localHours.map((hour) => (
                         <div
                             key={hour.day_of_week}
-                            className={`flex min-h-[58px] flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-line)] px-0 py-2.5 transition-colors min-[680px]:grid min-[680px]:grid-cols-[160px_1fr_1fr_auto] ${
+                            className={`flex min-h-[64px] flex-wrap items-center gap-x-4 gap-y-2 border-b border-[var(--color-line)] px-0 py-3 transition-colors min-[680px]:grid min-[680px]:grid-cols-[140px_1fr_1fr_100px] ${
                                 hour.is_working ? '' : 'opacity-50'
                             }`}
                         >
@@ -223,11 +223,11 @@ return h;
                             ) : (
                                 <>
                                     <span className="text-[13px] text-[var(--color-graphite)]">Выходной</span>
-                                    <span />
+                                    <span className="text-[13px] text-[var(--color-graphite)]">—</span>
                                 </>
                             )}
 
-                            <div className="flex w-[60px] justify-end">
+                            <div className="flex justify-end">
                                 <Switch
                                     checked={hour.is_working}
                                     onCheckedChange={() => toggleDay(hour.day_of_week)}
