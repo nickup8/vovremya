@@ -110,7 +110,7 @@ export default function CalendarPage() {
     const dayDateKey = useMemo(() => dateToKey(dayDate), [dayDate]);
     const dayRangeStr = useMemo(() => {
         return dayDate.toLocaleDateString('ru-RU', {
-            day: 'numeric', month: 'long', year: 'numeric', weekday: 'long',
+            day: 'numeric', month: 'long', weekday: 'long',
         }).replace(/\s*г\.$/, '');
     }, [dayDate]);
 
@@ -312,7 +312,7 @@ return [];
                             <DateControlPanel
                                 viewMode={viewMode}
                                 dateLabel={viewMode === 'day' ? dayRangeStr : viewMode === 'week' ? dateRangeStr : monthRangeStr}
-                                yearLabel={viewMode === 'week' ? weekYearLabel : undefined}
+                                yearLabel={viewMode === 'week' ? weekYearLabel : viewMode === 'day' ? String(dayDate.getFullYear()) : undefined}
                                 onPrev={() => viewMode === 'day' ? setDayOffset((d) => d - 1) : viewMode === 'week' ? setWeekOffset((w) => w - 1) : setMonthOffset((m) => m - 1)}
                                 onNext={() => viewMode === 'day' ? setDayOffset((d) => d + 1) : viewMode === 'week' ? setWeekOffset((w) => w + 1) : setMonthOffset((m) => m + 1)}
                                 onToday={() => {
