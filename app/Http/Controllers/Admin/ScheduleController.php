@@ -29,7 +29,6 @@ class ScheduleController extends Controller
             'blockedTimes' => $targetMaster->blockedTimes()->get(),
             'profile' => [
                 'id' => $targetMaster->id,
-                'slot_interval' => $targetMaster->slot_interval,
                 'timezone' => $targetMaster->getTimezone(),
             ],
         ]);

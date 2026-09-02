@@ -56,15 +56,13 @@ class SchedulePageTest extends TestCase
             ->has('blockedTimes')
             ->has('profile')
             ->where('profile.id', $this->master->id)
-            ->where('profile.slot_interval', 30)
             ->where('profile.timezone', 'Europe/Moscow')
         );
     }
 
-    public function test_schedule_slot_interval_belongs_to_target_master(): void
+    public function test_schedule_uses_target_master_timezone(): void
     {
         $otherMaster = User::factory()->master()->create([
-            'slot_interval' => 60,
             'workspace_id' => $this->ws->id,
             'settings' => ['timezone' => 'Asia/Vladivostok', 'timezone_confirmed' => true],
         ]);
@@ -75,7 +73,6 @@ class SchedulePageTest extends TestCase
         $response->assertOk();
         $response->assertInertia(fn ($page) => $page
             ->where('profile.id', $otherMaster->id)
-            ->where('profile.slot_interval', 60)
             ->where('profile.timezone', 'Asia/Vladivostok')
         );
     }

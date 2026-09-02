@@ -1,0 +1,29 @@
+{
+  "permissions": {
+    "allow": [
+      "PowerShell(npm run *)",
+      "PowerShell(& npm.cmd run types:check 2>&1 | Select-Object -Last 40)",
+      "PowerShell(& .\\\\vendor\\\\bin\\\\phpunit.bat tests/Feature/Channels/TrackingLinkManagementTest.php 2>&1 | Select-Object -Last 15)",
+      "PowerShell(& .\\\\vendor\\\\bin\\\\phpunit.bat tests/Feature/Channels/AttributionBookingFlowTest.php 2>&1 | Select-Object -Last 20)",
+      "PowerShell(& npx.cmd eslint --fix resources/js/__tests__/channels-analytics.test.tsx 2>&1)",
+      "PowerShell(& .\\\\vendor\\\\bin\\\\pint.bat tests/Feature/Channels/AttributionBookingFlowTest.php tests/Feature/Channels/ChannelAnalyticsAccessTest.php tests/Feature/Channels/TrackingLinkManagementTest.php tests/Feature/Channels/CompletedAtLifecycleTest.php tests/Feature/Channels/SourceAnalyticsTest.php tests/Feature/Channels/AttributionServiceTest.php tests/Feature/Channels/MakesTariffMasters.php 2>&1)",
+      "PowerShell(& .\\\\vendor\\\\bin\\\\phpunit.bat tests/Feature/Channels 2>&1)",
+      "PowerShell(& npm.cmd run build 2>&1 | Select-Object -Last 25)",
+      "PowerShell(& npm.cmd run test 2>&1 | Select-Object -Last 30)",
+      "PowerShell(php artisan test --filter=Catalog 2>&1 | Select-Object -Last 40)",
+      "PowerShell(php artisan test --filter=ServiceCatalogControllerTest 2>&1 | Select-Object -Last 20)",
+      "PowerShell(php artisan test 2>&1 | Select-Object -Last 15)",
+      "PowerShell(git *)",
+      "PowerShell(& npm.cmd run build 2>&1 | Select-Object -Last 6)",
+      "PowerShell(php artisan test 2>&1 | Select-Object -Last 10)",
+      "PowerShell(& npm.cmd run test 2>&1 | Select-Object -Last 12)",
+      "PowerShell(& npm.cmd run test -- analytics-revenue-chart 2>&1 | Select-Object -Last 40)",
+      "PowerShell(& npm.cmd run test -- analytics-revenue-chart 2>&1 | Select-Object -Last 45)",
+      "PowerShell(Get-Item *)",
+      "PowerShell(& npm.cmd run test -- analytics-revenue-chart --reporter=basic > analytics-test.log 2>&1; Write-Output \"EXIT=$LASTEXITCODE\")",
+      "PowerShell(Get-Process *)",
+      "PowerShell(php artisan test --filter=AnalyticsChartDataTest 2>&1 | Select-Object -Last 40)",
+      "PowerShell(php artisan test 2>&1 | Select-Object -Last 12)"
+    ]
+  }
+}

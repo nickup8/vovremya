@@ -120,8 +120,6 @@ class SettingsController extends Controller
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
             'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([0, 1, 2, 3, 12])],
-            'cancellation_deadline_hours' => 'nullable|integer|min:1|max:168',
-            'autofill_enabled' => 'boolean',
         ];
 
         $sentFields = $request->only(array_keys($allRules));
@@ -153,6 +151,25 @@ class SettingsController extends Controller
         $user->update(['settings' => array_merge($currentSettings, $settingsData)]);
 
         return back()->with('success', 'Настройки успешно сохранены');
+    }
+
+    public function updateBooking(Request $request)
+    {
+        $user = auth()->user();
+
+        $validated = $request->validate([
+            'cancellation_deadline_hours' => 'nullable|integer|min:1|max:168',
+            'autofill_enabled' => 'boolean',
+            'slot_interval' => 'required|integer|in:15,30,60',
+        ]);
+
+        if (isset($validated['autofill_enabled']) && $validated['autofill_enabled'] && ! $user->hasFeature('slot_autofill')) {
+            unset($validated['autofill_enabled']);
+        }
+
+        $user->update($validated);
+
+        return back()->with('success', 'Настройки записи сохранены');
     }
 
     public function updateAvatar(Request $request)
@@ -212,7 +229,7 @@ class SettingsController extends Controller
             'working_hours.*.end_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'working_hours.*.break_start_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
             'working_hours.*.break_end_time' => ['nullable', 'string', 'regex:/^\d{2}:\d{2}(:\d{2})?$/'],
-            'slot_interval' => 'required|integer|in:15,30,60',
+            'slot_interval' => 'sometimes|integer|in:15,30,60',
             'master_id' => 'nullable|uuid|exists:users,id',
         ]);
 
@@ -312,7 +329,9 @@ class SettingsController extends Controller
             return back()->withErrors($errors)->withInput();
         }
 
-        $targetMaster->update(['slot_interval' => $validated['slot_interval']]);
+        if (isset($validated['slot_interval'])) {
+            $targetMaster->update(['slot_interval' => $validated['slot_interval']]);
+        }
 
         return back()->with('success', 'График работы обновлён');
     }

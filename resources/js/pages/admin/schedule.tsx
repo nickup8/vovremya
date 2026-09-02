@@ -6,7 +6,6 @@ import type { WorkingHour } from '@/components/admin/schedule/WorkingHoursCard';
 
 interface ScheduleProfile {
     id: string;
-    slot_interval: number;
     timezone: string;
 }
 
@@ -40,7 +39,6 @@ export default function SchedulePage() {
                         </div>
                         <WorkingHoursCard
                             workingHours={workingHours}
-                            slotInterval={profile.slot_interval ?? 30}
                             masterId={profile.id}
                         />
                     </div>

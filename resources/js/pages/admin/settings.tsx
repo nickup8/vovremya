@@ -353,6 +353,7 @@ return;
     const bookingFlowForm = useForm({
         cancellation_deadline_hours: profile.cancellation_deadline_hours?.toString() || '',
         autofill_enabled: profile.autofill_enabled,
+        slot_interval: profile.slot_interval ?? 30,
     });
 
     // ── Notifications autosave state ──
@@ -935,10 +936,41 @@ return;
                                     </div>
                                     <form
                                         onSubmit={(e) => {
- e.preventDefault(); bookingFlowForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); 
+ e.preventDefault(); bookingFlowForm.put('/admin/settings/booking', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); 
 }}
                                     >
                                         <div className="space-y-0">
+                                            {/* Slot Interval */}
+                                            <div className="flex min-h-[64px] items-center justify-between gap-4">
+                                                <div className="min-w-0 flex-1">
+                                                    <p className="text-[14px] font-semibold text-[var(--color-ink)]">
+                                                        Шаг онлайн-записи
+                                                    </p>
+                                                    <p className="text-[12px] text-[var(--color-graphite)]">
+                                                        Минимальный интервал между слотами
+                                                    </p>
+                                                </div>
+                                                <div className="inline-flex shrink-0 items-center gap-[3px] rounded-[12px] border border-[var(--color-line)] bg-[var(--color-warm)] p-[3px]">
+                                                    {[15, 30, 60].map((interval) => (
+                                                        <button
+                                                            key={interval}
+                                                            type="button"
+                                                            onClick={() => bookingFlowForm.setData('slot_interval', interval)}
+                                                            className={`h-8 cursor-pointer rounded-[9px] px-3 text-[12px] font-semibold transition-colors ${
+                                                                bookingFlowForm.data.slot_interval === interval
+                                                                    ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
+                                                                    : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]'
+                                                            }`}
+                                                        >
+                                                            {interval} мин
+                                                        </button>
+                                                    ))}
+                                                </div>
+                                            </div>
+
+                                            {/* Divider */}
+                                            <div className="border-t border-[var(--color-line)]" />
+
                                             {/* Cancellation */}
                                             <div className="flex min-h-[64px] items-center gap-3">
                                                 <div className="min-w-0 flex-1">

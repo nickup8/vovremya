@@ -22,11 +22,10 @@ class BookingFlowSettingsTest extends TestCase
     public function test_master_saves_cancellation_and_autofill(): void
     {
         $response = $this->actingAs($this->master)
-            ->put(route('admin.settings.update'), [
-                'name' => $this->master->name,
-                'phone' => $this->master->phone,
+            ->put(route('admin.settings.booking.update'), [
                 'cancellation_deadline_hours' => 24,
                 'autofill_enabled' => false,
+                'slot_interval' => 30,
             ]);
 
         $response->assertRedirect();
@@ -41,10 +40,9 @@ class BookingFlowSettingsTest extends TestCase
     public function test_invalid_cancellation_deadline_is_rejected(): void
     {
         $response = $this->actingAs($this->master)
-            ->put(route('admin.settings.update'), [
-                'name' => $this->master->name,
-                'phone' => $this->master->phone,
+            ->put(route('admin.settings.booking.update'), [
                 'cancellation_deadline_hours' => 999,
+                'slot_interval' => 30,
             ]);
 
         $response->assertSessionHasErrors('cancellation_deadline_hours');

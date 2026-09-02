@@ -24,7 +24,8 @@ class AvailabilityService
         int $month,
         int $serviceDuration,
     ): array {
-        $cacheKey = "availability_dates:{$master->id}:{$year}:{$month}:{$serviceDuration}";
+        $slotInterval = $master->slot_interval ?? 30;
+        $cacheKey = "availability_dates:{$master->id}:{$year}:{$month}:{$serviceDuration}:{$slotInterval}";
         $cacheTags = ["availability:{$master->id}"];
 
         try {

@@ -16,7 +16,6 @@ export interface WorkingHour {
 }
 
 const DAY_NAMES = ['Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота', 'Воскресенье'];
-const SLOT_INTERVALS = [15, 30, 60];
 
 const uiToCarbon = (uiIndex: number) => (uiIndex + 1) % 7;
 
@@ -47,17 +46,14 @@ function buildHours(workingHours: WorkingHour[]): WorkingHour[] {
 
 export default function WorkingHoursCard({
     workingHours,
-    slotInterval: initialSlotInterval,
     masterId,
 }: {
     workingHours: WorkingHour[];
-    slotInterval: number;
     masterId?: string;
 }) {
     const [localHours, setLocalHours] = useState<WorkingHour[]>(() =>
         buildHours(workingHours),
     );
-    const [slotInterval, setSlotInterval] = useState(initialSlotInterval);
     const initialHours = useMemo(
         () => buildHours(workingHours),
         [workingHours],
@@ -75,10 +71,8 @@ export default function WorkingHoursCard({
         );
 
     const isDirty = useMemo(
-        () =>
-            slotInterval !== initialSlotInterval ||
-            serialize(localHours) !== serialize(initialHours),
-        [localHours, slotInterval, initialHours, initialSlotInterval],
+        () => serialize(localHours) !== serialize(initialHours),
+        [localHours, initialHours],
     );
 
     function sanitizeTime(val: unknown): string | null {
@@ -97,7 +91,6 @@ return null;
 
     const { data, setData, put, transform, processing } = useForm({
         working_hours: buildHours(workingHours),
-        slot_interval: initialSlotInterval,
     });
 
     transform((currentData: typeof data) => ({
@@ -118,8 +111,7 @@ return null;
 
     useEffect(() => {
         setData('working_hours', localHours);
-        setData('slot_interval', slotInterval);
-    }, [localHours, slotInterval]);
+    }, [localHours]);
 
     function toggleDay(dayOfWeek: number) {
         setLocalHours((prev) =>
@@ -173,37 +165,6 @@ return h;
 
     return (
         <>
-            {/* Slot Interval */}
-            <div className="flex min-h-[64px] items-center justify-between gap-4">
-                <div>
-                    <p className="text-[14px] font-semibold text-[var(--color-ink)]">
-                        Шаг онлайн-записи
-                    </p>
-                    <p className="text-[12px] text-[var(--color-graphite)]">
-                        Минимальный интервал между слотами
-                    </p>
-                </div>
-                <div className="inline-flex shrink-0 items-center gap-[3px] rounded-[12px] border border-[var(--color-line)] bg-[var(--color-warm)] p-[3px]">
-                    {SLOT_INTERVALS.map((interval) => (
-                        <button
-                            key={interval}
-                            type="button"
-                            onClick={() => setSlotInterval(interval)}
-                            className={`h-8 cursor-pointer rounded-[9px] px-3 text-[12px] font-semibold transition-colors ${
-                                slotInterval === interval
-                                    ? 'bg-[var(--color-surface-elevated)] text-[var(--color-ink)] shadow-sm'
-                                    : 'text-[var(--color-graphite)] hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]'
-                            }`}
-                        >
-                            {interval} мин
-                        </button>
-                    ))}
-                </div>
-            </div>
-
-            {/* Divider */}
-            <div className="border-t border-[var(--color-line)]" />
-
             {/* Working Hours Table */}
             <div className="py-4">
                 <div className="hidden min-[680px]:grid min-[680px]:grid-cols-[160px_1fr_1fr_auto] items-center gap-x-4 border-b border-[var(--color-line)] pb-2 text-[11px] font-semibold uppercase tracking-[.04em] text-[var(--color-graphite)]/80">
@@ -287,7 +248,6 @@ return h;
                     disabled={!isDirty}
                     onClick={() => {
                         setLocalHours(buildHours(workingHours));
-                        setSlotInterval(initialSlotInterval);
                     }}
                 >
                     Отмена
