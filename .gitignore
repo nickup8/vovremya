@@ -38,3 +38,6 @@ AUDIT_REPORT_v3.md
 /.zed
 /.mimocode
 /deploy
+
+# Claude Code local permissions (per-developer)
+.claude/settings.local.json
