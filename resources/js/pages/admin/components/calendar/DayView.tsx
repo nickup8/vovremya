@@ -219,11 +219,7 @@ export function DayView({
                         <div
                             key={`h-${master.id}`}
                             className="relative flex items-center justify-center border-r border-[var(--color-line-soft)] last:border-r-0"
-                            style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                         >
-                            {todayMark && (
-                                <div className="pointer-events-none absolute inset-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
-                            )}
                             {/* Desktop: weekday + master name */}
                             <div className="hidden text-center lg:block">
                                 <div className="text-xs font-semibold text-[var(--color-graphite)]">
@@ -290,11 +286,7 @@ export function DayView({
                                 <div
                                     key={`col-${master.id}`}
                                     className="relative overflow-hidden border-r border-[var(--color-line-soft)] last:border-r-0"
-                                    style={todayMark ? { backgroundColor: 'var(--color-cal-today-bg)' } : undefined}
                                 >
-                                    {todayMark && (
-                                        <div className="pointer-events-none absolute inset-0 z-0 bg-gradient-to-r from-[var(--color-cal-today-wash)] to-transparent" />
-                                    )}
                                     {gridHours.map((hour) => {
                                         const slots: React.ReactNode[] = [];
 
