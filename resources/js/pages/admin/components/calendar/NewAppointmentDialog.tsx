@@ -55,16 +55,16 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
         <Drawer open={open} onOpenChange={onOpenChange}>
             <DrawerContent>
                 <form onSubmit={onSubmit} className="flex h-full flex-col">
-                    <DrawerHeader>
-                        <DrawerTitle className="text-slate-900 dark:text-zinc-100">
+                    <DrawerHeader className="border-b border-[var(--color-line)] dark:border-[var(--color-cal-border)]">
+                        <DrawerTitle className="text-[var(--color-ink)]">
                             Новая запись
                         </DrawerTitle>
-                        <DrawerDescription className="text-slate-500 dark:text-zinc-400">
+                        <DrawerDescription className="text-[var(--color-graphite)]">
                             Выберите клиента, услугу и время
                         </DrawerDescription>
                     </DrawerHeader>
 
-                    <DrawerBody>
+                    <DrawerBody className="px-[22px] py-[22px]">
                         <div className="space-y-4">
                             <div>
                                 <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
@@ -148,19 +148,19 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
 
                     <DrawerFooter className="flex flex-col gap-2 sm:flex-row">
                         <Button
+                            type="submit"
+                            disabled={form.processing || !form.data.client_id || !form.data.service_id || !form.data.date || !form.data.time}
+                            className="flex-1 rounded-xl bg-[var(--color-orange)] font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                        >
+                            {form.processing ? 'Создание...' : 'Создать запись'}
+                        </Button>
+                        <Button
                             type="button"
                             variant="outline"
                             onClick={() => onOpenChange(false)}
-                            className="flex-1 rounded-xl sm:flex-none"
+                            className="rounded-xl sm:flex-none"
                         >
                             Отмена
-                        </Button>
-                        <Button
-                            type="submit"
-                            disabled={form.processing || !form.data.client_id || !form.data.service_id || !form.data.date || !form.data.time}
-                            className="flex-1 rounded-xl bg-blue-600 text-white hover:bg-blue-700 sm:flex-none"
-                        >
-                            {form.processing ? 'Создание...' : 'Создать запись'}
                         </Button>
                     </DrawerFooter>
                 </form>
