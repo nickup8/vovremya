@@ -101,6 +101,7 @@ export function IrsiDatePicker({ value, onChange, min }: Props) {
             <PopoverContent
                 align="start"
                 sideOffset={4}
+                withPortal={false}
                 className="w-auto rounded-xl border-[var(--color-line)] bg-white p-3 shadow-sm dark:border-[var(--color-cal-border)] dark:bg-[var(--color-cal-surface)]"
             >
                 <div className="mb-2 flex items-center justify-between">
