@@ -261,36 +261,41 @@ return [];
 
     // ═══════════════ Dynamic Date Range Loading ═══════════════
     useEffect(() => {
-        let rangeStart: Date;
-        let rangeEnd: Date;
+        let visibleStartKey: string;
+        let visibleEndKey: string;
+        let fetchStart: Date;
+        let fetchEnd: Date;
 
         if (viewMode === 'day') {
-            rangeStart = new Date(dayDate);
-            rangeStart.setDate(rangeStart.getDate() - 21);
-            rangeEnd = new Date(dayDate);
-            rangeEnd.setDate(rangeEnd.getDate() + 21);
+            visibleStartKey = dateToKey(dayDate);
+            visibleEndKey = visibleStartKey;
+            fetchStart = new Date(dayDate);
+            fetchStart.setDate(fetchStart.getDate() - 21);
+            fetchEnd = new Date(dayDate);
+            fetchEnd.setDate(fetchEnd.getDate() + 21);
         } else if (viewMode === 'month') {
             const grid = getMonthGrid(monthCenterDate);
-            rangeStart = new Date(grid[0]);
-            rangeStart.setDate(rangeStart.getDate() - 7);
-            rangeEnd = new Date(grid[grid.length - 1]);
-            rangeEnd.setDate(rangeEnd.getDate() + 7);
+            visibleStartKey = dateToKey(grid[0]);
+            visibleEndKey = dateToKey(grid[grid.length - 1]);
+            fetchStart = new Date(grid[0]);
+            fetchStart.setDate(fetchStart.getDate() - 40);
+            fetchEnd = new Date(grid[grid.length - 1]);
+            fetchEnd.setDate(fetchEnd.getDate() + 40);
         } else {
-            rangeStart = new Date(centerDate);
-            rangeStart.setDate(rangeStart.getDate() - 10);
-            rangeEnd = new Date(centerDate);
-            rangeEnd.setDate(rangeEnd.getDate() + 17);
+            visibleStartKey = dateToKey(weekDates[0]);
+            visibleEndKey = dateToKey(weekDates[weekDates.length - 1]);
+            fetchStart = new Date(weekDates[0]);
+            fetchStart.setDate(fetchStart.getDate() - 21);
+            fetchEnd = new Date(weekDates[weekDates.length - 1]);
+            fetchEnd.setDate(fetchEnd.getDate() + 21);
         }
 
-        const startKey = dateToKey(rangeStart);
-        const endKey = dateToKey(rangeEnd);
-
-        if (loadedRange && loadedRange.start <= startKey && loadedRange.end >= endKey) {
+        if (loadedRange && loadedRange.start <= visibleStartKey && loadedRange.end >= visibleEndKey) {
             return;
         }
 
         router.reload({
-            data: { start: startKey, end: endKey },
+            data: { start: dateToKey(fetchStart), end: dateToKey(fetchEnd) },
             preserveState: true,
             preserveScroll: true,
         });
