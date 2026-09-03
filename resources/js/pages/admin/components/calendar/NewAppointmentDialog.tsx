@@ -8,6 +8,8 @@ import {
 import { dateToKey } from './helpers';
 import type { ClientOption, MasterOption, ServiceOption } from './types';
 import { ClientCombobox } from './ClientCombobox';
+import { IrsiDatePicker } from './IrsiDatePicker';
+import { IrsiTimeSelect } from './IrsiTimeSelect';
 
 interface FormData {
     client_id: string;
@@ -44,9 +46,10 @@ interface Props {
     onSubmit: (e: React.FormEvent) => void;
     slotInterval: number;
     onClientCreated: (client: ClientOption) => void;
+    timeOptions: string[];
 }
 
-export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated }: Props) {
+export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated, timeOptions }: Props) {
     const visibleServices = preselectedMasterId
         ? services.filter((s) => s.master_id === preselectedMasterId)
         : services;
@@ -116,12 +119,10 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                         Дата *
                                     </label>
-                                    <input
-                                        type="date"
+                                    <IrsiDatePicker
                                         value={form.data.date}
+                                        onChange={(v) => form.setData('date', v)}
                                         min={dateToKey(new Date())}
-                                        onChange={(e) => form.setData('date', e.target.value)}
-                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
                                     />
                                     {form.errors.date && (
                                         <p className="mt-1 text-xs text-red-500">{form.errors.date}</p>
@@ -131,12 +132,10 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
                                         Время *
                                     </label>
-                                    <input
-                                        type="time"
+                                    <IrsiTimeSelect
                                         value={form.data.time}
-                                        onChange={(e) => form.setData('time', e.target.value)}
-                                        step={slotInterval * 60}
-                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                        onChange={(v) => form.setData('time', v)}
+                                        options={timeOptions}
                                     />
                                     {form.errors.time && (
                                         <p className="mt-1 text-xs text-red-500">{form.errors.time}</p>

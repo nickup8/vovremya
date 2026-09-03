@@ -491,6 +491,7 @@ return [];
                 onSubmit={submitNewAppointment}
                 slotInterval={slotInterval}
                 onClientCreated={handleClientCreated}
+                timeOptions={timeOptions}
             />
 
             {/* ─── Reschedule Dialog ─── */}
