@@ -34,9 +34,10 @@ interface AdminLayoutProps {
     todayCount?: number | null;
     fullBleed?: boolean;
     hideNewAppointment?: boolean;
+    onNewAppointment?: () => void;
 }
 
-export default function AdminLayout({ children, title, auth, headerActions, todayCount, fullBleed, hideNewAppointment }: AdminLayoutProps) {
+export default function AdminLayout({ children, title, auth, headerActions, todayCount, fullBleed, hideNewAppointment, onNewAppointment }: AdminLayoutProps) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
         try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
@@ -211,14 +212,26 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
 
                         {/* New appointment — hidden when page provides its own primary CTA */}
                         {!hideNewAppointment && (
-                            <Link
-                                href="/admin/calendar"
-                                className="flex size-10 items-center justify-center rounded-[10px] bg-[var(--color-orange)] text-white shadow-sm transition-colors hover:bg-[var(--color-orange-600)] lg:h-10 lg:w-auto lg:gap-2 lg:px-3.5 lg:text-sm lg:font-semibold"
-                                aria-label="Новая запись"
-                            >
-                                <PlusIcon className="size-4" />
-                                <span className="hidden lg:inline">Новая запись</span>
-                            </Link>
+                            onNewAppointment ? (
+                                <button
+                                    type="button"
+                                    onClick={onNewAppointment}
+                                    className="flex size-10 items-center justify-center rounded-[10px] bg-[var(--color-orange)] text-white shadow-sm transition-colors hover:bg-[var(--color-orange-600)] lg:h-10 lg:w-auto lg:gap-2 lg:px-3.5 lg:text-sm lg:font-semibold"
+                                    aria-label="Новая запись"
+                                >
+                                    <PlusIcon className="size-4" />
+                                    <span className="hidden lg:inline">Новая запись</span>
+                                </button>
+                            ) : (
+                                <Link
+                                    href="/admin/calendar"
+                                    className="flex size-10 items-center justify-center rounded-[10px] bg-[var(--color-orange)] text-white shadow-sm transition-colors hover:bg-[var(--color-orange-600)] lg:h-10 lg:w-auto lg:gap-2 lg:px-3.5 lg:text-sm lg:font-semibold"
+                                    aria-label="Новая запись"
+                                >
+                                    <PlusIcon className="size-4" />
+                                    <span className="hidden lg:inline">Новая запись</span>
+                                </Link>
+                            )
                         )}
                     </div>
                 </header>

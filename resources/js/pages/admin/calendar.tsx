@@ -317,7 +317,7 @@ return [];
         <>
             <Head title="Календарь — Вовремя" />
 
-            <AdminLayout title="Календарь" auth={auth} todayCount={todayCount} fullBleed>
+            <AdminLayout title="Календарь" auth={auth} todayCount={todayCount} fullBleed onNewAppointment={openNewAppointment}>
                         <div className="flex h-full flex-col overflow-hidden">
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 

@@ -1,7 +1,7 @@
 import { Button } from '@/components/ui/button';
 import {
-    Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription, DialogFooter,
-} from '@/components/ui/dialog';
+    Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerBody, DrawerFooter,
+} from '@/components/ui/drawer';
 import {
     Select, SelectContent, SelectItem, SelectTrigger, SelectValue,
 } from '@/components/ui/select';
@@ -52,99 +52,101 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
         : services;
 
     return (
-        <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="w-[calc(100%-2rem)] max-w-md max-h-[90vh] overflow-y-auto rounded-2xl border-slate-200 bg-white dark:border-zinc-800 dark:bg-zinc-900">
-                <form onSubmit={onSubmit}>
-                    <DialogHeader>
-                        <DialogTitle className="text-slate-900 dark:text-zinc-100">
+        <Drawer open={open} onOpenChange={onOpenChange}>
+            <DrawerContent>
+                <form onSubmit={onSubmit} className="flex h-full flex-col">
+                    <DrawerHeader>
+                        <DrawerTitle className="text-slate-900 dark:text-zinc-100">
                             Новая запись
-                        </DialogTitle>
-                        <DialogDescription className="text-slate-500 dark:text-zinc-400">
+                        </DrawerTitle>
+                        <DrawerDescription className="text-slate-500 dark:text-zinc-400">
                             Выберите клиента, услугу и время
-                        </DialogDescription>
-                    </DialogHeader>
+                        </DrawerDescription>
+                    </DrawerHeader>
 
-                    <div className="space-y-4">
-                        <div>
-                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                Клиент *
-                            </label>
-                            <ClientCombobox
-                                clients={clients}
-                                value={form.data.client_id}
-                                onChange={(id) => form.setData('client_id', id)}
-                                onClientCreated={onClientCreated}
-                            />
-                            {form.errors.client_id && (
-                                <p className="mt-1 text-xs text-red-500">{form.errors.client_id}</p>
-                            )}
-                        </div>
+                    <DrawerBody>
+                        <div className="space-y-4">
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Клиент *
+                                </label>
+                                <ClientCombobox
+                                    clients={clients}
+                                    value={form.data.client_id}
+                                    onChange={(id) => form.setData('client_id', id)}
+                                    onClientCreated={onClientCreated}
+                                />
+                                {form.errors.client_id && (
+                                    <p className="mt-1 text-xs text-red-500">{form.errors.client_id}</p>
+                                )}
+                            </div>
 
-                        <div>
-                            <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                Услуга *
-                            </label>
-                            <Select
-                                value={form.data.service_id}
-                                onValueChange={(value) => form.setData('service_id', value)}
-                            >
-                                <SelectTrigger className="w-full">
-                                    <SelectValue placeholder="Выберите услугу" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    {visibleServices.length === 0 ? (
-                                        <SelectItem value="" disabled>
-                                            Нет доступных услуг
-                                        </SelectItem>
-                                    ) : (
-                                        visibleServices.map((s) => (
-                                            <SelectItem key={s.id} value={String(s.id)}>
-                                                {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
+                            <div>
+                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                    Услуга *
+                                </label>
+                                <Select
+                                    value={form.data.service_id}
+                                    onValueChange={(value) => form.setData('service_id', value)}
+                                >
+                                    <SelectTrigger className="w-full">
+                                        <SelectValue placeholder="Выберите услугу" />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        {visibleServices.length === 0 ? (
+                                            <SelectItem value="" disabled>
+                                                Нет доступных услуг
                                             </SelectItem>
-                                        ))
+                                        ) : (
+                                            visibleServices.map((s) => (
+                                                <SelectItem key={s.id} value={String(s.id)}>
+                                                    {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
+                                                </SelectItem>
+                                            ))
+                                        )}
+                                    </SelectContent>
+                                </Select>
+                                {form.errors.service_id && (
+                                    <p className="mt-1 text-xs text-red-500">{form.errors.service_id}</p>
+                                )}
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        Дата *
+                                    </label>
+                                    <input
+                                        type="date"
+                                        value={form.data.date}
+                                        min={dateToKey(new Date())}
+                                        onChange={(e) => form.setData('date', e.target.value)}
+                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    />
+                                    {form.errors.date && (
+                                        <p className="mt-1 text-xs text-red-500">{form.errors.date}</p>
                                     )}
-                                </SelectContent>
-                            </Select>
-                            {form.errors.service_id && (
-                                <p className="mt-1 text-xs text-red-500">{form.errors.service_id}</p>
-                            )}
-                        </div>
-
-                        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                            <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Дата *
-                                </label>
-                                <input
-                                    type="date"
-                                    value={form.data.date}
-                                    min={dateToKey(new Date())}
-                                    onChange={(e) => form.setData('date', e.target.value)}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                />
-                                {form.errors.date && (
-                                    <p className="mt-1 text-xs text-red-500">{form.errors.date}</p>
-                                )}
-                            </div>
-                            <div>
-                                <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
-                                    Время *
-                                </label>
-                                <input
-                                    type="time"
-                                    value={form.data.time}
-                                    onChange={(e) => form.setData('time', e.target.value)}
-                                    step={slotInterval * 60}
-                                    className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
-                                />
-                                {form.errors.time && (
-                                    <p className="mt-1 text-xs text-red-500">{form.errors.time}</p>
-                                )}
+                                </div>
+                                <div>
+                                    <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
+                                        Время *
+                                    </label>
+                                    <input
+                                        type="time"
+                                        value={form.data.time}
+                                        onChange={(e) => form.setData('time', e.target.value)}
+                                        step={slotInterval * 60}
+                                        className="w-full rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-300"
+                                    />
+                                    {form.errors.time && (
+                                        <p className="mt-1 text-xs text-red-500">{form.errors.time}</p>
+                                    )}
+                                </div>
                             </div>
                         </div>
-                    </div>
+                    </DrawerBody>
 
-                    <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+                    <DrawerFooter className="flex flex-col gap-2 sm:flex-row">
                         <Button
                             type="button"
                             variant="outline"
@@ -160,9 +162,9 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                         >
                             {form.processing ? 'Создание...' : 'Создать запись'}
                         </Button>
-                    </DialogFooter>
+                    </DrawerFooter>
                 </form>
-            </DialogContent>
-        </Dialog>
+            </DrawerContent>
+        </Drawer>
     );
 }
