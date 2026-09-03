@@ -123,6 +123,7 @@ class Appointment extends Model
 
         return [
             'id' => $this->id,
+            'master_id' => $this->master_id,
             'client_name' => $this->client?->name ?? 'Клиент не указан',
             'client_phone' => $this->client?->phone,
             'client_avatar_url' => $this->client?->avatar_url,
