@@ -13,7 +13,7 @@ import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
 import type { PageProps, Appointment, ClientOption } from './components/calendar/types';
 import {
-    getWeekDates, formatDateRange, getYearFromDate, dateToKey, timeToMinutes,
+    getWeekDates, formatDateRange, getYearFromDate, dateToKey, timeToMinutes, getMonthGrid,
 } from './components/calendar/helpers';
 import { WeekView } from './components/calendar/WeekView';
 import { DayView } from './components/calendar/DayView';
@@ -261,33 +261,41 @@ return [];
 
     // ═══════════════ Dynamic Date Range Loading ═══════════════
     useEffect(() => {
-        const visibleStart = new Date(centerDate);
-        visibleStart.setDate(visibleStart.getDate() - 3);
-        const visibleEnd = new Date(centerDate);
-        visibleEnd.setDate(visibleEnd.getDate() + 10);
+        let rangeStart: Date;
+        let rangeEnd: Date;
 
-        const bufferStart = new Date(visibleStart);
-        bufferStart.setDate(bufferStart.getDate() - 7);
-        const bufferEnd = new Date(visibleEnd);
-        bufferEnd.setDate(bufferEnd.getDate() + 7);
+        if (viewMode === 'day') {
+            rangeStart = new Date(dayDate);
+            rangeStart.setDate(rangeStart.getDate() - 21);
+            rangeEnd = new Date(dayDate);
+            rangeEnd.setDate(rangeEnd.getDate() + 21);
+        } else if (viewMode === 'month') {
+            const grid = getMonthGrid(monthCenterDate);
+            rangeStart = new Date(grid[0]);
+            rangeStart.setDate(rangeStart.getDate() - 7);
+            rangeEnd = new Date(grid[grid.length - 1]);
+            rangeEnd.setDate(rangeEnd.getDate() + 7);
+        } else {
+            rangeStart = new Date(centerDate);
+            rangeStart.setDate(rangeStart.getDate() - 10);
+            rangeEnd = new Date(centerDate);
+            rangeEnd.setDate(rangeEnd.getDate() + 17);
+        }
 
-        const bufferStartKey = dateToKey(bufferStart);
-        const bufferEndKey = dateToKey(bufferEnd);
+        const startKey = dateToKey(rangeStart);
+        const endKey = dateToKey(rangeEnd);
 
-        if (loadedRange && loadedRange.start <= bufferStartKey && loadedRange.end >= bufferEndKey) {
+        if (loadedRange && loadedRange.start <= startKey && loadedRange.end >= endKey) {
             return;
         }
 
         router.reload({
-            data: {
-                start: dateToKey(bufferStart),
-                end: dateToKey(bufferEnd),
-            },
+            data: { start: startKey, end: endKey },
             preserveState: true,
             preserveScroll: true,
         });
         // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [weekOffset, monthOffset]);
+    }, [viewMode, dayOffset, weekOffset, monthOffset]);
 
     function isToday(date: Date): boolean {
         return (
