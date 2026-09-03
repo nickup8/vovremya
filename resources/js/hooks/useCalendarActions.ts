@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect, useRef } from 'react';
 import { router, useForm } from '@inertiajs/react';
 import { toast } from 'sonner';
 import { AppointmentStatus } from '@/types/appointment-status';
@@ -63,6 +63,52 @@ export function useCalendarActions({
         ignore_warnings: false,
         confirm_outside_hours: false,
     });
+
+    // ═══════════════ Smart Time Slots (availability fetch) ═══════════════
+    const [smartTimeSlots, setSmartTimeSlots] = useState<{ freeSlots: string[]; outsideSlots: string[] }>({ freeSlots: [], outsideSlots: [] });
+    const [smartTimeSlotsLoading, setSmartTimeSlotsLoading] = useState(false);
+    const abortRef = useRef<AbortController | null>(null);
+
+    useEffect(() => {
+        const { date, service_id } = newAppointmentForm.data;
+
+        if (!date || !service_id) {
+            setSmartTimeSlots({ freeSlots: [], outsideSlots: [] });
+            abortRef.current?.abort();
+            return;
+        }
+
+        abortRef.current?.abort();
+        const controller = new AbortController();
+        abortRef.current = controller;
+        setSmartTimeSlotsLoading(true);
+
+        fetch(`/admin/calendar/available-slots?date=${date}&service_id=${service_id}`, {
+            credentials: 'same-origin',
+            headers: { 'X-Requested-With': 'XMLHttpRequest' },
+            signal: controller.signal,
+        })
+            .then((res) => res.json())
+            .then((data) => {
+                setSmartTimeSlots({
+                    freeSlots: data.freeSlots ?? [],
+                    outsideSlots: data.outsideSlots ?? [],
+                });
+            })
+            .catch(() => {
+                if (!controller.signal.aborted) {
+                    setSmartTimeSlots({ freeSlots: [], outsideSlots: [] });
+                }
+            })
+            .finally(() => {
+                if (!controller.signal.aborted) {
+                    setSmartTimeSlotsLoading(false);
+                }
+            });
+
+        return () => { controller.abort(); };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [newAppointmentForm.data.date, newAppointmentForm.data.service_id]);
 
     // ═══════════════ Computed ═══════════════
     const activeBookingClient = prefillClientId
@@ -595,6 +641,8 @@ return;
         outsideHoursMessage,
         newAppointmentForm,
         timeOptions,
+        smartTimeSlots,
+        smartTimeSlotsLoading,
 
         // Computed
         activeBookingClient,

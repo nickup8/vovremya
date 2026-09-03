@@ -151,6 +151,8 @@ export default function CalendarPage() {
         outsideHoursMessage,
         newAppointmentForm,
         timeOptions,
+        smartTimeSlots,
+        smartTimeSlotsLoading,
         activeBookingClient,
         bookingModeService,
         preselectedMasterId,
@@ -492,6 +494,8 @@ return [];
                 slotInterval={slotInterval}
                 onClientCreated={handleClientCreated}
                 timeOptions={timeOptions}
+                smartTimeSlots={smartTimeSlots}
+                smartTimeSlotsLoading={smartTimeSlotsLoading}
             />
 
             {/* ─── Reschedule Dialog ─── */}

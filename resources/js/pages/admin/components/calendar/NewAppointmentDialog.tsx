@@ -1,3 +1,4 @@
+import { useEffect, useRef } from 'react';
 import { Button } from '@/components/ui/button';
 import {
     Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerBody, DrawerFooter,
@@ -35,6 +36,11 @@ interface FormMethods {
     setData: (key: keyof FormData, value: string | boolean) => void;
 }
 
+interface SmartTimeSlots {
+    freeSlots: string[];
+    outsideSlots: string[];
+}
+
 interface Props {
     open: boolean;
     onOpenChange: (open: boolean) => void;
@@ -47,12 +53,39 @@ interface Props {
     slotInterval: number;
     onClientCreated: (client: ClientOption) => void;
     timeOptions: string[];
+    smartTimeSlots: SmartTimeSlots;
+    smartTimeSlotsLoading: boolean;
 }
 
-export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated, timeOptions }: Props) {
+export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated, timeOptions, smartTimeSlots, smartTimeSlotsLoading }: Props) {
     const visibleServices = preselectedMasterId
         ? services.filter((s) => s.master_id === preselectedMasterId)
         : services;
+
+    const hasService = !!form.data.service_id;
+    const prevDateRef = useRef(form.data.date);
+    const prevServiceRef = useRef(form.data.service_id);
+
+    useEffect(() => {
+        const dateChanged = prevDateRef.current !== form.data.date;
+        const serviceChanged = prevServiceRef.current !== form.data.service_id;
+        prevDateRef.current = form.data.date;
+        prevServiceRef.current = form.data.service_id;
+
+        if (!hasService || (!dateChanged && !serviceChanged)) return;
+
+        const allSlots = [...smartTimeSlots.freeSlots, ...smartTimeSlots.outsideSlots];
+        if (form.data.time && !allSlots.includes(form.data.time)) {
+            form.setData('time', '');
+        }
+    }, [form.data.date, form.data.service_id, smartTimeSlots, hasService, form]);
+
+    const timeGroups = hasService
+        ? [
+            { label: 'Свободное время', options: smartTimeSlots.freeSlots },
+            { label: 'Вне рабочего времени', options: smartTimeSlots.outsideSlots },
+        ]
+        : undefined;
 
     return (
         <Drawer open={open} onOpenChange={onOpenChange}>
@@ -135,7 +168,10 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     <IrsiTimeSelect
                                         value={form.data.time}
                                         onChange={(v) => form.setData('time', v)}
-                                        options={timeOptions}
+                                        options={hasService ? undefined : timeOptions}
+                                        groups={timeGroups}
+                                        disabled={hasService && smartTimeSlotsLoading}
+                                        placeholder={hasService && smartTimeSlotsLoading ? 'Загрузка...' : 'ЧЧ:ММ'}
                                     />
                                     {form.errors.time && (
                                         <p className="mt-1 text-xs text-red-500">{form.errors.time}</p>
