@@ -168,9 +168,9 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
             <button
                 type="button"
                 onClick={() => setOpen((prev) => !prev)}
-                className="flex w-full items-center justify-between rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-sm text-slate-900 dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
+                className="flex w-full items-center justify-between rounded-lg border border-[var(--color-line)] bg-white px-3 py-2 text-sm text-[var(--color-ink)] dark:border-[var(--color-cal-border)] dark:bg-[var(--color-cal-surface)]"
             >
-                <span className={cn(!selectedClient && 'text-slate-400 dark:text-zinc-500')}>
+                <span className={cn(!selectedClient && 'text-[var(--color-graphite)]')}>
                     {selectedClient
                         ? `${selectedClient.name}${selectedClient.phone ? ` (${selectedClient.phone})` : ''}`
                         : 'Выберите или создайте клиента'}
@@ -179,7 +179,7 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
             </button>
 
             {open && (
-                <div className="mt-1 rounded-xl border border-slate-200 bg-white p-1 shadow-md dark:border-zinc-800 dark:bg-zinc-900">
+                <div className="mt-1 rounded-xl border border-[var(--color-line)] bg-white p-1 shadow-sm dark:border-[var(--color-cal-border)] dark:bg-[var(--color-cal-surface)]">
                     {creating ? (
                         <div className="space-y-3 p-3">
                             <div className="flex items-center justify-between">
@@ -241,6 +241,7 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
                                 placeholder="Поиск по имени или телефону..."
                                 value={search}
                                 onValueChange={setSearch}
+                                className="border-[var(--color-line)]"
                             />
                             <CommandList>
                                 {filtered.length === 0 && (
@@ -255,6 +256,7 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
                                                 onChange(String(c.id));
                                                 closeAll();
                                             }}
+                                            className="rounded-lg focus:bg-[var(--color-surface-hover)] focus:text-[var(--color-ink)]"
                                         >
                                             <Check
                                                 className={cn(
@@ -275,11 +277,11 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
                                 </CommandGroup>
                             </CommandList>
 
-                            <div className="border-t border-slate-200 p-1 dark:border-zinc-800">
+                            <div className="border-t border-[var(--color-line)] p-1">
                                 <button
                                     type="button"
                                     onClick={openCreateForm}
-                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-blue-600 hover:bg-blue-50 dark:text-blue-400 dark:hover:bg-blue-950/40"
+                                    className="flex w-full items-center gap-2 rounded-lg px-2 py-2 text-sm font-medium text-[var(--color-orange)] hover:bg-[var(--color-orange-100)]"
                                 >
                                     <UserPlus className="size-4" />
                                     {search.trim()

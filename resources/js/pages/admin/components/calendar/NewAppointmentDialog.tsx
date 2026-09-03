@@ -92,14 +92,14 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     <SelectTrigger className="w-full">
                                         <SelectValue placeholder="Выберите услугу" />
                                     </SelectTrigger>
-                                    <SelectContent>
+                                    <SelectContent className="rounded-xl border-[var(--color-line)] bg-white shadow-sm dark:border-[var(--color-cal-border)] dark:bg-[var(--color-cal-surface)]">
                                         {visibleServices.length === 0 ? (
                                             <SelectItem value="" disabled>
                                                 Нет доступных услуг
                                             </SelectItem>
                                         ) : (
                                             visibleServices.map((s) => (
-                                                <SelectItem key={s.id} value={String(s.id)}>
+                                                <SelectItem key={s.id} value={String(s.id)} className="rounded-lg focus:bg-[var(--color-surface-hover)] focus:text-[var(--color-ink)]">
                                                     {s.title} — {s.duration_minutes} мин, {s.price.toLocaleString('ru-RU')} ₽
                                                 </SelectItem>
                                             ))
