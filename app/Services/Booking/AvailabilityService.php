@@ -450,6 +450,83 @@ class AvailabilityService
             ]));
     }
 
+    /**
+     * Возвращает outside-work слоты для дня (до начала и после окончания рабочего времени).
+     * Для выходного — весь день.
+     */
+    public function getOutsideSlots(
+        User $master,
+        Carbon $date,
+        int $serviceDuration,
+    ): array {
+        $tz = $master->getTimezone();
+        $localDate = $date->copy()->timezone($tz)->startOfDay();
+        $dayOfWeek = $localDate->dayOfWeek;
+
+        $workingHour = WorkingHour::where('user_id', $master->id)
+            ->where('day_of_week', $dayOfWeek)
+            ->first();
+
+        $slotInterval = $master->slot_interval ?? 30;
+
+        $bookedPeriods = $this->getBookedPeriods($master, $localDate);
+        $blockedPeriods = $this->getBlockedPeriods($master, $localDate);
+        $conflicts = $bookedPeriods->concat($blockedPeriods);
+
+        $dayStart = $localDate->copy(); // 00:00
+        $dayEnd = $localDate->copy()->endOfDay(); // 23:59:59
+
+        if ($workingHour && $workingHour->is_working) {
+            $workStart = $localDate->copy()->setTimeFromTimeString($workingHour->start_time);
+            $workEnd = $localDate->copy()->setTimeFromTimeString($workingHour->end_time);
+
+            $zones = [
+                ['start' => $dayStart, 'end' => $workStart],
+                ['start' => $workEnd, 'end' => $dayEnd],
+            ];
+        } else {
+            $zones = [
+                ['start' => $dayStart, 'end' => $dayEnd],
+            ];
+        }
+
+        $slots = [];
+        $now = Carbon::now($tz);
+
+        foreach ($zones as $zone) {
+            $slotStart = $zone['start']->copy();
+
+            while (true) {
+                $slotEnd = $slotStart->copy()->addMinutes($serviceDuration);
+
+                if ($slotEnd->gt($zone['end'])) {
+                    break;
+                }
+
+                if ($localDate->isToday() && $slotStart->lt($now)) {
+                    $slotStart->addMinutes($slotInterval);
+                    continue;
+                }
+
+                $fits = true;
+                foreach ($conflicts as $period) {
+                    if ($slotStart->lt($period['end']) && $slotEnd->gt($period['start'])) {
+                        $fits = false;
+                        break;
+                    }
+                }
+
+                if ($fits) {
+                    $slots[] = $slotStart->format('H:i');
+                }
+
+                $slotStart->addMinutes($slotInterval);
+            }
+        }
+
+        return $slots;
+    }
+
     private function generateSlots(
         Carbon $dayStart,
         Carbon $dayEnd,
