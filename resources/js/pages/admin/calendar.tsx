@@ -392,7 +392,7 @@ return [];
                                     dayStartHour={DAY_START_HOUR}
                                     slotInterval={slotInterval}
                                     workingHours={workingHours}
-                                    localAppointments={initialAppointments}
+                                    localAppointments={localAppointments}
                                     blockedTimes={initialBlockedTimes}
                                     onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time, masterId)}
                                     onAppointmentClick={openDetail}
@@ -402,7 +402,7 @@ return [];
                                 />
                             ) : viewMode === 'month' ? (
                                 <MonthView
-                                    appointments={initialAppointments}
+                                    appointments={localAppointments}
                                     centerDate={monthCenterDate}
                                     onDayColumnClick={openDayFromMonth}
                                 />
