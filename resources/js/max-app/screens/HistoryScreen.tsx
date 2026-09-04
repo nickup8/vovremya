@@ -1,4 +1,3 @@
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { getHistory, type Appointment } from '../lib/api';
 import { openLink } from '../lib/maxBridge';
 import { useAsync } from '../lib/useAsync';
@@ -73,7 +72,7 @@ export function HistoryScreen() {
     if (loading) {
         return (
             <div className="screen-center">
-                <Spinner size={24} />
+                <div className="loader" />
             </div>
         );
     }
@@ -81,10 +80,8 @@ export function HistoryScreen() {
     if (error) {
         return (
             <div className="screen-center">
-                <Typography.Body>{error}</Typography.Body>
-                <Button size="small" variant="secondary" onClick={reload} style={{ marginTop: 12 }}>
-                    Повторить
-                </Button>
+                <p className="error-text">{error}</p>
+                <button type="button" className="retry-btn" onClick={reload}>Повторить</button>
             </div>
         );
     }

@@ -1,4 +1,3 @@
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { getProfile, type Profile } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 
@@ -21,7 +20,7 @@ export function ProfileScreen() {
     if (loading) {
         return (
             <div className="screen-center">
-                <Spinner size={24} />
+                <div className="loader" />
             </div>
         );
     }
@@ -29,10 +28,8 @@ export function ProfileScreen() {
     if (error) {
         return (
             <div className="screen-center">
-                <Typography.Body>{error}</Typography.Body>
-                <Button size="small" variant="secondary" onClick={reload} style={{ marginTop: 12 }}>
-                    Повторить
-                </Button>
+                <p className="error-text">{error}</p>
+                <button type="button" className="retry-btn" onClick={reload}>Повторить</button>
             </div>
         );
     }

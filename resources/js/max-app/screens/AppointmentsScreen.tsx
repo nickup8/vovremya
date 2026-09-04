@@ -1,4 +1,3 @@
-import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { cancelAppointment, cancelEarlierRequest, getAppointments, saveEarlierRequest, type Appointment } from '../lib/api';
 import { backButton, haptic } from '../lib/maxBridge';
@@ -243,7 +242,7 @@ export function AppointmentsScreen() {
     if (loading) {
         return (
             <div className="screen-center">
-                <Spinner size={24} />
+                <div className="loader" />
             </div>
         );
     }
@@ -251,10 +250,8 @@ export function AppointmentsScreen() {
     if (error) {
         return (
             <div className="screen-center">
-                <Typography.Body>{error}</Typography.Body>
-                <Button size="small" variant="secondary" onClick={reload} style={{ marginTop: 12 }}>
-                    Повторить
-                </Button>
+                <p className="error-text">{error}</p>
+                <button type="button" className="retry-btn" onClick={reload}>Повторить</button>
             </div>
         );
     }
