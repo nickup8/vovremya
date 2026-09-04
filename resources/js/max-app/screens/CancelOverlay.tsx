@@ -1,93 +1,34 @@
-import { Button, Typography } from '@maxhub/max-ui';
 import { openLink } from '../lib/maxBridge';
-
-interface CancelOverlayProps {
-    service: string;
-    onConfirm: () => void;
-    onCancel: () => void;
-    loading: boolean;
-    error: string | null;
-}
-
-/** Кастомная модалка подтверждения отмены записи (в MAX UI нет Modal) */
-export function CancelOverlay({ service, onConfirm, onCancel, loading, error }: CancelOverlayProps) {
-    return (
-        <div className="overlay-backdrop" onClick={loading ? undefined : onCancel}>
-            <div className="overlay-card" onClick={(e) => e.stopPropagation()}>
-                <Typography.Title>Отменить запись?</Typography.Title>
-                <Typography.Body className="overlay-service">{service}</Typography.Body>
-
-                {error && (
-                    <Typography.Body className="overlay-error">{error}</Typography.Body>
-                )}
-
-                <div className="overlay-actions">
-                    <Button
-                        size="medium"
-                        variant="destructive"
-                        stretched
-                        onClick={onConfirm}
-                        loading={loading}
-                        disabled={loading}
-                    >
-                        Отменить запись
-                    </Button>
-                    <Button
-                        size="medium"
-                        variant="secondary"
-                        stretched
-                        onClick={onCancel}
-                        disabled={loading}
-                    >
-                        Назад
-                    </Button>
-                </div>
-            </div>
-        </div>
-    );
-}
 
 interface CancelSuccessProps {
     masterSlug?: string | null;
     onClose: () => void;
 }
 
-/** Экран успешной отмены */
 export function CancelSuccess({ masterSlug, onClose }: CancelSuccessProps) {
     const handleBookAgain = () => {
         if (masterSlug) {
-            // Открываем виджет записи во внешнем браузере
             openLink(`${window.location.origin}/book/${masterSlug}`);
         }
     };
 
     return (
         <div className="screen-center">
-            <Typography.Title>Запись отменена</Typography.Title>
-            <Typography.Body className="overlay-success-text">
-                Вы больше не записаны на этот приём
-            </Typography.Body>
+            <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="var(--green)" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" style={{ marginBottom: 10 }}>
+                <circle cx="12" cy="12" r="9" />
+                <path d="m9 12 2 2 4-4" />
+            </svg>
+            <div className="success-title">Запись отменена</div>
+            <div className="success-sub">Вы больше не записаны на этот приём</div>
 
             {masterSlug && (
-                <Button
-                    size="medium"
-                    variant="primary"
-                    stretched
-                    onClick={handleBookAgain}
-                    style={{ marginTop: 16 }}
-                >
+                <button type="button" className="success-btn-primary" onClick={handleBookAgain}>
                     Записаться снова
-                </Button>
+                </button>
             )}
-            <Button
-                size="medium"
-                variant="secondary"
-                stretched
-                onClick={onClose}
-                style={{ marginTop: 8 }}
-            >
+            <button type="button" className="success-btn-secondary" onClick={onClose}>
                 К записям
-            </Button>
+            </button>
         </div>
     );
 }
