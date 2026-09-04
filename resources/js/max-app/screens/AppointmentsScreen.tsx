@@ -56,10 +56,10 @@ function statusLabel(status: string): string {
 function statusVariant(status: string): 'green' | 'blue' | 'red' | 'neutral' {
     switch (status) {
         case 'booked':
-            return 'green';
+            return 'blue';
         case 'paid':
         case 'prepaid':
-            return 'blue';
+            return 'green';
         case 'no_show':
             return 'red';
         default:
