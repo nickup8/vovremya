@@ -1,4 +1,4 @@
-import { Button, CellHeader, CellList, CellSimple, Spinner, Typography } from '@maxhub/max-ui';
+import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { useCallback, useEffect, useState } from 'react';
 import { cancelAppointment, cancelEarlierRequest, getAppointments, saveEarlierRequest, type Appointment } from '../lib/api';
 import { backButton, haptic } from '../lib/maxBridge';
@@ -6,11 +6,36 @@ import { useAsync } from '../lib/useAsync';
 import { CancelOverlay, CancelSuccess } from './CancelOverlay';
 import { EarlierRequestOverlay } from './EarlierRequestOverlay';
 
+const RUSSIAN_MONTHS = [
+    'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',
+    'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
+];
+
 function formatPrice(price: number): string {
     return `${price.toLocaleString('ru-RU')} ₽`;
 }
 
-/** Статус записи — короткая метка */
+function pluralizeRecord(n: number): string {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+    if (mod100 >= 11 && mod100 <= 14) return `${n} записей`;
+    if (mod10 === 1) return `${n} запись`;
+    if (mod10 >= 2 && mod10 <= 4) return `${n} записи`;
+    return `${n} записей`;
+}
+
+function formatDate(raw: string): string {
+    const d = new Date(raw.replace(' ', 'T'));
+    if (isNaN(d.getTime())) return raw;
+    return `${d.getDate()} ${RUSSIAN_MONTHS[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+function formatTime(raw: string): string {
+    const d = new Date(raw.replace(' ', 'T'));
+    if (isNaN(d.getTime())) return raw;
+    return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 function statusLabel(status: string): string {
     switch (status) {
         case 'booked':
@@ -19,8 +44,26 @@ function statusLabel(status: string): string {
             return 'Ожидает оплаты';
         case 'prepaid':
             return 'Предоплата';
+        case 'paid':
+            return 'Оплачено';
+        case 'no_show':
+            return 'Неявка';
         default:
             return status;
+    }
+}
+
+function statusVariant(status: string): 'green' | 'blue' | 'red' | 'neutral' {
+    switch (status) {
+        case 'booked':
+            return 'green';
+        case 'paid':
+        case 'prepaid':
+            return 'blue';
+        case 'no_show':
+            return 'red';
+        default:
+            return 'neutral';
     }
 }
 
@@ -30,7 +73,6 @@ type EarlierPhase = 'idle' | 'form' | 'loading' | 'error';
 export function AppointmentsScreen() {
     const { data, loading, error, reload } = useAsync<Appointment[]>(getAppointments);
 
-    // Состояние отмены
     const [cancelPhase, setCancelPhase] = useState<CancelPhase>('idle');
     const [targetAppointment, setTargetAppointment] = useState<Appointment | null>(null);
     const [cancelError, setCancelError] = useState<string | null>(null);
@@ -52,7 +94,6 @@ export function AppointmentsScreen() {
             const result = await cancelAppointment(targetAppointment.id);
 
             if ('error' in result) {
-                // 422 от API: deadline_passed / not_cancellable
                 const msg = result.error === 'deadline_passed'
                     ? `Срок отмены истёк (за ${result.deadline_hours} ч.)`
                     : result.error === 'not_cancellable'
@@ -86,7 +127,6 @@ export function AppointmentsScreen() {
         reload();
     }, [reload]);
 
-    // ── Earlier request state ─────────────────────────────
     const [earlierPhase, setEarlierPhase] = useState<EarlierPhase>('idle');
     const [earlierTarget, setEarlierTarget] = useState<Appointment | null>(null);
     const [earlierError, setEarlierError] = useState<string | null>(null);
@@ -141,7 +181,6 @@ export function AppointmentsScreen() {
         }
     }, [reload]);
 
-    // BackButton: показываем при открытом оверлее (confirm/error), скрываем при loading/idle/done
     useEffect(() => {
         const cancelDismissable = cancelPhase === 'confirm' || cancelPhase === 'error';
         const earlierDismissable = earlierPhase === 'form' || earlierPhase === 'error';
@@ -167,7 +206,6 @@ export function AppointmentsScreen() {
         backButton.hide();
     }, [cancelPhase, handleCancelDismiss, earlierPhase, handleEarlierDismiss]);
 
-    // Экран «Запись отменена»
     if (cancelPhase === 'done') {
         return <CancelSuccess masterSlug={targetAppointment?.master?.master_slug} onClose={handleBackToList} />;
     }
@@ -201,82 +239,113 @@ export function AppointmentsScreen() {
 
     return (
         <div className="screen-content">
-            <CellList mode="island" header={<CellHeader>Предстоящие</CellHeader>}>
-                {data.map((a) => (
-                    <div key={a.id} className="appointment-card">
-                        <CellSimple
-                            title={a.service}
-                            subtitle={a.start_at_human}
-                            overline={a.master?.name ?? undefined}
-                            after={
-                                <Typography.Body>
-                                    {formatPrice(a.price)} · {statusLabel(a.status)}
-                                </Typography.Body>
-                            }
-                            showChevron={false}
-                        />
+            <p className="screen-subtitle">Предстоящие визиты</p>
 
-                        {/* Active earlier request */}
-                        {a.earlier_request && (
-                            <div className="earlier-status-block">
-                                <Typography.Body className="earlier-status-label">
-                                    {a.autofill_available ? 'Ищем время раньше' : 'Поиск приостановлен'}
-                                </Typography.Body>
-                                <Typography.Body className="earlier-status-detail">
-                                    {a.earlier_request.date_from === a.earlier_request.date_to
-                                        ? a.earlier_request.date_from
-                                        : `${a.earlier_request.date_from} — ${a.earlier_request.date_to}`}
-                                    {a.earlier_request.time_from === '00:00' && a.earlier_request.time_to === '23:59'
-                                        ? ' · в любое время'
-                                        : ` · ${a.earlier_request.time_from}–${a.earlier_request.time_to}`}
-                                </Typography.Body>
-                                <div className="earlier-status-actions">
-                                    {a.autofill_available && (
-                                        <Button
-                                            size="xsmall"
-                                            variant="secondary"
-                                            onClick={() => handleEarlierClick(a)}
-                                        >
-                                            Изменить
-                                        </Button>
-                                    )}
-                                    <Button
-                                        size="xsmall"
-                                        variant="secondary"
-                                        onClick={() => handleEarlierCancel(a.id)}
-                                    >
-                                        Больше не искать
-                                    </Button>
-                                </div>
+            <div className="section-header">
+                <span className="section-header-label">Предстоящие</span>
+                <span className="section-header-count">{pluralizeRecord(data.length)}</span>
+            </div>
+
+            {data.map((a) => (
+                <article key={a.id} className="appt-card">
+                    <div className="appt-card-top">
+                        <div>
+                            <div className="appt-card-service">{a.service}</div>
+                            {a.master?.name && <div className="appt-card-master">{a.master.name}</div>}
+                        </div>
+                        <span className={`status-badge status-badge--${statusVariant(a.status)}`}>
+                            {statusLabel(a.status)}
+                        </span>
+                    </div>
+
+                    <div className="appt-card-info">
+                        <div className="appt-info-row">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <path d="M8 2v4M16 2v4M3 10h18" />
+                                <rect x="3" y="4" width="18" height="18" rx="2" />
+                            </svg>
+                            <span>{formatDate(a.start_at)}</span>
+                        </div>
+                        <div className="appt-info-row">
+                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                <circle cx="12" cy="12" r="9" />
+                                <path d="M12 7v5l3 2" />
+                            </svg>
+                            <span>{formatTime(a.start_at)}</span>
+                        </div>
+                        {a.master?.address && (
+                            <div className="appt-info-row">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M20 10c0 5-8 11-8 11S4 15 4 10a8 8 0 1 1 16 0Z" />
+                                    <circle cx="12" cy="10" r="2.5" />
+                                </svg>
+                                <span>{a.master.address}</span>
                             </div>
                         )}
-
-                        {/* Action buttons */}
-                        <div className="appointment-card-actions">
-                            {a.autofill_available && !a.earlier_request && (
-                                <Button
-                                    size="xsmall"
-                                    variant="secondary"
-                                    onClick={() => handleEarlierClick(a)}
-                                >
-                                    Хочу раньше
-                                </Button>
-                            )}
-                            {a.can_cancel && (
-                                <Button
-                                    size="xsmall"
-                                    variant="destructive"
-                                    onClick={() => handleCancelClick(a)}
-                                >
-                                    Отменить
-                                </Button>
-                            )}
-                        </div>
                     </div>
-                ))}
-            </CellList>
 
-            {/* Оверлей подтверждения отмены */}
+                    <div className="appt-card-footer">
+                        <span className="appt-card-price">{formatPrice(a.price)}</span>
+                        <button type="button" className="appt-detail-link">Подробнее</button>
+                    </div>
+
+                    {a.earlier_request && (
+                        <div className="earlier-status-block">
+                            <div className="earlier-status-label">
+                                {a.autofill_available ? 'Ищем время раньше' : 'Поиск приостановлен'}
+                            </div>
+                            <div className="earlier-status-detail">
+                                {a.earlier_request.date_from === a.earlier_request.date_to
+                                    ? a.earlier_request.date_from
+                                    : `${a.earlier_request.date_from} — ${a.earlier_request.date_to}`}
+                                {a.earlier_request.time_from === '00:00' && a.earlier_request.time_to === '23:59'
+                                    ? ' · в любое время'
+                                    : ` · ${a.earlier_request.time_from}–${a.earlier_request.time_to}`}
+                            </div>
+                            <div className="earlier-status-actions">
+                                {a.autofill_available && (
+                                    <button
+                                        type="button"
+                                        className="btn-sm btn-secondary"
+                                        onClick={() => handleEarlierClick(a)}
+                                    >
+                                        Изменить
+                                    </button>
+                                )}
+                                <button
+                                    type="button"
+                                    className="btn-sm btn-secondary"
+                                    onClick={() => handleEarlierCancel(a.id)}
+                                >
+                                    Больше не искать
+                                </button>
+                            </div>
+                        </div>
+                    )}
+
+                    <div className="appt-card-actions">
+                        {a.autofill_available && !a.earlier_request && (
+                            <button
+                                type="button"
+                                className="appt-booking-btn"
+                                onClick={() => handleEarlierClick(a)}
+                            >
+                                Хочу раньше
+                            </button>
+                        )}
+                        {a.can_cancel && (
+                            <button
+                                type="button"
+                                className="btn-sm btn-destructive"
+                                onClick={() => handleCancelClick(a)}
+                            >
+                                Отменить
+                            </button>
+                        )}
+                    </div>
+                </article>
+            ))}
+
             {cancelPhase === 'confirm' && targetAppointment && (
                 <CancelOverlay
                     service={targetAppointment.service}
@@ -305,7 +374,6 @@ export function AppointmentsScreen() {
                 />
             )}
 
-            {/* Earlier request overlay */}
             {(earlierPhase === 'form' || earlierPhase === 'loading' || earlierPhase === 'error') && earlierTarget && (
                 <EarlierRequestOverlay
                     appointmentDate={earlierTarget.start_at.split(' ')[0]}
