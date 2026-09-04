@@ -1,4 +1,4 @@
-import { Button, CellHeader, CellList, CellSimple, Spinner, Typography } from '@maxhub/max-ui';
+import { Button, Spinner, Typography } from '@maxhub/max-ui';
 import { getProfile, type Profile } from '../lib/api';
 import { useAsync } from '../lib/useAsync';
 
@@ -26,10 +26,19 @@ export function ProfileScreen() {
 
     return (
         <div className="screen-content">
-            <CellList mode="island" header={<CellHeader>Профиль</CellHeader>}>
-                <CellSimple title="Имя" subtitle={data?.name ?? '—'} showChevron={false} />
-                <CellSimple title="Телефон" subtitle={data?.phone ?? '—'} showChevron={false} />
-            </CellList>
+            <p className="screen-subtitle">Данные доступны только для просмотра</p>
+
+            <article className="profile-card">
+                <div className="profile-row">
+                    <div className="profile-label">Имя</div>
+                    <div className="profile-value">{data?.name ?? '—'}</div>
+                </div>
+                <div className="profile-row">
+                    <div className="profile-label">Телефон</div>
+                    <div className="profile-value">{data?.phone ?? '—'}</div>
+                    {data?.phone && <div className="profile-hint">Получен из мессенджера</div>}
+                </div>
+            </article>
         </div>
     );
 }

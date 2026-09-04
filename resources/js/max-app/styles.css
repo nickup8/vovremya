@@ -648,6 +648,49 @@ body {
     color: var(--ink);
 }
 
+/* ─── Profile Card ─── */
+.profile-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+}
+
+.profile-row {
+    min-height: 68px;
+    padding: 13px 14px;
+    display: grid;
+    align-content: center;
+    gap: 4px;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.profile-row:last-child {
+    border-bottom: 0;
+}
+
+.profile-label {
+    font-size: 11px;
+    line-height: 16px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+    color: var(--muted);
+}
+
+.profile-value {
+    font-size: 17px;
+    line-height: 22px;
+    font-weight: 680;
+    color: var(--ink);
+}
+
+.profile-hint {
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--muted);
+}
+
 /* ─── Details Bottom Sheet ─── */
 .sheet-backdrop {
     position: fixed;
