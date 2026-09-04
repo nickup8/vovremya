@@ -232,7 +232,12 @@ export function AppointmentsScreen() {
     if (!data || data.length === 0) {
         return (
             <div className="screen-center">
-                <Typography.Body>У вас пока нет записей</Typography.Body>
+                <svg className="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M8 2v4M16 2v4M3 10h18" />
+                    <rect x="3" y="4" width="18" height="18" rx="2" />
+                </svg>
+                <div className="empty-state-title">Пока нет записей</div>
+                <div className="empty-state-sub">Здесь появятся ваши предстоящие визиты</div>
             </div>
         );
     }
