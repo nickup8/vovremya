@@ -118,6 +118,7 @@ body {
     flex-direction: column;
     min-height: 100vh;
     min-height: 100dvh;
+    background: var(--bg);
 }
 
 /* ─── Header ─── */
@@ -143,6 +144,7 @@ body {
     flex: 1;
     overflow-y: auto;
     padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    background: var(--bg);
 }
 
 /* ─── Bottom Tab Bar ─── */
