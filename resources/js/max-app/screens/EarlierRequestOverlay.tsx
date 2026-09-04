@@ -1,4 +1,3 @@
-import { Button, Typography } from '@maxhub/max-ui';
 import { useCallback, useState } from 'react';
 import type { EarlierRequest } from '../lib/api';
 
@@ -78,101 +77,111 @@ export function EarlierRequestOverlay({
     const displayError = validationError ?? error;
 
     return (
-        <div className="overlay-backdrop" onClick={loading ? undefined : onCancel}>
-            <div className="overlay-card overlay-card--wide" onClick={(e) => e.stopPropagation()}>
-                <Typography.Title>Хочу раньше</Typography.Title>
-                <Typography.Body className="overlay-service">Когда вам удобно?</Typography.Body>
-
-                {displayError && (
-                    <Typography.Body className="overlay-error">{displayError}</Typography.Body>
-                )}
-
-                <div className="earlier-form">
-                    <div className="earlier-row">
-                        <label className="earlier-label">
-                            С
-                            <input
-                                type="date"
-                                className="earlier-input"
-                                value={dateFrom}
-                                min={today}
-                                max={appointmentDate}
-                                onChange={(e) => setDateFrom(e.target.value)}
-                                disabled={loading}
-                            />
-                        </label>
-                        <label className="earlier-label">
-                            До
-                            <input
-                                type="date"
-                                className="earlier-input"
-                                value={dateTo}
-                                min={today}
-                                max={appointmentDate}
-                                onChange={(e) => setDateTo(e.target.value)}
-                                disabled={loading}
-                            />
-                        </label>
+        <>
+            <div className="sheet-backdrop" onClick={loading ? undefined : onCancel} />
+            <section className="sheet" role="dialog" aria-label="Хочу раньше">
+                <div className="sheet-handle" />
+                <div className="sheet-head">
+                    <div>
+                        <div className="sheet-title">Хочу раньше</div>
+                        <div className="sheet-sub">Когда вам удобно?</div>
                     </div>
+                    <button type="button" className="sheet-close" onClick={onCancel} disabled={loading} aria-label="Закрыть">
+                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                            <path d="M18 6 6 18M6 6l12 12" />
+                        </svg>
+                    </button>
+                </div>
 
-                    <label className="earlier-anytime">
-                        <input
-                            type="checkbox"
-                            checked={anyTime}
-                            onChange={(e) => setAnyTime(e.target.checked)}
-                            disabled={loading}
-                        />
-                        <span>В любое время</span>
-                    </label>
+                <div className="sheet-content">
+                    {displayError && (
+                        <div className="earlier-error">{displayError}</div>
+                    )}
 
-                    {!anyTime && (
+                    <div className="earlier-form">
                         <div className="earlier-row">
                             <label className="earlier-label">
                                 С
                                 <input
-                                    type="time"
+                                    type="date"
                                     className="earlier-input"
-                                    value={timeFrom}
-                                    onChange={(e) => setTimeFrom(e.target.value)}
+                                    value={dateFrom}
+                                    min={today}
+                                    max={appointmentDate}
+                                    onChange={(e) => setDateFrom(e.target.value)}
                                     disabled={loading}
                                 />
                             </label>
                             <label className="earlier-label">
                                 До
                                 <input
-                                    type="time"
+                                    type="date"
                                     className="earlier-input"
-                                    value={timeTo}
-                                    onChange={(e) => setTimeTo(e.target.value)}
+                                    value={dateTo}
+                                    min={today}
+                                    max={appointmentDate}
+                                    onChange={(e) => setDateTo(e.target.value)}
                                     disabled={loading}
                                 />
                             </label>
                         </div>
-                    )}
-                </div>
 
-                <div className="overlay-actions">
-                    <Button
-                        size="medium"
-                        variant="primary"
-                        stretched
-                        onClick={handleSubmit}
-                        loading={loading}
-                        disabled={loading}
-                    >
-                        {existingRequest ? 'Сохранить' : 'Сообщить, если появится'}
-                    </Button>
-                    <Button
-                        size="medium"
-                        variant="secondary"
-                        stretched
-                        onClick={onCancel}
-                        disabled={loading}
-                    >
-                        Назад
-                    </Button>
+                        <label className="earlier-anytime">
+                            <input
+                                type="checkbox"
+                                checked={anyTime}
+                                onChange={(e) => setAnyTime(e.target.checked)}
+                                disabled={loading}
+                            />
+                            <span>В любое время</span>
+                        </label>
+
+                        {!anyTime && (
+                            <div className="earlier-row">
+                                <label className="earlier-label">
+                                    С
+                                    <input
+                                        type="time"
+                                        className="earlier-input"
+                                        value={timeFrom}
+                                        onChange={(e) => setTimeFrom(e.target.value)}
+                                        disabled={loading}
+                                    />
+                                </label>
+                                <label className="earlier-label">
+                                    До
+                                    <input
+                                        type="time"
+                                        className="earlier-input"
+                                        value={timeTo}
+                                        onChange={(e) => setTimeTo(e.target.value)}
+                                        disabled={loading}
+                                    />
+                                </label>
+                            </div>
+                        )}
+                    </div>
+
+                    <div className="sheet-actions">
+                        <button
+                            type="button"
+                            className="sheet-btn-primary"
+                            onClick={handleSubmit}
+                            disabled={loading}
+                        >
+                            {loading ? 'Сохранение…' : existingRequest ? 'Сохранить' : 'Сообщить, если появится'}
+                        </button>
+                        <button
+                            type="button"
+                            className="sheet-btn-secondary"
+                            onClick={onCancel}
+                            disabled={loading}
+                        >
+                            Назад
+                        </button>
+                    </div>
                 </div>
-            </div>
-        </div>
+            </section>
+        </>
     );
 }

@@ -899,13 +899,11 @@ body {
     opacity: 0.6;
 }
 
-/* ─── Earlier Request Form ─── */
+/* ─── Earlier Request Form (inside sheet) ─── */
 .earlier-form {
-    margin-top: 16px;
     display: flex;
     flex-direction: column;
     gap: 12px;
-    text-align: left;
 }
 
 .earlier-row {
@@ -932,10 +930,79 @@ body {
     color: var(--ink);
 }
 
+.earlier-input:focus {
+    outline: none;
+    border-color: var(--orange);
+}
+
 .earlier-anytime {
     display: flex;
     align-items: center;
     gap: 8px;
     font-size: 14px;
     cursor: pointer;
+    color: var(--ink);
+}
+
+.earlier-error {
+    padding: 8px 10px;
+    border-radius: 8px;
+    background: var(--red-100);
+    color: var(--red);
+    font-size: 13px;
+    line-height: 18px;
+}
+
+/* ─── Sheet Action Buttons ─── */
+.sheet-actions {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-top: 4px;
+}
+
+.sheet-btn-primary {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 11px;
+    padding: 0 12px;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid var(--orange);
+    background: var(--orange);
+    color: #fff;
+    transition: background 0.15s, opacity 0.15s;
+}
+
+.sheet-btn-primary:active {
+    opacity: 0.8;
+}
+
+.sheet-btn-primary:disabled {
+    opacity: 0.6;
+}
+
+.sheet-btn-secondary {
+    width: 100%;
+    min-height: 40px;
+    border-radius: 11px;
+    padding: 0 12px;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    white-space: nowrap;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    transition: background 0.15s;
+}
+
+.sheet-btn-secondary:active {
+    background: var(--surface-soft);
 }
