@@ -401,6 +401,91 @@ body {
     gap: 8px;
 }
 
+/* ─── History Card ─── */
+.history-card {
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    padding: 14px;
+    display: grid;
+    gap: 12px;
+    margin-bottom: 10px;
+}
+
+.history-card-top {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 10px;
+    align-items: start;
+}
+
+.history-card-service {
+    min-width: 0;
+    font-size: 17px;
+    line-height: 21px;
+    font-weight: 740;
+    color: var(--ink);
+}
+
+.history-card-master {
+    margin-top: 3px;
+    font-size: 13px;
+    line-height: 18px;
+    color: var(--graphite);
+}
+
+.history-card-meta {
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--graphite);
+}
+
+.history-card-footer {
+    padding-top: 12px;
+    border-top: 1px solid var(--line-soft);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+}
+
+.history-card-price {
+    min-width: max-content;
+    white-space: nowrap;
+    font-size: 17px;
+    line-height: 22px;
+    font-weight: 760;
+    color: var(--ink);
+}
+
+.history-rebook-btn {
+    min-height: 36px;
+    padding: 0 12px;
+    border-radius: 10px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    font-size: 12px;
+    line-height: 16px;
+    font-weight: 680;
+    font-family: inherit;
+    white-space: nowrap;
+    flex: none;
+    cursor: pointer;
+    color: var(--ink);
+    transition: background 0.15s;
+}
+
+.history-rebook-btn:active {
+    background: var(--surface-soft);
+}
+
+@media (max-width: 340px) {
+    .history-card-footer {
+        flex-direction: column;
+        align-items: flex-end;
+    }
+}
+
 /* ─── Full-width Primary Booking Button ─── */
 .appt-booking-btn {
     width: 100%;
