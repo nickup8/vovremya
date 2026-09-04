@@ -65,6 +65,7 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
     const hasService = !!form.data.service_id;
     const prevDateRef = useRef(form.data.date);
     const prevServiceRef = useRef(form.data.service_id);
+    const pendingValidationRef = useRef(false);
 
     useEffect(() => {
         const dateChanged = prevDateRef.current !== form.data.date;
@@ -72,13 +73,25 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
         prevDateRef.current = form.data.date;
         prevServiceRef.current = form.data.service_id;
 
-        if (!hasService || (!dateChanged && !serviceChanged)) return;
+        if (!hasService) {
+            pendingValidationRef.current = false;
+            return;
+        }
+
+        if (dateChanged || serviceChanged) {
+            pendingValidationRef.current = true;
+            return;
+        }
+
+        if (!pendingValidationRef.current || smartTimeSlotsLoading) return;
+
+        pendingValidationRef.current = false;
 
         const allSlots = [...smartTimeSlots.freeSlots, ...smartTimeSlots.outsideSlots];
         if (form.data.time && !allSlots.includes(form.data.time)) {
             form.setData('time', '');
         }
-    }, [form.data.date, form.data.service_id, smartTimeSlots, hasService, form]);
+    }, [form.data.date, form.data.service_id, smartTimeSlots, smartTimeSlotsLoading, hasService, form]);
 
     const timeGroups = hasService
         ? [
