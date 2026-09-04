@@ -52,12 +52,11 @@ interface Props {
     onSubmit: (e: React.FormEvent) => void;
     slotInterval: number;
     onClientCreated: (client: ClientOption) => void;
-    timeOptions: string[];
     smartTimeSlots: SmartTimeSlots;
     smartTimeSlotsLoading: boolean;
 }
 
-export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated, timeOptions, smartTimeSlots, smartTimeSlotsLoading }: Props) {
+export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated, smartTimeSlots, smartTimeSlotsLoading }: Props) {
     const visibleServices = preselectedMasterId
         ? services.filter((s) => s.master_id === preselectedMasterId)
         : services;
@@ -73,11 +72,6 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
         prevDateRef.current = form.data.date;
         prevServiceRef.current = form.data.service_id;
 
-        if (!hasService) {
-            pendingValidationRef.current = false;
-            return;
-        }
-
         if (dateChanged || serviceChanged) {
             pendingValidationRef.current = true;
             return;
@@ -91,14 +85,12 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
         if (form.data.time && !allSlots.includes(form.data.time)) {
             form.setData('time', '');
         }
-    }, [form.data.date, form.data.service_id, smartTimeSlots, smartTimeSlotsLoading, hasService, form]);
+    }, [form.data.date, form.data.service_id, smartTimeSlots, smartTimeSlotsLoading, form]);
 
-    const timeGroups = hasService
-        ? [
-            { label: 'Свободное время', options: smartTimeSlots.freeSlots },
-            { label: 'Вне рабочего времени', options: smartTimeSlots.outsideSlots },
-        ]
-        : undefined;
+    const timeGroups = [
+        { label: 'Свободное время', options: smartTimeSlots.freeSlots },
+        { label: 'Вне рабочего времени', options: smartTimeSlots.outsideSlots },
+    ];
 
     return (
         <Drawer open={open} onOpenChange={onOpenChange}>
@@ -181,10 +173,9 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     <IrsiTimeSelect
                                         value={form.data.time}
                                         onChange={(v) => form.setData('time', v)}
-                                        options={hasService ? undefined : timeOptions}
                                         groups={timeGroups}
-                                        disabled={hasService && smartTimeSlotsLoading}
-                                        placeholder={hasService && smartTimeSlotsLoading ? 'Загрузка...' : 'ЧЧ:ММ'}
+                                        disabled={smartTimeSlotsLoading}
+                                        placeholder={smartTimeSlotsLoading ? 'Загрузка...' : 'ЧЧ:ММ'}
                                     />
                                     {form.errors.time && (
                                         <p className="mt-1 text-xs text-red-500">{form.errors.time}</p>

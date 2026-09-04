@@ -451,6 +451,126 @@ class AvailabilityService
     }
 
     /**
+     * Возвращает потенциально доступные start points без учёта duration услуги.
+     * Используется когда service_id ещё не выбран.
+     */
+    public function getPotentialStartSlots(User $master, Carbon $date): array
+    {
+        $tz = $master->getTimezone();
+        $localDate = $date->copy()->timezone($tz)->startOfDay();
+        $dayOfWeek = $localDate->dayOfWeek;
+        $slotInterval = $master->slot_interval ?? 30;
+
+        $workingHour = WorkingHour::where('user_id', $master->id)
+            ->where('day_of_week', $dayOfWeek)
+            ->first();
+
+        $bookedPeriods = $this->getBookedPeriods($master, $localDate);
+        $blockedPeriods = $this->getBlockedPeriods($master, $localDate);
+
+        $isWorking = $workingHour && $workingHour->is_working;
+
+        $freeSlots = [];
+        $outsideSlots = [];
+        $now = Carbon::now($tz);
+
+        if ($isWorking) {
+            $workStart = $localDate->copy()->setTimeFromTimeString($workingHour->start_time);
+            $workEnd = $localDate->copy()->setTimeFromTimeString($workingHour->end_time);
+
+            $breakPeriods = $this->getBreakPeriods($workingHour, $localDate);
+            $freeConflicts = $bookedPeriods->concat($blockedPeriods)->concat($breakPeriods);
+
+            $slotStart = $workStart->copy();
+
+            while ($slotStart->lt($workEnd)) {
+                if ($localDate->isToday() && $slotStart->lt($now)) {
+                    $slotStart->addMinutes($slotInterval);
+                    continue;
+                }
+
+                $conflict = $freeConflicts->contains(
+                    fn (array $period) => $period['start']->lte($slotStart) && $slotStart->lt($period['end']),
+                );
+
+                if (! $conflict) {
+                    $freeSlots[] = $slotStart->format('H:i');
+                }
+
+                $slotStart->addMinutes($slotInterval);
+            }
+
+            $outsideConflicts = $bookedPeriods->concat($blockedPeriods);
+
+            // Before work
+            $slotStart = $localDate->copy(); // 00:00
+
+            while ($slotStart->lt($workStart)) {
+                if ($localDate->isToday() && $slotStart->lt($now)) {
+                    $slotStart->addMinutes($slotInterval);
+                    continue;
+                }
+
+                $conflict = $outsideConflicts->contains(
+                    fn (array $period) => $period['start']->lte($slotStart) && $slotStart->lt($period['end']),
+                );
+
+                if (! $conflict) {
+                    $outsideSlots[] = $slotStart->format('H:i');
+                }
+
+                $slotStart->addMinutes($slotInterval);
+            }
+
+            // After work
+            $slotStart = $workEnd->copy();
+
+            while ($slotStart->lte($localDate->copy()->endOfDay())) {
+                if ($localDate->isToday() && $slotStart->lt($now)) {
+                    $slotStart->addMinutes($slotInterval);
+                    continue;
+                }
+
+                $conflict = $outsideConflicts->contains(
+                    fn (array $period) => $period['start']->lte($slotStart) && $slotStart->lt($period['end']),
+                );
+
+                if (! $conflict) {
+                    $outsideSlots[] = $slotStart->format('H:i');
+                }
+
+                $slotStart->addMinutes($slotInterval);
+            }
+        } else {
+            // Day off: entire day is outside
+            $outsideConflicts = $bookedPeriods->concat($blockedPeriods);
+            $slotStart = $localDate->copy(); // 00:00
+
+            while ($slotStart->lte($localDate->copy()->endOfDay())) {
+                if ($localDate->isToday() && $slotStart->lt($now)) {
+                    $slotStart->addMinutes($slotInterval);
+                    continue;
+                }
+
+                $conflict = $outsideConflicts->contains(
+                    fn (array $period) => $period['start']->lte($slotStart) && $slotStart->lt($period['end']),
+                );
+
+                if (! $conflict) {
+                    $outsideSlots[] = $slotStart->format('H:i');
+                }
+
+                $slotStart->addMinutes($slotInterval);
+            }
+        }
+
+        return [
+            'freeSlots' => $freeSlots,
+            'outsideSlots' => $outsideSlots,
+        ];
+    }
+
+    /**
      * Возвращает outside-work слоты для дня (до начала и после окончания рабочего времени).
      * Для выходного — весь день.
      */

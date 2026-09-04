@@ -240,4 +240,159 @@ class CalendarAvailableSlotsTest extends TestCase
 
         $response->assertStatus(403);
     }
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Provisional mode (no service_id)
+    // ═══════════════════════════════════════════════════════════════
+
+    public function test_provisional_endpoint_returns_200(): void
+    {
+        [$owner] = $this->createOwnerWithWorkspace();
+        $date = $this->nextMonday()->format('Y-m-d');
+
+        $response = $this->actingAs($owner, 'web')
+            ->getJson("/admin/calendar/available-slots?date={$date}");
+
+        $response->assertOk();
+        $response->assertJsonStructure(['freeSlots', 'outsideSlots']);
+    }
+
+    public function test_provisional_working_day_free_inside_hours_outside_before_after(): void
+    {
+        [$owner] = $this->createOwnerWithWorkspace();
+        $date = $this->nextMonday()->format('Y-m-d');
+
+        $response = $this->actingAs($owner, 'web')
+            ->getJson("/admin/calendar/available-slots?date={$date}");
+
+        $data = $response->json();
+
+        $this->assertContains('09:00', $data['freeSlots']);
+        $this->assertContains('12:00', $data['freeSlots']);
+        $this->assertContains('17:30', $data['freeSlots']);
+
+        $this->assertContains('07:00', $data['outsideSlots']);
+        $this->assertContains('08:30', $data['outsideSlots']);
+        $this->assertContains('18:00', $data['outsideSlots']);
+        $this->assertContains('19:00', $data['outsideSlots']);
+
+        $this->assertNotContains('09:00', $data['outsideSlots']);
+        $this->assertNotContains('12:00', $data['outsideSlots']);
+    }
+
+    public function test_provisional_appointment_hides_overlapping_starts(): void
+    {
+        [$owner] = $this->createOwnerWithWorkspace();
+        $date = $this->nextMonday();
+        $tz = $owner->getTimezone();
+
+        // Appointment 14:00–15:00
+        Appointment::create([
+            'master_id' => $owner->id,
+            'client_id' => null,
+            'service_name' => 'Стрижка',
+            'price' => 1000,
+            'duration' => 60,
+            'start_time' => Carbon::parse($date->format('Y-m-d') . ' 14:00', $tz)->timezone('UTC'),
+            'status' => 'booked',
+        ]);
+
+        $response = $this->actingAs($owner, 'web')
+            ->getJson("/admin/calendar/available-slots?date={$date->format('Y-m-d')}");
+
+        $data = $response->json();
+        $all = array_merge($data['freeSlots'], $data['outsideSlots']);
+
+        // 14:00/14:15/14:30/14:45 are inside the appointment period
+        $this->assertNotContains('14:00', $all);
+        $this->assertNotContains('14:15', $all);
+        $this->assertNotContains('14:30', $all);
+        $this->assertNotContains('14:45', $all);
+        // 15:00 is free (appointment ends at 15:00, half-open)
+        $this->assertContains('15:00', $data['freeSlots']);
+    }
+
+    public function test_provisional_appointment_ending_at_slot_start_is_free(): void
+    {
+        [$owner] = $this->createOwnerWithWorkspace();
+        $date = $this->nextMonday();
+        $tz = $owner->getTimezone();
+
+        // Appointment 11:00–12:30 (90 min, ends at 12:30 which is a slot start)
+        Appointment::create([
+            'master_id' => $owner->id,
+            'client_id' => null,
+            'service_name' => 'Стрижка',
+            'price' => 1000,
+            'duration' => 90,
+            'start_time' => Carbon::parse($date->format('Y-m-d') . ' 11:00', $tz)->timezone('UTC'),
+            'status' => 'booked',
+        ]);
+
+        $response = $this->actingAs($owner, 'web')
+            ->getJson("/admin/calendar/available-slots?date={$date->format('Y-m-d')}");
+
+        $data = $response->json();
+
+        // 12:30 is free (appointment ends at 12:30, half-open: start == end → no conflict)
+        $this->assertContains('12:30', $data['freeSlots']);
+    }
+
+    public function test_provisional_blocked_time_hides_starts(): void
+    {
+        [$owner] = $this->createOwnerWithWorkspace();
+        $date = $this->nextMonday();
+        $tz = $owner->getTimezone();
+
+        BlockedTime::create([
+            'user_id' => $owner->id,
+            'start_datetime' => Carbon::parse($date->format('Y-m-d') . ' 10:00', $tz)->timezone('UTC'),
+            'end_datetime' => Carbon::parse($date->format('Y-m-d') . ' 11:00', $tz)->timezone('UTC'),
+            'reason' => 'Другое',
+        ]);
+
+        $response = $this->actingAs($owner, 'web')
+            ->getJson("/admin/calendar/available-slots?date={$date->format('Y-m-d')}");
+
+        $data = $response->json();
+
+        $this->assertNotContains('10:00', $data['freeSlots']);
+        $this->assertNotContains('10:30', $data['freeSlots']);
+        $this->assertContains('09:30', $data['freeSlots']);
+        $this->assertContains('11:00', $data['freeSlots']);
+    }
+
+    public function test_provisional_break_hides_starts_from_free_slots(): void
+    {
+        [$owner] = $this->createOwnerWithWorkspace();
+        $date = $this->nextMonday()->format('Y-m-d');
+
+        $response = $this->actingAs($owner, 'web')
+            ->getJson("/admin/calendar/available-slots?date={$date}");
+
+        $data = $response->json();
+
+        // Break 13:00-14:00: 13:00 and 13:30 should not be in freeSlots
+        $this->assertNotContains('13:00', $data['freeSlots']);
+        $this->assertNotContains('13:30', $data['freeSlots']);
+        $this->assertContains('14:00', $data['freeSlots']);
+    }
+
+    public function test_provisional_day_off_free_empty_outside_has_all(): void
+    {
+        [$owner] = $this->createOwnerWithWorkspace();
+
+        $date = Carbon::now($owner->getTimezone())->next(Carbon::SUNDAY)->format('Y-m-d');
+
+        $response = $this->actingAs($owner, 'web')
+            ->getJson("/admin/calendar/available-slots?date={$date}");
+
+        $data = $response->json();
+
+        $this->assertEmpty($data['freeSlots']);
+        $this->assertNotEmpty($data['outsideSlots']);
+        $this->assertContains('00:00', $data['outsideSlots']);
+        $this->assertContains('09:00', $data['outsideSlots']);
+        $this->assertContains('18:00', $data['outsideSlots']);
+    }
 }

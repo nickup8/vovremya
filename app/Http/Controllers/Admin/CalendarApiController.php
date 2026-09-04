@@ -101,33 +101,42 @@ class CalendarApiController extends Controller
 
         $validated = $request->validate([
             'date' => 'required|date_format:Y-m-d',
-            'service_id' => 'required|exists:master_service,id',
+            'service_id' => 'nullable|exists:master_service,id',
         ]);
 
-        $masterService = MasterService::with('catalog')->find($validated['service_id']);
+        if (! empty($validated['service_id'])) {
+            $masterService = MasterService::with('catalog')->find($validated['service_id']);
 
-        if (! $masterService) {
-            return response()->json(['error' => 'Услуга не найдена.'], 422);
+            if (! $masterService) {
+                return response()->json(['error' => 'Услуга не найдена.'], 422);
+            }
+
+            if (! $masterService->catalog || ! $masterService->catalog->is_active) {
+                return response()->json(['error' => 'Эта услуга больше недоступна.'], 422);
+            }
+
+            $workspaceMasterIds = $master->workspace
+                ? $master->workspace->users()->pluck('id')->all()
+                : [$master->id];
+
+            if (! in_array($masterService->master_id, $workspaceMasterIds, true)) {
+                return response()->json(['error' => 'Forbidden'], 403);
+            }
+
+            $targetMaster = $masterService->master;
+            $serviceDuration = $masterService->effective_duration;
+            $date = Carbon::parse($validated['date'], $targetMaster->getTimezone());
+
+            $freeSlots = $availability->getAvailableSlots($targetMaster, $date, $serviceDuration);
+            $outsideSlots = $availability->getOutsideSlots($targetMaster, $date, $serviceDuration);
+        } else {
+            $targetMaster = $master;
+            $date = Carbon::parse($validated['date'], $targetMaster->getTimezone());
+
+            $result = $availability->getPotentialStartSlots($targetMaster, $date);
+            $freeSlots = $result['freeSlots'];
+            $outsideSlots = $result['outsideSlots'];
         }
-
-        if (! $masterService->catalog || ! $masterService->catalog->is_active) {
-            return response()->json(['error' => 'Эта услуга больше недоступна.'], 422);
-        }
-
-        $workspaceMasterIds = $master->workspace
-            ? $master->workspace->users()->pluck('id')->all()
-            : [$master->id];
-
-        if (! in_array($masterService->master_id, $workspaceMasterIds, true)) {
-            return response()->json(['error' => 'Forbidden'], 403);
-        }
-
-        $targetMaster = $masterService->master;
-        $serviceDuration = $masterService->effective_duration;
-        $date = Carbon::parse($validated['date'], $targetMaster->getTimezone());
-
-        $freeSlots = $availability->getAvailableSlots($targetMaster, $date, $serviceDuration);
-        $outsideSlots = $availability->getOutsideSlots($targetMaster, $date, $serviceDuration);
 
         return response()->json([
             'freeSlots' => $freeSlots,

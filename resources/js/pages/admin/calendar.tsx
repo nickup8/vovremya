@@ -151,7 +151,6 @@ export default function CalendarPage() {
         outsideHoursMessage,
         newAppointmentForm,
         timeOptions,
-        newAppointmentTimeOptions,
         smartTimeSlots,
         smartTimeSlotsLoading,
         activeBookingClient,
@@ -494,7 +493,6 @@ return [];
                 onSubmit={submitNewAppointment}
                 slotInterval={slotInterval}
                 onClientCreated={handleClientCreated}
-                timeOptions={newAppointmentTimeOptions}
                 smartTimeSlots={smartTimeSlots}
                 smartTimeSlotsLoading={smartTimeSlotsLoading}
             />

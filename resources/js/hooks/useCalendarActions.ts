@@ -72,7 +72,7 @@ export function useCalendarActions({
     useEffect(() => {
         const { date, service_id } = newAppointmentForm.data;
 
-        if (!date || !service_id) {
+        if (!date) {
             setSmartTimeSlots({ freeSlots: [], outsideSlots: [] });
             abortRef.current?.abort();
             return;
@@ -83,7 +83,11 @@ export function useCalendarActions({
         abortRef.current = controller;
         setSmartTimeSlotsLoading(true);
 
-        fetch(`/admin/calendar/available-slots?date=${date}&service_id=${service_id}`, {
+        const url = service_id
+            ? `/admin/calendar/available-slots?date=${date}&service_id=${service_id}`
+            : `/admin/calendar/available-slots?date=${date}`;
+
+        fetch(url, {
             credentials: 'same-origin',
             headers: { 'X-Requested-With': 'XMLHttpRequest' },
             signal: controller.signal,
@@ -148,11 +152,6 @@ continue;
     const rescheduleTimeOptions = useMemo(
         () => generateTimeOptions(slotInterval, rescheduleDate || dateToKey(new Date()), timezone),
         [slotInterval, rescheduleDate, timezone],
-    );
-
-    const newAppointmentTimeOptions = useMemo(
-        () => generateTimeOptions(slotInterval, newAppointmentForm.data.date || dateToKey(new Date()), timezone),
-        [slotInterval, newAppointmentForm.data.date, timezone],
     );
 
     // ═══════════════ Booking Mode ═══════════════
@@ -646,7 +645,6 @@ return;
         outsideHoursMessage,
         newAppointmentForm,
         timeOptions: rescheduleTimeOptions,
-        newAppointmentTimeOptions,
         smartTimeSlots,
         smartTimeSlotsLoading,
 
