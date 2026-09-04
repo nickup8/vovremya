@@ -563,6 +563,214 @@ body {
     color: var(--ink);
 }
 
+/* ─── Details Bottom Sheet ─── */
+.sheet-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(24, 24, 24, 0.24);
+    z-index: 100;
+}
+
+.sheet {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    max-height: 78%;
+    overflow: auto;
+    background: var(--surface);
+    border-radius: 20px 20px 0 0;
+    box-shadow: 0 12px 32px rgba(24, 24, 24, 0.1);
+    z-index: 110;
+    padding: 8px 14px;
+    padding-bottom: calc(18px + env(safe-area-inset-bottom));
+}
+
+.sheet-handle {
+    width: 38px;
+    height: 4px;
+    border-radius: 999px;
+    background: var(--line);
+    margin: 4px auto 13px;
+}
+
+.sheet-head {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 40px;
+    gap: 12px;
+    align-items: start;
+}
+
+.sheet-title {
+    font-size: 18px;
+    line-height: 23px;
+    font-weight: 740;
+}
+
+.sheet-sub {
+    margin-top: 4px;
+    font-size: 12px;
+    line-height: 17px;
+    color: var(--muted);
+}
+
+.sheet-close {
+    width: 40px;
+    height: 40px;
+    margin-top: -5px;
+    margin-right: -6px;
+    border: 0;
+    border-radius: 10px;
+    background: transparent;
+    display: grid;
+    place-items: center;
+    color: var(--graphite);
+    cursor: pointer;
+}
+
+.sheet-close:active {
+    background: var(--surface-soft);
+}
+
+.sheet-close svg {
+    width: 20px;
+    height: 20px;
+    stroke-width: 1.9;
+}
+
+.sheet-content {
+    margin-top: 14px;
+    display: grid;
+    gap: 10px;
+}
+
+.detail-list {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+.detail-row {
+    min-height: 50px;
+    padding: 10px 12px;
+    display: grid;
+    grid-template-columns: 88px minmax(0, 1fr);
+    gap: 10px;
+    align-items: center;
+    border-bottom: 1px solid var(--line-soft);
+}
+
+.detail-row:last-child {
+    border-bottom: 0;
+}
+
+.detail-row span {
+    font-size: 11px;
+    line-height: 16px;
+    color: var(--muted);
+}
+
+.detail-row strong {
+    font-size: 12px;
+    line-height: 17px;
+    text-align: right;
+    font-weight: 600;
+}
+
+.danger-zone {
+    margin-top: 10px;
+    padding-top: 14px;
+    border-top: 1px solid var(--line);
+}
+
+.danger-ghost {
+    width: 100%;
+    min-height: 42px;
+    border: 0;
+    border-radius: 11px;
+    background: transparent;
+    color: #b93d49;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 680;
+    font-family: inherit;
+    cursor: pointer;
+}
+
+.danger-ghost:active {
+    background: var(--red-100);
+}
+
+/* ─── Cancel Confirmation Modal ─── */
+.modal-backdrop {
+    position: fixed;
+    inset: 0;
+    background: rgba(24, 24, 24, 0.28);
+    display: grid;
+    place-items: center;
+    padding: 16px;
+    z-index: 120;
+}
+
+.modal {
+    width: 100%;
+    max-width: 360px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 12px 32px rgba(24, 24, 24, 0.1);
+}
+
+.modal-title {
+    padding: 18px 18px 8px;
+    font-size: 18px;
+    line-height: 24px;
+    font-weight: 740;
+}
+
+.modal-copy {
+    padding: 0 18px 16px;
+    font-size: 13px;
+    line-height: 19px;
+    color: var(--graphite);
+}
+
+.modal-actions {
+    padding: 12px 18px 18px;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+}
+
+.modal-btn {
+    min-height: 40px;
+    border-radius: 11px;
+    padding: 0 12px;
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    transition: background 0.15s, opacity 0.15s;
+}
+
+.modal-btn:active {
+    opacity: 0.8;
+}
+
+.modal-btn--danger {
+    background: #b93d49;
+    border-color: #b93d49;
+    color: #fff;
+}
+
+.modal-btn--danger:disabled {
+    opacity: 0.6;
+}
+
 /* ─── Earlier Request Form ─── */
 .earlier-form {
     margin-top: 16px;

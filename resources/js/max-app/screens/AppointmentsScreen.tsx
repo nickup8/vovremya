@@ -3,7 +3,7 @@ import { useCallback, useEffect, useState } from 'react';
 import { cancelAppointment, cancelEarlierRequest, getAppointments, saveEarlierRequest, type Appointment } from '../lib/api';
 import { backButton, haptic } from '../lib/maxBridge';
 import { useAsync } from '../lib/useAsync';
-import { CancelOverlay, CancelSuccess } from './CancelOverlay';
+import { CancelSuccess } from './CancelOverlay';
 import { EarlierRequestOverlay } from './EarlierRequestOverlay';
 
 const RUSSIAN_MONTHS = [
@@ -70,19 +70,18 @@ function statusVariant(status: string): 'green' | 'blue' | 'red' | 'neutral' {
 type CancelPhase = 'idle' | 'confirm' | 'loading' | 'done' | 'error';
 type EarlierPhase = 'idle' | 'form' | 'loading' | 'error';
 
+function formatDateShort(raw: string): string {
+    const d = new Date(raw.replace(' ', 'T'));
+    if (isNaN(d.getTime())) return raw;
+    return `${d.getDate()} ${RUSSIAN_MONTHS[d.getMonth()]} в ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
+}
+
 export function AppointmentsScreen() {
     const { data, loading, error, reload } = useAsync<Appointment[]>(getAppointments);
 
     const [cancelPhase, setCancelPhase] = useState<CancelPhase>('idle');
     const [targetAppointment, setTargetAppointment] = useState<Appointment | null>(null);
     const [cancelError, setCancelError] = useState<string | null>(null);
-
-    const handleCancelClick = useCallback((appointment: Appointment) => {
-        haptic.impact('medium');
-        setTargetAppointment(appointment);
-        setCancelError(null);
-        setCancelPhase('confirm');
-    }, []);
 
     const handleCancelConfirm = useCallback(async () => {
         if (!targetAppointment) return;
@@ -130,6 +129,9 @@ export function AppointmentsScreen() {
     const [earlierPhase, setEarlierPhase] = useState<EarlierPhase>('idle');
     const [earlierTarget, setEarlierTarget] = useState<Appointment | null>(null);
     const [earlierError, setEarlierError] = useState<string | null>(null);
+
+    const [selectedAppointment, setSelectedAppointment] = useState<Appointment | null>(null);
+    const [detailsOpen, setDetailsOpen] = useState(false);
 
     const handleEarlierClick = useCallback((appointment: Appointment) => {
         haptic.impact('medium');
@@ -181,9 +183,37 @@ export function AppointmentsScreen() {
         }
     }, [reload]);
 
+    const handleDetailsOpen = useCallback((appointment: Appointment) => {
+        setSelectedAppointment(appointment);
+        setDetailsOpen(true);
+    }, []);
+
+    const handleDetailsClose = useCallback(() => {
+        setDetailsOpen(false);
+        setSelectedAppointment(null);
+    }, []);
+
+    const handleCancelFromSheet = useCallback(() => {
+        if (!selectedAppointment) return;
+        haptic.impact('medium');
+        setTargetAppointment(selectedAppointment);
+        setCancelError(null);
+        setDetailsOpen(false);
+        setCancelPhase('confirm');
+    }, [selectedAppointment]);
+
     useEffect(() => {
         const cancelDismissable = cancelPhase === 'confirm' || cancelPhase === 'error';
         const earlierDismissable = earlierPhase === 'form' || earlierPhase === 'error';
+
+        if (detailsOpen) {
+            backButton.show();
+            backButton.onClick(handleDetailsClose);
+            return () => {
+                backButton.offClick(handleDetailsClose);
+                backButton.hide();
+            };
+        }
 
         if (cancelDismissable) {
             backButton.show();
@@ -204,7 +234,7 @@ export function AppointmentsScreen() {
         }
 
         backButton.hide();
-    }, [cancelPhase, handleCancelDismiss, earlierPhase, handleEarlierDismiss]);
+    }, [detailsOpen, handleDetailsClose, cancelPhase, handleCancelDismiss, earlierPhase, handleEarlierDismiss]);
 
     if (cancelPhase === 'done') {
         return <CancelSuccess masterSlug={targetAppointment?.master?.master_slug} onClose={handleBackToList} />;
@@ -291,7 +321,7 @@ export function AppointmentsScreen() {
 
                     <div className="appt-card-footer">
                         <span className="appt-card-price">{formatPrice(a.price)}</span>
-                        <button type="button" className="appt-detail-link">Подробнее</button>
+                        <button type="button" className="appt-detail-link" onClick={() => handleDetailsOpen(a)}>Подробнее</button>
                     </div>
 
                     {a.earlier_request && (
@@ -338,45 +368,107 @@ export function AppointmentsScreen() {
                                 Хочу раньше
                             </button>
                         )}
-                        {a.can_cancel && (
-                            <button
-                                type="button"
-                                className="btn-sm btn-destructive"
-                                onClick={() => handleCancelClick(a)}
-                            >
-                                Отменить
-                            </button>
-                        )}
                     </div>
                 </article>
             ))}
 
+            {detailsOpen && selectedAppointment && (
+                <>
+                    <div className="sheet-backdrop" onClick={handleDetailsClose} />
+                    <section className="sheet" role="dialog" aria-label="Детали записи">
+                        <div className="sheet-handle" />
+                        <div className="sheet-head">
+                            <div>
+                                <div className="sheet-title">Детали записи</div>
+                                <div className="sheet-sub">Предстоящий визит</div>
+                            </div>
+                            <button type="button" className="sheet-close" onClick={handleDetailsClose} aria-label="Закрыть">
+                                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor">
+                                    <path d="M18 6 6 18M6 6l12 12" />
+                                </svg>
+                            </button>
+                        </div>
+                        <div className="sheet-content">
+                            <div className="detail-list">
+                                <div className="detail-row"><span>Услуга</span><strong>{selectedAppointment.service}</strong></div>
+                                {selectedAppointment.master?.name && (
+                                    <div className="detail-row"><span>Мастер</span><strong>{selectedAppointment.master.name}</strong></div>
+                                )}
+                                <div className="detail-row"><span>Дата</span><strong>{formatDate(selectedAppointment.start_at)}</strong></div>
+                                <div className="detail-row"><span>Время</span><strong>{formatTime(selectedAppointment.start_at)}</strong></div>
+                                {selectedAppointment.master?.address && (
+                                    <div className="detail-row"><span>Адрес</span><strong>{selectedAppointment.master.address}</strong></div>
+                                )}
+                                <div className="detail-row"><span>Стоимость</span><strong>{formatPrice(selectedAppointment.price)}</strong></div>
+                            </div>
+                            {selectedAppointment.can_cancel && (
+                                <div className="danger-zone">
+                                    <button type="button" className="danger-ghost" onClick={handleCancelFromSheet}>
+                                        Отменить запись
+                                    </button>
+                                </div>
+                            )}
+                        </div>
+                    </section>
+                </>
+            )}
+
             {cancelPhase === 'confirm' && targetAppointment && (
-                <CancelOverlay
-                    service={targetAppointment.service}
-                    onConfirm={handleCancelConfirm}
-                    onCancel={handleCancelDismiss}
-                    loading={false}
-                    error={cancelError}
-                />
+                <div className="modal-backdrop" onClick={handleCancelDismiss}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-title">Отменить запись?</div>
+                        <div className="modal-copy">
+                            Запись на {formatDateShort(targetAppointment.start_at)} будет отменена. Это действие нельзя отменить.
+                        </div>
+                        <div className="modal-actions">
+                            <button type="button" className="modal-btn" onClick={handleCancelDismiss} disabled={false}>
+                                Не отменять
+                            </button>
+                            <button type="button" className="modal-btn modal-btn--danger" onClick={handleCancelConfirm}>
+                                Отменить запись
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
+
             {cancelPhase === 'loading' && targetAppointment && (
-                <CancelOverlay
-                    service={targetAppointment.service}
-                    onConfirm={handleCancelConfirm}
-                    onCancel={handleCancelDismiss}
-                    loading={true}
-                    error={null}
-                />
+                <div className="modal-backdrop">
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-title">Отменить запись?</div>
+                        <div className="modal-copy">
+                            Запись на {formatDateShort(targetAppointment.start_at)} будет отменена. Это действие нельзя отменить.
+                        </div>
+                        <div className="modal-actions">
+                            <button type="button" className="modal-btn" disabled>
+                                Не отменять
+                            </button>
+                            <button type="button" className="modal-btn modal-btn--danger" disabled style={{ opacity: 0.6 }}>
+                                Отмена...
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
+
             {cancelPhase === 'error' && targetAppointment && (
-                <CancelOverlay
-                    service={targetAppointment.service}
-                    onConfirm={handleCancelConfirm}
-                    onCancel={handleCancelDismiss}
-                    loading={false}
-                    error={cancelError}
-                />
+                <div className="modal-backdrop" onClick={handleCancelDismiss}>
+                    <div className="modal" onClick={(e) => e.stopPropagation()}>
+                        <div className="modal-title">Отменить запись?</div>
+                        <div className="modal-copy">
+                            {cancelError && <span style={{ color: 'var(--red)', display: 'block', marginBottom: 8 }}>{cancelError}</span>}
+                            Запись на {formatDateShort(targetAppointment.start_at)} будет отменена. Это действие нельзя отменить.
+                        </div>
+                        <div className="modal-actions">
+                            <button type="button" className="modal-btn" onClick={handleCancelDismiss}>
+                                Не отменять
+                            </button>
+                            <button type="button" className="modal-btn modal-btn--danger" onClick={handleCancelConfirm}>
+                                Повторить
+                            </button>
+                        </div>
+                    </div>
+                </div>
             )}
 
             {(earlierPhase === 'form' || earlierPhase === 'loading' || earlierPhase === 'error') && earlierTarget && (
