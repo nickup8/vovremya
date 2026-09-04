@@ -1,6 +1,6 @@
 import { Clock } from 'lucide-react';
 import {
-    Select, SelectTrigger, SelectValue, SelectContent, SelectItem, SelectSeparator, SelectLabel,
+    Select, SelectTrigger, SelectValue, SelectContent, SelectGroup, SelectItem, SelectSeparator, SelectLabel,
 } from '@/components/ui/select';
 
 interface TimeGroup {
@@ -36,7 +36,7 @@ export function IrsiTimeSelect({ value, onChange, options, groups, disabled, pla
                     ) : (
                         groups.map((group, gi) => (
                             group.options.length > 0 && (
-                                <div key={group.label}>
+                                <SelectGroup key={group.label}>
                                     {gi > 0 && <SelectSeparator />}
                                     <SelectLabel className="text-xs font-semibold text-[var(--color-graphite)] px-2 py-1.5">
                                         {group.label}
@@ -50,7 +50,7 @@ export function IrsiTimeSelect({ value, onChange, options, groups, disabled, pla
                                             {t}
                                         </SelectItem>
                                     ))}
-                                </div>
+                                </SelectGroup>
                             )
                         ))
                     )

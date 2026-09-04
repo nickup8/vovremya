@@ -145,9 +145,14 @@ continue;
         return options;
     }
 
-    const timeOptions = useMemo(
+    const rescheduleTimeOptions = useMemo(
         () => generateTimeOptions(slotInterval, rescheduleDate || dateToKey(new Date()), timezone),
         [slotInterval, rescheduleDate, timezone],
+    );
+
+    const newAppointmentTimeOptions = useMemo(
+        () => generateTimeOptions(slotInterval, newAppointmentForm.data.date || dateToKey(new Date()), timezone),
+        [slotInterval, newAppointmentForm.data.date, timezone],
     );
 
     // ═══════════════ Booking Mode ═══════════════
@@ -640,7 +645,8 @@ return;
         outsideHoursOpen, setOutsideHoursOpen,
         outsideHoursMessage,
         newAppointmentForm,
-        timeOptions,
+        timeOptions: rescheduleTimeOptions,
+        newAppointmentTimeOptions,
         smartTimeSlots,
         smartTimeSlotsLoading,
 
