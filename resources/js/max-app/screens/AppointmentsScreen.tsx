@@ -35,6 +35,32 @@ function formatTime(raw: string): string {
     return `${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
+function parseYMD(s: string): { y: number; m: number; d: number } | null {
+    if (!s) return null;
+    const [y, m, d] = s.split('-').map(Number);
+    if (!y || !m || !d) return null;
+    return { y, m, d };
+}
+
+function formatEarlierDateRange(from: string, to: string): string {
+    const a = parseYMD(from);
+    const b = parseYMD(to);
+    if (!a || !b) return `${from} — ${to}`;
+
+    const monthA = RUSSIAN_MONTHS[a.m - 1];
+    const monthB = RUSSIAN_MONTHS[b.m - 1];
+
+    if (from === to) {
+        return `${a.d} ${monthA}`;
+    }
+
+    if (a.m === b.m && a.y === b.y) {
+        return `${a.d}–${b.d} ${monthA}`;
+    }
+
+    return `${a.d} ${monthA} – ${b.d} ${monthB}`;
+}
+
 function statusLabel(status: string): string {
     switch (status) {
         case 'booked':
@@ -327,18 +353,16 @@ export function AppointmentsScreen() {
                                 {a.autofill_available ? 'Ищем время раньше' : 'Поиск приостановлен'}
                             </div>
                             <div className="earlier-status-detail">
-                                {a.earlier_request.date_from === a.earlier_request.date_to
-                                    ? a.earlier_request.date_from
-                                    : `${a.earlier_request.date_from} — ${a.earlier_request.date_to}`}
+                                {formatEarlierDateRange(a.earlier_request.date_from, a.earlier_request.date_to)}
                                 {a.earlier_request.time_from === '00:00' && a.earlier_request.time_to === '23:59'
-                                    ? ' · в любое время'
+                                    ? ' · В любое время'
                                     : ` · ${a.earlier_request.time_from}–${a.earlier_request.time_to}`}
                             </div>
                             <div className="earlier-status-actions">
                                 {a.autofill_available && (
                                     <button
                                         type="button"
-                                        className="btn-sm btn-secondary"
+                                        className="earlier-btn-edit"
                                         onClick={() => handleEarlierClick(a)}
                                     >
                                         Изменить
@@ -346,7 +370,7 @@ export function AppointmentsScreen() {
                                 )}
                                 <button
                                     type="button"
-                                    className="btn-sm btn-secondary"
+                                    className="earlier-btn-cancel"
                                     onClick={() => handleEarlierCancel(a.id)}
                                 >
                                     Больше не искать
