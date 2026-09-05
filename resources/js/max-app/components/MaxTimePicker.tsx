@@ -7,7 +7,7 @@ interface MaxTimePickerProps {
 }
 
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
-const MINUTES = Array.from({ length: 12 }, (_, i) => i * 5);
+const MINUTES = Array.from({ length: 60 }, (_, i) => i);
 
 function formatDisplay(v: string): string {
     return v || 'ЧЧ:ММ';
@@ -28,7 +28,7 @@ export function MaxTimePicker({ value, onChange, disabled = false }: MaxTimePick
     const initMinute = value ? parseInt(value.split(':')[1], 10) : 0;
 
     const [hour, setHour] = useState(initHour);
-    const [minute, setMinute] = useState(Math.round(initMinute / 5) * 5);
+    const [minute, setMinute] = useState(initMinute);
 
     const hourRef = useRef<HTMLDivElement>(null);
     const minuteRef = useRef<HTMLDivElement>(null);
@@ -37,12 +37,11 @@ export function MaxTimePicker({ value, onChange, disabled = false }: MaxTimePick
         if (!open) return;
         const h = value ? parseInt(value.split(':')[0], 10) : 10;
         const m = value ? parseInt(value.split(':')[1], 10) : 0;
-        const roundedM = Math.round(m / 5) * 5;
         setHour(h);
-        setMinute(roundedM === 60 ? 0 : roundedM);
+        setMinute(m);
         requestAnimationFrame(() => {
             scrollToSelected(hourRef.current, HOURS.indexOf(h));
-            scrollToSelected(minuteRef.current, MINUTES.indexOf(Math.round(m / 5) * 5 === 60 ? 0 : Math.round(m / 5) * 5));
+            scrollToSelected(minuteRef.current, MINUTES.indexOf(m));
         });
     }, [open]);
 
