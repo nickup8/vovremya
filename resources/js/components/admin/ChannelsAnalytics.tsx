@@ -265,7 +265,7 @@ function TrackingLinksManager({ links }: { links: TrackingLinkItem[] }) {
 
 function ChannelsTable({ channels }: { channels: ChannelSource[] }) {
     return (
-        <div className="overflow-x-auto rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
+        <div className="min-w-0 overflow-x-auto rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-5">
             <table className="w-full min-w-[720px] border-collapse text-sm">
                 <thead>
                     <tr className="text-left text-[11px] uppercase tracking-[.06em] text-[var(--color-graphite)]">

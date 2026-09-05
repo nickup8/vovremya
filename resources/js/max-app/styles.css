@@ -86,6 +86,18 @@ html {
     color: var(--ink);
 }
 
+html,
+body {
+    scrollbar-width: none;
+}
+
+html::-webkit-scrollbar,
+body::-webkit-scrollbar {
+    display: none;
+    width: 0;
+    height: 0;
+}
+
 body {
     min-height: 100vh;
     min-height: 100dvh;
@@ -141,6 +153,7 @@ body {
 
 /* ─── Body ─── */
 .app-body {
+    flex: 1;
     padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
     background: var(--bg);
 }
@@ -163,14 +176,19 @@ body {
 .tab-item {
     appearance: none;
     -webkit-appearance: none;
-    min-width: 0;
+    padding: 0;
+    margin: 0;
     border: none;
+    min-width: 0;
+    height: 56px;
     background: transparent;
     color: var(--muted);
-    display: grid;
-    justify-items: center;
-    align-content: center;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
     gap: 2px;
+    line-height: 1;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     transition: color 0.15s;
@@ -178,6 +196,7 @@ body {
 
 .tab-item svg {
     display: block;
+    flex: 0 0 auto;
     width: 18px;
     height: 18px;
     stroke-width: 1.8;
@@ -185,8 +204,9 @@ body {
 
 .tab-item span {
     font-size: 11px;
-    line-height: 15px;
+    line-height: 1.15;
     font-weight: 600;
+    margin: 0;
 }
 
 .tab-item--active {

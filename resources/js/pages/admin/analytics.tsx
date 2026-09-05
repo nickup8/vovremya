@@ -411,7 +411,7 @@ export default function AnalyticsPage() {
                 <div className="min-w-0 min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
                     <div className="grid min-w-0 max-w-[1320px] gap-4">
                         {/* ─── Period Controls ─── */}
-                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[14px] md:p-5">
+                        <section className="min-w-0 rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[14px] md:p-5">
                             <div className="flex min-w-0 max-w-full items-center gap-1.5 overflow-x-auto rounded-[14px] bg-[var(--color-warm)] p-1.5 shadow-[inset_0_0_0_1px_var(--color-line-soft)]">
                                 {PERIOD_TABS.map(({ key, label }) => (
                                     <button
