@@ -141,9 +141,7 @@ body {
 
 /* ─── Body ─── */
 .app-body {
-    flex: 1;
-    overflow-y: auto;
-    padding-bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+    padding-bottom: calc(56px + env(safe-area-inset-bottom, 0px));
     background: var(--bg);
 }
 
@@ -154,15 +152,17 @@ body {
     left: 0;
     right: 0;
     z-index: 10;
-    height: 64px;
+    height: calc(56px + env(safe-area-inset-bottom, 0px));
     display: grid;
     grid-template-columns: repeat(3, 1fr);
     background: rgba(255, 255, 255, 0.96);
     border-top: 1px solid var(--line);
-    padding-bottom: env(safe-area-inset-bottom);
+    padding-bottom: env(safe-area-inset-bottom, 0px);
 }
 
 .tab-item {
+    appearance: none;
+    -webkit-appearance: none;
     min-width: 0;
     border: none;
     background: transparent;
@@ -177,6 +177,7 @@ body {
 }
 
 .tab-item svg {
+    display: block;
     width: 18px;
     height: 18px;
     stroke-width: 1.8;

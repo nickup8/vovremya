@@ -408,11 +408,11 @@ export default function AnalyticsPage() {
             <Head title="Аналитика — Вовремя" />
 
             <AdminLayout title="Аналитика" auth={auth} hideNewAppointment fullBleed>
-                <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
-                    <div className="grid max-w-[1320px] gap-4">
+                <div className="min-w-0 min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
+                    <div className="grid min-w-0 max-w-[1320px] gap-4">
                         {/* ─── Period Controls ─── */}
                         <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[14px] md:p-5">
-                            <div className="flex w-max max-w-full items-center gap-1.5 overflow-x-auto rounded-[14px] bg-[var(--color-warm)] p-1.5 shadow-[inset_0_0_0_1px_var(--color-line-soft)]">
+                            <div className="flex min-w-0 max-w-full items-center gap-1.5 overflow-x-auto rounded-[14px] bg-[var(--color-warm)] p-1.5 shadow-[inset_0_0_0_1px_var(--color-line-soft)]">
                                 {PERIOD_TABS.map(({ key, label }) => (
                                     <button
                                         key={key}
@@ -644,7 +644,7 @@ export default function AnalyticsPage() {
                                         </div>
 
                                         {Array.isArray(chartData) && chartData.length > 0 ? (
-                                            <div className="relative mt-4 w-full overflow-x-auto scrollbar-none">
+                                            <div className="relative mt-4 min-w-0 overflow-x-auto scrollbar-none">
                                                 {/* Gridlines */}
                                                 <div className="pointer-events-none absolute inset-0 flex flex-col justify-between">
                                                     {[...Array(4)].map((_, i) => (

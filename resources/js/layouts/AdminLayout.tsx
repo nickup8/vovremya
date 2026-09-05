@@ -261,7 +261,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 )}
 
                 {/* Page content */}
-                <main className={`flex-1 overflow-y-auto bg-white dark:bg-[var(--color-cal-workspace)] ${fullBleed ? '' : 'p-4 md:p-6'}`}>
+                <main className={`flex-1 overflow-x-hidden overflow-y-auto bg-white dark:bg-[var(--color-cal-workspace)] ${fullBleed ? '' : 'p-4 md:p-6'}`}>
                     {children}
                 </main>
             </div>
