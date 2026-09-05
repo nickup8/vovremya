@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 
 interface MaxDatePickerProps {
     value: string;
@@ -69,7 +69,6 @@ export function MaxDatePicker({
     disabled = false,
 }: MaxDatePickerProps) {
     const [open, setOpen] = useState(false);
-    const containerRef = useRef<HTMLDivElement>(null);
 
     const selectedDate = parseYMD(value);
     const minDate = parseYMD(min ?? '');
@@ -85,21 +84,6 @@ export function MaxDatePicker({
         const d = selectedDate ?? new Date();
         setViewYear(d.getFullYear());
         setViewMonth(d.getMonth());
-    }, [open]);
-
-    useEffect(() => {
-        if (!open) return;
-        const handler = (e: MouseEvent | TouchEvent) => {
-            if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
-                setOpen(false);
-            }
-        };
-        document.addEventListener('mousedown', handler);
-        document.addEventListener('touchstart', handler);
-        return () => {
-            document.removeEventListener('mousedown', handler);
-            document.removeEventListener('touchstart', handler);
-        };
     }, [open]);
 
     const isDisabled = useCallback((d: Date): boolean => {
@@ -152,7 +136,7 @@ export function MaxDatePicker({
     };
 
     return (
-        <div className="mdp" ref={containerRef}>
+        <div className="mdp">
             <button
                 type="button"
                 className="mdp-trigger"
@@ -169,7 +153,12 @@ export function MaxDatePicker({
             </button>
 
             {open && (
-                <div className="mdp-popover">
+                <>
+                    <div
+                        className="mdp-backdrop"
+                        onClick={() => setOpen(false)}
+                    />
+                    <div className="mdp-popover">
                     <div className="mdp-nav">
                         <button
                             type="button"
@@ -241,6 +230,7 @@ export function MaxDatePicker({
                         ))}
                     </div>
                 </div>
+                </>
             )}
         </div>
     );

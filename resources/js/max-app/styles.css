@@ -1071,18 +1071,26 @@ body {
     flex-shrink: 0;
 }
 
+.mdp-backdrop {
+    position: fixed;
+    inset: 0;
+    z-index: 199;
+    background: rgba(24, 24, 24, 0.24);
+}
+
 .mdp-popover {
-    position: absolute;
-    top: calc(100% + 6px);
-    left: 0;
-    right: 0;
-    z-index: 50;
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    z-index: 200;
+    width: calc(100vw - 32px);
+    max-width: 340px;
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 14px;
     box-shadow: 0 8px 24px rgba(24, 24, 24, 0.1);
     padding: 12px;
-    min-width: 280px;
 }
 
 .mdp-nav {
