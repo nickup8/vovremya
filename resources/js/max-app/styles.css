@@ -1023,3 +1023,181 @@ body {
 .sheet-btn-secondary:active {
     background: var(--surface-soft);
 }
+
+/* ─── MaxDatePicker ─── */
+.mdp {
+    position: relative;
+}
+
+.mdp-trigger {
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid var(--line);
+    border-radius: 8px;
+    font-size: 14px;
+    font-family: inherit;
+    background: var(--surface-soft);
+    color: var(--ink);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    cursor: pointer;
+    transition: border-color 0.15s;
+}
+
+.mdp-trigger:focus {
+    outline: none;
+    border-color: var(--orange);
+}
+
+.mdp-trigger:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+.mdp-trigger-value {
+    color: var(--ink);
+}
+
+.mdp-trigger-placeholder {
+    color: var(--muted);
+}
+
+.mdp-trigger-icon {
+    width: 18px;
+    height: 18px;
+    stroke-width: 1.8;
+    color: var(--graphite);
+    flex-shrink: 0;
+}
+
+.mdp-popover {
+    position: absolute;
+    top: calc(100% + 6px);
+    left: 0;
+    right: 0;
+    z-index: 50;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    box-shadow: 0 8px 24px rgba(24, 24, 24, 0.1);
+    padding: 12px;
+    min-width: 280px;
+}
+
+.mdp-nav {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+}
+
+.mdp-nav-arrow {
+    width: 32px;
+    height: 32px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    display: grid;
+    place-items: center;
+    cursor: pointer;
+    color: var(--graphite);
+    transition: background 0.15s;
+}
+
+.mdp-nav-arrow:active {
+    background: var(--surface-soft);
+}
+
+.mdp-nav-arrow:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+
+.mdp-nav-arrow svg {
+    width: 18px;
+    height: 18px;
+    stroke-width: 2;
+}
+
+.mdp-nav-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: var(--ink);
+}
+
+.mdp-days-header {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    margin-bottom: 4px;
+}
+
+.mdp-day-label {
+    text-align: center;
+    font-size: 11px;
+    font-weight: 600;
+    color: var(--muted);
+    line-height: 24px;
+}
+
+.mdp-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+}
+
+.mdp-week {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 2px;
+}
+
+.mdp-cell {
+    height: 36px;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    font-size: 13px;
+    font-family: inherit;
+    font-weight: 500;
+    color: var(--ink);
+    cursor: pointer;
+    display: grid;
+    place-items: center;
+    transition: background 0.1s, color 0.1s;
+}
+
+.mdp-cell:active {
+    background: var(--surface-soft);
+}
+
+.mdp-cell--empty {
+    cursor: default;
+}
+
+.mdp-cell--selected {
+    background: var(--orange);
+    color: #fff;
+}
+
+.mdp-cell--selected:active {
+    background: var(--orange-hover);
+}
+
+.mdp-cell--today:not(.mdp-cell--selected) {
+    outline: 1.5px solid var(--orange);
+    outline-offset: -1.5px;
+    color: var(--orange);
+    font-weight: 600;
+}
+
+.mdp-cell--disabled {
+    color: var(--muted);
+    pointer-events: none;
+    opacity: 0.4;
+}
+
+.mdp-cell--adjacent {
+    color: var(--muted);
+    opacity: 0.5;
+}

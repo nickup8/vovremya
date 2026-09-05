@@ -1,4 +1,5 @@
 import { useCallback, useState } from 'react';
+import { MaxDatePicker } from '../components/MaxDatePicker';
 import type { EarlierRequest } from '../lib/api';
 
 interface EarlierRequestOverlayProps {
@@ -102,25 +103,21 @@ export function EarlierRequestOverlay({
                         <div className="earlier-row">
                             <label className="earlier-label">
                                 С
-                                <input
-                                    type="date"
-                                    className="earlier-input"
+                                <MaxDatePicker
                                     value={dateFrom}
+                                    onChange={setDateFrom}
                                     min={today}
                                     max={appointmentDate}
-                                    onChange={(e) => setDateFrom(e.target.value)}
                                     disabled={loading}
                                 />
                             </label>
                             <label className="earlier-label">
                                 До
-                                <input
-                                    type="date"
-                                    className="earlier-input"
+                                <MaxDatePicker
                                     value={dateTo}
+                                    onChange={setDateTo}
                                     min={today}
                                     max={appointmentDate}
-                                    onChange={(e) => setDateTo(e.target.value)}
                                     disabled={loading}
                                 />
                             </label>
