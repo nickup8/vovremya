@@ -54,7 +54,7 @@ const FEATURE_LABELS: Record<string, string> = {
     slot_autofill: 'Автозаполнение свободных окон',
 };
 
-const BENEFIT_FEATURES = ['unlimited_appointments', 'client_management', 'channel_analytics'];
+const BENEFIT_FEATURES = ['unlimited_appointments', 'client_management', 'channel_analytics', 'slot_autofill'];
 
 const MONTHS_RU: Record<number, string> = {
     1: 'месяц',
@@ -154,7 +154,7 @@ export default function BillingPage() {
             <Head title="Тарифы и оплата" />
 
             <AdminLayout title="Тарифы и оплата" auth={auth}>
-                <div className="mx-auto max-w-[960px] space-y-4 px-3 pb-10 md:px-0">
+                <div className="max-w-[960px] space-y-4 pb-10">
 
                     {/* ─── 1. Current Plan Strip ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
@@ -202,13 +202,14 @@ export default function BillingPage() {
                             {proPlan.prices.map((price) => {
                                 const isActive = selectedPeriod === price.period_months;
                                 const monthly = Math.round(price.final / price.period_months);
+                                const cardSaving = price.base - price.final;
                                 return (
                                     <button
                                         key={price.period_months}
                                         type="button"
                                         aria-pressed={isActive}
                                         onClick={() => setSelectedPeriod(price.period_months)}
-                                        className={`min-w-0 cursor-pointer rounded-[14px] border p-[14px] text-left transition-colors ${
+                                        className={`flex min-w-0 min-h-[120px] cursor-pointer flex-col rounded-[14px] border p-[14px] text-left transition-colors ${
                                             isActive
                                                 ? 'border-[var(--color-orange)] bg-[var(--color-orange-100)] shadow-[inset_0_0_0_1px_var(--color-orange)]'
                                                 : 'border-[var(--color-line)] bg-[var(--color-surface)] hover:bg-[var(--color-surface-hover)]'
@@ -230,11 +231,9 @@ export default function BillingPage() {
                                         <div className="mt-[2px] text-[11px] leading-4 text-[var(--color-graphite)]">
                                             ≈ {fmt(monthly)} / мес
                                         </div>
-                                        {saving > 0 && price.period_months === selectedPeriod && (
-                                            <div className="mt-[2px] text-[11px] font-semibold leading-4 text-[var(--color-green)]">
-                                                Экономия {fmt(saving)}
-                                            </div>
-                                        )}
+                                        <div className="mt-auto pt-[2px] text-[11px] font-semibold leading-4 text-[var(--color-green)]">
+                                            {cardSaving > 0 ? `Экономия ${fmt(cardSaving)}` : '\u00A0'}
+                                        </div>
                                     </button>
                                 );
                             })}
