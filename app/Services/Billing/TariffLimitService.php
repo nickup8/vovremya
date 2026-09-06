@@ -5,6 +5,7 @@ namespace App\Services\Billing;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Subscription;
+use App\Models\TariffPlan;
 use App\Models\Workspace;
 use App\Support\PlanDefaults;
 use Carbon\CarbonInterface;
@@ -47,11 +48,17 @@ class TariffLimitService
     {
         $activeSubscription = $subscription ?? $workspace->activeSubscription();
 
-        if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
+        if ($activeSubscription && $activeSubscription->tariffPlan) {
+            return $activeSubscription->tariffPlan->max_appointments_per_month ?? PHP_INT_MAX;
+        }
+
+        $startPlan = TariffPlan::where('code', 'start')->first();
+
+        if (! $startPlan) {
             return PlanDefaults::START_MAX_APPOINTMENTS;
         }
 
-        return $activeSubscription->tariffPlan->max_appointments_per_month ?? PHP_INT_MAX;
+        return $startPlan->max_appointments_per_month ?? PHP_INT_MAX;
     }
 
     public function getUsedCount(Workspace $workspace, ?Subscription $subscription = null): int

@@ -171,7 +171,7 @@ export default function BillingPage() {
                                     {isPaid && current.days_left !== undefined
                                         ? `Записи без ограничений · осталось ${current.days_left} дн.`
                                         : current.tariff === 'start'
-                                            ? `До ${tariffLimits?.total ?? 30} записей в месяц`
+                                            ? `До ${tariffLimits?.total ?? '—'} записей в месяц`
                                             : ''}
                                 </div>
                             </div>

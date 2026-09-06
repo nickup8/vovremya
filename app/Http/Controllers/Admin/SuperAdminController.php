@@ -230,4 +230,31 @@ class SuperAdminController extends Controller
 
         return redirect()->route('super_admin.dashboard');
     }
+
+    public function plans(): Response
+    {
+        $plans = TariffPlan::orderBy('price_monthly')->get();
+
+        return Inertia::render('SuperAdmin/Plans', [
+            'plans' => $plans,
+        ]);
+    }
+
+    public function updatePlan(Request $request, TariffPlan $plan): RedirectResponse
+    {
+        $validated = $request->validate([
+            'max_appointments_per_month' => 'nullable|integer|min:1',
+        ]);
+
+        $plan->update($validated);
+
+        Log::info('Super admin updated plan limit', [
+            'admin_id' => auth()->id(),
+            'plan_id' => $plan->id,
+            'plan_code' => $plan->code,
+            'max_appointments_per_month' => $validated['max_appointments_per_month'],
+        ]);
+
+        return back()->with('success', "Лимит тарифа «{$plan->name}» обновлён.");
+    }
 }
