@@ -77,14 +77,17 @@ export default function Plans() {
                                 <div className="text-sm text-slate-600 dark:text-zinc-400">
                                     Записей в месяц:
                                 </div>
-                                {editing === plan.id ? (
+                                {plan.code !== 'start' ? (
+                                    <span className="font-semibold text-slate-900 dark:text-zinc-100">
+                                        Безлимит
+                                    </span>
+                                ) : editing === plan.id ? (
                                     <div className="flex items-center gap-2">
                                         <input
                                             type="number"
                                             min="1"
                                             value={value}
                                             onChange={(e) => setValue(e.target.value)}
-                                            placeholder="Безлимит"
                                             className="w-24 rounded-lg border border-slate-300 px-3 py-1.5 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                                             autoFocus
                                         />
@@ -107,7 +110,7 @@ export default function Plans() {
                                 ) : (
                                     <div className="flex items-center gap-2">
                                         <span className="font-semibold text-slate-900 dark:text-zinc-100">
-                                            {plan.max_appointments_per_month === null ? 'Безлимит' : plan.max_appointments_per_month}
+                                            {plan.max_appointments_per_month ?? '—'}
                                         </span>
                                         <button
                                             type="button"

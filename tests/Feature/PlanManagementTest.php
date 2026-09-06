@@ -103,13 +103,13 @@ class PlanManagementTest extends TestCase
         $admin = User::factory()->create(['is_super_admin' => true]);
 
         $response = $this->actingAs($admin)->put(route('super_admin.update_plan', $this->startPlan), [
-            'max_appointments_per_month' => 11,
+            'max_appointments_per_month' => 50,
         ]);
 
         $response->assertSessionHas('success');
 
         $this->startPlan->refresh();
-        $this->assertSame(11, $this->startPlan->max_appointments_per_month);
+        $this->assertSame(50, $this->startPlan->max_appointments_per_month);
 
         $workspace = Workspace::create([
             'name' => 'After Update',
@@ -117,7 +117,7 @@ class PlanManagementTest extends TestCase
         ]);
 
         $service = app(TariffLimitService::class);
-        $this->assertSame(11, $service->getMonthlyLimit($workspace));
+        $this->assertSame(50, $service->getMonthlyLimit($workspace));
     }
 
     public function test_regular_user_cannot_update_plan(): void
@@ -153,7 +153,7 @@ class PlanManagementTest extends TestCase
         $response->assertSessionHasErrors('max_appointments_per_month');
     }
 
-    public function test_update_allows_null_for_unlimited(): void
+    public function test_update_rejects_null_for_start(): void
     {
         $admin = User::factory()->create(['is_super_admin' => true]);
 
@@ -161,18 +161,31 @@ class PlanManagementTest extends TestCase
             'max_appointments_per_month' => null,
         ]);
 
-        $response->assertSessionHas('success');
+        $response->assertSessionHasErrors('max_appointments_per_month');
+    }
 
-        $this->startPlan->refresh();
-        $this->assertNull($this->startPlan->max_appointments_per_month);
-
-        $workspace = Workspace::create([
-            'name' => 'Unlimited',
-            'owner_id' => User::factory()->create()->id,
+    public function test_update_rejects_pro_plan(): void
+    {
+        $proPlan = TariffPlan::create([
+            'code' => 'pro',
+            'name' => 'Профи',
+            'price_monthly' => 490,
+            'max_appointments_per_month' => null,
+            'max_masters' => 1,
+            'features' => ['unlimited_appointments'],
+            'is_active' => true,
         ]);
 
-        $service = app(TariffLimitService::class);
-        $this->assertSame(PHP_INT_MAX, $service->getMonthlyLimit($workspace));
+        $admin = User::factory()->create(['is_super_admin' => true]);
+
+        $response = $this->actingAs($admin)->put(route('super_admin.update_plan', $proPlan), [
+            'max_appointments_per_month' => 100,
+        ]);
+
+        $response->assertStatus(422);
+
+        $proPlan->refresh();
+        $this->assertNull($proPlan->max_appointments_per_month);
     }
 
     public function test_update_cannot_change_other_fields(): void
