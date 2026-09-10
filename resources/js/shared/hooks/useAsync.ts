@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
-import { UnauthorizedError } from '../../shared/api/types';
+import { UnauthorizedError } from '../api/types';
+import { usePlatform } from '../platform/PlatformContext';
 
 interface AsyncState<T> {
     data: T | null;
@@ -10,6 +11,7 @@ interface AsyncState<T> {
 
 /** Дженерик-хук загрузки async-данных */
 export function useAsync<T>(fetcher: () => Promise<T>): AsyncState<T> {
+    const platform = usePlatform();
     const [data, setData] = useState<T | null>(null);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState<string | null>(null);
@@ -37,7 +39,7 @@ export function useAsync<T>(fetcher: () => Promise<T>): AsyncState<T> {
                     let msg = 'Ошибка загрузки, попробуйте позже';
 
                     if (err === 'no_init_data') {
-                        msg = 'Откройте внутри MAX';
+                        msg = `Откройте внутри ${platform.appName}`;
                     } else if (err instanceof UnauthorizedError) {
                         msg = 'Не удалось авторизоваться';
                     }

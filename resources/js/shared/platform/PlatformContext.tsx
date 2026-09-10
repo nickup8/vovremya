@@ -8,6 +8,7 @@ export interface PlatformBackButton {
 }
 
 export interface Platform {
+    appName: string;
     backButton: PlatformBackButton;
     haptic: {
         impact(style: 'light' | 'medium' | 'heavy' | 'rigid' | 'soft'): void;

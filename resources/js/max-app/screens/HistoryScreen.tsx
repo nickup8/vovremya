@@ -1,7 +1,7 @@
 import type { Appointment } from '../../shared/api/types';
 import { useApi } from '../../shared/api/ApiContext';
 import { usePlatform } from '../../shared/platform/PlatformContext';
-import { useAsync } from '../lib/useAsync';
+import { useAsync } from '../../shared/hooks/useAsync';
 
 const RUSSIAN_MONTHS = [
     'января', 'февраля', 'марта', 'апреля', 'мая', 'июня',

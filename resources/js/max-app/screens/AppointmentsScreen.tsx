@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { Appointment } from '../../shared/api/types';
 import { useApi } from '../../shared/api/ApiContext';
 import { usePlatform } from '../../shared/platform/PlatformContext';
-import { useAsync } from '../lib/useAsync';
+import { useAsync } from '../../shared/hooks/useAsync';
 import { CancelSuccess } from './CancelOverlay';
 import { EarlierRequestOverlay } from './EarlierRequestOverlay';
 
