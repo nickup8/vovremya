@@ -9,7 +9,7 @@ use Illuminate\Support\Collection;
 class MiniAppClientResolver
 {
     /**
-     * Все Client IDs, принадлежащие MAX-пользователю.
+     * Все Client IDs, принадлежащие пользователю (MAX или VK).
      *
      * @return Collection<int, string>
      */
@@ -17,11 +17,17 @@ class MiniAppClientResolver
     {
         $maxInit = $request->attributes->get('max_init');
 
-        if ($maxInit === null) {
-            return collect();
+        if ($maxInit !== null) {
+            return Client::byMaxId($maxInit->userId)->pluck('id');
         }
 
-        return Client::byMaxId($maxInit->userId)->pluck('id');
+        $vkLaunch = $request->attributes->get('vk_launch');
+
+        if ($vkLaunch !== null) {
+            return Client::byVkId($vkLaunch->userId)->pluck('id');
+        }
+
+        return collect();
     }
 
     /**
@@ -31,10 +37,16 @@ class MiniAppClientResolver
     {
         $maxInit = $request->attributes->get('max_init');
 
-        if ($maxInit === null) {
-            return null;
+        if ($maxInit !== null) {
+            return Client::byMaxId($maxInit->userId)->first();
         }
 
-        return Client::byMaxId($maxInit->userId)->first();
+        $vkLaunch = $request->attributes->get('vk_launch');
+
+        if ($vkLaunch !== null) {
+            return Client::byVkId($vkLaunch->userId)->first();
+        }
+
+        return null;
     }
 }
