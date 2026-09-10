@@ -103,12 +103,10 @@ export default function BillingPage() {
     const tariffLimits = props.tariff_limits;
 
     const proPlan = plans.find((p) => p.code === 'pro');
-    const startPlan = plans.find((p) => p.code === 'start');
 
     const [selectedPeriod, setSelectedPeriod] = useState(3);
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
-    const [compareOpen, setCompareOpen] = useState(false);
 
     const selectedPrice = proPlan?.prices.find((p) => p.period_months === selectedPeriod);
     const monthlyEquiv = selectedPrice ? Math.round(selectedPrice.final / selectedPeriod) : 0;
@@ -155,7 +153,7 @@ export default function BillingPage() {
 
             <AdminLayout title="Тарифы и оплата" auth={auth} fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
-                    <div className="w-full space-y-4 pb-10">
+                    <div className="w-full max-w-[1180px] space-y-4 pb-[180px] md:pb-10">
 
                     {/* ─── 1. Current Plan Strip ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
@@ -199,7 +197,7 @@ export default function BillingPage() {
                         </div>
 
                         {/* Period Grid */}
-                        <div className="grid grid-cols-4 gap-2.5 max-[1100px]:grid-cols-2 max-[600px]:grid-cols-1">
+                        <div className="grid grid-cols-4 gap-2.5 max-md:grid-cols-2">
                             {proPlan.prices.map((price) => {
                                 const isActive = selectedPeriod === price.period_months;
                                 const monthly = Math.round(price.final / price.period_months);
@@ -240,104 +238,91 @@ export default function BillingPage() {
                             })}
                         </div>
 
-                        {/* Divider */}
-                        <div className="my-5 border-t border-[var(--color-line-soft)]" />
-
-                        {/* Summary + CTA */}
-                        <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-6 max-md:grid-cols-1 max-md:gap-4">
-                            <div>
-                                <div className="text-[12px] leading-4 text-[var(--color-graphite)]">
-                                    К оплате за {pluralizePeriod(selectedPeriod)}
-                                </div>
-                                <div className="mt-[2px] text-[28px] font-bold leading-[34px] tracking-[-.035em] text-[var(--color-ink)]">
-                                    {selectedPrice ? fmt(selectedPrice.final) : '—'}
-                                </div>
-                                <div className="mt-[2px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                    Подписка будет продлена на выбранный срок после текущей даты окончания.
-                                </div>
-                            </div>
-                            <div className="text-right max-md:text-left">
-                                <div className="text-[14px] font-semibold text-[var(--color-ink)]">
-                                    ≈ {fmt(monthlyEquiv)} / мес
-                                </div>
-                                {saving > 0 && (
-                                    <div className="mt-[2px] text-[11px] font-semibold text-[var(--color-green)]">
-                                        Экономия {fmt(saving)}
+                        {/* Divider + Summary + CTA — desktop only */}
+                        <div className="max-md:hidden">
+                            <div className="my-5 border-t border-[var(--color-line-soft)]" />
+                            <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-6">
+                                <div>
+                                    <div className="text-[12px] leading-4 text-[var(--color-graphite)]">
+                                        К оплате за {pluralizePeriod(selectedPeriod)}
                                     </div>
-                                )}
+                                    <div className="mt-[2px] text-[28px] font-bold leading-[34px] tracking-[-.035em] text-[var(--color-ink)]">
+                                        {selectedPrice ? fmt(selectedPrice.final) : '—'}
+                                    </div>
+                                    <div className="mt-[2px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                        Подписка будет продлена на выбранный срок после текущей даты окончания.
+                                    </div>
+                                </div>
+                                <div className="text-right">
+                                    <div className="text-[14px] font-semibold text-[var(--color-ink)]">
+                                        ≈ {fmt(monthlyEquiv)} / мес
+                                    </div>
+                                    {saving > 0 && (
+                                        <div className="mt-[2px] text-[11px] font-semibold text-[var(--color-green)]">
+                                            Экономия {fmt(saving)}
+                                        </div>
+                                    )}
+                                </div>
                             </div>
-                        </div>
-
-                        <div className="mt-5 flex justify-end">
-                            <button
-                                type="button"
-                                disabled={loading}
-                                onClick={() => setModalOpen(true)}
-                                className="h-10 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-5 text-[14px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
-                            >
-                                {loading ? 'Перенаправление…' : `Продлить на ${pluralizePeriod(selectedPeriod)} — ${selectedPrice ? fmt(selectedPrice.final) : ''}`}
-                            </button>
+                            <div className="mt-5 flex justify-end">
+                                <button
+                                    type="button"
+                                    disabled={loading}
+                                    onClick={() => setModalOpen(true)}
+                                    className="h-10 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-5 text-[14px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {loading ? 'Перенаправление…' : `Продлить на ${pluralizePeriod(selectedPeriod)} — ${selectedPrice ? fmt(selectedPrice.final) : ''}`}
+                                </button>
+                            </div>
                         </div>
                     </section>
 
-                    {/* ─── 3. Benefits + Comparison ─── */}
+                    {/* ─── 3. Benefits ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
-                        <div className="flex flex-wrap items-start justify-between gap-4">
-                            <div>
-                                <div className="text-[14px] font-bold leading-[19px] text-[var(--color-ink)]">
-                                    Что входит в Профи
-                                </div>
-                                <div className="mt-3 grid gap-[7px]">
-                                    {BENEFIT_FEATURES.filter((f) => proPlan.features.includes(f)).map((f) => (
-                                        <div key={f} className="flex items-center gap-[9px] text-[13px] text-[var(--color-ink)]">
-                                            <svg className="shrink-0 text-[var(--color-green)]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M20 6 9 17l-5-5" />
-                                            </svg>
-                                            {FEATURE_LABELS[f] ?? f}
-                                        </div>
-                                    ))}
-                                </div>
-                            </div>
-                            {startPlan && (
-                                <button
-                                    type="button"
-                                    onClick={() => setCompareOpen((v) => !v)}
-                                    className="cursor-pointer border-0 bg-transparent p-0 text-[12px] font-semibold text-[var(--color-orange)] underline decoration-[var(--color-orange)]/30 underline-offset-[3px] transition-colors hover:text-[var(--color-orange-hover)]"
-                                >
-                                    Сравнить со Старт
-                                </button>
-                            )}
+                        <div className="text-[14px] font-bold leading-[19px] text-[var(--color-ink)]">
+                            Что входит в Профи
                         </div>
-
-                        {startPlan && compareOpen && (
-                            <div className="mt-4">
-                                <table className="w-full border-collapse text-[12px]">
-                                    <tbody>
-                                        <tr className="border-t border-[var(--color-line-soft)]">
-                                            <td className="py-2.5 text-[var(--color-graphite)]">Записи в месяц</td>
-                                            <td className="py-2.5 text-right font-semibold text-[var(--color-ink)]">
-                                                {startPlan.max_appointments_per_month ?? 'Безлимит'} → Профи: безлимит
-                                            </td>
-                                        </tr>
-                                        <tr className="border-t border-[var(--color-line-soft)]">
-                                            <td className="py-2.5 text-[var(--color-graphite)]">База клиентов</td>
-                                            <td className="py-2.5 text-right font-semibold text-[var(--color-ink)]">Полная</td>
-                                        </tr>
-                                        <tr className="border-t border-[var(--color-line-soft)]">
-                                            <td className="py-2.5 text-[var(--color-graphite)]">Стоимость Старт</td>
-                                            <td className="py-2.5 text-right font-semibold text-[var(--color-ink)]">
-                                                {fmt(startPlan.price_monthly)} / мес
-                                            </td>
-                                        </tr>
-                                    </tbody>
-                                </table>
-                            </div>
-                        )}
+                        <div className="mt-3 grid gap-[7px]">
+                            {BENEFIT_FEATURES.filter((f) => proPlan.features.includes(f)).map((f) => (
+                                <div key={f} className="flex items-center gap-[9px] text-[13px] text-[var(--color-ink)]">
+                                    <svg className="shrink-0 text-[var(--color-green)]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
+                                        <path d="M20 6 9 17l-5-5" />
+                                    </svg>
+                                    {FEATURE_LABELS[f] ?? f}
+                                </div>
+                            ))}
+                        </div>
                     </section>
                     </div>
                 </div>
 
-                {/* ─── 4. Payment Confirmation Modal ─── */}
+                {/* ─── 4. Mobile Sticky Purchase Bar ─── */}
+                <div className="fixed inset-x-0 bottom-0 z-[100] border-t border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] md:hidden">
+                    <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                            <div className="text-[12px] leading-4 text-[var(--color-graphite)]">
+                                {selectedPeriod} {MONTHS_RU_SHORT[selectedPeriod]} · ≈ {fmt(monthlyEquiv)} / мес
+                            </div>
+                            <div className="mt-[2px] text-[17px] font-bold leading-[22px] tracking-[-.02em] text-[var(--color-ink)]">
+                                {selectedPrice ? fmt(selectedPrice.final) : '—'}
+                            </div>
+                            <div className={`mt-[2px] text-[11px] font-semibold leading-4 ${saving > 0 ? 'text-[var(--color-green)]' : 'text-[var(--color-graphite)]'}`}>
+                                {saving > 0 ? `Экономия ${fmt(saving)}` : 'Без скидки'}
+                            </div>
+                        </div>
+                        <button
+                            type="button"
+                            disabled={loading}
+                            onClick={() => setModalOpen(true)}
+                            className="shrink-0 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
+                            style={{ height: 40 }}
+                        >
+                            {loading ? '…' : 'Продлить'}
+                        </button>
+                    </div>
+                </div>
+
+                {/* ─── 5. Payment Confirmation Modal ─── */}
                 {modalOpen && (
                     <>
                         <div
