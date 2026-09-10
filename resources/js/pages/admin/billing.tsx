@@ -297,7 +297,7 @@ export default function BillingPage() {
                 </div>
 
                 {/* ─── 4. Mobile Sticky Purchase Bar ─── */}
-                <div className="fixed inset-x-0 bottom-0 z-[100] border-t border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] md:hidden">
+                <div className="fixed inset-x-0 bottom-0 z-[55] border-t border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] md:hidden">
                     <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                             <div className="text-[12px] leading-4 text-[var(--color-graphite)]">
