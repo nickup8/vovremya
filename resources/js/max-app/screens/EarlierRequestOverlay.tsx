@@ -1,7 +1,7 @@
 import { useCallback, useState } from 'react';
 import { MaxDatePicker } from '../components/MaxDatePicker';
 import { MaxTimePicker } from '../components/MaxTimePicker';
-import type { EarlierRequest } from '../lib/api';
+import type { EarlierRequest } from '../../shared/api/types';
 
 interface EarlierRequestOverlayProps {
     appointmentDate: string;

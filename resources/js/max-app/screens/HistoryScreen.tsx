@@ -1,4 +1,5 @@
-import { getHistory, type Appointment } from '../lib/api';
+import type { Appointment } from '../../shared/api/types';
+import { useApi } from '../../shared/api/ApiContext';
 import { usePlatform } from '../../shared/platform/PlatformContext';
 import { useAsync } from '../lib/useAsync';
 
@@ -68,6 +69,7 @@ function statusVariant(status: string): 'green' | 'blue' | 'red' | 'neutral' {
 
 export function HistoryScreen() {
     const { openLink } = usePlatform();
+    const { getHistory } = useApi();
     const { data, loading, error, reload } = useAsync<Appointment[]>(getHistory);
 
     if (loading) {

@@ -4,7 +4,7 @@ import { createMiniappApi } from '../../shared/api/client';
 export type { EarlierRequest, Appointment, Profile } from '../../shared/api/types';
 export { UnauthorizedError } from '../../shared/api/types';
 
-const api = createMiniappApi(() => {
+export const api = createMiniappApi(() => {
     const initData = getInitData();
 
     return initData !== null

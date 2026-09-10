@@ -4,6 +4,8 @@ import { UnauthorizedError } from './types';
 export type AuthHeadersProvider =
     () => Record<string, string> | null;
 
+export type MiniappApi = ReturnType<typeof createMiniappApi>;
+
 export function createMiniappApi(getAuthHeaders: AuthHeadersProvider) {
     const BASE = '/api/miniapp';
 

@@ -1,4 +1,5 @@
-import { getProfile, type Profile } from '../lib/api';
+import type { Profile } from '../../shared/api/types';
+import { useApi } from '../../shared/api/ApiContext';
 import { useAsync } from '../lib/useAsync';
 
 function formatPhone(raw: string): string {
@@ -15,6 +16,7 @@ function formatPhone(raw: string): string {
 }
 
 export function ProfileScreen() {
+    const { getProfile } = useApi();
     const { data, loading, error, reload } = useAsync<Profile>(getProfile);
 
     if (loading) {
