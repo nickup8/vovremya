@@ -1,6 +1,6 @@
-import type { Profile } from '../../shared/api/types';
-import { useApi } from '../../shared/api/ApiContext';
-import { useAsync } from '../../shared/hooks/useAsync';
+import type { Profile } from '../api/types';
+import { useApi } from '../api/ApiContext';
+import { useAsync } from '../hooks/useAsync';
 
 function formatPhone(raw: string): string {
     const digits = raw.replace(/\D/g, '');

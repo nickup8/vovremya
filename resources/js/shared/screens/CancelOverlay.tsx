@@ -1,4 +1,4 @@
-import { usePlatform } from '../../shared/platform/PlatformContext';
+import { usePlatform } from '../platform/PlatformContext';
 
 interface CancelSuccessProps {
     masterSlug?: string | null;

@@ -1,8 +1,8 @@
 import { useEffect, useState } from 'react';
 import { backButton, getInitData, isInsideMax } from './lib/maxBridge';
-import { AppointmentsScreen } from './screens/AppointmentsScreen';
-import { HistoryScreen } from './screens/HistoryScreen';
-import { ProfileScreen } from './screens/ProfileScreen';
+import { AppointmentsScreen } from '../shared/screens/AppointmentsScreen';
+import { HistoryScreen } from '../shared/screens/HistoryScreen';
+import { ProfileScreen } from '../shared/screens/ProfileScreen';
 
 type Screen = 'appointments' | 'history' | 'profile';
 

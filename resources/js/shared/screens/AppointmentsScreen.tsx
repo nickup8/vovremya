@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
-import type { Appointment } from '../../shared/api/types';
-import { useApi } from '../../shared/api/ApiContext';
-import { usePlatform } from '../../shared/platform/PlatformContext';
-import { useAsync } from '../../shared/hooks/useAsync';
+import type { Appointment } from '../api/types';
+import { useApi } from '../api/ApiContext';
+import { usePlatform } from '../platform/PlatformContext';
+import { useAsync } from '../hooks/useAsync';
 import { CancelSuccess } from './CancelOverlay';
 import { EarlierRequestOverlay } from './EarlierRequestOverlay';
 
