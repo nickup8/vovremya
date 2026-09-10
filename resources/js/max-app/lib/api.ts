@@ -1,81 +1,20 @@
 import { getInitData } from './maxBridge';
-import type { EarlierRequest, Appointment, Profile } from '../../shared/api/types';
-import { UnauthorizedError } from '../../shared/api/types';
+import { createMiniappApi } from '../../shared/api/client';
 
-export type { EarlierRequest, Appointment, Profile };
-export { UnauthorizedError };
+export type { EarlierRequest, Appointment, Profile } from '../../shared/api/types';
+export { UnauthorizedError } from '../../shared/api/types';
 
-const BASE = '/api/miniapp';
-
-/**
- * Базовый fetch-запрос к API мини-аппа.
- * Автоматически шлёт X-Max-Init-Data.
- */
-async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
+const api = createMiniappApi(() => {
     const initData = getInitData();
-    if (initData === null) {
-        return Promise.reject('no_init_data');
-    }
 
-    const headers: Record<string, string> = {
-        'X-Max-Init-Data': initData,
-        Accept: 'application/json',
-        ...(options.headers as Record<string, string> ?? {}),
-    };
+    return initData !== null
+        ? { 'X-Max-Init-Data': initData }
+        : null;
+});
 
-    if (options.method && options.method !== 'GET') {
-        headers['Content-Type'] = 'application/json';
-    }
-
-    const res = await fetch(`${BASE}${path}`, { ...options, headers });
-
-    if (res.status === 401) {
-        throw new UnauthorizedError();
-    }
-
-    if (res.status === 422) {
-        return res.json() as Promise<T>;
-    }
-
-    if (!res.ok) {
-        throw new Error(`API error: ${res.status}`);
-    }
-
-    return res.json() as Promise<T>;
-}
-
-/** Активные записи (Booked + будущее) */
-export function getAppointments(): Promise<Appointment[]> {
-    return request<Appointment[]>('/appointments');
-}
-
-/** История записей (прошлые, все статусы) */
-export function getHistory(): Promise<Appointment[]> {
-    return request<Appointment[]>('/appointments/history');
-}
-
-/** Профиль клиента */
-export function getProfile(): Promise<Profile> {
-    return request<Profile>('/profile');
-}
-
-/** Отмена записи */
-export function cancelAppointment(id: string): Promise<{ ok: true } | { error: string; deadline_hours?: number }> {
-    return request(`/appointments/${id}/cancel`, { method: 'POST', body: '{}' });
-}
-
-/** Создать/обновить EARLIER request */
-export function saveEarlierRequest(
-    appointmentId: string,
-    data: { date_from: string; date_to: string; time_from: string; time_to: string },
-): Promise<{ ok: true; earlier_request: EarlierRequest } | { error: string }> {
-    return request(`/appointments/${appointmentId}/earlier-request`, {
-        method: 'PUT',
-        body: JSON.stringify(data),
-    });
-}
-
-/** Отменить EARLIER request */
-export function cancelEarlierRequest(appointmentId: string): Promise<{ ok: true }> {
-    return request(`/appointments/${appointmentId}/earlier-request`, { method: 'DELETE' });
-}
+export const getAppointments = api.getAppointments;
+export const getHistory = api.getHistory;
+export const getProfile = api.getProfile;
+export const cancelAppointment = api.cancelAppointment;
+export const saveEarlierRequest = api.saveEarlierRequest;
+export const cancelEarlierRequest = api.cancelEarlierRequest;
