@@ -54,6 +54,7 @@ class ClientMergeService
         $field = match ($provider) {
             'telegram' => 'telegram_id',
             'max' => 'max_id',
+            'vk' => 'vk_id',
             default => null,
         };
 
