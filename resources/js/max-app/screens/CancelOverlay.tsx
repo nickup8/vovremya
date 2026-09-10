@@ -1,4 +1,4 @@
-import { openLink } from '../lib/maxBridge';
+import { usePlatform } from '../../shared/platform/PlatformContext';
 
 interface CancelSuccessProps {
     masterSlug?: string | null;
@@ -6,6 +6,8 @@ interface CancelSuccessProps {
 }
 
 export function CancelSuccess({ masterSlug, onClose }: CancelSuccessProps) {
+    const { openLink } = usePlatform();
+
     const handleBookAgain = () => {
         if (masterSlug) {
             openLink(`${window.location.origin}/book/${masterSlug}`);

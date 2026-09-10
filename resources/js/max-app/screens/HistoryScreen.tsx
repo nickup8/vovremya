@@ -1,5 +1,5 @@
 import { getHistory, type Appointment } from '../lib/api';
-import { openLink } from '../lib/maxBridge';
+import { usePlatform } from '../../shared/platform/PlatformContext';
 import { useAsync } from '../lib/useAsync';
 
 const RUSSIAN_MONTHS = [
@@ -67,6 +67,7 @@ function statusVariant(status: string): 'green' | 'blue' | 'red' | 'neutral' {
 }
 
 export function HistoryScreen() {
+    const { openLink } = usePlatform();
     const { data, loading, error, reload } = useAsync<Appointment[]>(getHistory);
 
     if (loading) {

@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { cancelAppointment, cancelEarlierRequest, getAppointments, saveEarlierRequest, type Appointment } from '../lib/api';
-import { backButton, haptic } from '../lib/maxBridge';
+import { usePlatform } from '../../shared/platform/PlatformContext';
 import { useAsync } from '../lib/useAsync';
 import { CancelSuccess } from './CancelOverlay';
 import { EarlierRequestOverlay } from './EarlierRequestOverlay';
@@ -102,6 +102,7 @@ function formatDateShort(raw: string): string {
 }
 
 export function AppointmentsScreen() {
+    const { backButton, haptic } = usePlatform();
     const { data, loading, error, reload } = useAsync<Appointment[]>(getAppointments);
 
     const [cancelPhase, setCancelPhase] = useState<CancelPhase>('idle');
