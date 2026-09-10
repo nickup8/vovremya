@@ -2,12 +2,12 @@
 
 namespace App\Http\Controllers\Api\MiniApp;
 
-use App\Enums\AppointmentStatus;
 use App\Enums\SlotRequestDeliveryChannel;
 use App\Enums\SlotRequestSource;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Services\MiniAppClientResolver;
 use App\Services\SlotRequestService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -16,6 +16,7 @@ class EarlierRequestController extends Controller
 {
     public function __construct(
         private SlotRequestService $slotRequestService,
+        private MiniAppClientResolver $clientResolver,
     ) {}
 
     public function store(Request $request, Appointment $appointment): JsonResponse
@@ -89,9 +90,7 @@ class EarlierRequestController extends Controller
 
     private function resolveClient(Request $request, Appointment $appointment): ?Client
     {
-        $maxId = $request->attributes->get('max_init')->userId;
-
-        $clientIds = Client::byMaxId($maxId)->pluck('id');
+        $clientIds = $this->clientResolver->resolveClientIds($request);
 
         if (! $clientIds->contains($appointment->client_id)) {
             return null;

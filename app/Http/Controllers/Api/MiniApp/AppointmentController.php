@@ -7,21 +7,25 @@ use App\Exceptions\CancellationNotAllowedException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MiniApp\AppointmentResource;
 use App\Models\Appointment;
-use App\Models\Client;
 use App\Services\AppointmentStatusService;
 use App\Services\Booking\BookingService;
+use App\Services\MiniAppClientResolver;
 use App\Services\Notification\MasterNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
 class AppointmentController extends Controller
 {
+    public function __construct(
+        private MiniAppClientResolver $clientResolver,
+    ) {}
+
     /**
      * Активные записи клиента (Booked + будущее).
      */
     public function index(Request $request): JsonResponse
     {
-        $clientIds = $this->getClientIds($request);
+        $clientIds = $this->clientResolver->resolveClientIds($request);
 
         if ($clientIds->isEmpty()) {
             return response()->json([]);
@@ -47,7 +51,7 @@ class AppointmentController extends Controller
      */
     public function history(Request $request): JsonResponse
     {
-        $clientIds = $this->getClientIds($request);
+        $clientIds = $this->clientResolver->resolveClientIds($request);
 
         if ($clientIds->isEmpty()) {
             return response()->json([]);
@@ -69,7 +73,7 @@ class AppointmentController extends Controller
      */
     public function cancel(Request $request, Appointment $appointment): JsonResponse
     {
-        $clientIds = $this->getClientIds($request);
+        $clientIds = $this->clientResolver->resolveClientIds($request);
 
         // проверка владельца
         if (! $clientIds->contains($appointment->client_id)) {
@@ -117,8 +121,7 @@ class AppointmentController extends Controller
      */
     public function profile(Request $request): JsonResponse
     {
-        $maxId = $request->attributes->get('max_init')->userId;
-        $client = Client::byMaxId($maxId)->first();
+        $client = $this->clientResolver->resolveFirstClient($request);
 
         if ($client === null) {
             return response()->json(['name' => null, 'phone' => null]);
@@ -128,17 +131,5 @@ class AppointmentController extends Controller
             'name' => $client->name,
             'phone' => $client->phone,
         ]);
-    }
-
-    /**
-     * Собирает ID всех строк клиента по max_id.
-     *
-     * @return \Illuminate\Support\Collection<int, string>
-     */
-    private function getClientIds(Request $request): \Illuminate\Support\Collection
-    {
-        $maxId = $request->attributes->get('max_init')->userId;
-
-        return Client::byMaxId($maxId)->pluck('id');
     }
 }
