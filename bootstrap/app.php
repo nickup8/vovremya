@@ -4,6 +4,7 @@ use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SuperAdminMiddleware;
 use App\Http\Middleware\VerifyMaxInitData;
+use App\Http\Middleware\VerifyMiniAppAuth;
 use App\Http\Middleware\VerifyVkLaunchParams;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
@@ -27,6 +28,7 @@ return Application::configure(basePath: dirname(__DIR__))
             'super_admin' => SuperAdminMiddleware::class,
             'max.initdata' => VerifyMaxInitData::class,
             'vk.launch' => VerifyVkLaunchParams::class,
+            'miniapp.auth' => VerifyMiniAppAuth::class,
             'feature' => \App\Http\Middleware\EnsureHasFeature::class,
         ]);
 
