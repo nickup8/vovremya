@@ -153,8 +153,9 @@ export default function BillingPage() {
         <>
             <Head title="Тарифы и оплата" />
 
-            <AdminLayout title="Тарифы и оплата" auth={auth}>
-                <div className="max-w-[960px] space-y-4 pb-10">
+            <AdminLayout title="Тарифы и оплата" auth={auth} fullBleed>
+                <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
+                    <div className="w-full space-y-4 pb-10">
 
                     {/* ─── 1. Current Plan Strip ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
@@ -333,6 +334,7 @@ export default function BillingPage() {
                             </div>
                         )}
                     </section>
+                    </div>
                 </div>
 
                 {/* ─── 4. Payment Confirmation Modal ─── */}
