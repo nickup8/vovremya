@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { UnauthorizedError } from './api';
+import { UnauthorizedError } from '../../shared/api/types';
 
 interface AsyncState<T> {
     data: T | null;
