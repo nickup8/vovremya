@@ -52,6 +52,8 @@ return [
         'bot_token' => env('VK_BOT_TOKEN'),
         'secret' => env('VK_SECRET_TOKEN'),
         'confirmation_token' => env('VK_CONFIRMATION_TOKEN'),
+        'app_id' => env('VK_APP_ID'),
+        'app_secret' => env('VK_APP_SECRET'),
     ],
 
 ];
