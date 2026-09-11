@@ -100,4 +100,68 @@ class VkLinkTokenServiceTest extends TestCase
         // Cache::get should return the value (not yet expired)
         $this->assertNotNull(Cache::get($key));
     }
+
+    // --- peek() tests ---
+
+    public function test_peek_valid_token_returns_appointment_id(): void
+    {
+        $appointmentId = Str::uuid()->toString();
+        $token = $this->service->create($appointmentId);
+
+        $this->assertEquals($appointmentId, $this->service->peek($token));
+    }
+
+    public function test_peek_does_not_consume_token(): void
+    {
+        $appointmentId = Str::uuid()->toString();
+        $token = $this->service->create($appointmentId);
+
+        $this->service->peek($token);
+
+        $this->assertEquals($appointmentId, $this->service->consume($token));
+    }
+
+    public function test_two_successive_peeks_return_same_id(): void
+    {
+        $appointmentId = Str::uuid()->toString();
+        $token = $this->service->create($appointmentId);
+
+        $this->assertEquals($appointmentId, $this->service->peek($token));
+        $this->assertEquals($appointmentId, $this->service->peek($token));
+    }
+
+    public function test_peek_then_consume_succeeds(): void
+    {
+        $appointmentId = Str::uuid()->toString();
+        $token = $this->service->create($appointmentId);
+
+        $this->service->peek($token);
+
+        $this->assertEquals($appointmentId, $this->service->consume($token));
+    }
+
+    public function test_peek_after_consume_returns_null(): void
+    {
+        $appointmentId = Str::uuid()->toString();
+        $token = $this->service->create($appointmentId);
+
+        $this->service->consume($token);
+
+        $this->assertNull($this->service->peek($token));
+    }
+
+    public function test_peek_expired_token_returns_null(): void
+    {
+        $appointmentId = Str::uuid()->toString();
+        $token = $this->service->create($appointmentId);
+
+        Cache::forget('vk_link_token:' . $token);
+
+        $this->assertNull($this->service->peek($token));
+    }
+
+    public function test_peek_unknown_token_returns_null(): void
+    {
+        $this->assertNull($this->service->peek('link_vk_nonexistent_token_value_here__'));
+    }
 }

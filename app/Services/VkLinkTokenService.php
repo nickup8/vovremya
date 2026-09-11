@@ -22,6 +22,20 @@ class VkLinkTokenService
     }
 
     /**
+     * Читает appointment ID из token без удаления (non-destructive).
+     * Повторный peek() возвращает тот же ID.
+     * Expired/unknown → null.
+     */
+    public function peek(string $token): ?string
+    {
+        if ($token === '' || ! str_starts_with($token, 'link_vk_')) {
+            return null;
+        }
+
+        return Cache::get(CacheKeys::VK_LINK_TOKEN . $token) ?: null;
+    }
+
+    /**
      * Извлекает appointment ID из token (one-time consume).
      * Повторный вызов или expired/unknown → null.
      */
