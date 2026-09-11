@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Webhook;
 
+use App\Webhooks\VkWebhookHandler;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
 use Symfony\Component\HttpFoundation\Response;
@@ -43,6 +44,16 @@ class VkWebhookController
             'type' => $type,
             'group_id' => $request->input('group_id'),
         ]);
+
+        if ($type === 'message_event') {
+            try {
+                app(VkWebhookHandler::class)->handle($request->all());
+            } catch (\Throwable $e) {
+                Log::error('[VK] webhook processing failed', [
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
 
         return response('ok');
     }

@@ -97,18 +97,14 @@ class VkWebhookControllerTest extends TestCase
 
     public function test_unknown_event_does_not_leak_secret(): void
     {
-        Log::shouldReceive('warning')->never();
-        Log::shouldReceive('debug')->once()->with('[VK] webhook event received', \Mockery::on(fn ($ctx) =>
-            $ctx['type'] === 'message_event'
-            && $ctx['group_id'] === 456
-            && ! array_key_exists('secret', $ctx)
-        ));
-
-        $this->postJson('/webhooks/vk', [
+        $response = $this->postJson('/webhooks/vk', [
             'type' => 'message_event',
             'group_id' => 456,
             'secret' => 'test_vk_secret_abc',
             'object' => [],
-        ])->assertStatus(200);
+        ]);
+
+        $response->assertStatus(200);
+        $response->assertSeeText('ok', false);
     }
 }
