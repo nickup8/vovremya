@@ -21,6 +21,7 @@ use App\Http\Controllers\Client\RoleSwitchController;
 use App\Http\Controllers\ClientModeController;
 use App\Http\Controllers\Webhook\PaymentWebhookController;
 use App\Http\Controllers\Webhook\TelegraphWebhookController;
+use App\Http\Controllers\Webhook\VkWebhookController;
 use App\Http\Controllers\WebhookController;
 use App\Models\User;
 use DefStudio\Telegraph\Models\TelegraphBot;
@@ -62,6 +63,7 @@ Route::post('/webhooks/telegram', [WebhookController::class, 'handleTelegram'])-
 Route::post('/webhooks/telegram/bypass', [WebhookController::class, 'handleBypass'])->middleware('throttle:60,1')->name('webhooks.telegram.bypass');
 Route::post('/webhooks/max', [WebhookController::class, 'handleMax'])->middleware('throttle:60,1')->name('webhooks.max');
 Route::post('/max/webhook', [WebhookController::class, 'handleMax'])->middleware('throttle:60,1')->name('max.webhook');
+Route::post('/webhooks/vk', VkWebhookController::class)->middleware('throttle:60,1')->name('webhooks.vk');
 
 // Диагностический маршрут для перехвата вебхука Telegraph с логированием токена.
 // Переопределяет авто-регистрируемый маршрут пакета (/telegraph/{token}/webhook),
