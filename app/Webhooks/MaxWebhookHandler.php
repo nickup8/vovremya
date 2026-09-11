@@ -4,9 +4,7 @@ namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
-use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
-use App\Events\AppointmentVisitConfirmed;
 use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -810,28 +808,23 @@ class MaxWebhookHandler
             return;
         }
 
-        if ($appointment->status !== AppointmentStatus::Booked) {
-            $this->maxApi->answerCallback($callbackId, __('bot.visit_confirm.not_available'));
+        $result = app(\App\Services\AppointmentVisitConfirmationService::class)
+            ->confirm($appointment, $client);
 
-            return;
-        }
+        match ($result['result']) {
+            'not_available' => $this->maxApi->answerCallback($callbackId, __('bot.visit_confirm.not_available')),
+            'already' => $this->maxApi->answerCallback($callbackId, __('bot.visit_confirm.already')),
+            'ok' => $this->handleConfirmSuccess($userId, $callbackId, $appointmentId),
+            default => null,
+        };
+    }
 
-        if ($appointment->client_confirmed_at !== null) {
-            $this->maxApi->answerCallback($callbackId, __('bot.visit_confirm.already'));
-
-            return;
-        }
-
-        $appointment->update(['client_confirmed_at' => now()]);
-
+    private function handleConfirmSuccess(string $userId, string $callbackId, string $appointmentId): void
+    {
         Log::info('[MAX] confirmMaxVisit: success', [
             'user_id' => $userId,
             'appointment_id' => $appointmentId,
         ]);
-
-        broadcast(new AppointmentVisitConfirmed(
-            $appointment->fresh()->load(['client'])
-        ));
 
         $ok = $this->maxApi->answerCallbackWithMessage(
             $callbackId,
@@ -841,17 +834,6 @@ class MaxWebhookHandler
             $this->maxApi->answerCallback($callbackId);
             $this->sendMessage($userId, __('bot.visit_confirm.client_thanks'));
         }
-
-        $tz = $appointment->master->getTimezone();
-        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
-        $time = $appointment->start_time->timezone($tz)->format('H:i');
-
-        app(MasterNotificationService::class)
-            ->sendToMaster($appointment->master, __('bot.master.visit_confirmed', [
-                'client' => $client->name ?? __('bot.fallback.client_name'),
-                'date' => $date,
-                'time' => $time,
-            ]));
     }
 
     private function handleAutofillAccept(string $userId, string $callbackId, string $offerUuid, string $messageId): void
