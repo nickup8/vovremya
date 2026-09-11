@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Booking\AttributionService;
 use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
+use App\Services\VkLinkTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -127,7 +128,7 @@ class BookingWidgetController extends Controller
             'service_id' => 'required|exists:master_service,id',
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
-            'provider' => 'required|in:telegram,max,admin',
+            'provider' => 'required|in:telegram,max,admin,vk',
         ]);
 
         $service = $master->masterServices()
@@ -173,11 +174,17 @@ class BookingWidgetController extends Controller
         $telegramBotName = config('services.telegram.bot_name', 'vovremia_bot');
         $maxBotName = config('services.max.bot_name');
 
+        $vkLinkToken = null;
+        if ($validated['provider'] === 'vk') {
+            $vkLinkToken = app(VkLinkTokenService::class)->create($appointment->id);
+        }
+
         return response()->json([
             'success' => true,
             'appointment_id' => $appointment->id,
             'telegram_url' => "https://t.me/{$telegramBotName}?start=book_{$appointment->id}",
             'max_url' => $maxBotName ? "https://max.ru/{$maxBotName}?start=book_{$appointment->id}" : null,
+            'vk_link_token' => $vkLinkToken,
         ]);
     }
 }
