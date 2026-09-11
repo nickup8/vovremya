@@ -23,6 +23,13 @@ class VkPhoneNumberVerifierTest extends TestCase
 
     private function sign(string $userId, string $phone): string
     {
+        $raw = hash('sha256', $this->testAppId . $this->testAppSecret . $userId . 'phone_number' . $phone, true);
+
+        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
+    }
+
+    private function hexSign(string $userId, string $phone): string
+    {
         return hash('sha256', $this->testAppId . $this->testAppSecret . $userId . 'phone_number' . $phone);
     }
 
@@ -111,5 +118,35 @@ class VkPhoneNumberVerifierTest extends TestCase
 
         $this->assertInstanceOf(VkPhoneNumberResult::class, $result);
         $this->assertSame($rawPhone, $result->phone);
+    }
+
+    public function test_sign_length_is_43_for_sha256(): void
+    {
+        $sign = $this->sign('12345', '+79001234567');
+
+        $this->assertSame(43, strlen($sign));
+    }
+
+    public function test_sign_has_no_padding(): void
+    {
+        $sign = $this->sign('12345', '+79001234567');
+
+        $this->assertStringNotContainsString('=', $sign);
+    }
+
+    public function test_sign_uses_url_safe_alphabet(): void
+    {
+        $sign = $this->sign('12345', '+79001234567');
+
+        $this->assertMatchesRegularExpression('/^[A-Za-z0-9_-]+$/', $sign);
+    }
+
+    public function test_hex_sha256_is_rejected(): void
+    {
+        $hexSign = $this->hexSign('12345', '+79001234567');
+
+        $result = $this->verifier->verify('12345', '+79001234567', $hexSign);
+
+        $this->assertNull($result);
     }
 }

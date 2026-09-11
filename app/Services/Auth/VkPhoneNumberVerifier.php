@@ -13,7 +13,7 @@ class VkPhoneNumberVerifier
             return null;
         }
 
-        $expected = hash('sha256', $appId . $appSecret . $userId . 'phone_number' . $phone);
+        $expected = rtrim(strtr(base64_encode(hash('sha256', $appId . $appSecret . $userId . 'phone_number' . $phone, true)), '+/', '-_'), '=');
 
         if (! hash_equals($expected, $sign)) {
             return null;

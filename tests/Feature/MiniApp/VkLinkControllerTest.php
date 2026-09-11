@@ -28,7 +28,9 @@ class VkLinkControllerTest extends TestCase
 
     private function signPhone(string $userId, string $phone): string
     {
-        return hash('sha256', $this->testAppId . $this->testAppSecret . $userId . 'phone_number' . $phone);
+        $raw = hash('sha256', $this->testAppId . $this->testAppSecret . $userId . 'phone_number' . $phone, true);
+
+        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
     }
 
     private function vkAuthHeaders(string $vkUserId): array
