@@ -33,3 +33,19 @@ export function getVkLaunchParams(): string | null {
     const result = vk.toString();
     return result || null;
 }
+
+const LINK_TOKEN_PREFIX = 'link_vk_';
+
+export function getVkLinkToken(): string | null {
+    const hash = window.location.hash;
+    if (!hash) return null;
+
+    const token = hash.slice(1);
+    if (!token || !token.startsWith(LINK_TOKEN_PREFIX)) return null;
+
+    return token;
+}
+
+export async function requestVkPhoneNumber() {
+    return bridge.send('VKWebAppGetPhoneNumber');
+}
