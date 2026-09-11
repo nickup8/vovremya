@@ -175,8 +175,14 @@ class BookingWidgetController extends Controller
         $maxBotName = config('services.max.bot_name');
 
         $vkLinkToken = null;
+        $vkUrl = null;
         if ($validated['provider'] === 'vk') {
+            $vkAppId = config('services.vk.app_id');
+            if (empty($vkAppId)) {
+                abort(500, 'VK app_id not configured');
+            }
             $vkLinkToken = app(VkLinkTokenService::class)->create($appointment->id);
+            $vkUrl = 'https://vk.com/app' . $vkAppId . '#' . $vkLinkToken;
         }
 
         return response()->json([
@@ -185,6 +191,7 @@ class BookingWidgetController extends Controller
             'telegram_url' => "https://t.me/{$telegramBotName}?start=book_{$appointment->id}",
             'max_url' => $maxBotName ? "https://max.ru/{$maxBotName}?start=book_{$appointment->id}" : null,
             'vk_link_token' => $vkLinkToken,
+            'vk_url' => $vkUrl,
         ]);
     }
 }

@@ -16,6 +16,12 @@ class VkBookingLinkTokenTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+        config(['services.vk.app_id' => '54765769']);
+    }
+
     private function createMaster(): User
     {
         $master = User::factory()->master()->create([
@@ -143,5 +149,83 @@ class VkBookingLinkTokenTest extends TestCase
 
         $response->assertOk();
         $this->assertNull($response->json('vk_link_token'));
+    }
+
+    public function test_provider_vk_response_contains_vk_url(): void
+    {
+        $master = $this->createMaster();
+        $service = $this->createService($master);
+
+        $response = $this->bookSlot($master, $service, 'vk');
+
+        $response->assertOk();
+        $this->assertNotNull($response->json('vk_url'));
+    }
+
+    public function test_vk_url_starts_with_configured_app_id(): void
+    {
+        $master = $this->createMaster();
+        $service = $this->createService($master);
+
+        $response = $this->bookSlot($master, $service, 'vk');
+
+        $this->assertStringStartsWith('https://vk.com/app54765769#', $response->json('vk_url'));
+    }
+
+    public function test_vk_url_fragment_equals_vk_link_token(): void
+    {
+        $master = $this->createMaster();
+        $service = $this->createService($master);
+
+        $response = $this->bookSlot($master, $service, 'vk');
+
+        $token = $response->json('vk_link_token');
+        $url = $response->json('vk_url');
+        $this->assertSame($token, substr($url, strpos($url, '#') + 1));
+    }
+
+    public function test_vk_url_token_not_in_query_string(): void
+    {
+        $master = $this->createMaster();
+        $service = $this->createService($master);
+
+        $response = $this->bookSlot($master, $service, 'vk');
+
+        $url = $response->json('vk_url');
+        $this->assertStringNotContainsString('?', $url);
+    }
+
+    public function test_provider_max_vk_url_is_null(): void
+    {
+        $master = $this->createMaster();
+        $service = $this->createService($master);
+
+        $response = $this->bookSlot($master, $service, 'max');
+
+        $response->assertOk();
+        $this->assertNull($response->json('vk_url'));
+    }
+
+    public function test_provider_telegram_vk_url_is_null(): void
+    {
+        $master = $this->createMaster();
+        $service = $this->createService($master);
+
+        $response = $this->bookSlot($master, $service, 'telegram');
+
+        $response->assertOk();
+        $this->assertNull($response->json('vk_url'));
+    }
+
+    public function test_missing_vk_app_id_with_provider_vk_fails_closed(): void
+    {
+        config(['services.vk.app_id' => null]);
+
+        $master = $this->createMaster();
+        $service = $this->createService($master);
+
+        $response = $this->bookSlot($master, $service, 'vk');
+
+        $response->assertStatus(500);
     }
 }
