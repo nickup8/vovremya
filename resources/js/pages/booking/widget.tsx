@@ -410,8 +410,8 @@ function StepProvider({
     maxBotName,
 }: {
     errors: Record<string, string>;
-    onSubmit: (provider: 'telegram' | 'max') => void;
-    loadingProvider: 'telegram' | 'max' | null;
+    onSubmit: (provider: 'telegram' | 'max' | 'vk') => void;
+    loadingProvider: 'telegram' | 'max' | 'vk' | null;
     maxBotName: string | null;
 }) {
     return (
@@ -465,6 +465,19 @@ function StepProvider({
                             {loadingProvider === 'max' ? 'Отправка...' : 'Записаться через MAX'}
                         </button>
                     )}
+
+                    <button
+                        onClick={() => onSubmit('vk')}
+                        disabled={loadingProvider !== null}
+                        className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#0077FF] py-5 text-base font-semibold text-white shadow-lg shadow-[#0077FF]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
+                    >
+                        {loadingProvider === 'vk' ? (
+                            <Loader2 className="size-5 animate-spin" />
+                        ) : (
+                            <MessageCircle className="size-5" />
+                        )}
+                        {loadingProvider === 'vk' ? 'Отправка...' : 'Записаться через VK'}
+                    </button>
                 </div>
             </div>
         </div>
@@ -541,7 +554,7 @@ export default function Widget() {
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
     const [slots, setSlots] = useState<string[]>(availableSlots ?? []);
     const [loadingSlots, setLoadingSlots] = useState(false);
-    const [loadingProvider, setLoadingProvider] = useState<'telegram' | 'max' | null>(null);
+    const [loadingProvider, setLoadingProvider] = useState<'telegram' | 'max' | 'vk' | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     useEffect(() => {
@@ -607,7 +620,7 @@ setStep((s) => (s - 1) as Step);
 }
     }
 
-    async function handleSubmit(provider: 'telegram' | 'max') {
+    async function handleSubmit(provider: 'telegram' | 'max' | 'vk') {
         if (!selectedService || !selectedDate || !selectedTime || loadingProvider) {
 return;
 }
@@ -648,7 +661,20 @@ return;
                 return;
             }
 
-            window.location.href = provider === 'max' ? data.max_url : data.telegram_url;
+            const redirectUrl = provider === 'vk'
+                ? data.vk_url
+                : provider === 'max'
+                    ? data.max_url
+                    : data.telegram_url;
+
+            if (!redirectUrl) {
+                setErrors({ time: 'Не удалось получить ссылку для перехода. Попробуйте позже.' });
+                setLoadingProvider(null);
+
+                return;
+            }
+
+            window.location.href = redirectUrl;
         } catch {
             setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
             setLoadingProvider(null);
