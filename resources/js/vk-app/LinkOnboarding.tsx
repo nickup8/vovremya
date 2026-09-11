@@ -22,12 +22,6 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         try {
             const phone = await requestVkPhoneNumber();
 
-            if (!phone.is_verified) {
-                setError('Номер телефона не подтверждён');
-                setPhase('error');
-                return;
-            }
-
             await linkVkClient(token, phone.phone_number, phone.sign);
             onLinked();
         } catch (e) {

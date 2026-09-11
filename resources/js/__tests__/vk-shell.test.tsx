@@ -200,7 +200,7 @@ describe('App routing', () => {
         vi.unstubAllGlobals();
     });
 
-    it('is_verified=false does not call linking API', async () => {
+    it('is_verified=false still calls linkVkClient (backend verifies)', async () => {
         setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
         setHash('#link_vk_test_token');
 
@@ -210,17 +210,47 @@ describe('App routing', () => {
             is_verified: false,
         });
 
-        const mockFetch = vi.fn();
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ ok: true }),
+        });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
         fireEvent.click(screen.getByText('Подтвердить номер'));
 
         await waitFor(() => {
-            expect(screen.getByText('Номер телефона не подтверждён')).toBeInTheDocument();
+            expect(mockFetch).toHaveBeenCalled();
         });
 
-        expect(mockFetch).not.toHaveBeenCalled();
+        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        expect(body.phone_number).toBe('79001234567');
+        expect(body.sign).toBe('phone_sign');
+        vi.unstubAllGlobals();
+    });
+
+    it('backend error displays user-friendly message', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        mockSend.mockResolvedValueOnce({
+            phone_number: '79001234567',
+            sign: 'bad_sign',
+            is_verified: false,
+        });
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: false,
+            json: () => Promise.resolve({ error: 'invalid_phone_sign' }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Не удалось подтвердить номер телефона')).toBeInTheDocument();
+        });
         vi.unstubAllGlobals();
     });
 });
