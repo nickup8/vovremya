@@ -2,6 +2,7 @@
 
 use App\Http\Controllers\Api\MiniApp\AppointmentController;
 use App\Http\Controllers\Api\MiniApp\EarlierRequestController;
+use App\Http\Controllers\Api\MiniApp\VkLinkController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -17,6 +18,10 @@ Route::middleware(['max.initdata', 'throttle:60,1'])
     });
 
 Route::prefix('miniapp')->middleware(['throttle:60,1'])->group(function () {
+    // VK-only: client linking (unlinked clients, not behind miniapp.auth)
+    Route::post('/link', VkLinkController::class)
+        ->middleware(['vk.launch', 'throttle:10,1']);
+
     // MAX-only: VK source/delivery not yet implemented
     Route::middleware('max.initdata')->group(function () {
         Route::put('/appointments/{appointment}/earlier-request', [EarlierRequestController::class, 'store']);
