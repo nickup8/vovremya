@@ -102,7 +102,11 @@ function formatDateShort(raw: string): string {
     return `${d.getDate()} ${RUSSIAN_MONTHS[d.getMonth()]} в ${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}`;
 }
 
-export function AppointmentsScreen() {
+type AppointmentsScreenProps = {
+    canCreateEarlierRequest?: boolean;
+};
+
+export function AppointmentsScreen({ canCreateEarlierRequest = true }: AppointmentsScreenProps) {
     const { backButton, haptic } = usePlatform();
     const { getAppointments, cancelAppointment, saveEarlierRequest, cancelEarlierRequest } = useApi();
     const { data, loading, error, reload } = useAsync<Appointment[]>(getAppointments);
@@ -383,7 +387,7 @@ export function AppointmentsScreen() {
                     )}
 
                     <div className="appt-card-actions">
-                        {a.autofill_available && !a.earlier_request && (
+                        {canCreateEarlierRequest && a.autofill_available && !a.earlier_request && (
                             <button
                                 type="button"
                                 className="appt-booking-btn"
