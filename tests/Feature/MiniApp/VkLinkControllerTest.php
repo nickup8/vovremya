@@ -3,6 +3,7 @@
 namespace Tests\Feature\MiniApp;
 
 use App\Constants\CacheKeys;
+use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -91,6 +92,7 @@ class VkLinkControllerTest extends TestCase
         $appointment->refresh();
         $this->assertNotNull($appointment->client_id);
         $this->assertSame($vkUserId, $appointment->client->vk_id);
+        $this->assertSame(AppointmentSource::Vk, $appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -119,6 +121,10 @@ class VkLinkControllerTest extends TestCase
 
         // Token still usable
         $this->assertNotNull(Cache::get(CacheKeys::VK_LINK_TOKEN . $token));
+
+        // Source not changed
+        $appointment->refresh();
+        $this->assertNull($appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -147,6 +153,10 @@ class VkLinkControllerTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJson(['error' => 'invalid_token']);
+
+        // Source not changed
+        $appointment->refresh();
+        $this->assertNull($appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -178,6 +188,10 @@ class VkLinkControllerTest extends TestCase
                 'phone_number' => $phone,
                 'sign' => $this->signPhone($vkUserId, $phone),
             ])->assertStatus(422)->assertJson(['error' => 'invalid_token']);
+
+        // Source set on first request, unchanged on second
+        $appointment->refresh();
+        $this->assertSame(AppointmentSource::Vk, $appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -209,6 +223,10 @@ class VkLinkControllerTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJson(['error' => 'token_consumed']);
+
+        // Source not changed
+        $appointment->refresh();
+        $this->assertNull($appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -240,6 +258,7 @@ class VkLinkControllerTest extends TestCase
         $response->assertOk();
         $appointment->refresh();
         $this->assertSame($client->id, $appointment->client_id);
+        $this->assertSame(AppointmentSource::Vk, $appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -274,6 +293,10 @@ class VkLinkControllerTest extends TestCase
 
         // Token is NOT consumed (available for retry with correct vk_id)
         $this->assertNotNull(Cache::get(CacheKeys::VK_LINK_TOKEN . $token));
+
+        // Source not changed
+        $appointment->refresh();
+        $this->assertNull($appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -308,6 +331,9 @@ class VkLinkControllerTest extends TestCase
         $this->assertSame($vkUserId, $client->vk_id);
         $this->assertSame('tg_123456', $client->telegram_id);
         $this->assertSame('max_789', $client->max_id);
+
+        $appointment->refresh();
+        $this->assertSame(AppointmentSource::Vk, $appointment->source);
     }
 
     // ═══════════════════════════════════════
@@ -379,5 +405,20 @@ class VkLinkControllerTest extends TestCase
         $this->assertNotNull($appointment->client_id);
         $this->assertNotSame($client1->id, $appointment->client_id);
         $this->assertSame($vkUserId, $appointment->client->vk_id);
+        $this->assertSame(AppointmentSource::Vk, $appointment->source);
+    }
+
+    // ═══════════════════════════════════════
+    // AppointmentSource::Vk enum
+    // ═══════════════════════════════════════
+
+    public function test_vk_source_enum_value(): void
+    {
+        $this->assertSame('vk', AppointmentSource::Vk->value);
+    }
+
+    public function test_vk_source_label(): void
+    {
+        $this->assertSame('VK', AppointmentSource::Vk->label());
     }
 }

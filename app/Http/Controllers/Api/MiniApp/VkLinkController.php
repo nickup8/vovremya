@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\MiniApp;
 
+use App\Enums\AppointmentSource;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Services\Auth\VkPhoneNumberVerifier;
@@ -60,7 +61,10 @@ class VkLinkController extends Controller
 
         DB::transaction(function () use ($client, $vkUserId, $appointment) {
             $client->update(['vk_id' => $vkUserId]);
-            $appointment->update(['client_id' => $client->id]);
+            $appointment->update([
+                'client_id' => $client->id,
+                'source' => AppointmentSource::Vk,
+            ]);
         });
 
         return response()->json(['ok' => true]);
