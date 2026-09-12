@@ -1,6 +1,6 @@
 import { useCallback, useState } from 'react';
 import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber } from './lib/vkBridge';
-import { linkVkClient } from './lib/api';
+import { linkVkClient, submitVkConsent } from './lib/api';
 
 type Phase = 'idle' | 'loading' | 'error' | 'allow-messages';
 
@@ -15,7 +15,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         onLinked();
     }, [onLinked]);
 
-    const handleClick = useCallback(async () => {
+    const handleConsent = useCallback(async () => {
         const token = getVkLinkToken();
         if (!token) {
             setError('Ссылка для привязки недействительна');
@@ -27,6 +27,8 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         setError(null);
 
         try {
+            await submitVkConsent();
+
             const phone = await requestVkPhoneNumber();
 
             await linkVkClient(token, phone.phone_number, phone.sign);
@@ -39,13 +41,15 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             }
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'link_failed';
-            setError(
-                msg === 'invalid_token' || msg === 'token_consumed'
-                    ? 'Ссылка для привязки истекла или уже использована'
-                    : msg === 'invalid_phone_sign'
-                        ? 'Не удалось подтвердить номер телефона'
-                        : 'Не удалось привязать аккаунт',
-            );
+            if (msg === 'consent_failed') {
+                setError('Не удалось подтвердить согласие. Попробуйте ещё раз');
+            } else if (msg === 'invalid_token' || msg === 'token_consumed') {
+                setError('Ссылка для привязки истекла или уже использована');
+            } else if (msg === 'invalid_phone_sign') {
+                setError('Не удалось подтвердить номер телефона');
+            } else {
+                setError('Не удалось привязать аккаунт');
+            }
             setPhase('error');
         }
     }, [onLinked]);
@@ -83,11 +87,18 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
     return (
         <div className="screen-center">
             <svg className="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M20 21a8 8 0 0 0-16 0" />
-                <circle cx="12" cy="8" r="4" />
+                <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z" />
             </svg>
-            <div className="empty-state-title">Подтвердите номер телефона</div>
-            <div className="empty-state-sub">Чтобы увидеть свои записи</div>
+            <div className="empty-state-title">Согласие на обработку данных</div>
+            <div className="empty-state-sub">
+                Для привязки аккаунта требуется ваше согласие на обработку персональных данных
+            </div>
+            <p style={{ marginTop: 12, fontSize: 13, color: 'var(--text-secondary)', textAlign: 'center' }}>
+                Нажимая «Принимаю», вы соглашаетесь с{' '}
+                <a href="/offer" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>Публичной офертой</a>
+                {' '}и{' '}
+                <a href="/privacy" target="_blank" rel="noopener noreferrer" style={{ color: 'var(--accent)' }}>Политикой обработки персональных данных</a>
+            </p>
             {error && (
                 <p style={{ color: 'var(--red)', marginTop: 12, fontSize: 14 }}>{error}</p>
             )}
@@ -95,10 +106,10 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                 type="button"
                 className="retry-btn"
                 style={{ marginTop: 16 }}
-                onClick={handleClick}
+                onClick={handleConsent}
                 disabled={phase === 'loading'}
             >
-                {phase === 'loading' ? 'Подождите…' : 'Подтвердить номер'}
+                {phase === 'loading' ? 'Подождите…' : 'Принимаю'}
             </button>
         </div>
     );

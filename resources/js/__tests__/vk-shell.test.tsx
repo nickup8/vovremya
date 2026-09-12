@@ -198,12 +198,12 @@ describe('App routing', () => {
         Object.defineProperty(window, 'location', { value: original, writable: true });
     });
 
-    it('shows onboarding when link token present', () => {
+    it('shows PDN consent screen when link token present', () => {
         setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
         setHash('#link_vk_test_token');
         render(<App />);
 
-        expect(screen.getByText('Подтвердите номер телефона')).toBeInTheDocument();
+        expect(screen.getByText('Согласие на обработку данных')).toBeInTheDocument();
         expect(screen.queryByText('Пока нет записей')).not.toBeInTheDocument();
     });
 
@@ -212,41 +212,80 @@ describe('App routing', () => {
         setHash('');
         render(<App />);
 
-        expect(screen.queryByText('Подтвердите номер телефона')).not.toBeInTheDocument();
+        expect(screen.queryByText('Согласие на обработку данных')).not.toBeInTheDocument();
         expect(screen.getByText('Записи')).toBeInTheDocument();
     });
 
-    it('successful linking removes hash and shows AppShell', async () => {
+    it('clicking "Принимаю" calls consent endpoint then phone then link', async () => {
         setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
         setHash('#link_vk_test_token');
         const replaceSpy = vi.spyOn(window.history, 'replaceState');
 
+        // Phone request
         mockSend.mockResolvedValueOnce({
             phone_number: '79001234567',
             sign: 'phone_sign',
             is_verified: true,
         });
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ ok: true }),
-        });
+        const mockFetch = vi.fn()
+            // Consent endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            // Link endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
             expect(replaceSpy).toHaveBeenCalled();
         });
 
-        expect(replaceSpy.mock.calls[0]?.[2]).not.toContain('#');
+        // Consent endpoint called first
+        expect(mockFetch.mock.calls[0][0]).toBe('/api/miniapp/vk-consent');
+        expect(mockFetch.mock.calls[0][1].method).toBe('POST');
+
+        // Link endpoint called second
+        expect(mockFetch.mock.calls[1][0]).toBe('/api/miniapp/link');
+
+        // Phone number bridge call made
+        expect(mockSend).toHaveBeenCalledWith('VKWebAppGetPhoneNumber');
 
         await waitFor(() => {
             expect(screen.getByText('Записи')).toBeInTheDocument();
         });
 
-        expect(screen.queryByText('Подтвердите номер телефона')).not.toBeInTheDocument();
+        expect(screen.queryByText('Согласие на обработку данных')).not.toBeInTheDocument();
+        vi.unstubAllGlobals();
+    });
+
+    it('consent failure does not call VKWebAppGetPhoneNumber', async () => {
+        mockSend.mockClear();
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: false,
+            json: () => Promise.resolve({ error: 'consent_failed' }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+        fireEvent.click(screen.getByText('Принимаю'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Не удалось подтвердить согласие. Попробуйте ещё раз')).toBeInTheDocument();
+        });
+
+        // Phone request NOT called
+        expect(mockSend).not.toHaveBeenCalledWith('VKWebAppGetPhoneNumber');
         vi.unstubAllGlobals();
     });
 
@@ -260,20 +299,25 @@ describe('App routing', () => {
             is_verified: false,
         });
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ ok: true }),
-        });
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
-            expect(mockFetch).toHaveBeenCalled();
+            expect(mockFetch).toHaveBeenCalledTimes(2);
         });
 
-        const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+        const body = JSON.parse(mockFetch.mock.calls[1][1].body);
         expect(body.phone_number).toBe('79001234567');
         expect(body.sign).toBe('phone_sign');
         vi.unstubAllGlobals();
@@ -289,14 +333,19 @@ describe('App routing', () => {
             is_verified: false,
         });
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: false,
-            json: () => Promise.resolve({ error: 'invalid_phone_sign' }),
-        });
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            .mockResolvedValueOnce({
+                ok: false,
+                json: () => Promise.resolve({ error: 'invalid_phone_sign' }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
             expect(screen.getByText('Не удалось подтвердить номер телефона')).toBeInTheDocument();
@@ -315,14 +364,19 @@ describe('App routing', () => {
             is_verified: true,
         });
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ ok: true }),
-        });
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
             expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
@@ -348,14 +402,19 @@ describe('App routing', () => {
             })
             .mockResolvedValueOnce({ result: true });
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ ok: true }),
-        });
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
             expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
@@ -393,14 +452,19 @@ describe('App routing', () => {
             })
             .mockRejectedValueOnce(new Error('user denied'));
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ ok: true }),
-        });
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
             expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
@@ -433,14 +497,19 @@ describe('App routing', () => {
             is_verified: true,
         });
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ ok: true }),
-        });
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
             expect(screen.getByText('Позже')).toBeInTheDocument();
@@ -484,14 +553,19 @@ describe('App routing', () => {
             is_verified: true,
         });
 
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ ok: true }),
-        });
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
         vi.stubGlobal('fetch', mockFetch);
 
         render(<App />);
-        fireEvent.click(screen.getByText('Подтвердить номер'));
+        fireEvent.click(screen.getByText('Принимаю'));
 
         await waitFor(() => {
             expect(replaceSpy).toHaveBeenCalled();
@@ -504,5 +578,14 @@ describe('App routing', () => {
         expect(screen.queryByText('Разрешить уведомления')).not.toBeInTheDocument();
 
         vi.unstubAllGlobals();
+    });
+
+    it('old "Подтвердите номер телефона" step no longer exists', () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+        render(<App />);
+
+        expect(screen.queryByText('Подтвердите номер телефона')).not.toBeInTheDocument();
+        expect(screen.queryByText('Подтвердить номер')).not.toBeInTheDocument();
     });
 });

@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Api\MiniApp;
 
+use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
@@ -10,6 +11,7 @@ use App\Services\Client\ClientMergeService;
 use App\Services\VkLinkTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 
 class VkLinkController extends Controller
@@ -27,6 +29,11 @@ class VkLinkController extends Controller
         ]);
 
         $vkUserId = $request->attributes->get('vk_launch')->userId;
+
+        $consentVersion = Cache::get(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+        if ($consentVersion === null) {
+            return response()->json(['error' => 'pdn_consent_required'], 403);
+        }
 
         $appointmentId = $tokenService->peek($request->input('token'));
         if ($appointmentId === null) {
@@ -59,13 +66,23 @@ class VkLinkController extends Controller
             return response()->json(['error' => 'token_consumed'], 422);
         }
 
-        DB::transaction(function () use ($client, $vkUserId, $appointment) {
-            $client->update(['vk_id' => $vkUserId]);
+        DB::transaction(function () use ($client, $vkUserId, $appointment, $consentVersion) {
+            $clientUpdates = ['vk_id' => $vkUserId];
+
+            if (empty($client->pdn_consent_at) || $client->pdn_consent_version !== $consentVersion) {
+                $clientUpdates['pdn_consent_at'] = now();
+                $clientUpdates['pdn_consent_version'] = $consentVersion;
+            }
+
+            $client->update($clientUpdates);
+
             $appointment->update([
                 'client_id' => $client->id,
                 'source' => AppointmentSource::Vk,
             ]);
         });
+
+        Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
 
         return response()->json(['ok' => true]);
     }

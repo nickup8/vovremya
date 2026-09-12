@@ -25,4 +25,6 @@ class CacheKeys
     public const MAX_UPDATE_DEDUP = 'max_update_dedup:';
 
     public const VK_LINK_TOKEN = 'vk_link_token:';
+
+    public const VK_CONSENT_PENDING = 'vk_consent_pending:';
 }

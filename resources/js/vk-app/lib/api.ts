@@ -25,3 +25,20 @@ export async function linkVkClient(token: string, phoneNumber: string, sign: str
 
     return res.json();
 }
+
+export async function submitVkConsent(): Promise<{ ok: true }> {
+    const headers = authHeaders();
+    if (!headers) throw new Error('no_vk_auth');
+
+    const res = await fetch('/api/miniapp/vk-consent', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json' },
+    });
+
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'consent_failed');
+    }
+
+    return res.json();
+}
