@@ -1,18 +1,48 @@
-import { useCallback, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber } from './lib/vkBridge';
-import { linkVkClient, submitVkConsent } from './lib/api';
+import { getVkConsentStatus, linkVkClient, submitVkConsent } from './lib/api';
 
-type Phase = 'idle' | 'loading' | 'error' | 'allow-messages';
+type Phase = 'consent-not-checked' | 'consent-required' | 'phone-confirm' | 'loading' | 'status-error' | 'error' | 'allow-messages';
 
 export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
-    const [phase, setPhase] = useState<Phase>('idle');
+    const [phase, setPhase] = useState<Phase>('consent-not-checked');
     const [error, setError] = useState<string | null>(null);
     const [permissionLoading, setPermissionLoading] = useState(false);
+
+    useEffect(() => {
+        const token = getVkLinkToken();
+        if (!token) {
+            setError('Ссылка для привязки недействительна');
+            setPhase('error');
+            return;
+        }
+
+        getVkConsentStatus(token)
+            .then((res) => {
+                setPhase(res.consent_required ? 'consent-required' : 'phone-confirm');
+            })
+            .catch(() => {
+                setError('Не удалось проверить статус согласия');
+                setPhase('status-error');
+            });
+    }, []);
 
     const handleAllowMessages = useCallback(async (groupId: number) => {
         setPermissionLoading(true);
         await requestVkMessagePermission(groupId);
         onLinked();
+    }, [onLinked]);
+
+    const finishLink = useCallback(async (token: string) => {
+        const phone = await requestVkPhoneNumber();
+        await linkVkClient(token, phone.phone_number, phone.sign);
+
+        const groupId = getVkGroupId();
+        if (groupId !== null) {
+            setPhase('allow-messages');
+        } else {
+            onLinked();
+        }
     }, [onLinked]);
 
     const handleConsent = useCallback(async () => {
@@ -28,17 +58,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
 
         try {
             await submitVkConsent();
-
-            const phone = await requestVkPhoneNumber();
-
-            await linkVkClient(token, phone.phone_number, phone.sign);
-
-            const groupId = getVkGroupId();
-            if (groupId !== null) {
-                setPhase('allow-messages');
-            } else {
-                onLinked();
-            }
+            await finishLink(token);
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'link_failed';
             if (msg === 'consent_failed') {
@@ -52,7 +72,49 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             }
             setPhase('error');
         }
-    }, [onLinked]);
+    }, [finishLink]);
+
+    const handlePhoneConfirm = useCallback(async () => {
+        const token = getVkLinkToken();
+        if (!token) {
+            setError('Ссылка для привязки недействительна');
+            setPhase('error');
+            return;
+        }
+
+        setPhase('loading');
+        setError(null);
+
+        try {
+            await finishLink(token);
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : 'link_failed';
+            if (msg === 'invalid_token' || msg === 'token_consumed') {
+                setError('Ссылка для привязки истекла или уже использована');
+            } else if (msg === 'invalid_phone_sign') {
+                setError('Не удалось подтвердить номер телефона');
+            } else {
+                setError('Не удалось привязать аккаунт');
+            }
+            setPhase('error');
+        }
+    }, [finishLink]);
+
+    if (phase === 'consent-not-checked') {
+        return (
+            <div className="screen-center">
+                <div className="empty-state-sub">Проверка…</div>
+            </div>
+        );
+    }
+
+    if (phase === 'status-error') {
+        return (
+            <div className="screen-center">
+                <div className="empty-state-title" style={{ color: 'var(--red)' }}>{error}</div>
+            </div>
+        );
+    }
 
     if (phase === 'allow-messages') {
         const groupId = getVkGroupId()!;
@@ -79,6 +141,31 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                     onClick={onLinked}
                 >
                     Позже
+                </button>
+            </div>
+        );
+    }
+
+    if (phase === 'phone-confirm') {
+        return (
+            <div className="screen-center">
+                <svg className="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M20 21a8 8 0 0 0-16 0" />
+                    <circle cx="12" cy="8" r="4" />
+                </svg>
+                <div className="empty-state-title">Подтвердите номер телефона</div>
+                <div className="empty-state-sub">Чтобы увидеть свои записи</div>
+                {error && (
+                    <p style={{ color: 'var(--red)', marginTop: 12, fontSize: 14 }}>{error}</p>
+                )}
+                <button
+                    type="button"
+                    className="retry-btn"
+                    style={{ marginTop: 16 }}
+                    onClick={handlePhoneConfirm}
+                    disabled={phase === 'loading'}
+                >
+                    Подтвердить номер
                 </button>
             </div>
         );

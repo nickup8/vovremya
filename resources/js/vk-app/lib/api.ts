@@ -42,3 +42,22 @@ export async function submitVkConsent(): Promise<{ ok: true }> {
 
     return res.json();
 }
+
+export async function getVkConsentStatus(token: string): Promise<{ consent_required: boolean }> {
+    const headers = authHeaders();
+    if (!headers) throw new Error('no_vk_auth');
+
+    const url = new URL('/api/miniapp/vk-consent/status', window.location.origin);
+    url.searchParams.set('token', token);
+
+    const res = await fetch(url.toString(), {
+        headers: { ...headers, Accept: 'application/json' },
+    });
+
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'consent_status_failed');
+    }
+
+    return res.json();
+}

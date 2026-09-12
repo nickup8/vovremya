@@ -3,6 +3,9 @@
 namespace Tests\Feature\MiniApp;
 
 use App\Constants\CacheKeys;
+use App\Models\Appointment;
+use App\Models\Client;
+use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
 use Tests\TestCase;
@@ -43,6 +46,18 @@ class VkConsentControllerTest extends TestCase
         return ['Authorization' => 'Bearer ' . http_build_query($all)];
     }
 
+    private function createToken(string $appointmentId): string
+    {
+        $token = 'link_vk_test_' . uniqid();
+        Cache::put(CacheKeys::VK_LINK_TOKEN . $token, $appointmentId, 900);
+
+        return $token;
+    }
+
+    // ═══════════════════════════════════════
+    // POST consent (existing)
+    // ═══════════════════════════════════════
+
     public function test_requires_vk_launch_middleware(): void
     {
         $response = $this->postJson('/api/miniapp/vk-consent');
@@ -82,5 +97,150 @@ class VkConsentControllerTest extends TestCase
         $response = $this->postJson('/api/miniapp/vk-consent');
 
         $response->assertStatus(401);
+    }
+
+    // ═══════════════════════════════════════
+    // GET status
+    // ═══════════════════════════════════════
+
+    public function test_status_requires_auth(): void
+    {
+        $this->getJson('/api/miniapp/vk-consent/status?token=test')
+            ->assertStatus(401);
+    }
+
+    public function test_status_invalid_token_returns_422(): void
+    {
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->getJson('/api/miniapp/vk-consent/status?token=invalid')
+            ->assertStatus(422)
+            ->assertJson(['error' => 'invalid_token']);
+    }
+
+    public function test_status_missing_token_returns_422(): void
+    {
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->getJson('/api/miniapp/vk-consent/status')
+            ->assertStatus(422)
+            ->assertJson(['error' => 'invalid_token']);
+    }
+
+    public function test_status_missing_appointment_returns_422(): void
+    {
+        $token = $this->createToken('00000000-0000-0000-0000-000000000000');
+
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->assertStatus(422)
+            ->assertJson(['error' => 'appointment_not_found']);
+    }
+
+    public function test_status_returns_false_when_matching_consent_exists(): void
+    {
+        $vkUserId = '494075';
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'vk_id' => $vkUserId,
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => '11.08.2026',
+        ]);
+
+        $appointment = Appointment::factory()->forMaster($master)->create();
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->assertOk()
+            ->assertJson(['consent_required' => false]);
+    }
+
+    public function test_status_consent_from_another_master_returns_false(): void
+    {
+        $vkUserId = '494075';
+        $master1 = User::factory()->master()->create();
+        $master2 = User::factory()->master()->create();
+
+        Client::factory()->create([
+            'user_id' => $master1->id,
+            'vk_id' => $vkUserId,
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => '11.08.2026',
+        ]);
+
+        $appointment = Appointment::factory()->forMaster($master2)->create();
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->assertOk()
+            ->assertJson(['consent_required' => false]);
+    }
+
+    public function test_status_returns_true_when_no_matching_vk_id(): void
+    {
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()->forMaster($master)->create();
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders('999999'))
+            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->assertOk()
+            ->assertJson(['consent_required' => true]);
+    }
+
+    public function test_status_returns_true_when_consent_at_is_null(): void
+    {
+        $vkUserId = '494075';
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'vk_id' => $vkUserId,
+            'pdn_consent_at' => null,
+            'pdn_consent_version' => '11.08.2026',
+        ]);
+
+        $appointment = Appointment::factory()->forMaster($master)->create();
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->assertOk()
+            ->assertJson(['consent_required' => true]);
+    }
+
+    public function test_status_returns_true_when_version_outdated(): void
+    {
+        $vkUserId = '494075';
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'vk_id' => $vkUserId,
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => '01.01.2020',
+        ]);
+
+        $appointment = Appointment::factory()->forMaster($master)->create();
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->assertOk()
+            ->assertJson(['consent_required' => true]);
+    }
+
+    public function test_status_does_not_consume_token(): void
+    {
+        $vkUserId = '494075';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()->forMaster($master)->create();
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->assertOk();
+
+        // Token still valid after status check
+        $this->assertNotNull(Cache::get(CacheKeys::VK_LINK_TOKEN . $token));
     }
 }

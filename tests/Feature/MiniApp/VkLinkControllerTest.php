@@ -668,4 +668,125 @@ class VkLinkControllerTest extends TestCase
         // Consent cache still present for retry
         $this->assertNotNull(Cache::get(CacheKeys::VK_CONSENT_PENDING . $vkUserId));
     }
+
+    // ═══════════════════════════════════════
+    // global consent (Path A)
+    // ═══════════════════════════════════════
+
+    public function test_global_consent_from_another_master_allows_link_without_cache(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master1 = User::factory()->master()->create();
+        $master2 = User::factory()->master()->create();
+
+        Client::factory()->create([
+            'user_id' => $master1->id,
+            'vk_id' => $vkUserId,
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => '11.08.2026',
+        ]);
+
+        $appointment = Appointment::factory()
+            ->forMaster($master2)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+
+        // No pending consent cache — relying on global consent only
+        $response = $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+            ]);
+
+        $response->assertOk();
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_id);
+    }
+
+    public function test_outdated_consent_returns_403(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'vk_id' => $vkUserId,
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => '01.01.2020',
+        ]);
+
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+            ])->assertStatus(403)
+            ->assertJson(['error' => 'pdn_consent_required']);
+    }
+
+    public function test_path_a_does_not_overwrite_existing_consent_fields(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master1 = User::factory()->master()->create();
+        $master2 = User::factory()->master()->create();
+
+        $originalConsentAt = now()->subDay();
+        Client::factory()->create([
+            'user_id' => $master1->id,
+            'vk_id' => $vkUserId,
+            'pdn_consent_at' => $originalConsentAt,
+            'pdn_consent_version' => '11.08.2026',
+        ]);
+
+        $appointment = Appointment::factory()
+            ->forMaster($master2)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+            ])->assertOk();
+
+        // The new client under master2 should have consent written (Path B via pending cache)
+        // But the existing client under master1 should be untouched
+        $existingClient = Client::where('user_id', $master1->id)->first();
+        $this->assertSame($originalConsentAt->timestamp, $existingClient->pdn_consent_at->timestamp);
+        $this->assertSame('11.08.2026', $existingClient->pdn_consent_version);
+    }
+
+    public function test_path_b_pending_cache_still_works(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+            ])->assertOk();
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_id);
+        $this->assertSame('11.08.2026', $appointment->client->pdn_consent_version);
+    }
 }

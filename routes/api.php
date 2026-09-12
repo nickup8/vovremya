@@ -23,6 +23,9 @@ Route::prefix('miniapp')->middleware(['throttle:60,1'])->group(function () {
     Route::post('/vk-consent', VkConsentController::class)
         ->middleware(['vk.launch', 'throttle:10,1']);
 
+    Route::get('/vk-consent/status', [VkConsentController::class, 'status'])
+        ->middleware(['vk.launch', 'throttle:60,1']);
+
     Route::post('/link', VkLinkController::class)
         ->middleware(['vk.launch', 'throttle:10,1']);
 

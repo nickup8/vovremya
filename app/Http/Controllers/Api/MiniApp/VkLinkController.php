@@ -6,6 +6,7 @@ use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Models\Client;
 use App\Services\Auth\VkPhoneNumberVerifier;
 use App\Services\Client\ClientMergeService;
 use App\Services\VkLinkTokenService;
@@ -30,8 +31,18 @@ class VkLinkController extends Controller
 
         $vkUserId = $request->attributes->get('vk_launch')->userId;
 
-        $consentVersion = Cache::get(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
-        if ($consentVersion === null) {
+        $consentVersion = (string) config('legal.version');
+
+        $hasGlobalConsent = Client::where('vk_id', $vkUserId)
+            ->whereNotNull('pdn_consent_at')
+            ->where('pdn_consent_version', $consentVersion)
+            ->exists();
+
+        $pendingConsentVersion = $hasGlobalConsent
+            ? null
+            : Cache::get(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+
+        if (! $hasGlobalConsent && $pendingConsentVersion === null) {
             return response()->json(['error' => 'pdn_consent_required'], 403);
         }
 
@@ -66,12 +77,14 @@ class VkLinkController extends Controller
             return response()->json(['error' => 'token_consumed'], 422);
         }
 
-        DB::transaction(function () use ($client, $vkUserId, $appointment, $consentVersion) {
+        DB::transaction(function () use ($client, $vkUserId, $appointment, $pendingConsentVersion, $hasGlobalConsent) {
             $clientUpdates = ['vk_id' => $vkUserId];
 
-            if (empty($client->pdn_consent_at) || $client->pdn_consent_version !== $consentVersion) {
-                $clientUpdates['pdn_consent_at'] = now();
-                $clientUpdates['pdn_consent_version'] = $consentVersion;
+            if ($pendingConsentVersion !== null) {
+                if (empty($client->pdn_consent_at) || $client->pdn_consent_version !== $pendingConsentVersion) {
+                    $clientUpdates['pdn_consent_at'] = now();
+                    $clientUpdates['pdn_consent_version'] = $pendingConsentVersion;
+                }
             }
 
             $client->update($clientUpdates);
@@ -82,7 +95,9 @@ class VkLinkController extends Controller
             ]);
         });
 
-        Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+        if ($pendingConsentVersion !== null) {
+            Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+        }
 
         return response()->json(['ok' => true]);
     }
