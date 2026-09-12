@@ -63,9 +63,13 @@ class VkLinkController extends Controller
             return response()->json(['error' => 'appointment_not_found'], 422);
         }
 
+        $vkName = $this->resolveVkName($request, $vkUserId);
+
         $client = $clientMerge->findOrCreateByPhone(
             $appointment->master_id,
             $normalizedPhone,
+            '',
+            $vkName,
         );
 
         if ($client->vk_id !== null && $client->vk_id !== $vkUserId) {
@@ -100,5 +104,34 @@ class VkLinkController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    private function resolveVkName(Request $request, string $trustedVkUserId): ?string
+    {
+        $profileId = $request->input('vk_profile_id');
+
+        if ($profileId === null || (string) $profileId !== $trustedVkUserId) {
+            return null;
+        }
+
+        $first = $this->normalizeNamePart($request->input('first_name'));
+        $last = $this->normalizeNamePart($request->input('last_name'));
+
+        $name = trim("$first $last");
+
+        if ($name === '') {
+            return null;
+        }
+
+        return mb_substr($name, 0, 255);
+    }
+
+    private function normalizeNamePart(mixed $value): string
+    {
+        if (! is_string($value)) {
+            return '';
+        }
+
+        return preg_replace('/\s+/u', ' ', trim($value));
     }
 }

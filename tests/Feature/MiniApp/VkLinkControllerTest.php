@@ -789,4 +789,290 @@ class VkLinkControllerTest extends TestCase
         $this->assertNotNull($appointment->client_id);
         $this->assertSame('11.08.2026', $appointment->client->pdn_consent_version);
     }
+
+    // ═══════════════════════════════════════
+    // profile enrichment
+    // ═══════════════════════════════════════
+
+    public function test_new_client_with_matching_profile_id_gets_name(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => 'Иван',
+                'last_name' => 'Иванов',
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame('Иван Иванов', $client->name);
+    }
+
+    public function test_existing_placeholder_upgraded_by_matching_profile(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => $phone,
+            'name' => 'Клиент',
+        ]);
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => 'Иван',
+                'last_name' => 'Иванов',
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame('Иван Иванов', $client->name);
+    }
+
+    public function test_existing_real_name_not_overwritten_by_profile(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => $phone,
+            'name' => 'Мария Петрова',
+        ]);
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => 'Иван',
+                'last_name' => 'Иванов',
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame('Мария Петрова', $client->name);
+    }
+
+    public function test_no_profile_fields_uses_fallback_name(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame(__('bot.fallback.client_name'), $client->name);
+    }
+
+    public function test_empty_profile_names_uses_fallback(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => '',
+                'last_name' => '',
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame(__('bot.fallback.client_name'), $client->name);
+    }
+
+    public function test_mismatched_profile_id_ignores_name(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => 999999,
+                'first_name' => 'Мошенник',
+                'last_name' => 'Подставной',
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame(__('bot.fallback.client_name'), $client->name);
+    }
+
+    public function test_malformed_profile_names_ignored(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => 123,
+                'last_name' => [],
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame(__('bot.fallback.client_name'), $client->name);
+    }
+
+    public function test_whitespace_normalization_in_profile_name(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => '  Иван   ',
+                'last_name' => '  Петров  ',
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertSame('Иван Петров', $client->name);
+    }
+
+    public function test_long_profile_name_truncated_to_255(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $longName = str_repeat('А', 200);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => $longName,
+                'last_name' => $longName,
+            ])->assertOk();
+
+        $client = $appointment->fresh()->client;
+        $this->assertLessThanOrEqual(255, mb_strlen($client->name));
+        $this->assertNotEmpty($client->name);
+    }
+
+    public function test_invalid_phone_sign_no_client_mutation(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $token = $this->createToken($appointment->id);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => 'invalid_sign',
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => 'Иван',
+                'last_name' => 'Иванов',
+            ])->assertStatus(422);
+
+        $this->assertDatabaseCount('clients', 0);
+    }
+
+    public function test_invalid_token_no_client_mutation(): void
+    {
+        $vkUserId = '494075';
+        $phone = '79001234567';
+        $master = User::factory()->master()->create();
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->create(['status' => AppointmentStatus::Booked, 'client_id' => null]);
+        $this->setConsent($vkUserId);
+
+        $this->withHeaders($this->vkAuthHeaders($vkUserId))
+            ->postJson('/api/miniapp/link', [
+                'token' => 'link_vk_expired',
+                'phone_number' => $phone,
+                'sign' => $this->signPhone($vkUserId, $phone),
+                'vk_profile_id' => (int) $vkUserId,
+                'first_name' => 'Иван',
+                'last_name' => 'Иванов',
+            ])->assertStatus(422);
+
+        $this->assertDatabaseCount('clients', 0);
+    }
 }

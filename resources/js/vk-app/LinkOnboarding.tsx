@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber } from './lib/vkBridge';
+import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber, requestVkUserInfo } from './lib/vkBridge';
 import { getVkConsentStatus, linkVkClient, submitVkConsent } from './lib/api';
 
 type Phase = 'consent-not-checked' | 'consent-required' | 'phone-confirm' | 'loading' | 'status-error' | 'error' | 'allow-messages';
@@ -35,7 +35,13 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
 
     const finishLink = useCallback(async (token: string) => {
         const phone = await requestVkPhoneNumber();
-        await linkVkClient(token, phone.phone_number, phone.sign);
+
+        const profile = await requestVkUserInfo();
+        const profileData = profile
+            ? { vk_profile_id: profile.id, first_name: profile.first_name, last_name: profile.last_name }
+            : undefined;
+
+        await linkVkClient(token, phone.phone_number, phone.sign, profileData);
 
         const groupId = getVkGroupId();
         if (groupId !== null) {

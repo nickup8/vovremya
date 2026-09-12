@@ -70,3 +70,18 @@ export async function requestVkMessagePermission(groupId: number): Promise<boole
         return false;
     }
 }
+
+export interface VkUserProfile {
+    id: number;
+    first_name: string;
+    last_name: string;
+}
+
+export async function requestVkUserInfo(): Promise<VkUserProfile | null> {
+    try {
+        const res = await bridge.send('VKWebAppGetUserInfo');
+        return { id: res.id, first_name: res.first_name ?? '', last_name: res.last_name ?? '' };
+    } catch {
+        return null;
+    }
+}
