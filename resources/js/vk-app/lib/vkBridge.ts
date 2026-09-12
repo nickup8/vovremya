@@ -49,3 +49,24 @@ export function getVkLinkToken(): string | null {
 export async function requestVkPhoneNumber() {
     return bridge.send('VKWebAppGetPhoneNumber');
 }
+
+export function getVkGroupId(): number | null {
+    const raw = window.__VK_GROUP_ID__;
+    if (raw == null) return null;
+
+    const n = typeof raw === 'number' ? raw : Number(raw);
+    if (!Number.isFinite(n) || n <= 0) return null;
+
+    return n;
+}
+
+export async function requestVkMessagePermission(groupId: number): Promise<boolean> {
+    try {
+        const res = await bridge.send('VKWebAppAllowMessagesFromGroup', {
+            group_id: groupId,
+        });
+        return res.result === true;
+    } catch {
+        return false;
+    }
+}

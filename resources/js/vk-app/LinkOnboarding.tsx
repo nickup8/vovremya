@@ -1,12 +1,19 @@
 import { useCallback, useState } from 'react';
-import { getVkLinkToken, requestVkPhoneNumber } from './lib/vkBridge';
+import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber } from './lib/vkBridge';
 import { linkVkClient } from './lib/api';
 
-type Phase = 'idle' | 'loading' | 'error';
+type Phase = 'idle' | 'loading' | 'error' | 'allow-messages';
 
 export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
     const [phase, setPhase] = useState<Phase>('idle');
     const [error, setError] = useState<string | null>(null);
+    const [permissionLoading, setPermissionLoading] = useState(false);
+
+    const handleAllowMessages = useCallback(async (groupId: number) => {
+        setPermissionLoading(true);
+        await requestVkMessagePermission(groupId);
+        onLinked();
+    }, [onLinked]);
 
     const handleClick = useCallback(async () => {
         const token = getVkLinkToken();
@@ -23,7 +30,13 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             const phone = await requestVkPhoneNumber();
 
             await linkVkClient(token, phone.phone_number, phone.sign);
-            onLinked();
+
+            const groupId = getVkGroupId();
+            if (groupId !== null) {
+                setPhase('allow-messages');
+            } else {
+                onLinked();
+            }
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'link_failed';
             setError(
@@ -36,6 +49,36 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             setPhase('error');
         }
     }, [onLinked]);
+
+    if (phase === 'allow-messages') {
+        const groupId = getVkGroupId()!;
+        return (
+            <div className="screen-center">
+                <svg className="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                </svg>
+                <div className="empty-state-title">Уведомления о записях</div>
+                <div className="empty-state-sub">Разрешите присылать напоминания и важные уведомления в VK</div>
+                <button
+                    type="button"
+                    className="retry-btn"
+                    style={{ marginTop: 16 }}
+                    onClick={() => handleAllowMessages(groupId)}
+                    disabled={permissionLoading}
+                >
+                    {permissionLoading ? 'Подождите…' : 'Разрешить уведомления'}
+                </button>
+                <button
+                    type="button"
+                    className="retry-btn"
+                    style={{ marginTop: 8, background: 'transparent', color: 'var(--text-secondary)' }}
+                    onClick={onLinked}
+                >
+                    Позже
+                </button>
+            </div>
+        );
+    }
 
     return (
         <div className="screen-center">

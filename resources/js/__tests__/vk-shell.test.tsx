@@ -1,6 +1,6 @@
-import { describe, it, expect, vi, afterEach } from 'vitest';
+import { describe, it, expect, vi, afterEach, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
-import { getVkLaunchParams, getVkLinkToken } from '@/vk-app/lib/vkBridge';
+import { getVkGroupId, getVkLaunchParams, getVkLinkToken, requestVkMessagePermission } from '@/vk-app/lib/vkBridge';
 import { vkPlatform } from '@/vk-app/lib/vkPlatform';
 import { App } from '@/vk-app/App';
 
@@ -141,6 +141,56 @@ describe('getVkLinkToken', () => {
     });
 });
 
+describe('getVkGroupId', () => {
+    afterEach(() => {
+        delete (window as Record<string, unknown>).__VK_GROUP_ID__;
+    });
+
+    it('returns number from number', () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
+        expect(getVkGroupId()).toBe(241438764);
+    });
+
+    it('returns number from numeric string', () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = '241438764';
+        expect(getVkGroupId()).toBe(241438764);
+    });
+
+    it('returns null for undefined', () => {
+        expect(getVkGroupId()).toBeNull();
+    });
+
+    it('returns null for 0', () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 0;
+        expect(getVkGroupId()).toBeNull();
+    });
+
+    it('returns null for negative', () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = -1;
+        expect(getVkGroupId()).toBeNull();
+    });
+
+    it('returns null for invalid string', () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 'abc';
+        expect(getVkGroupId()).toBeNull();
+    });
+});
+
+describe('requestVkMessagePermission', () => {
+    it('returns true when bridge returns { result: true }', async () => {
+        mockSend.mockResolvedValueOnce({ result: true });
+        const result = await requestVkMessagePermission(241438764);
+        expect(result).toBe(true);
+        expect(mockSend).toHaveBeenCalledWith('VKWebAppAllowMessagesFromGroup', { group_id: 241438764 });
+    });
+
+    it('returns false when bridge rejects', async () => {
+        mockSend.mockRejectedValueOnce(new Error('user denied'));
+        const result = await requestVkMessagePermission(241438764);
+        expect(result).toBe(false);
+    });
+});
+
 describe('App routing', () => {
     const original = window.location;
 
@@ -251,6 +301,208 @@ describe('App routing', () => {
         await waitFor(() => {
             expect(screen.getByText('Не удалось подтвердить номер телефона')).toBeInTheDocument();
         });
+        vi.unstubAllGlobals();
+    });
+
+    it('shows permission phase after link when group_id configured', async () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        mockSend.mockResolvedValueOnce({
+            phone_number: '79001234567',
+            sign: 'phone_sign',
+            is_verified: true,
+        });
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ ok: true }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
+        });
+        expect(screen.getByText('Позже')).toBeInTheDocument();
+        expect(screen.queryByText('Записи')).not.toBeInTheDocument();
+
+        delete (window as Record<string, unknown>).__VK_GROUP_ID__;
+        vi.unstubAllGlobals();
+    });
+
+    it('permission "Разрешить" calls VKWebAppAllowMessagesFromGroup and proceeds', async () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+        const replaceSpy = vi.spyOn(window.history, 'replaceState');
+
+        mockSend
+            .mockResolvedValueOnce({
+                phone_number: '79001234567',
+                sign: 'phone_sign',
+                is_verified: true,
+            })
+            .mockResolvedValueOnce({ result: true });
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ ok: true }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Разрешить уведомления'));
+
+        await waitFor(() => {
+            expect(mockSend).toHaveBeenCalledWith('VKWebAppAllowMessagesFromGroup', { group_id: 241438764 });
+        });
+
+        await waitFor(() => {
+            expect(replaceSpy).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('Записи')).toBeInTheDocument();
+        });
+
+        delete (window as Record<string, unknown>).__VK_GROUP_ID__;
+        vi.unstubAllGlobals();
+    });
+
+    it('permission rejection still proceeds to AppShell', async () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+        const replaceSpy = vi.spyOn(window.history, 'replaceState');
+
+        mockSend
+            .mockResolvedValueOnce({
+                phone_number: '79001234567',
+                sign: 'phone_sign',
+                is_verified: true,
+            })
+            .mockRejectedValueOnce(new Error('user denied'));
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ ok: true }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Разрешить уведомления'));
+
+        await waitFor(() => {
+            expect(replaceSpy).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('Записи')).toBeInTheDocument();
+        });
+
+        delete (window as Record<string, unknown>).__VK_GROUP_ID__;
+        vi.unstubAllGlobals();
+    });
+
+    it('permission "Позже" skips bridge call and proceeds', async () => {
+        mockSend.mockClear();
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+        const replaceSpy = vi.spyOn(window.history, 'replaceState');
+
+        mockSend.mockResolvedValueOnce({
+            phone_number: '79001234567',
+            sign: 'phone_sign',
+            is_verified: true,
+        });
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ ok: true }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Позже')).toBeInTheDocument();
+        });
+
+        // Only phone request was sent, not AllowMessagesFromGroup
+        const callsBeforeLater = mockSend.mock.calls.filter(
+            ([method]: [string]) => method === 'VKWebAppAllowMessagesFromGroup',
+        );
+        expect(callsBeforeLater).toHaveLength(0);
+
+        fireEvent.click(screen.getByText('Позже'));
+
+        await waitFor(() => {
+            expect(replaceSpy).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('Записи')).toBeInTheDocument();
+        });
+
+        // Still no permission call
+        const callsAfterLater = mockSend.mock.calls.filter(
+            ([method]: [string]) => method === 'VKWebAppAllowMessagesFromGroup',
+        );
+        expect(callsAfterLater).toHaveLength(0);
+
+        delete (window as Record<string, unknown>).__VK_GROUP_ID__;
+        vi.unstubAllGlobals();
+    });
+
+    it('skips permission phase when group_id not configured', async () => {
+        delete (window as Record<string, unknown>).__VK_GROUP_ID__;
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+        const replaceSpy = vi.spyOn(window.history, 'replaceState');
+
+        mockSend.mockResolvedValueOnce({
+            phone_number: '79001234567',
+            sign: 'phone_sign',
+            is_verified: true,
+        });
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({ ok: true }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        await waitFor(() => {
+            expect(replaceSpy).toHaveBeenCalled();
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('Записи')).toBeInTheDocument();
+        });
+
+        expect(screen.queryByText('Разрешить уведомления')).not.toBeInTheDocument();
+
         vi.unstubAllGlobals();
     });
 });
