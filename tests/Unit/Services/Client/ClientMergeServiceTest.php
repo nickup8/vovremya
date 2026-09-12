@@ -87,4 +87,156 @@ class ClientMergeServiceTest extends TestCase
 
         $this->assertEquals('555', $client->fresh()->telegram_id);
     }
+
+    // ═══════════════════════════════════════
+    // findOrCreateByPhone — name protection
+    // ═══════════════════════════════════════
+
+    public function test_existing_real_name_preserved_when_incoming_null(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Анна Петрова',
+        ]);
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567');
+
+        $this->assertSame('Анна Петрова', $client->name);
+    }
+
+    public function test_existing_real_name_preserved_when_incoming_placeholder(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Анна Петрова',
+        ]);
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Клиент');
+
+        $this->assertSame('Анна Петрова', $client->name);
+    }
+
+    public function test_existing_real_name_preserved_when_incoming_phone_placeholder(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Анна Петрова',
+        ]);
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Клиент 79001112233');
+
+        $this->assertSame('Анна Петрова', $client->name);
+    }
+
+    public function test_existing_real_name_preserved_when_incoming_different_real_name(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Анна Петрова',
+        ]);
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Анна Иванова');
+
+        $this->assertSame('Анна Петрова', $client->name);
+    }
+
+    public function test_existing_placeholder_upgraded_to_real_name(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Клиент',
+        ]);
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Анна Петрова');
+
+        $this->assertSame('Анна Петрова', $client->name);
+    }
+
+    public function test_existing_phone_placeholder_upgraded_to_real_name(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Клиент 79001112233',
+        ]);
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Анна Петрова');
+
+        $this->assertSame('Анна Петрова', $client->name);
+    }
+
+    public function test_existing_placeholder_not_replaced_by_another_placeholder(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Клиент',
+        ]);
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Клиент 79001112233');
+
+        $this->assertSame('Клиент', $client->name);
+    }
+
+    // ═══════════════════════════════════════
+    // findOrCreateByPhone — new client creation
+    // ═══════════════════════════════════════
+
+    public function test_new_client_with_null_name_gets_fallback(): void
+    {
+        $master = User::factory()->master()->create();
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567');
+
+        $this->assertSame(__('bot.fallback.client_name'), $client->name);
+    }
+
+    public function test_new_client_with_real_name_preserves_it(): void
+    {
+        $master = User::factory()->master()->create();
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Анна Петрова');
+
+        $this->assertSame('Анна Петрова', $client->name);
+    }
+
+    public function test_new_client_with_explicit_phone_placeholder_preserves_it(): void
+    {
+        $master = User::factory()->master()->create();
+
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567', '', 'Клиент 79001112233');
+
+        $this->assertSame('Клиент 79001112233', $client->name);
+    }
+
+    // ═══════════════════════════════════════
+    // placeholder detection edge cases
+    // ═══════════════════════════════════════
+
+    public function test_klient_test_not_classified_as_placeholder(): void
+    {
+        $master = User::factory()->master()->create();
+        Client::factory()->create([
+            'user_id' => $master->id,
+            'phone' => '79001234567',
+            'name' => 'Клиент Тест',
+        ]);
+
+        // Incoming null should NOT overwrite "Клиент Тест" (it's a real name)
+        $client = $this->service->findOrCreateByPhone($master->id, '79001234567');
+
+        $this->assertSame('Клиент Тест', $client->name);
+    }
 }

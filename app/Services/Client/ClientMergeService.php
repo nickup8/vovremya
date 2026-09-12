@@ -10,29 +10,70 @@ class ClientMergeService
         string $masterId,
         string $phone,
         string $telegramId = '',
-        string $name = 'Клиент',
+        ?string $name = null,
         ?string $workspaceId = null,
     ): Client {
+        $resolvedName = $name !== null && trim($name) !== ''
+            ? $name
+            : __('bot.fallback.client_name');
+
         $client = Client::firstOrCreate(
             ['user_id' => $masterId, 'phone' => $phone],
             [
-                'name' => $name,
+                'name' => $resolvedName,
                 'telegram_id' => $telegramId ?: null,
                 'workspace_id' => $workspaceId,
             ]
         );
 
         if (! $client->wasRecentlyCreated) {
-            $updates = ['name' => $name];
+            $updates = [];
+
+            if ($this->isUsableIncomingName($name) && $this->isPlaceholder($client->name)) {
+                $updates['name'] = $name;
+            }
 
             if ($telegramId !== '' && empty($client->telegram_id)) {
                 $updates['telegram_id'] = $telegramId;
             }
 
-            $client->update($updates);
+            if ($updates !== []) {
+                $client->update($updates);
+            }
         }
 
         return $client;
+    }
+
+    private function isPlaceholder(?string $name): bool
+    {
+        if ($name === null || trim($name) === '') {
+            return true;
+        }
+
+        $fallback = __('bot.fallback.client_name');
+
+        if ($name === $fallback) {
+            return true;
+        }
+
+        // "Клиент 79001112233", "Клиент +7 900 111-22-33", etc.
+        if (str_starts_with($name, $fallback . ' ')) {
+            $suffix = trim(substr($name, strlen($fallback)));
+            $digits = preg_replace('/[^0-9]/', '', $suffix);
+
+            // Phone-like: at least 7 digits, and non-digit chars are only formatting
+            if (strlen($digits) >= 7 && preg_match('/^[0-9\s+\-()]+$/', $suffix)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    private function isUsableIncomingName(?string $name): bool
+    {
+        return $name !== null && trim($name) !== '' && ! $this->isPlaceholder($name);
     }
 
     public function findByTelegramIdForMaster(string $telegramId, string $masterId): ?Client
