@@ -23,6 +23,9 @@ return [
     // ─── Детали записи ───
     'booking_details' => "📋 **Детали записи:**\n\n👤 Мастер: :master\n💇 Услуга: :service\n📅 Дата: :date\n⏰ Время: :time",
 
+    // ─── Предпросмотр записи (до подтверждения) ───
+    'booking_summary' => "📋 **Детали записи:**\n\n💇 :service\n📅 :date в :time\n💰 Стоимость: :price₽",
+
     // ─── Подтверждение клиенту ───
     'booking_confirmed' => "✅ **Запись подтверждена!**\n\n💇 :service\n📅 :date в :time\n💰 Стоимость: :price₽",
     'booking_confirmed_address' => "\n📍 Адрес: :address",

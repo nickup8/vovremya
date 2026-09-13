@@ -4,12 +4,14 @@ namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
+use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Events\UserChannelsUpdated;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\Client\ClientMergeService;
+use App\Services\AppointmentStatusService;
 use App\Services\MaxApiClient;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
@@ -272,6 +274,20 @@ class MaxWebhookHandler
             return;
         }
 
+        if (str_starts_with($data, 'max_confirm_')) {
+            $appointmentId = substr($data, 12);
+            $this->confirmMaxBooking($userId, $callbackId, $appointmentId);
+
+            return;
+        }
+
+        if (str_starts_with($data, 'max_cancel_')) {
+            $appointmentId = substr($data, 11);
+            $this->cancelMaxBooking($userId, $callbackId, $appointmentId);
+
+            return;
+        }
+
         if ($callbackId !== '') {
             $this->maxApi->answerCallback($callbackId);
         }
@@ -331,7 +347,13 @@ class MaxWebhookHandler
     {
         $appointmentId = str_replace('book_', '', $startParam);
 
-        // Store pending booking in cache
+        $appointment = Appointment::with(['master'])->find($appointmentId);
+        if (! $appointment) {
+            $this->sendMessage($userId, __('bot.errors.appointment_not_found_retry'));
+
+            return;
+        }
+
         Cache::put(
             CacheKeys::MAX_BOOKING_DRAFT.$userId,
             $appointmentId,
@@ -343,9 +365,23 @@ class MaxWebhookHandler
             'appointment_id' => $appointmentId,
         ]);
 
-        $subject = Client::findByMaxId($userId);
-        if ($this->needsMaxPdnConsent($subject)) {
+        $hasGlobalConsent = Client::where('max_id', $userId)
+            ->whereNotNull('pdn_consent_at')
+            ->where('pdn_consent_version', config('legal.version'))
+            ->exists();
+
+        if (! $hasGlobalConsent) {
             $this->sendMaxConsentBarrier($userId, 'book');
+
+            return;
+        }
+
+        $client = Client::byMaxId($userId)
+            ->where('user_id', $appointment->master_id)
+            ->first();
+
+        if ($client) {
+            $this->sendBookingConfirmationPrompt($userId, $appointment);
 
             return;
         }
@@ -753,6 +789,31 @@ class MaxWebhookHandler
 
         Log::info('[MAX] consent accepted', ['flow' => $flow, 'user_id' => $userId]);
 
+        if ($flow === 'book') {
+            $appointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+            $appointment = $appointmentId ? Appointment::find($appointmentId) : null;
+
+            if ($appointment) {
+                $client = Client::byMaxId($userId)
+                    ->where('user_id', $appointment->master_id)
+                    ->first();
+
+                if ($client) {
+                    $client->pdn_consent_at = now();
+                    $client->pdn_consent_version = config('legal.version');
+                    $client->save();
+
+                    $this->maxApi->answerCallbackWithMessage(
+                        $callbackId,
+                        __('bot.consent.after_accept_client_returning'),
+                    );
+                    $this->sendBookingConfirmationPrompt($userId, $appointment->load('master'));
+
+                    return;
+                }
+            }
+        }
+
         $text = $flow === 'auth'
             ? __('bot.contact_request.auth')
             : __('bot.contact_request.booking');
@@ -782,6 +843,225 @@ class MaxWebhookHandler
             $this->maxApi->answerCallback($callbackId);
             $this->sendMessage($userId, $text, $attachments);
         }
+    }
+
+    private function sendBookingConfirmationPrompt(string $userId, Appointment $appointment): void
+    {
+        $master = $appointment->master;
+        $tz = $master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
+
+        $message = __('bot.booking_summary', [
+            'service' => $appointment->display_name,
+            'date' => $date,
+            'time' => $time,
+            'price' => $appointment->display_price,
+        ]);
+
+        if ($master->address) {
+            $message .= __('bot.booking_confirmed_address', ['address' => $master->address]);
+        }
+
+        $attachments = [[
+            'type' => 'inline_keyboard',
+            'payload' => [
+                'buttons' => [
+                    [
+                        [
+                            'type' => 'callback',
+                            'text' => __('bot.buttons.confirm_booking'),
+                            'payload' => 'max_confirm_'.$appointment->id,
+                        ],
+                        [
+                            'type' => 'callback',
+                            'text' => __('bot.buttons.cancel'),
+                            'payload' => 'max_cancel_'.$appointment->id,
+                        ],
+                    ],
+                ],
+            ],
+        ]];
+
+        $this->sendMessage($userId, $message, $attachments);
+    }
+
+    private function confirmMaxBooking(string $userId, string $callbackId, string $appointmentId): void
+    {
+        $appointment = Appointment::with(['master'])->find($appointmentId);
+
+        if (! $appointment) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        $draftId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+        if ((string) $draftId !== (string) $appointmentId) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        $client = Client::byMaxId($userId)
+            ->where('user_id', $appointment->master_id)
+            ->first();
+
+        if (! $client) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.client_not_found'));
+
+            return;
+        }
+
+        $hasGlobalConsent = Client::where('max_id', $userId)
+            ->whereNotNull('pdn_consent_at')
+            ->where('pdn_consent_version', config('legal.version'))
+            ->exists();
+
+        if (! $hasGlobalConsent) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($client->isBlocked()) {
+            $appointment->delete();
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.booking_unavailable'));
+            Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+
+            return;
+        }
+
+        $affected = Appointment::where('id', $appointmentId)
+            ->whereNull('client_id')
+            ->whereIn('status', [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+            ])
+            ->update([
+                'client_id' => $client->id,
+                'source' => AppointmentSource::Max,
+            ]);
+
+        if ($affected === 0) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        $appointment->refresh();
+
+        broadcast(new AppointmentCreated($appointment->load(['client'])));
+
+        $master = $appointment->master;
+        $tz = $master->getTimezone();
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
+
+        $lockKey = 'master_notified_'.$appointment->id;
+        if (Cache::add($lockKey, true, now()->addMinutes(10))) {
+            $phone = $client->phone ?? __('bot.fallback.phone');
+            $clientName = $client->name ?? __('bot.fallback.client_name');
+
+            app(MasterNotificationService::class)
+                ->sendToMaster($master, __('bot.master.new_booking', [
+                    'client' => $clientName,
+                    'phone' => $phone,
+                    'service' => $appointment->display_name,
+                    'date' => $date,
+                    'time' => $time,
+                ]));
+        }
+
+        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+
+        $message = __('bot.booking_confirmed', [
+            'service' => $appointment->display_name,
+            'date' => $date,
+            'time' => $time,
+            'price' => $appointment->display_price,
+        ]);
+
+        if ($master->address) {
+            $message .= __('bot.booking_confirmed_address', ['address' => $master->address]);
+        }
+
+        $message .= __('bot.booking_confirmed_suffix');
+
+        $ok = $this->maxApi->answerCallbackWithMessage($callbackId, $message);
+        if (! $ok) {
+            $this->maxApi->answerCallback($callbackId);
+            $this->sendMessage($userId, $message);
+        }
+
+        Log::info('[MAX] booking confirmed', [
+            'user_id' => $userId,
+            'appointment_id' => $appointmentId,
+            'client_id' => $client->id,
+        ]);
+    }
+
+    private function cancelMaxBooking(string $userId, string $callbackId, string $appointmentId): void
+    {
+        $appointment = Appointment::with(['master'])->find($appointmentId);
+
+        if (! $appointment) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        $draftId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+        if ((string) $draftId !== (string) $appointmentId) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        $client = Client::byMaxId($userId)
+            ->where('user_id', $appointment->master_id)
+            ->first();
+
+        if (! $client) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($appointment->status === AppointmentStatus::Cancelled) {
+            $this->maxApi->answerCallback($callbackId, __('bot.booking_cancelled.reply'));
+
+            return;
+        }
+
+        if ($appointment->client_id !== null
+            || ! in_array($appointment->status, [AppointmentStatus::Booked, AppointmentStatus::PendingPayment])
+        ) {
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        app(AppointmentStatusService::class)->transition(
+            $appointment,
+            AppointmentStatus::Cancelled,
+        );
+
+        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+
+        $ok = $this->maxApi->answerCallbackWithMessage(
+            $callbackId,
+            __('bot.booking_cancelled.reply'),
+        );
+        if (! $ok) {
+            $this->maxApi->answerCallback($callbackId);
+            $this->sendMessage($userId, __('bot.booking_cancelled.reply'));
+        }
+
+        Log::info('[MAX] booking cancelled', [
+            'user_id' => $userId,
+            'appointment_id' => $appointmentId,
+        ]);
     }
 
     private function confirmMaxVisit(string $userId, string $callbackId, string $appointmentId): void
