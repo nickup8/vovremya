@@ -42,11 +42,12 @@ class SendRemindersCommand extends Command
                 continue;
             }
 
-            if (! $appointment->client->telegram_id && ! $appointment->client->max_id) {
+            if (! $appointment->client->telegram_id
+                && ! $appointment->client->max_id
+                && ! $appointment->client->vk_id) {
                 continue;
             }
 
-            $appointment->update(['reminder_24h_sent_at' => $now]);
             SendAppointmentReminderJob::dispatch($appointment, '24h');
             $dispatched++;
         }
@@ -71,7 +72,9 @@ class SendRemindersCommand extends Command
                 continue;
             }
 
-            if (! $appointment->client->telegram_id && ! $appointment->client->max_id) {
+            if (! $appointment->client->telegram_id
+                && ! $appointment->client->max_id
+                && ! $appointment->client->vk_id) {
                 continue;
             }
 
@@ -87,7 +90,6 @@ class SendRemindersCommand extends Command
                 continue;
             }
 
-            $appointment->update(['reminder_final_sent_at' => $now]);
             SendAppointmentReminderJob::dispatch($appointment, 'final');
             $dispatched++;
         }

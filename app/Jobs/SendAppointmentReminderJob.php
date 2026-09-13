@@ -7,6 +7,7 @@ use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\MaxApiClient;
+use App\Services\VkApiClient;
 use DefStudio\Telegraph\Keyboard\Button;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -51,11 +52,14 @@ class SendAppointmentReminderJob implements ShouldQueue
         $source = $appointment->source;
         $sourceValue = $source instanceof AppointmentSource ? $source->value : $source;
 
+        $sent = false;
+
         if ($client->telegram_id && ($sourceValue === 'telegram' || ! $source)) {
             $lockTg = "reminder_{$this->type}_tg_{$appointment->id}";
             if (Cache::add($lockTg, true, now()->addHours(12))) {
                 try {
                     $this->sendTelegram($appointment, $client);
+                    $sent = true;
                 } catch (\Throwable $e) {
                     Cache::forget($lockTg);
                     throw $e;
@@ -68,6 +72,7 @@ class SendAppointmentReminderJob implements ShouldQueue
             if (Cache::add($lockMax, true, now()->addHours(12))) {
                 try {
                     $this->sendMax($appointment, $client);
+                    $sent = true;
                 } catch (\Throwable $e) {
                     Cache::forget($lockMax);
                     throw $e;
@@ -75,7 +80,22 @@ class SendAppointmentReminderJob implements ShouldQueue
             }
         }
 
-        $this->markAsSent($appointment);
+        if ($client->vk_id && $sourceValue === 'vk') {
+            $lockVk = "reminder_{$this->type}_vk_{$appointment->id}";
+            if (Cache::add($lockVk, true, now()->addHours(12))) {
+                try {
+                    $this->sendVk($appointment, $client);
+                    $sent = true;
+                } catch (\Throwable $e) {
+                    Cache::forget($lockVk);
+                    throw $e;
+                }
+            }
+        }
+
+        if ($sent) {
+            $this->markAsSent($appointment);
+        }
     }
 
     private function sendTelegram(Appointment $appointment, Client $client): void
@@ -150,6 +170,38 @@ class SendAppointmentReminderJob implements ShouldQueue
         $mid = app(MaxApiClient::class)->sendMessage($client->max_id, $text, $extra);
         if ($mid === null) {
             throw new \Exception('MAX API failed to send reminder');
+        }
+    }
+
+    private function sendVk(Appointment $appointment, Client $client): void
+    {
+        $text = $this->buildMessage($appointment, 'vk');
+        $peerId = (string) $client->vk_id;
+
+        if ($this->type === '24h') {
+            $keyboard = [
+                'one_time' => false,
+                'inline' => true,
+                'buttons' => [[[
+                    'action' => [
+                        'type' => 'callback',
+                        'label' => __('bot.buttons.confirm_visit'),
+                        'payload' => json_encode(
+                            ['command' => 'cv_'.$appointment->id],
+                            JSON_UNESCAPED_UNICODE
+                        ),
+                    ],
+                    'color' => 'positive',
+                ]]],
+            ];
+
+            $mid = app(VkApiClient::class)->sendMessageWithKeyboard($peerId, $text, $keyboard);
+        } else {
+            $mid = app(VkApiClient::class)->sendMessage($peerId, $text);
+        }
+
+        if ($mid === null) {
+            throw new \Exception('VK API failed to send reminder');
         }
     }
 
