@@ -1003,4 +1003,109 @@ describe('App routing', () => {
         expect(screen.getByText(/ул. Пушкина, 10/)).toBeInTheDocument();
         vi.unstubAllGlobals();
     });
+
+    it('loading phase does not flash PDN screen during confirm', async () => {
+        mockSend.mockClear();
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        let resolveConfirm!: (v: unknown) => void;
+        const confirmPromise = new Promise((r) => { resolveConfirm = r; });
+
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusOk({ consent_required: false, phone_required: false })),
+            })
+            .mockReturnValueOnce(confirmPromise);
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('✅ Подтвердить запись')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('✅ Подтвердить запись'));
+
+        // While confirm is pending, PDN screen must NOT appear
+        expect(screen.queryByText('Согласие на обработку данных')).not.toBeInTheDocument();
+        expect(screen.getByText('Подождите…')).toBeInTheDocument();
+
+        // Resolve the confirm
+        resolveConfirm({ ok: true, json: () => Promise.resolve({ ok: true }) });
+
+        vi.unstubAllGlobals();
+    });
+
+    it('loading phase does not flash PDN screen during consent', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        let resolveConsent!: (v: unknown) => void;
+        const consentPromise = new Promise((r) => { resolveConsent = r; });
+
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: false })),
+            })
+            .mockReturnValueOnce(consentPromise);
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Принимаю')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Принимаю'));
+
+        // While consent is pending, PDN screen must NOT reappear
+        expect(screen.getByText('Подождите…')).toBeInTheDocument();
+
+        // Resolve consent — should transition to confirmation, not flash PDN
+        resolveConsent({ ok: true, json: () => Promise.resolve({ ok: true }) });
+
+        await waitFor(() => {
+            expect(screen.getByText('Детали записи')).toBeInTheDocument();
+        });
+
+        expect(screen.queryByText('Согласие на обработку данных')).not.toBeInTheDocument();
+        vi.unstubAllGlobals();
+    });
+
+    it('loading phase transitions correctly to allow-messages after confirm', async () => {
+        (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        const mockFetch = vi.fn()
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusOk({ consent_required: false, phone_required: false })),
+            })
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('✅ Подтвердить запись')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('✅ Подтвердить запись'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
+        });
+
+        expect(screen.queryByText('Подождите…')).not.toBeInTheDocument();
+
+        delete (window as Record<string, unknown>).__VK_GROUP_ID__;
+        vi.unstubAllGlobals();
+    });
 });

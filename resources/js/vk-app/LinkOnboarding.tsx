@@ -305,6 +305,14 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         );
     }
 
+    if (phase === 'loading') {
+        return (
+            <div className="screen-center">
+                <div className="empty-state-sub">Подождите…</div>
+            </div>
+        );
+    }
+
     return (
         <div className="screen-center">
             <svg className="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
