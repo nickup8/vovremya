@@ -45,6 +45,23 @@ function setHash(hash: string) {
     });
 }
 
+const defaultAppointment = {
+    service: 'Стрижка',
+    date: '15.01.2026',
+    time: '14:00',
+    price: 1500,
+    address: null,
+};
+
+function statusOk(overrides: Record<string, unknown> = {}) {
+    return {
+        consent_required: true,
+        phone_required: true,
+        appointment: defaultAppointment,
+        ...overrides,
+    };
+}
+
 describe('getVkLaunchParams', () => {
     const original = window.location;
 
@@ -204,7 +221,7 @@ describe('App routing', () => {
 
         const mockFetch = vi.fn().mockResolvedValue({
             ok: true,
-            json: () => Promise.resolve({ consent_required: true }),
+            json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
         });
         vi.stubGlobal('fetch', mockFetch);
 
@@ -242,7 +259,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -298,7 +315,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint fails
             .mockResolvedValue({
@@ -338,7 +355,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -384,7 +401,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -427,7 +444,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -477,7 +494,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -539,7 +556,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -596,7 +613,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -664,7 +681,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: true }),
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
             })
             // Consent endpoint
             .mockResolvedValueOnce({
@@ -705,7 +722,7 @@ describe('App routing', () => {
 
         const mockFetch = vi.fn().mockResolvedValue({
             ok: true,
-            json: () => Promise.resolve({ consent_required: true }),
+            json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: true })),
         });
         vi.stubGlobal('fetch', mockFetch);
 
@@ -726,7 +743,7 @@ describe('App routing', () => {
 
         const mockFetch = vi.fn().mockResolvedValue({
             ok: true,
-            json: () => Promise.resolve({ consent_required: false }),
+            json: () => Promise.resolve(statusOk({ consent_required: false, phone_required: true })),
         });
         vi.stubGlobal('fetch', mockFetch);
 
@@ -756,7 +773,7 @@ describe('App routing', () => {
             // Status endpoint
             .mockResolvedValueOnce({
                 ok: true,
-                json: () => Promise.resolve({ consent_required: false }),
+                json: () => Promise.resolve(statusOk({ consent_required: false, phone_required: true })),
             })
             // Link endpoint (no consent)
             .mockResolvedValueOnce({
@@ -810,6 +827,180 @@ describe('App routing', () => {
 
         expect(screen.queryByText('Принимаю')).not.toBeInTheDocument();
         expect(screen.queryByText('Подтвердить номер')).not.toBeInTheDocument();
+        vi.unstubAllGlobals();
+    });
+
+    // ─── NEW: returning-client fast path tests ───
+
+    it('consent=false + phone=false shows confirmation screen', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve(statusOk({ consent_required: false, phone_required: false })),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Детали записи')).toBeInTheDocument();
+        });
+
+        expect(screen.getByText('✅ Подтвердить запись')).toBeInTheDocument();
+        expect(screen.getByText('❌ Отменить')).toBeInTheDocument();
+        expect(screen.queryByText('Подтвердите номер телефона')).not.toBeInTheDocument();
+        expect(screen.queryByText('Согласие на обработку данных')).not.toBeInTheDocument();
+        vi.unstubAllGlobals();
+    });
+
+    it('consent=true + phone=false shows PDN then confirmation after accept', async () => {
+        mockSend.mockClear();
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        const mockFetch = vi.fn()
+            // Status endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusOk({ consent_required: true, phone_required: false })),
+            })
+            // Consent endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Принимаю')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Принимаю'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Детали записи')).toBeInTheDocument();
+        });
+
+        // Phone bridge NOT called
+        expect(mockSend).not.toHaveBeenCalledWith('VKWebAppGetPhoneNumber');
+        vi.unstubAllGlobals();
+    });
+
+    it('confirmation screen Confirm calls confirm API and proceeds', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+        const replaceSpy = vi.spyOn(window.history, 'replaceState');
+
+        const mockFetch = vi.fn()
+            // Status endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusOk({ consent_required: false, phone_required: false })),
+            })
+            // Confirm endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('✅ Подтвердить запись')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('✅ Подтвердить запись'));
+
+        await waitFor(() => {
+            expect(replaceSpy).toHaveBeenCalled();
+        });
+
+        // Confirm endpoint called
+        expect(mockFetch.mock.calls[1][0]).toBe('/api/miniapp/vk-confirm');
+        expect(mockFetch.mock.calls[1][1].method).toBe('POST');
+
+        await waitFor(() => {
+            expect(screen.getByText('Записи')).toBeInTheDocument();
+        });
+
+        vi.unstubAllGlobals();
+    });
+
+    it('confirmation screen Cancel calls cancel API and shows cancelled state', async () => {
+        mockSend.mockClear();
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        const mockFetch = vi.fn()
+            // Status endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusOk({ consent_required: false, phone_required: false })),
+            })
+            // Cancel endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('❌ Отменить')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('❌ Отменить'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Запись отменена')).toBeInTheDocument();
+        });
+
+        // Cancel endpoint called
+        expect(mockFetch.mock.calls[1][0]).toBe('/api/miniapp/vk-cancel');
+        expect(mockFetch.mock.calls[1][1].method).toBe('POST');
+
+        // Phone bridge NOT called
+        expect(mockSend).not.toHaveBeenCalledWith('VKWebAppGetPhoneNumber');
+        vi.unstubAllGlobals();
+    });
+
+    it('confirmation screen shows appointment preview data', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_test_token');
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve({
+                consent_required: false,
+                phone_required: false,
+                appointment: {
+                    service: 'Маникюр',
+                    date: '20.02.2026',
+                    time: '10:30',
+                    price: 2500,
+                    address: 'ул. Пушкина, 10',
+                },
+            }),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Детали записи')).toBeInTheDocument();
+        });
+
+        expect(screen.getByText(/Маникюр/)).toBeInTheDocument();
+        expect(screen.getByText(/20.02.2026/)).toBeInTheDocument();
+        expect(screen.getByText(/10:30/)).toBeInTheDocument();
+        expect(screen.getByText(/2500/)).toBeInTheDocument();
+        expect(screen.getByText(/ул. Пушкина, 10/)).toBeInTheDocument();
         vi.unstubAllGlobals();
     });
 });

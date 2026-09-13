@@ -2,6 +2,8 @@
 
 use App\Http\Controllers\Api\MiniApp\AppointmentController;
 use App\Http\Controllers\Api\MiniApp\EarlierRequestController;
+use App\Http\Controllers\Api\MiniApp\VkCancelController;
+use App\Http\Controllers\Api\MiniApp\VkConfirmController;
 use App\Http\Controllers\Api\MiniApp\VkConsentController;
 use App\Http\Controllers\Api\MiniApp\VkLinkController;
 use Illuminate\Http\Request;
@@ -27,6 +29,12 @@ Route::prefix('miniapp')->middleware(['throttle:60,1'])->group(function () {
         ->middleware(['vk.launch', 'throttle:60,1']);
 
     Route::post('/link', VkLinkController::class)
+        ->middleware(['vk.launch', 'throttle:10,1']);
+
+    Route::post('/vk-confirm', VkConfirmController::class)
+        ->middleware(['vk.launch', 'throttle:10,1']);
+
+    Route::post('/vk-cancel', VkCancelController::class)
         ->middleware(['vk.launch', 'throttle:10,1']);
 
     // MAX-only: VK source/delivery not yet implemented

@@ -36,13 +36,14 @@ export async function linkVkClient(
     return res.json();
 }
 
-export async function submitVkConsent(): Promise<{ ok: true }> {
+export async function submitVkConsent(token: string): Promise<{ ok: true }> {
     const headers = authHeaders();
     if (!headers) throw new Error('no_vk_auth');
 
     const res = await fetch('/api/miniapp/vk-consent', {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ token }),
     });
 
     if (!res.ok) {
@@ -53,7 +54,19 @@ export async function submitVkConsent(): Promise<{ ok: true }> {
     return res.json();
 }
 
-export async function getVkConsentStatus(token: string): Promise<{ consent_required: boolean }> {
+export interface VkConsentStatus {
+    consent_required: boolean;
+    phone_required: boolean;
+    appointment: {
+        service: string;
+        date: string;
+        time: string;
+        price: number;
+        address: string | null;
+    };
+}
+
+export async function getVkConsentStatus(token: string): Promise<VkConsentStatus> {
     const headers = authHeaders();
     if (!headers) throw new Error('no_vk_auth');
 
@@ -67,6 +80,42 @@ export async function getVkConsentStatus(token: string): Promise<{ consent_requi
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'consent_status_failed');
+    }
+
+    return res.json();
+}
+
+export async function confirmVkBooking(token: string): Promise<{ ok: true }> {
+    const headers = authHeaders();
+    if (!headers) throw new Error('no_vk_auth');
+
+    const res = await fetch('/api/miniapp/vk-confirm', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ token }),
+    });
+
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'confirm_failed');
+    }
+
+    return res.json();
+}
+
+export async function cancelVkBooking(token: string): Promise<{ ok: true }> {
+    const headers = authHeaders();
+    if (!headers) throw new Error('no_vk_auth');
+
+    const res = await fetch('/api/miniapp/vk-cancel', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ token }),
+    });
+
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'cancel_failed');
     }
 
     return res.json();

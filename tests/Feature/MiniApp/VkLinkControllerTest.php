@@ -209,7 +209,7 @@ class VkLinkControllerTest extends TestCase
     // race: consume between peek and final consume
     // ═══════════════════════════════════════
 
-    public function test_race_consume_between_peek_and_final_consume_fails(): void
+    public function test_race_consume_between_peek_and_final_consume_still_succeeds(): void
     {
         $vkUserId = '494075';
         $phone = '79001234567';
@@ -220,7 +220,7 @@ class VkLinkControllerTest extends TestCase
         $token = 'link_vk_race_token';
         $this->setConsent($vkUserId);
 
-        // Mock: peek succeeds but consume returns null (simulates race lost)
+        // Mock: peek succeeds but consume returns null (simulates race lost after claim)
         $this->mock(\App\Services\VkLinkTokenService::class, function ($mock) use ($appointment, $token) {
             $mock->shouldReceive('peek')->with($token)->andReturn($appointment->id);
             $mock->shouldReceive('consume')->with($token)->andReturn(null);
@@ -233,12 +233,13 @@ class VkLinkControllerTest extends TestCase
                 'sign' => $this->signPhone($vkUserId, $phone),
             ]);
 
-        $response->assertStatus(422);
-        $response->assertJson(['error' => 'token_consumed']);
+        // Token consume failure after successful claim is non-fatal
+        $response->assertOk();
 
-        // Source not changed
+        // Appointment is still claimed
         $appointment->refresh();
-        $this->assertNull($appointment->source);
+        $this->assertNotNull($appointment->client_id);
+        $this->assertSame(AppointmentSource::Vk, $appointment->source);
     }
 
     // ═══════════════════════════════════════

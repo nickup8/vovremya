@@ -1,13 +1,14 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber, requestVkUserInfo } from './lib/vkBridge';
-import { getVkConsentStatus, linkVkClient, submitVkConsent } from './lib/api';
+import { cancelVkBooking, confirmVkBooking, getVkConsentStatus, linkVkClient, submitVkConsent, VkConsentStatus } from './lib/api';
 
-type Phase = 'consent-not-checked' | 'consent-required' | 'phone-confirm' | 'loading' | 'status-error' | 'error' | 'allow-messages';
+type Phase = 'consent-not-checked' | 'consent-required' | 'phone-confirm' | 'confirmation' | 'loading' | 'status-error' | 'error' | 'allow-messages' | 'cancelled';
 
 export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
     const [phase, setPhase] = useState<Phase>('consent-not-checked');
     const [error, setError] = useState<string | null>(null);
     const [permissionLoading, setPermissionLoading] = useState(false);
+    const [statusData, setStatusData] = useState<VkConsentStatus | null>(null);
 
     useEffect(() => {
         const token = getVkLinkToken();
@@ -19,7 +20,14 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
 
         getVkConsentStatus(token)
             .then((res) => {
-                setPhase(res.consent_required ? 'consent-required' : 'phone-confirm');
+                setStatusData(res);
+                if (res.consent_required) {
+                    setPhase('consent-required');
+                } else if (res.phone_required) {
+                    setPhase('phone-confirm');
+                } else {
+                    setPhase('confirmation');
+                }
             })
             .catch(() => {
                 setError('Не удалось проверить статус согласия');
@@ -63,8 +71,13 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         setError(null);
 
         try {
-            await submitVkConsent();
-            await finishLink(token);
+            await submitVkConsent(token);
+
+            if (statusData?.phone_required) {
+                await finishLink(token);
+            } else {
+                setPhase('confirmation');
+            }
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'link_failed';
             if (msg === 'consent_failed') {
@@ -78,7 +91,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             }
             setPhase('error');
         }
-    }, [finishLink]);
+    }, [finishLink, statusData]);
 
     const handlePhoneConfirm = useCallback(async () => {
         const token = getVkLinkToken();
@@ -106,6 +119,66 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         }
     }, [finishLink]);
 
+    const handleConfirm = useCallback(async () => {
+        const token = getVkLinkToken();
+        if (!token) {
+            setError('Ссылка для привязки недействительна');
+            setPhase('error');
+            return;
+        }
+
+        setPhase('loading');
+        setError(null);
+
+        try {
+            await confirmVkBooking(token);
+
+            const groupId = getVkGroupId();
+            if (groupId !== null) {
+                setPhase('allow-messages');
+            } else {
+                onLinked();
+            }
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : 'confirm_failed';
+            if (msg === 'invalid_token' || msg === 'token_consumed') {
+                setError('Ссылка для привязки истекла или уже использована');
+            } else if (msg === 'pdn_consent_required') {
+                setError('Необходимо подтвердить согласие на обработку данных');
+            } else if (msg === 'booking_unavailable') {
+                setError('Запись недоступна');
+            } else {
+                setError('Не удалось подтвердить запись');
+            }
+            setPhase('error');
+        }
+    }, [onLinked]);
+
+    const handleCancel = useCallback(async () => {
+        const token = getVkLinkToken();
+        if (!token) {
+            setError('Ссылка для привязки недействительна');
+            setPhase('error');
+            return;
+        }
+
+        setPhase('loading');
+        setError(null);
+
+        try {
+            await cancelVkBooking(token);
+            setPhase('cancelled');
+        } catch (e) {
+            const msg = e instanceof Error ? e.message : 'cancel_failed';
+            if (msg === 'invalid_token' || msg === 'token_consumed') {
+                setError('Ссылка для привязки истекла или уже использована');
+            } else {
+                setError('Не удалось отменить запись');
+            }
+            setPhase('error');
+        }
+    }, []);
+
     if (phase === 'consent-not-checked') {
         return (
             <div className="screen-center">
@@ -118,6 +191,19 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         return (
             <div className="screen-center">
                 <div className="empty-state-title" style={{ color: 'var(--red)' }}>{error}</div>
+            </div>
+        );
+    }
+
+    if (phase === 'cancelled') {
+        return (
+            <div className="screen-center">
+                <svg className="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                    <polyline points="22 4 12 14.01 9 11.01" />
+                </svg>
+                <div className="empty-state-title">Запись отменена</div>
+                <div className="empty-state-sub">Вы можете записаться заново через сайт</div>
             </div>
         );
     }
@@ -147,6 +233,48 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                     onClick={onLinked}
                 >
                     Позже
+                </button>
+            </div>
+        );
+    }
+
+    if (phase === 'confirmation' && statusData) {
+        const appt = statusData.appointment;
+        return (
+            <div className="screen-center">
+                <svg className="empty-state-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                    <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                    <line x1="16" y1="2" x2="16" y2="6" />
+                    <line x1="8" y1="2" x2="8" y2="6" />
+                    <line x1="3" y1="10" x2="21" y2="10" />
+                </svg>
+                <div className="empty-state-title">Детали записи</div>
+                <div className="empty-state-sub" style={{ textAlign: 'left', display: 'inline-block', marginTop: 12 }}>
+                    <div>💇 {appt.service}</div>
+                    <div>📅 {appt.date} в {appt.time}</div>
+                    <div>💰 Стоимость: {appt.price}₽</div>
+                    {appt.address && <div>📍 {appt.address}</div>}
+                </div>
+                {error && (
+                    <p style={{ color: 'var(--red)', marginTop: 12, fontSize: 14 }}>{error}</p>
+                )}
+                <button
+                    type="button"
+                    className="retry-btn"
+                    style={{ marginTop: 16 }}
+                    onClick={handleConfirm}
+                    disabled={phase === 'loading'}
+                >
+                    ✅ Подтвердить запись
+                </button>
+                <button
+                    type="button"
+                    className="retry-btn"
+                    style={{ marginTop: 8, background: 'transparent', color: 'var(--text-secondary)' }}
+                    onClick={handleCancel}
+                    disabled={phase === 'loading'}
+                >
+                    ❌ Отменить
                 </button>
             </div>
         );

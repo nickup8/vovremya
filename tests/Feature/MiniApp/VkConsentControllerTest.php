@@ -68,9 +68,10 @@ class VkConsentControllerTest extends TestCase
     public function test_valid_consent_stores_version_in_cache(): void
     {
         $vkUserId = '494075';
+        $token = $this->createToken('00000000-0000-0000-0000-000000000000');
 
         $response = $this->withHeaders($this->vkAuthHeaders($vkUserId))
-            ->postJson('/api/miniapp/vk-consent');
+            ->postJson('/api/miniapp/vk-consent', ['token' => $token]);
 
         $response->assertOk();
         $response->assertJson(['ok' => true]);
@@ -83,9 +84,10 @@ class VkConsentControllerTest extends TestCase
     {
         $vkUserId = '494075';
         config(['booking.draft_ttl' => 1234]);
+        $token = $this->createToken('00000000-0000-0000-0000-000000000000');
 
         $this->withHeaders($this->vkAuthHeaders($vkUserId))
-            ->postJson('/api/miniapp/vk-consent')
+            ->postJson('/api/miniapp/vk-consent', ['token' => $token])
             ->assertOk();
 
         // Cache::has confirms the key exists; TTL is set by Cache::put

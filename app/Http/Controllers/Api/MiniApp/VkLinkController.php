@@ -4,16 +4,20 @@ namespace App\Http\Controllers\Api\MiniApp;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
+use App\Enums\AppointmentStatus;
+use App\Events\AppointmentCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\Auth\VkPhoneNumberVerifier;
 use App\Services\Client\ClientMergeService;
+use App\Services\Notification\MasterNotificationService;
 use App\Services\VkLinkTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class VkLinkController extends Controller
 {
@@ -76,12 +80,36 @@ class VkLinkController extends Controller
             return response()->json(['error' => 'client_already_linked'], 409);
         }
 
-        $consumedId = $tokenService->consume($request->input('token'));
-        if ($consumedId === null || $consumedId !== $appointmentId) {
-            return response()->json(['error' => 'token_consumed'], 422);
+        if ($client->isBlocked()) {
+            $appointment->delete();
+            $tokenService->consume($request->input('token'));
+            if ($pendingConsentVersion !== null) {
+                Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+            }
+
+            return response()->json(['error' => 'booking_unavailable'], 403);
         }
 
-        DB::transaction(function () use ($client, $vkUserId, $appointment, $pendingConsentVersion, $hasGlobalConsent) {
+        DB::beginTransaction();
+
+        try {
+            $affected = Appointment::where('id', $appointmentId)
+                ->whereNull('client_id')
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                ])
+                ->update([
+                    'client_id' => $client->id,
+                    'source' => AppointmentSource::Vk,
+                ]);
+
+            if ($affected === 0) {
+                DB::rollBack();
+
+                return response()->json(['error' => 'appointment_unavailable'], 422);
+            }
+
             $clientUpdates = ['vk_id' => $vkUserId];
 
             if ($pendingConsentVersion !== null) {
@@ -93,11 +121,37 @@ class VkLinkController extends Controller
 
             $client->update($clientUpdates);
 
-            $appointment->update([
-                'client_id' => $client->id,
-                'source' => AppointmentSource::Vk,
-            ]);
-        });
+            DB::commit();
+        } catch (\Throwable $e) {
+            DB::rollBack();
+            throw $e;
+        }
+
+        $appointment->refresh();
+
+        broadcast(new AppointmentCreated($appointment->load(['client'])));
+
+        $master = $appointment->master;
+        $tz = $master?->getTimezone() ?? 'UTC';
+        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
+        $time = $appointment->start_time->timezone($tz)->format('H:i');
+
+        $lockKey = 'master_notified_' . $appointment->id;
+        if (Cache::add($lockKey, true, now()->addMinutes(10))) {
+            $phone = $client->phone ?? '';
+            $clientName = $client->name ?? '';
+
+            app(MasterNotificationService::class)
+                ->sendToMaster($master, __('bot.master.new_booking', [
+                    'client' => $clientName,
+                    'phone' => $phone,
+                    'service' => $appointment->display_name,
+                    'date' => $date,
+                    'time' => $time,
+                ]));
+        }
+
+        $tokenService->consume($request->input('token'));
 
         if ($pendingConsentVersion !== null) {
             Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
