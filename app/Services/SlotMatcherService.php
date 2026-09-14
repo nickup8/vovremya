@@ -22,6 +22,7 @@ class SlotMatcherService
         private SlotRequestService $requestService,
         private SlotOpportunityService $opportunityService,
         private SlotOfferService $offerService,
+        private AutofillChainCompletionService $completionService,
     ) {}
 
     public function matchOpportunity(SlotOpportunity $opportunity): ?SlotOffer
@@ -30,6 +31,11 @@ class SlotMatcherService
 
         // 1. Status guard
         if ($opportunity->status !== SlotOpportunityStatus::Open) {
+            // Filled → chain continuation in progress, don't finish
+            // Expired/Invalidated → terminal, finish chain
+            if (in_array($opportunity->status, [SlotOpportunityStatus::Expired, SlotOpportunityStatus::Invalidated], true)) {
+                $this->completionService->finish($opportunity->chain_id, $opportunity->status->value);
+            }
             return null;
         }
 
@@ -41,18 +47,21 @@ class SlotMatcherService
         // 3. Past opportunity → expire
         if ($opportunity->start_time->lte(Carbon::now())) {
             $this->opportunityService->expire($opportunity);
+            $this->completionService->finish($opportunity->chain_id, 'expired');
             return null;
         }
 
         // 4. Master AutoFill enabled
         $master = $opportunity->master;
         if ($master === null || ! $master->isAutoFillEnabled()) {
+            $this->completionService->finish($opportunity->chain_id, 'autofill_disabled');
             return null;
         }
 
         // 5. MasterService active
         $masterService = $opportunity->masterService;
         if ($masterService === null || ! $masterService->is_active) {
+            $this->completionService->finish($opportunity->chain_id, 'service_inactive');
             return null;
         }
 
@@ -64,6 +73,7 @@ class SlotMatcherService
             null,
         )) {
             $this->opportunityService->invalidate($opportunity, SlotInvalidationReason::SlotUnavailable);
+            $this->completionService->finish($opportunity->chain_id, 'slot_unavailable');
             return null;
         }
 
@@ -71,6 +81,7 @@ class SlotMatcherService
         $candidates = $this->loadCandidates($opportunity);
 
         if ($candidates->isEmpty()) {
+            $this->completionService->finish($opportunity->chain_id, 'no_candidates');
             return null;
         }
 
@@ -81,11 +92,37 @@ class SlotMatcherService
         $ranked = $this->filterAndRank($opportunity, $candidates, $conflictingClientIds);
 
         if ($ranked->isEmpty()) {
+            $this->completionService->finish($opportunity->chain_id, 'no_eligible_candidates');
             return null;
         }
 
         // 10. Try to create offer for best candidate
-        return $this->tryCreateOffer($opportunity, $ranked);
+        $offer = $this->tryCreateOffer($opportunity, $ranked);
+
+        if ($offer !== null) {
+            return $offer;
+        }
+
+        // tryCreateOffer returned null — check race
+        $fresh = $opportunity->fresh();
+
+        if ($fresh->pendingOffer !== null) {
+            // Another matcher created an offer — don't finish
+            return null;
+        }
+
+        if ($fresh->status === SlotOpportunityStatus::Filled) {
+            // Successful accept/continuation already in progress
+            return null;
+        }
+
+        if ($fresh->status === SlotOpportunityStatus::Open && $fresh->pendingOffer === null) {
+            $this->completionService->finish($fresh->chain_id, 'candidates_exhausted');
+        } elseif (in_array($fresh->status, [SlotOpportunityStatus::Expired, SlotOpportunityStatus::Invalidated], true)) {
+            $this->completionService->finish($fresh->chain_id, $fresh->status->value);
+        }
+
+        return null;
     }
 
     private function loadCandidates(SlotOpportunity $opportunity)

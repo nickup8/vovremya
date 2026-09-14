@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\DTOs\AppointmentWindowFreed;
+use App\Services\AutofillChainCompletionService;
 use App\Services\SlotOpportunityService;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -46,9 +47,36 @@ class CreateSlotOpportunityJob implements ShouldQueue
                 'origin_event_id' => $this->window->originEventId,
                 'start_time' => $this->window->startTime->toIso8601String(),
             ]);
+
+            if ($this->window->chainId !== null) {
+                app(AutofillChainCompletionService::class)->finish(
+                    $this->window->chainId,
+                    'continuation_window_past',
+                );
+            }
+
             return;
         }
 
         MatchSlotOpportunityJob::dispatch($result->id);
+    }
+
+    public function failed(\Throwable $exception): void
+    {
+        Log::error('[AutoFill] CreateSlotOpportunityJob: all retries exhausted', [
+            'origin_event_id' => $this->window->originEventId,
+            'error' => $exception->getMessage(),
+        ]);
+
+        if ($this->window->chainId !== null) {
+            try {
+                app(AutofillChainCompletionService::class)->finish(
+                    $this->window->chainId,
+                    'create_opportunity_failed',
+                );
+            } catch (\Throwable) {
+                // Don't rethrow from failed()
+            }
+        }
     }
 }

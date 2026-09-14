@@ -53,6 +53,8 @@ return [
         'client_cancelled' => "❌ Клиент отменил запись:\n💇 :service\n🕒 :when",
     ],
 
+    'autofill_chain_summary' => "✅ ИРСИ уплотнил расписание\n\nОсвободившееся окно: :root_datetime\nПеренесено клиентов: :count\n\n:moves",
+
     // ─── Привязка каналов ───
     'notifications' => [
         'linked_success' => '✅ Канал успешно привязан для получения уведомлений!',

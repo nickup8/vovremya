@@ -23,6 +23,7 @@ class SlotOfferAcceptanceService
         private SlotRequestService $requestService,
         private SlotOpportunityService $opportunityService,
         private AvailabilityService $availabilityService,
+        private AutofillChainCompletionService $completionService,
     ) {}
 
     public function acceptEarlier(SlotOffer $offer): array
@@ -45,7 +46,9 @@ class SlotOfferAcceptanceService
             }
 
             if (now()->gte($offer->expires_at)) {
+                $opportunityId = $offer->slot_opportunity_id;
                 $this->offerService->expire($offer);
+                DB::afterCommit(fn () => MatchSlotOpportunityJob::dispatch($opportunityId));
                 return ['success' => false, 'error' => 'expired'];
             }
 
@@ -176,8 +179,10 @@ class SlotOfferAcceptanceService
                 $opportunity->duration,
                 $appointment->id,
             )) {
+                $chainId = $opportunity->chain_id;
                 $this->offerService->invalidate($offer, SlotInvalidationReason::SlotUnavailable);
                 $this->opportunityService->invalidate($opportunity, SlotInvalidationReason::SlotUnavailable);
+                DB::afterCommit(fn () => $this->completionService->finish($chainId, 'slot_unavailable'));
                 return ['success' => false, 'error' => 'slot_unavailable'];
             }
 
@@ -201,8 +206,10 @@ class SlotOfferAcceptanceService
             if (! ($result['success'] ?? false)) {
                 // slot_taken or other failure
                 if (($result['error'] ?? '') === 'slot_taken') {
+                    $chainId = $opportunity->chain_id;
                     $this->offerService->invalidate($offer, SlotInvalidationReason::SlotTaken);
                     $this->opportunityService->invalidate($opportunity, SlotInvalidationReason::SlotTaken);
+                    DB::afterCommit(fn () => $this->completionService->finish($chainId, 'slot_taken'));
                     return ['success' => false, 'error' => 'slot_taken'];
                 }
 

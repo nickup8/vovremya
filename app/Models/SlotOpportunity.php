@@ -32,6 +32,7 @@ class SlotOpportunity extends Model
         'expired_at',
         'invalidated_at',
         'invalidation_reason',
+        'master_notification_attempted_at',
     ];
 
     protected function casts(): array
@@ -45,6 +46,7 @@ class SlotOpportunity extends Model
             'filled_at' => 'datetime',
             'expired_at' => 'datetime',
             'invalidated_at' => 'datetime',
+            'master_notification_attempted_at' => 'datetime',
         ];
     }
 
