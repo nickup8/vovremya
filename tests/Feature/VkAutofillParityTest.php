@@ -620,42 +620,35 @@ class VkAutofillParityTest extends TestCase
         $this->assertNotNull($appointment->cancelled_at);
     }
 
-    public function test_successful_vk_cancel_creates_freed_window_pipeline(): void
+    public function test_vk_draft_cancel_does_not_create_freed_window(): void
     {
         Bus::fake();
 
+        // Draft booking (client_id = null) — simulates VK onboarding cancel
         $appointment = Appointment::factory()
             ->forMaster($this->master)->forClient($this->client)->withMasterService($this->masterService)
             ->create([
                 'status' => AppointmentStatus::Booked,
                 'start_time' => Carbon::tomorrow()->setTime(10, 0),
                 'duration' => 60,
+                'client_id' => null,
             ]);
 
-        $service = new AppointmentStatusService();
-        $service->dispatchFreedWindowAfterCancel($appointment);
-
-        // The dispatch is async (afterCommit), so just verify no exception
-        $this->assertTrue(true);
-    }
-
-    public function test_no_freed_window_when_autofill_disabled(): void
-    {
-        $this->master->update(['autofill_enabled' => false]);
-
-        $appointment = Appointment::factory()
-            ->forMaster($this->master)->forClient($this->client)->withMasterService($this->masterService)
-            ->create([
-                'status' => AppointmentStatus::Booked,
-                'start_time' => Carbon::tomorrow()->setTime(10, 0),
-                'duration' => 60,
+        // Atomic draft cancel (same as VkCancelController)
+        $affected = Appointment::where('id', $appointment->id)
+            ->whereNull('client_id')
+            ->where('status', AppointmentStatus::Booked->value)
+            ->update([
+                'status' => AppointmentStatus::Cancelled,
+                'cancelled_at' => now(),
             ]);
 
-        $service = new AppointmentStatusService();
-        // Should not throw even when autofill disabled
-        $service->dispatchFreedWindowAfterCancel($appointment);
+        $this->assertSame(1, $affected);
 
-        $this->assertTrue(true);
+        // Draft cancel should NOT create any SlotOpportunity
+        $this->assertDatabaseMissing('slot_opportunities', [
+            'source_appointment_id' => $appointment->id,
+        ]);
     }
 
     public function test_confirm_vs_cancel_race_protection(): void

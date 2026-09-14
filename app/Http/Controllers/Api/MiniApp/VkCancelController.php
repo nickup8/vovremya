@@ -8,7 +8,6 @@ use App\Events\AppointmentStatusChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
-use App\Services\AppointmentStatusService;
 use App\Services\VkLinkTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -91,8 +90,6 @@ class VkCancelController extends Controller
             $fromStatus,
             AppointmentStatus::Cancelled,
         ));
-
-        app(AppointmentStatusService::class)->dispatchFreedWindowAfterCancel($appointment);
 
         $tokenService->consume($token);
         Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
