@@ -26,7 +26,7 @@ class VkWebhookHandlerTest extends TestCase
         ]);
     }
 
-    private function webhookPayload(string $command, ?string $eventId = 'evt1', ?string $userId = null, ?string $peerId = '200'): array
+    private function webhookPayload(string $command, ?string $eventId = 'evt1', ?string $userId = null, ?string $peerId = '200', ?string $conversationMessageId = '50'): array
     {
         return [
             'type' => 'message_event',
@@ -36,6 +36,7 @@ class VkWebhookHandlerTest extends TestCase
                 'event_id' => $eventId,
                 'user_id' => $userId ?? '999',
                 'peer_id' => $peerId,
+                'conversation_message_id' => $conversationMessageId,
                 'payload' => $command,
             ],
         ];
@@ -62,7 +63,28 @@ class VkWebhookHandlerTest extends TestCase
         return [$appointment, $client, $master];
     }
 
+    private const EMPTY_INLINE_KEYBOARD = [
+        'one_time' => true,
+        'inline' => true,
+        'buttons' => [],
+    ];
+
     private function mockVkApiSuccess(): \Mockery\MockInterface
+    {
+        $mock = $this->mock(VkApiClient::class);
+        $mock->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->with('200', '50')
+            ->andReturn(['text' => 'Original reminder text']);
+        $mock->shouldReceive('editMessage')
+            ->with('200', '50', "Original reminder text\n\n✅ Визит подтверждён", self::EMPTY_INLINE_KEYBOARD)
+            ->once()
+            ->andReturn(true);
+
+        return $mock;
+    }
+
+    private function mockVkApiWithoutReminderUpdate(): \Mockery\MockInterface
     {
         $mock = $this->mock(VkApiClient::class);
         $mock->shouldReceive('answerMessageEvent')->andReturn(true);
@@ -97,7 +119,7 @@ class VkWebhookHandlerTest extends TestCase
     public function test_ownership_uses_vk_id_and_master_id(): void
     {
         [$appointment] = $this->createBookedAppointment(clientVkId: '111');
-        $this->mockVkApiSuccess();
+        $this->mockVkApiWithoutReminderUpdate();
 
         // Different vk_id (222) should not be able to confirm
         $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: '222'));
@@ -156,6 +178,13 @@ class VkWebhookHandlerTest extends TestCase
             ->once()
             ->with('evt1', $client->vk_id, '200', __('bot.visit_confirm.already'))
             ->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->with('200', '50')
+            ->andReturn(['text' => 'Reminder']);
+        $mock->shouldReceive('editMessage')
+            ->once()
+            ->with('200', '50', "Reminder\n\n✅ Визит подтверждён", self::EMPTY_INLINE_KEYBOARD)
+            ->andReturn(true);
 
         $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id));
     }
@@ -169,6 +198,13 @@ class VkWebhookHandlerTest extends TestCase
             ->once()
             ->with('evt1', $client->vk_id, '200', __('bot.visit_confirm.client_thanks'))
             ->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->with('200', '50')
+            ->andReturn(['text' => 'Reminder']);
+        $mock->shouldReceive('editMessage')
+            ->once()
+            ->with('200', '50', "Reminder\n\n✅ Визит подтверждён", self::EMPTY_INLINE_KEYBOARD)
+            ->andReturn(true);
 
         $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id));
     }
@@ -181,6 +217,13 @@ class VkWebhookHandlerTest extends TestCase
         $mock->shouldReceive('answerMessageEvent')
             ->once()
             ->with('evt_custom', $client->vk_id, '300', \Mockery::type('string'))
+            ->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->with('300', '50')
+            ->andReturn(['text' => 'Reminder']);
+        $mock->shouldReceive('editMessage')
+            ->once()
+            ->with('300', '50', \Mockery::type('string'), self::EMPTY_INLINE_KEYBOARD)
             ->andReturn(true);
 
         $this->postJson('/webhooks/vk', $this->webhookPayload(
@@ -199,6 +242,13 @@ class VkWebhookHandlerTest extends TestCase
         $mock->shouldReceive('answerMessageEvent')
             ->once()
             ->andReturn(false);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->with('200', '50')
+            ->andReturn(['text' => 'Reminder']);
+        $mock->shouldReceive('editMessage')
+            ->once()
+            ->with('200', '50', "Reminder\n\n✅ Визит подтверждён", self::EMPTY_INLINE_KEYBOARD)
+            ->andReturn(true);
         $mock->shouldReceive('sendMessage')
             ->once()
             ->with('200', __('bot.visit_confirm.client_thanks'))
@@ -220,6 +270,7 @@ class VkWebhookHandlerTest extends TestCase
                 'event_id' => 'evt1',
                 'user_id' => $client->vk_id,
                 'peer_id' => '200',
+                'conversation_message_id' => '50',
                 'payload' => "cv_{$appointment->id}",
             ],
         ];
@@ -243,6 +294,7 @@ class VkWebhookHandlerTest extends TestCase
                 'event_id' => 'evt1',
                 'user_id' => $client->vk_id,
                 'peer_id' => '200',
+                'conversation_message_id' => '50',
                 'payload' => ['command' => "cv_{$appointment->id}"],
             ],
         ];
@@ -284,7 +336,7 @@ class VkWebhookHandlerTest extends TestCase
     public function test_webhook_always_returns_ok(): void
     {
         // Even with a bad command, webhook returns "ok"
-        $this->mockVkApiSuccess();
+        $this->mockVkApiWithoutReminderUpdate();
 
         $this->postJson('/webhooks/vk', $this->webhookPayload('cv_nonexistent', userId: '999'))
             ->assertStatus(200)
@@ -293,8 +345,6 @@ class VkWebhookHandlerTest extends TestCase
 
     public function test_empty_appointment_id_after_cv_returns_not_found(): void
     {
-        $this->mockVkApiSuccess();
-
         $mock = $this->mock(VkApiClient::class);
         $mock->shouldReceive('answerMessageEvent')
             ->once()
@@ -325,5 +375,129 @@ class VkWebhookHandlerTest extends TestCase
             'type' => 'confirmation',
             'group_id' => 123,
         ])->assertStatus(403);
+    }
+
+    // ═══════════════════════════════════════
+    // Reminder update after confirmation
+    // ═══════════════════════════════════════
+
+    public function test_message_event_extracts_conversation_message_id(): void
+    {
+        [$appointment, $client] = $this->createBookedAppointment();
+
+        $mock = $this->mock(VkApiClient::class);
+        $mock->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->once()
+            ->with('400', '77')
+            ->andReturn(['text' => 'Reminder text']);
+        $mock->shouldReceive('editMessage')
+            ->once()
+            ->with('400', '77', \Mockery::type('string'), self::EMPTY_INLINE_KEYBOARD)
+            ->andReturn(true);
+
+        $this->postJson('/webhooks/vk', $this->webhookPayload(
+            "cv_{$appointment->id}",
+            userId: $client->vk_id,
+            peerId: '400',
+            conversationMessageId: '77',
+        ))->assertStatus(200);
+    }
+
+    public function test_successful_confirmation_updates_reminder_message(): void
+    {
+        [$appointment, $client] = $this->createBookedAppointment();
+
+        $mock = $this->mock(VkApiClient::class);
+        $mock->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->once()
+            ->with('200', '50')
+            ->andReturn(['text' => 'Запись завтра в 10:00']);
+        $mock->shouldReceive('editMessage')
+            ->once()
+            ->with('200', '50', "Запись завтра в 10:00\n\n✅ Визит подтверждён", self::EMPTY_INLINE_KEYBOARD)
+            ->andReturn(true);
+
+        $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id));
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_confirmed_at);
+    }
+
+    public function test_reminder_already_marked_is_not_duplicated(): void
+    {
+        [$appointment, $client] = $this->createBookedAppointment();
+
+        $mock = $this->mock(VkApiClient::class);
+        $mock->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->once()
+            ->andReturn(['text' => "Reminder\n\n✅ Визит подтверждён"]);
+        $mock->shouldNotReceive('editMessage');
+
+        $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id))
+            ->assertStatus(200);
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_confirmed_at);
+    }
+
+    public function test_get_original_message_fails_confirmation_still_succeeds(): void
+    {
+        [$appointment, $client] = $this->createBookedAppointment();
+
+        $mock = $this->mock(VkApiClient::class);
+        $mock->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')->andReturn(null);
+        $mock->shouldNotReceive('editMessage');
+
+        $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id))
+            ->assertStatus(200);
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_confirmed_at);
+    }
+
+    public function test_edit_message_fails_confirmation_still_succeeds(): void
+    {
+        [$appointment, $client] = $this->createBookedAppointment();
+
+        $mock = $this->mock(VkApiClient::class);
+        $mock->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->andReturn(['text' => 'Original']);
+        $mock->shouldReceive('editMessage')->andReturn(false);
+
+        $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id))
+            ->assertStatus(200);
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_confirmed_at);
+    }
+
+    public function test_repeat_callback_does_not_duplicate_confirmation(): void
+    {
+        [$appointment, $client] = $this->createBookedAppointment();
+
+        // First callback: ok
+        $mock = $this->mock(VkApiClient::class);
+        $mock->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock->shouldReceive('getMessageByConversationId')
+            ->andReturn(['text' => 'Original']);
+        $mock->shouldReceive('editMessage')->andReturn(true);
+
+        $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id));
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_confirmed_at);
+
+        // Second callback: already confirmed, marker already present
+        $mock2 = $this->mock(VkApiClient::class);
+        $mock2->shouldReceive('answerMessageEvent')->andReturn(true);
+        $mock2->shouldReceive('getMessageByConversationId')
+            ->andReturn(['text' => "Original\n\n✅ Визит подтверждён"]);
+        $mock2->shouldNotReceive('editMessage');
+
+        $this->postJson('/webhooks/vk', $this->webhookPayload("cv_{$appointment->id}", userId: $client->vk_id));
     }
 }

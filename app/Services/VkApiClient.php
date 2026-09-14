@@ -125,6 +125,118 @@ class VkApiClient
         }
     }
 
+    /**
+     * @return array{text?: string}|null
+     */
+    public function getMessageByConversationId(string $peerId, string $conversationMessageId): ?array
+    {
+        if (! $this->configured) {
+            return null;
+        }
+
+        try {
+            $response = Http::asForm()
+                ->connectTimeout(3)
+                ->timeout(10)
+                ->post('https://api.vk.com/method/messages.getByConversationMessageId', [
+                    'access_token' => $this->token,
+                    'v' => $this->apiVersion,
+                    'peer_id' => $peerId,
+                    'conversation_message_ids' => $conversationMessageId,
+                ]);
+
+            if ($response->failed()) {
+                Log::error('[VK] messages.getByConversationMessageId HTTP error', [
+                    'status' => $response->status(),
+                    'peer_id' => $peerId,
+                    'conversation_message_id' => $conversationMessageId,
+                ]);
+
+                return null;
+            }
+
+            $body = $response->json();
+
+            if (isset($body['error'])) {
+                Log::error('[VK] messages.getByConversationMessageId failed', [
+                    'error_code' => $body['error']['error_code'] ?? null,
+                    'error_msg' => $body['error']['error_msg'] ?? null,
+                    'peer_id' => $peerId,
+                ]);
+
+                return null;
+            }
+
+            $items = $body['response']['items'] ?? [];
+
+            return $items[0] ?? null;
+        } catch (\Throwable $e) {
+            Log::error('[VK] messages.getByConversationMessageId exception', [
+                'peer_id' => $peerId,
+                'conversation_message_id' => $conversationMessageId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return null;
+        }
+    }
+
+    public function editMessage(string $peerId, string $conversationMessageId, string $text, ?array $keyboard = null): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        try {
+            $params = [
+                'access_token' => $this->token,
+                'v' => $this->apiVersion,
+                'peer_id' => $peerId,
+                'conversation_message_id' => $conversationMessageId,
+                'message' => $text,
+            ];
+
+            if ($keyboard !== null) {
+                $params['keyboard'] = json_encode($keyboard, JSON_THROW_ON_ERROR);
+            }
+
+            $response = Http::asForm()
+                ->connectTimeout(3)
+                ->timeout(10)
+                ->post('https://api.vk.com/method/messages.edit', $params);
+
+            if ($response->failed()) {
+                Log::error('[VK] messages.edit HTTP error', [
+                    'status' => $response->status(),
+                    'peer_id' => $peerId,
+                ]);
+
+                return false;
+            }
+
+            $body = $response->json();
+
+            if (isset($body['error'])) {
+                Log::error('[VK] messages.edit failed', [
+                    'error_code' => $body['error']['error_code'] ?? null,
+                    'error_msg' => $body['error']['error_msg'] ?? null,
+                    'peer_id' => $peerId,
+                ]);
+
+                return false;
+            }
+
+            return isset($body['response']) && $body['response'] === 1;
+        } catch (\Throwable $e) {
+            Log::error('[VK] messages.edit exception', [
+                'peer_id' => $peerId,
+                'error' => $e->getMessage(),
+            ]);
+
+            return false;
+        }
+    }
+
     public function answerMessageEvent(string $eventId, string $userId, string $peerId, string $text): bool
     {
         if (! $this->configured) {

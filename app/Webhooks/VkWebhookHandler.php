@@ -28,6 +28,7 @@ class VkWebhookHandler
         $eventId = (string) ($object['event_id'] ?? '');
         $userId = (string) ($object['user_id'] ?? '');
         $peerId = (string) ($object['peer_id'] ?? '');
+        $conversationMessageId = (string) ($object['conversation_message_id'] ?? '');
 
         if ($eventId === '' || $userId === '' || $peerId === '') {
             Log::warning('[VK] message_event missing required fields');
@@ -45,7 +46,7 @@ class VkWebhookHandler
         }
 
         if (str_starts_with($command, 'cv_')) {
-            $this->handleConfirmVisit($command, $eventId, $userId, $peerId);
+            $this->handleConfirmVisit($command, $eventId, $userId, $peerId, $conversationMessageId);
 
             return;
         }
@@ -53,7 +54,7 @@ class VkWebhookHandler
         $this->vkApi->answerMessageEvent($eventId, $userId, $peerId, 'Действие недоступно');
     }
 
-    private function handleConfirmVisit(string $command, string $eventId, string $userId, string $peerId): void
+    private function handleConfirmVisit(string $command, string $eventId, string $userId, string $peerId, string $conversationMessageId): void
     {
         $appointmentId = substr($command, 3);
 
@@ -101,7 +102,42 @@ class VkWebhookHandler
             ]);
         }
 
+        if (in_array($result['result'], ['ok', 'already'], true)) {
+            $this->updateReminderMessage($peerId, $conversationMessageId);
+        }
+
         $this->respond($eventId, $userId, $peerId, $text);
+    }
+
+    private function updateReminderMessage(string $peerId, string $conversationMessageId): void
+    {
+        if ($peerId === '' || $conversationMessageId === '') {
+            return;
+        }
+
+        $marker = "\n\n✅ Визит подтверждён";
+
+        $message = $this->vkApi->getMessageByConversationId($peerId, $conversationMessageId);
+
+        if ($message === null) {
+            return;
+        }
+
+        $originalText = (string) ($message['text'] ?? '');
+
+        if ($originalText === '') {
+            return;
+        }
+
+        if (str_contains($originalText, '✅ Визит подтверждён')) {
+            return;
+        }
+
+        $this->vkApi->editMessage($peerId, $conversationMessageId, $originalText . $marker, [
+            'one_time' => true,
+            'inline' => true,
+            'buttons' => [],
+        ]);
     }
 
     private function respond(string $eventId, string $userId, string $peerId, string $text): void

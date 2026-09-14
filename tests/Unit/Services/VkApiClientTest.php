@@ -365,4 +365,286 @@ class VkApiClientTest extends TestCase
         $this->assertFalse($result);
         Http::assertNothingSent();
     }
+
+    // ═══════════════════════════════════════
+    // getMessageByConversationId
+    // ═══════════════════════════════════════
+
+    public function test_get_message_by_conversation_id_returns_first_item(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response([
+                'response' => [
+                    'count' => 1,
+                    'items' => [['text' => 'Hello world', 'id' => 42]],
+                ],
+            ], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $result = $client->getMessageByConversationId('100', '42');
+
+        $this->assertSame('Hello world', $result['text']);
+    }
+
+    public function test_get_message_by_conversation_id_uses_correct_api(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => ['count' => 1, 'items' => [['text' => 'x']]]], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $client->getMessageByConversationId('100', '42');
+
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://api.vk.com/method/messages.getByConversationMessageId';
+        });
+    }
+
+    public function test_get_message_by_conversation_id_sends_correct_params(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => ['count' => 1, 'items' => [['text' => 'x']]]], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $client->getMessageByConversationId('100', '42');
+
+        Http::assertSent(function ($request) {
+            $data = $request->data();
+
+            return $data['peer_id'] === '100'
+                && $data['conversation_message_ids'] === '42'
+                && $data['access_token'] === 'test_vk_token_abc123'
+                && $data['v'] === '5.199';
+        });
+    }
+
+    public function test_get_message_by_conversation_id_empty_items_returns_null(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => ['count' => 0, 'items' => []]], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $result = $client->getMessageByConversationId('100', '42');
+
+        $this->assertNull($result);
+    }
+
+    public function test_get_message_by_conversation_id_vk_error_returns_null(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response([
+                'error' => ['error_code' => 5, 'error_msg' => 'Auth failed'],
+            ], 200),
+        ]);
+
+        Log::shouldReceive('error')->once();
+
+        $client = new VkApiClient();
+        $result = $client->getMessageByConversationId('100', '42');
+
+        $this->assertNull($result);
+    }
+
+    public function test_get_message_by_conversation_id_http_failure_returns_null(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response('Bad Gateway', 502),
+        ]);
+
+        Log::shouldReceive('error')->once();
+
+        $client = new VkApiClient();
+        $result = $client->getMessageByConversationId('100', '42');
+
+        $this->assertNull($result);
+    }
+
+    public function test_get_message_by_conversation_id_exception_returns_null(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => function () {
+                throw new \RuntimeException('Connection refused');
+            },
+        ]);
+
+        Log::shouldReceive('error')->once();
+
+        $client = new VkApiClient();
+        $result = $client->getMessageByConversationId('100', '42');
+
+        $this->assertNull($result);
+    }
+
+    public function test_get_message_by_conversation_id_missing_config_returns_null(): void
+    {
+        config(['services.vk.bot_token' => null]);
+
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => 1], 200),
+        ]);
+
+        Log::shouldReceive('warning')->once();
+
+        $client = new VkApiClient();
+        $result = $client->getMessageByConversationId('100', '42');
+
+        $this->assertNull($result);
+        Http::assertNothingSent();
+    }
+
+    // ═══════════════════════════════════════
+    // editMessage
+    // ═══════════════════════════════════════
+
+    public function test_edit_message_success_returns_true(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => 1], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $result = $client->editMessage('100', '42', 'Updated text');
+
+        $this->assertTrue($result);
+    }
+
+    public function test_edit_message_uses_correct_url(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => 1], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $client->editMessage('100', '42', 'text');
+
+        Http::assertSent(function ($request) {
+            return $request->url() === 'https://api.vk.com/method/messages.edit';
+        });
+    }
+
+    public function test_edit_message_sends_correct_params(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => 1], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $client->editMessage('100', '42', 'New text');
+
+        Http::assertSent(function ($request) {
+            $data = $request->data();
+
+            return $data['peer_id'] === '100'
+                && $data['conversation_message_id'] === '42'
+                && $data['message'] === 'New text'
+                && $data['access_token'] === 'test_vk_token_abc123'
+                && $data['v'] === '5.199';
+        });
+    }
+
+    public function test_edit_message_encodes_keyboard_as_json(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => 1], 200),
+        ]);
+
+        $keyboard = [
+            'one_time' => true,
+            'inline' => true,
+            'buttons' => [],
+        ];
+
+        $client = new VkApiClient();
+        $client->editMessage('100', '42', 'text', $keyboard);
+
+        Http::assertSent(function ($request) {
+            $data = $request->data();
+            $decoded = json_decode($data['keyboard'], true);
+
+            return is_string($data['keyboard'])
+                && $decoded['inline'] === true
+                && $decoded['one_time'] === true
+                && $decoded['buttons'] === [];
+        });
+    }
+
+    public function test_edit_message_no_keyboard_omits_param(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => 1], 200),
+        ]);
+
+        $client = new VkApiClient();
+        $client->editMessage('100', '42', 'text');
+
+        Http::assertSent(function ($request) {
+            return ! isset($request->data()['keyboard']);
+        });
+    }
+
+    public function test_edit_message_vk_error_returns_false(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response([
+                'error' => ['error_code' => 909, 'error_msg' => 'Too old'],
+            ], 200),
+        ]);
+
+        Log::shouldReceive('error')->once();
+
+        $client = new VkApiClient();
+        $result = $client->editMessage('100', '42', 'text');
+
+        $this->assertFalse($result);
+    }
+
+    public function test_edit_message_http_failure_returns_false(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => Http::response('Internal Server Error', 500),
+        ]);
+
+        Log::shouldReceive('error')->once();
+
+        $client = new VkApiClient();
+        $result = $client->editMessage('100', '42', 'text');
+
+        $this->assertFalse($result);
+    }
+
+    public function test_edit_message_exception_returns_false(): void
+    {
+        Http::fake([
+            'api.vk.com/*' => function () {
+                throw new \RuntimeException('Connection refused');
+            },
+        ]);
+
+        Log::shouldReceive('error')->once();
+
+        $client = new VkApiClient();
+        $result = $client->editMessage('100', '42', 'text');
+
+        $this->assertFalse($result);
+    }
+
+    public function test_edit_message_missing_config_returns_false(): void
+    {
+        config(['services.vk.bot_token' => null]);
+
+        Http::fake([
+            'api.vk.com/*' => Http::response(['response' => 1], 200),
+        ]);
+
+        Log::shouldReceive('warning')->once();
+
+        $client = new VkApiClient();
+        $result = $client->editMessage('100', '42', 'text');
+
+        $this->assertFalse($result);
+        Http::assertNothingSent();
+    }
 }
