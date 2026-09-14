@@ -31,6 +31,8 @@ return [
     'booking_confirmed_address' => "\n📍 Адрес: :address",
     'booking_confirmed_suffix' => "\n\nЖдём вас!",
 
+    'vk_booking_confirmed' => "✅ Запись подтверждена!\n\nМастер: :master\nУслуга: :service\nДата: :date\nВремя: :time\nСтоимость: :price\nАдрес: :address\n\nЖдём вас!",
+
     // ─── Успешная авторизация ───
     'auth_success' => "✅ <b>Авторизация пройдена!</b>\n\nПросто закройте мессенджер и вернитесь в ту вкладку браузера (Safari/Chrome), где вы начинали вход — она уже обновилась автоматически!",
 

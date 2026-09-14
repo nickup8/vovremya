@@ -268,6 +268,8 @@ class VkBookingConfirmTest extends TestCase
         $appointment = $this->createDraftAppointment(AppointmentStatus::PendingPayment);
         $token = $this->createToken($appointment->id);
 
+        Event::fake([AppointmentCreated::class]);
+
         $this->withHeaders($this->vkAuthHeaders('494075'))
             ->postJson('/api/miniapp/vk-confirm', ['token' => $token])
             ->assertOk();
@@ -299,6 +301,8 @@ class VkBookingConfirmTest extends TestCase
         $appointment = $this->createDraftAppointment();
         $token = $this->createToken($appointment->id);
 
+        Event::fake([AppointmentCreated::class]);
+
         $this->withHeaders($this->vkAuthHeaders('494075'))
             ->postJson('/api/miniapp/vk-confirm', ['token' => $token])
             ->assertOk();
@@ -311,6 +315,8 @@ class VkBookingConfirmTest extends TestCase
         $client = $this->createReturningClient();
         $appointment = $this->createDraftAppointment();
         $token = $this->createToken($appointment->id);
+
+        Event::fake([AppointmentCreated::class]);
 
         $this->withHeaders($this->vkAuthHeaders('494075'))
             ->postJson('/api/miniapp/vk-confirm', ['token' => $token])
@@ -407,6 +413,8 @@ class VkBookingConfirmTest extends TestCase
         $client = $this->createReturningClient();
         $appointment = $this->createDraftAppointment();
         $token = $this->createToken($appointment->id);
+
+        Event::fake([AppointmentCreated::class]);
 
         $this->withHeaders($this->vkAuthHeaders('494075'))
             ->postJson('/api/miniapp/vk-confirm', ['token' => $token])

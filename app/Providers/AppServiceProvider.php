@@ -6,6 +6,7 @@ use App\Events\AppointmentCreated;
 use App\Events\AppointmentRescheduled;
 use App\Events\AppointmentStatusChanged;
 use App\Listeners\FlushAvailabilityCache;
+use App\Listeners\SendVkBookingConfirmation;
 use App\Models\BlockedTime;
 use App\Models\MasterService;
 use App\Models\Subscription;
@@ -69,6 +70,9 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(AppointmentCreated::class, $listener);
         Event::listen(AppointmentStatusChanged::class, $listener);
         Event::listen(AppointmentRescheduled::class, $listener);
+
+        // VK booking confirmation to client
+        Event::listen(AppointmentCreated::class, SendVkBookingConfirmation::class);
 
         $this->configureDefaults();
     }
