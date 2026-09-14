@@ -37,16 +37,12 @@ Route::prefix('miniapp')->middleware(['throttle:60,1'])->group(function () {
     Route::post('/vk-cancel', VkCancelController::class)
         ->middleware(['vk.launch', 'throttle:10,1']);
 
-    // MAX-only: VK source/delivery not yet implemented
-    Route::middleware('max.initdata')->group(function () {
-        Route::put('/appointments/{appointment}/earlier-request', [EarlierRequestController::class, 'store']);
-    });
-
     // Platform-neutral: MAX or VK
     Route::middleware('miniapp.auth')->group(function () {
         Route::get('/appointments', [AppointmentController::class, 'index']);
         Route::get('/appointments/history', [AppointmentController::class, 'history']);
         Route::post('/appointments/{appointment}/cancel', [AppointmentController::class, 'cancel']);
+        Route::put('/appointments/{appointment}/earlier-request', [EarlierRequestController::class, 'store']);
         Route::delete('/appointments/{appointment}/earlier-request', [EarlierRequestController::class, 'destroy']);
         Route::get('/profile', [AppointmentController::class, 'profile']);
     });

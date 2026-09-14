@@ -2,9 +2,14 @@
 
 namespace App\Webhooks;
 
+use App\Enums\SlotOfferStatus;
+use App\Jobs\MatchSlotOpportunityJob;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Models\SlotOffer;
 use App\Services\AppointmentVisitConfirmationService;
+use App\Services\SlotOfferAcceptanceService;
+use App\Services\SlotOfferService;
 use App\Services\VkApiClient;
 use Illuminate\Support\Facades\Log;
 
@@ -13,6 +18,8 @@ class VkWebhookHandler
     public function __construct(
         private VkApiClient $vkApi,
         private AppointmentVisitConfirmationService $confirmService,
+        private SlotOfferAcceptanceService $acceptanceService,
+        private SlotOfferService $offerService,
     ) {}
 
     public function handle(array $payload): void
@@ -47,6 +54,18 @@ class VkWebhookHandler
 
         if (str_starts_with($command, 'cv_')) {
             $this->handleConfirmVisit($command, $eventId, $userId, $peerId, $conversationMessageId);
+
+            return;
+        }
+
+        if (str_starts_with($command, 'af_accept_')) {
+            $this->handleAutofillAccept($command, $eventId, $userId, $peerId, $conversationMessageId);
+
+            return;
+        }
+
+        if (str_starts_with($command, 'af_decline_')) {
+            $this->handleAutofillDecline($command, $eventId, $userId, $peerId, $conversationMessageId);
 
             return;
         }
@@ -107,6 +126,140 @@ class VkWebhookHandler
         }
 
         $this->respond($eventId, $userId, $peerId, $text);
+    }
+
+    private function handleAutofillAccept(string $command, string $eventId, string $userId, string $peerId, string $conversationMessageId): void
+    {
+        $offerId = substr($command, 10);
+
+        if ($offerId === '') {
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        $offer = SlotOffer::with(['request.client'])->find($offerId);
+
+        if ($offer === null) {
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        if ($offer->request?->client?->vk_id !== $userId) {
+            Log::warning('[VK] autofill accept: ownership violation', [
+                'user_id' => $userId,
+                'offer_id' => $offerId,
+            ]);
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        if ($offer->status !== SlotOfferStatus::Pending) {
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        $result = $this->acceptanceService->acceptEarlier($offer);
+
+        if ($result['success']) {
+            Log::info('[VK] autofill accept success', [
+                'user_id' => $userId,
+                'offer_id' => $offerId,
+            ]);
+            $this->respond($eventId, $userId, $peerId, 'Готово, запись перенесена.');
+            $this->editAutofillMessage($peerId, $conversationMessageId, '✅ Запись перенесена');
+        } else {
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+        }
+    }
+
+    private function handleAutofillDecline(string $command, string $eventId, string $userId, string $peerId, string $conversationMessageId): void
+    {
+        $offerId = substr($command, 11);
+
+        if ($offerId === '') {
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        $offer = SlotOffer::with(['request.client'])->find($offerId);
+
+        if ($offer === null) {
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        if ($offer->request?->client?->vk_id !== $userId) {
+            Log::warning('[VK] autofill decline: ownership violation', [
+                'user_id' => $userId,
+                'offer_id' => $offerId,
+            ]);
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        if ($offer->status !== SlotOfferStatus::Pending) {
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        try {
+            $this->offerService->decline($offer);
+        } catch (\Throwable $e) {
+            Log::warning('[VK] autofill decline failed', [
+                'offer_id' => $offerId,
+                'error' => $e->getMessage(),
+            ]);
+            $this->respond($eventId, $userId, $peerId, 'Предложение уже недоступно.');
+
+            return;
+        }
+
+        MatchSlotOpportunityJob::dispatch($offer->slot_opportunity_id);
+
+        Log::info('[VK] autofill decline success', [
+            'user_id' => $userId,
+            'offer_id' => $offerId,
+        ]);
+
+        $this->respond($eventId, $userId, $peerId, 'Хорошо, это время не подойдёт. Продолжим искать.');
+        $this->editAutofillMessage($peerId, $conversationMessageId, '❌ Предложение отклонено');
+    }
+
+    private function editAutofillMessage(string $peerId, string $conversationMessageId, string $marker): void
+    {
+        if ($peerId === '' || $conversationMessageId === '') {
+            return;
+        }
+
+        $message = $this->vkApi->getMessageByConversationId($peerId, $conversationMessageId);
+
+        if ($message === null) {
+            return;
+        }
+
+        $originalText = (string) ($message['text'] ?? '');
+
+        if ($originalText === '') {
+            return;
+        }
+
+        if (str_contains($originalText, $marker)) {
+            return;
+        }
+
+        $this->vkApi->editMessage($peerId, $conversationMessageId, $originalText . "\n\n" . $marker, [
+            'one_time' => true,
+            'inline' => true,
+            'buttons' => [],
+        ]);
     }
 
     private function updateReminderMessage(string $peerId, string $conversationMessageId): void

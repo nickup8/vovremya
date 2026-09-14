@@ -6,4 +6,5 @@ enum SlotRequestDeliveryChannel: string
 {
     case Telegram = 'telegram';
     case Max = 'max';
+    case Vk = 'vk';
 }

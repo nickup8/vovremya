@@ -7,4 +7,5 @@ enum SlotRequestSource: string
     case Web = 'web';
     case Telegram = 'telegram';
     case Max = 'max';
+    case Vk = 'vk';
 }

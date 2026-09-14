@@ -93,6 +93,41 @@ class AppointmentStatusService
     }
 
     /**
+     * Создать freed-window pipeline для VK cancellation (draft bookings).
+     * Используется из VkCancelController после успешного atomic cancel.
+     */
+    public function dispatchFreedWindowAfterCancel(Appointment $appointment): void
+    {
+        if ($appointment->master === null || ! $appointment->master->isAutoFillEnabled()) {
+            return;
+        }
+
+        if ($appointment->master_service_id === null) {
+            return;
+        }
+
+        $duration = $appointment->duration;
+
+        if ($duration === null || $duration <= 0) {
+            return;
+        }
+
+        $freedWindow = new AppointmentWindowFreed(
+            originEventId: (string) Str::uuid(),
+            chainId: null,
+            workspaceId: $appointment->master->workspace_id,
+            masterId: $appointment->master_id,
+            masterServiceId: $appointment->master_service_id,
+            sourceAppointmentId: $appointment->id,
+            sourceType: SlotOpportunitySourceType::Cancellation,
+            startTime: $appointment->start_time,
+            duration: $duration,
+        );
+
+        app(FreedWindowDispatcher::class)->dispatchAfterCommit($freedWindow);
+    }
+
+    /**
      * Проверяет, можно ли отменить запись. Бросает исключение при невозможности.
      * Ничего не отменяет и не шлёт сообщений — только проверяет.
      */

@@ -41,6 +41,8 @@ class EarlierRequestController extends Controller
         $timeFrom = strlen($validated['time_from']) === 5 ? $validated['time_from'] . ':00' : $validated['time_from'];
         $timeTo = strlen($validated['time_to']) === 5 ? $validated['time_to'] . ':00' : $validated['time_to'];
 
+        [$source, $channel] = $this->resolveProvider($request);
+
         try {
             $slotRequest = $this->slotRequestService->createOrUpdateEarlierRequest(
                 appointment: $appointment,
@@ -49,8 +51,8 @@ class EarlierRequestController extends Controller
                 dateTo: $validated['date_to'],
                 timeFrom: $timeFrom,
                 timeTo: $timeTo,
-                deliveryChannel: SlotRequestDeliveryChannel::Max,
-                requestSource: SlotRequestSource::Max,
+                deliveryChannel: $channel,
+                requestSource: $source,
             );
 
             return response()->json([
@@ -97,5 +99,17 @@ class EarlierRequestController extends Controller
         }
 
         return $appointment->client;
+    }
+
+    /**
+     * @return array{SlotRequestSource, SlotRequestDeliveryChannel}
+     */
+    private function resolveProvider(Request $request): array
+    {
+        if ($request->attributes->get('vk_launch') !== null) {
+            return [SlotRequestSource::Vk, SlotRequestDeliveryChannel::Vk];
+        }
+
+        return [SlotRequestSource::Max, SlotRequestDeliveryChannel::Max];
     }
 }

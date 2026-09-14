@@ -33,5 +33,5 @@ function AppRouter() {
         return <LinkOnboarding onLinked={handleLinked} />;
     }
 
-    return <AppShell canCreateEarlierRequest={false} />;
+    return <AppShell canCreateEarlierRequest={true} />;
 }

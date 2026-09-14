@@ -49,9 +49,13 @@ class MatchSlotOpportunityJob implements ShouldQueue
         ExpireSlotOfferJob::dispatch($offer->id)
             ->delay($offer->expires_at);
 
-        // Deliver offer notification via MAX if applicable
-        if ($offer->request?->delivery_channel === SlotRequestDeliveryChannel::Max) {
+        // Deliver offer notification
+        $channel = $offer->request?->delivery_channel;
+
+        if ($channel === SlotRequestDeliveryChannel::Max) {
             SendMaxSlotOfferJob::dispatch($offer->id);
+        } elseif ($channel === SlotRequestDeliveryChannel::Vk) {
+            SendVkSlotOfferJob::dispatch($offer->id);
         }
     }
 }

@@ -157,6 +157,10 @@ class SlotRequestService
         if ($channel === SlotRequestDeliveryChannel::Max && empty($client->max_id)) {
             throw new \DomainException('Client does not have a MAX identity for delivery.');
         }
+
+        if ($channel === SlotRequestDeliveryChannel::Vk && empty($client->vk_id)) {
+            throw new \DomainException('Client does not have a VK identity for delivery.');
+        }
     }
 
     private function validateTimeConstraints(
