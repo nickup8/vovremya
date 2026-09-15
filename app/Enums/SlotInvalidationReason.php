@@ -7,6 +7,7 @@ enum SlotInvalidationReason: string
     case MissingRelations = 'missing_relations';
     case UnsupportedDeliveryChannel = 'unsupported_delivery_channel';
     case MissingMaxIdentity = 'missing_max_identity';
+    case MissingVkIdentity = 'missing_vk_identity';
     case DeliveryFailed = 'delivery_failed';
     case StaleRequest = 'stale_request';
     case SlotUnavailable = 'slot_unavailable';

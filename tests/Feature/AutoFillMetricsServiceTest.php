@@ -113,7 +113,7 @@ class AutoFillMetricsServiceTest extends TestCase
 
     private function createRequest(?Carbon $createdAt = null): SlotRequest
     {
-        $hour = 14 + ($this->apptCounter % 4);
+        $hour = 14 + ($this->apptCounter % 5);
         $this->apptCounter++;
 
         $appt = Appointment::factory()
@@ -409,12 +409,21 @@ class AutoFillMetricsServiceTest extends TestCase
         $this->createOffer($req3, $opp3, [
             'status' => SlotOfferStatus::Invalidated,
             'invalidated_at' => now(),
+            'invalidation_reason' => SlotInvalidationReason::MissingVkIdentity,
+        ]);
+
+        $req4 = $this->createRequest();
+        $opp4 = $this->createOpportunity();
+        $this->createOffer($req4, $opp4, [
+            'status' => SlotOfferStatus::Invalidated,
+            'invalidated_at' => now(),
             'invalidation_reason' => null,
         ]);
 
         $result = $this->metrics->getMetrics($this->master, $from, $to);
 
         $this->assertEquals(2, $result['invalidations_by_reason']['missing_max_identity']);
+        $this->assertEquals(1, $result['invalidations_by_reason']['missing_vk_identity']);
         $this->assertEquals(1, $result['invalidations_by_reason']['unknown']);
     }
 

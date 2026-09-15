@@ -97,7 +97,7 @@ class SendVkSlotOfferJob implements ShouldQueue
                 'offer_id' => $offer->id,
                 'client_id' => $client->id,
             ]);
-            $this->invalidateAndRematch($offerService, $offer, SlotInvalidationReason::MissingMaxIdentity);
+            $this->invalidateAndRematch($offerService, $offer, SlotInvalidationReason::MissingVkIdentity);
             return;
         }
 

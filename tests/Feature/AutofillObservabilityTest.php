@@ -14,6 +14,8 @@ use App\Enums\SlotRequestType;
 use App\Enums\SubscriptionStatus;
 use App\Jobs\MatchSlotOpportunityJob;
 use App\Jobs\SendMaxSlotOfferJob;
+use App\Jobs\SendVkSlotOfferJob;
+use App\Services\VkApiClient;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\MasterService;
@@ -323,5 +325,35 @@ class AutofillObservabilityTest extends TestCase
         $this->assertSame(SlotOfferStatus::Pending, $offer->status);
         $this->assertNull($offer->invalidation_reason);
         $this->assertNotNull($offer->sent_at);
+    }
+
+    // ── VK-specific reason ──────────────────────────────────
+
+    public function test_missing_vk_id_invalidates_with_missing_vk_identity(): void
+    {
+        $this->request->update(['delivery_channel' => SlotRequestDeliveryChannel::Vk]);
+        $this->client->update(['vk_id' => null]);
+
+        $vkApi = Mockery::mock(VkApiClient::class);
+        $this->app->instance(VkApiClient::class, $vkApi);
+        $vkApi->shouldReceive('sendMessageWithKeyboard')->never();
+
+        $job = new SendVkSlotOfferJob($this->offer->id);
+        $job->handle($vkApi, app(SlotOfferService::class));
+
+        $offer = $this->offer->fresh();
+        $this->assertSame(SlotOfferStatus::Invalidated, $offer->status);
+        $this->assertSame(SlotInvalidationReason::MissingVkIdentity, $offer->invalidation_reason);
+    }
+
+    public function test_enum_cast_returns_missing_vk_identity(): void
+    {
+        $offerService = app(SlotOfferService::class);
+        $offerService->invalidate($this->offer, SlotInvalidationReason::MissingVkIdentity);
+
+        $offer = $this->offer->fresh();
+        $this->assertInstanceOf(SlotInvalidationReason::class, $offer->invalidation_reason);
+        $this->assertSame(SlotInvalidationReason::MissingVkIdentity, $offer->invalidation_reason);
+        $this->assertSame('missing_vk_identity', $offer->invalidation_reason->value);
     }
 }
