@@ -58,4 +58,9 @@ return [
         'group_id' => env('VK_GROUP_ID'),
     ],
 
+    'vk_id' => [
+        'app_id' => env('VK_ID_APP_ID'),
+        'redirect_uri' => env('VK_ID_REDIRECT_URI', 'https://irsi-app.ru/auth/vk/callback'),
+    ],
+
 ];
