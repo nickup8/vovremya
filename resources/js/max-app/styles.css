@@ -466,9 +466,9 @@ body {
     background: var(--surface);
     border: 1px solid var(--line);
     border-radius: 16px;
-    padding: 14px;
+    padding: 12px;
     display: grid;
-    gap: 12px;
+    gap: 10px;
     margin-bottom: 10px;
 }
 
@@ -501,7 +501,7 @@ body {
 }
 
 .history-card-footer {
-    padding-top: 12px;
+    padding-top: 10px;
     border-top: 1px solid var(--line-soft);
     display: flex;
     align-items: center;
@@ -519,14 +519,14 @@ body {
 }
 
 .history-rebook-btn {
-    min-height: 36px;
-    padding: 0 12px;
+    min-height: 33px;
+    padding: 0 10px;
     border-radius: 10px;
     border: 1px solid var(--line);
     background: var(--surface);
     font-size: 12px;
     line-height: 16px;
-    font-weight: 680;
+    font-weight: 620;
     font-family: inherit;
     white-space: nowrap;
     flex: none;
@@ -549,7 +549,7 @@ body {
 /* ─── Full-width Primary Booking Button ─── */
 .appt-booking-btn {
     width: 100%;
-    min-height: 44px;
+    min-height: 42px;
     border-radius: 11px;
     padding: 0 12px;
     display: inline-flex;
@@ -558,19 +558,19 @@ body {
     gap: 7px;
     font-size: 13px;
     line-height: 18px;
-    font-weight: 700;
+    font-weight: 680;
     font-family: inherit;
     white-space: nowrap;
     cursor: pointer;
     -webkit-tap-highlight-color: transparent;
     border: 1px solid var(--orange);
-    background: var(--orange);
-    color: #fff;
+    background: transparent;
+    color: var(--orange);
     transition: background 0.15s, opacity 0.15s;
 }
 
 .appt-booking-btn:active {
-    opacity: 0.8;
+    background: var(--orange-100);
 }
 
 /* ─── Earlier request status block ─── */
@@ -744,8 +744,8 @@ body {
 }
 
 .profile-row {
-    min-height: 68px;
-    padding: 13px 14px;
+    min-height: 61px;
+    padding: 11px 14px;
     display: grid;
     align-content: center;
     gap: 4px;
@@ -866,8 +866,8 @@ body {
 }
 
 .detail-row {
-    min-height: 50px;
-    padding: 10px 12px;
+    min-height: 44px;
+    padding: 8px 12px;
     display: grid;
     grid-template-columns: 88px minmax(0, 1fr);
     gap: 10px;
