@@ -27,6 +27,14 @@ function FlowIcon({ variant, children }: { variant: 'orange' | 'neutral'; childr
     );
 }
 
+function formatPrice(value: number | string): string {
+    const num = Number(value);
+    if (Number.isFinite(num)) {
+        return num.toLocaleString('ru-RU') + ' ₽';
+    }
+    return value + ' ₽';
+}
+
 export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
     const [phase, setPhase] = useState<Phase>('consent-not-checked');
     const [error, setError] = useState<string | null>(null);
@@ -281,11 +289,12 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             <FlowLayout>
                 <FlowIcon variant="orange">
                     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
-                        <path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z" />
+                        <path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9" />
+                        <path d="M13.73 21a2 2 0 0 1-3.46 0" />
                     </svg>
                 </FlowIcon>
                 <div className="vk-flow-title">Не пропускайте важное</div>
-                <div className="vk-flow-copy">Разрешите ИРСИ присылать напоминания о визитах и изменения записи в VK.</div>
+                <div className="vk-flow-copy">Разрешите ИРСИ присылать напоминания о визитах и сообщать об изменениях записи в VK.</div>
                 <div className="vk-flow-actions">
                     <button
                         type="button"
@@ -332,7 +341,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                 <div className="vk-detail-list">
                     <div className="vk-detail-row">
                         <span className="vk-detail-label">Стоимость</span>
-                        <span className="vk-detail-value">{appt.price} ₽</span>
+                        <span className="vk-detail-value">{formatPrice(appt.price)}</span>
                     </div>
                     {appt.address && (
                         <div className="vk-detail-row">
