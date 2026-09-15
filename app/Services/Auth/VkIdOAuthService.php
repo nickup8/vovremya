@@ -38,7 +38,7 @@ class VkIdOAuthService
             'state' => $state,
             'scope' => 'phone',
             'code_challenge' => $codeChallenge,
-            'code_challenge_method' => 'S256',
+            'code_challenge_method' => 's256',
         ]);
     }
 
@@ -47,14 +47,17 @@ class VkIdOAuthService
      */
     public function exchangeCode(string $code, string $deviceId, string $state, string $codeVerifier): array
     {
-        $response = Http::asForm()->post(self::TOKEN_URL, [
+        $url = self::TOKEN_URL . '?' . http_build_query([
             'grant_type' => 'authorization_code',
-            'client_id' => $this->appId,
             'redirect_uri' => $this->redirectUri,
-            'code' => $code,
+            'client_id' => $this->appId,
             'code_verifier' => $codeVerifier,
             'state' => $state,
             'device_id' => $deviceId,
+        ]);
+
+        $response = Http::asForm()->post($url, [
+            'code' => $code,
         ]);
 
         if (! $response->successful()) {
@@ -75,8 +78,11 @@ class VkIdOAuthService
      */
     public function userInfo(string $accessToken): array
     {
-        $response = Http::asForm()->post(self::USER_INFO_URL, [
+        $url = self::USER_INFO_URL . '?' . http_build_query([
             'client_id' => $this->appId,
+        ]);
+
+        $response = Http::asForm()->post($url, [
             'access_token' => $accessToken,
         ]);
 
