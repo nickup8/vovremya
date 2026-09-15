@@ -242,23 +242,27 @@ class SuperAdminController extends Controller
 
     public function updatePlan(Request $request, TariffPlan $plan): RedirectResponse
     {
-        if ($plan->code !== 'start') {
-            abort(422, 'Через этот endpoint можно изменять только лимит тарифа Старт.');
+        if ($plan->code === 'start') {
+            $validated = $request->validate([
+                'max_appointments_per_month' => 'required|integer|min:1',
+            ]);
+        } elseif ($plan->code === 'pro') {
+            $validated = $request->validate([
+                'price_monthly' => 'required|numeric|min:0',
+            ]);
+        } else {
+            abort(422, 'Изменение этого тарифа не поддерживается.');
         }
-
-        $validated = $request->validate([
-            'max_appointments_per_month' => 'required|integer|min:1',
-        ]);
 
         $plan->update($validated);
 
-        Log::info('Super admin updated plan limit', [
+        Log::info('Super admin updated plan', [
             'admin_id' => auth()->id(),
             'plan_id' => $plan->id,
             'plan_code' => $plan->code,
-            'max_appointments_per_month' => $validated['max_appointments_per_month'],
+            'fields' => array_keys($validated),
         ]);
 
-        return back()->with('success', "Лимит тарифа «{$plan->name}» обновлён.");
+        return back()->with('success', "Тариф «{$plan->name}» обновлён.");
     }
 }
