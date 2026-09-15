@@ -12,6 +12,7 @@ use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Admin\TrackingLinkController;
 use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
+use App\Http\Controllers\Auth\VkAuthController;
 use App\Http\Controllers\BookingWidgetController;
 use App\Http\Controllers\LegalController;
 use App\Http\Controllers\Client\BookingsController;
@@ -41,6 +42,8 @@ Route::get('/login', fn () => redirect()->route('auth.choose'))->name('login');
 Route::get('/auth/login', [TelegramAuthController::class, 'showChoose'])->name('auth.choose');
 Route::post('/auth/telegram/token', [TelegramAuthController::class, 'generateLoginToken'])->name('auth.telegram.token');
 Route::get('/auth/telegram/check/{token}', [TelegramAuthController::class, 'checkAuthStatus'])->middleware('throttle:30,1')->name('auth.telegram.check');
+Route::post('/auth/vk/start', [VkAuthController::class, 'start'])->name('auth.vk.start');
+Route::get('/auth/vk/callback', [VkAuthController::class, 'callback'])->middleware('throttle:10,1')->name('auth.vk.callback');
 Route::post('/logout', [TelegramAuthController::class, 'logout'])->name('logout');
 
 Route::get('/auth/magic', [MagicLoginController::class, 'show'])
