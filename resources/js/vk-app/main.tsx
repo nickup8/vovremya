@@ -6,6 +6,7 @@ import { api } from './lib/api';
 import { initVkApp } from './lib/vkBridge';
 import { App } from './App';
 import '../max-app/styles.css';
+import './styles.css';
 
 initVkApp();
 

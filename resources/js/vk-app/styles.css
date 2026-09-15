@@ -1,0 +1,261 @@
+/* ═══════════════ VK Mini-App — Onboarding Layer ═══════════════ */
+
+/* ─── Root ─── */
+#vk-root {
+    min-height: 100vh;
+    min-height: 100dvh;
+}
+
+/* ─── Outside VK override ─── */
+#vk-root .outside-max {
+    background: var(--bg);
+}
+
+/* ─── Layout ─── */
+#vk-root .vk-onboarding {
+    display: flex;
+    flex-direction: column;
+    min-height: 100vh;
+    min-height: 100dvh;
+    background: var(--bg);
+    padding: 0 16px;
+    padding-top: calc(24px + env(safe-area-inset-top, 0px));
+    padding-bottom: calc(24px + env(safe-area-inset-bottom, 0px));
+}
+
+#vk-root .vk-onboarding-header {
+    display: flex;
+    justify-content: center;
+    padding-bottom: 24px;
+}
+
+#vk-root .vk-onboarding-logo {
+    width: 128px;
+    height: auto;
+    object-fit: contain;
+    display: block;
+}
+
+#vk-root .vk-onboarding-main {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+/* ─── Card ─── */
+#vk-root .vk-flow-card {
+    width: 100%;
+    max-width: 420px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: 20px;
+    padding: 24px;
+}
+
+/* ─── Icon Block ─── */
+#vk-root .vk-flow-icon {
+    width: 50px;
+    height: 50px;
+    border-radius: 15px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 18px;
+}
+
+#vk-root .vk-flow-icon svg {
+    width: 23px;
+    height: 23px;
+    stroke-width: 1.8;
+}
+
+#vk-root .vk-flow-icon--orange {
+    background: var(--orange-100);
+    color: var(--orange);
+}
+
+#vk-root .vk-flow-icon--neutral {
+    background: var(--surface-soft);
+    color: var(--graphite);
+}
+
+/* ─── Typography ─── */
+#vk-root .vk-flow-title {
+    font-size: 24px;
+    line-height: 30px;
+    font-weight: 760;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+}
+
+#vk-root .vk-flow-copy {
+    margin-top: 6px;
+    font-size: 14px;
+    line-height: 20px;
+    color: var(--graphite);
+}
+
+/* ─── Booking Summary ─── */
+#vk-root .vk-booking-summary {
+    margin-top: 20px;
+}
+
+#vk-root .vk-booking-service {
+    font-size: 16px;
+    line-height: 22px;
+    font-weight: 700;
+    color: var(--ink);
+}
+
+#vk-root .vk-booking-datetime {
+    margin-top: 4px;
+    font-size: 22px;
+    line-height: 28px;
+    font-weight: 760;
+    letter-spacing: -0.02em;
+    color: var(--ink);
+}
+
+/* ─── Detail List ─── */
+#vk-root .vk-detail-list {
+    margin-top: 16px;
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    overflow: hidden;
+}
+
+#vk-root .vk-detail-row {
+    min-height: 46px;
+    padding: 10px 14px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    border-bottom: 1px solid var(--line-soft);
+    font-size: 13px;
+    line-height: 18px;
+}
+
+#vk-root .vk-detail-row:last-child {
+    border-bottom: 0;
+}
+
+#vk-root .vk-detail-label {
+    color: var(--graphite);
+}
+
+#vk-root .vk-detail-value {
+    font-weight: 600;
+    color: var(--ink);
+    text-align: right;
+}
+
+/* ─── Legal Box ─── */
+#vk-root .vk-legal-box {
+    margin-top: 18px;
+    padding: 14px;
+    background: var(--surface-soft);
+    border: 1px solid var(--line-soft);
+    border-radius: 12px;
+    font-size: 12px;
+    line-height: 18px;
+    color: var(--graphite);
+}
+
+#vk-root .vk-legal-link {
+    color: var(--orange);
+    text-decoration: none;
+}
+
+#vk-root .vk-legal-link:hover {
+    text-decoration: underline;
+}
+
+/* ─── Alert ─── */
+#vk-root .vk-alert {
+    margin-top: 16px;
+    padding: 10px 12px;
+    border-radius: 11px;
+    background: var(--red-100);
+    color: var(--red);
+    font-size: 13px;
+    line-height: 18px;
+}
+
+/* ─── Actions ─── */
+#vk-root .vk-flow-actions {
+    margin-top: 20px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#vk-root .vk-primary-btn {
+    width: 100%;
+    min-height: 48px;
+    border-radius: 13px;
+    border: 0;
+    background: var(--orange);
+    color: #fff;
+    font-size: 15px;
+    font-weight: 700;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s, opacity 0.15s;
+}
+
+#vk-root .vk-primary-btn:active {
+    opacity: 0.85;
+}
+
+#vk-root .vk-primary-btn:disabled {
+    opacity: 0.5;
+    cursor: default;
+}
+
+#vk-root .vk-secondary-btn {
+    width: 100%;
+    min-height: 44px;
+    border-radius: 13px;
+    border: 1px solid var(--line);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    transition: background 0.15s;
+}
+
+#vk-root .vk-secondary-btn:active {
+    background: var(--surface-soft);
+}
+
+#vk-root .vk-danger-link {
+    border: 0;
+    background: transparent;
+    color: var(--red);
+    font-size: 14px;
+    font-weight: 600;
+    font-family: inherit;
+    cursor: pointer;
+    padding: 8px 0;
+    align-self: center;
+}
+
+#vk-root .vk-danger-link:active {
+    opacity: 0.7;
+}
+
+/* ─── Loading ─── */
+#vk-root .vk-flow-loading {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    min-height: 60vh;
+    gap: 16px;
+    color: var(--graphite);
+    font-size: 14px;
+}
