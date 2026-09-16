@@ -3,10 +3,24 @@ import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     ArrowRight, ArrowLeft, Clock,
     CheckCircle2, MessageCircle,
-    ChevronLeft, ChevronRight, MapPin, Loader2,
+    ChevronLeft, ChevronRight, MapPin, Loader2, Lock,
 } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { getInitials } from '@/lib/utils';
+
+/* ═══════════════ Tokens ═══════════════ */
+
+const C = {
+    milk: '#F7F5F1',
+    ink: '#181818',
+    graphite: '#62615F',
+    muted: '#8E8A85',
+    line: '#E7E4DF',
+    softLine: '#F0EEEA',
+    orange: '#FF5A1F',
+    orangeHover: '#E94D14',
+    softOrange: '#FFF0E8',
+    white: '#FFFFFF',
+};
 
 /* ═══════════════ Types ═══════════════ */
 
@@ -47,24 +61,12 @@ function getMonthGrid(year: number, month: number) {
     const daysInMonth = lastDay.getDate();
 
     let startOffset = firstDay.getDay() - 1;
-
-    if (startOffset < 0) {
-startOffset = 6;
-}
+    if (startOffset < 0) startOffset = 6;
 
     const cells: (Date | null)[] = [];
-
-    for (let i = 0; i < startOffset; i++) {
-cells.push(null);
-}
-
-    for (let d = 1; d <= daysInMonth; d++) {
-cells.push(new Date(year, month, d));
-}
-
-    while (cells.length % 7 !== 0) {
-cells.push(null);
-}
+    for (let i = 0; i < startOffset; i++) cells.push(null);
+    for (let d = 1; d <= daysInMonth; d++) cells.push(new Date(year, month, d));
+    while (cells.length % 7 !== 0) cells.push(null);
 
     return cells;
 }
@@ -73,45 +75,89 @@ function formatDateKey(d: Date): string {
     const y = d.getFullYear();
     const m = String(d.getMonth() + 1).padStart(2, '0');
     const day = String(d.getDate()).padStart(2, '0');
-
     return `${y}-${m}-${day}`;
 }
 
-/* ═══════════════ Master Profile ═══════════════ */
+const dayNamesFull = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
+const monthNamesGen = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
-function MasterProfileHeader({ master }: { master: Master }) {
+/* ═══════════════ Master Profile Header ═══════════════ */
+
+function MasterProfileHeader({ master, showBack, onBack }: { master: Master; showBack: boolean; onBack: () => void }) {
     const initials = getInitials(master.name);
 
     return (
-        <div className="border-b border-stone-200/50 bg-white/50 px-5 py-4 dark:border-stone-800/50 dark:bg-stone-900/30">
-            <div className="flex items-center gap-3.5">
-                {master.avatar_url ? (
-                    <img
-                        src={master.avatar_url}
-                        alt={master.name}
-                        className="size-12 rounded-full object-cover"
-                    />
-                ) : (
-                    <div className="flex size-12 shrink-0 items-center justify-center rounded-full bg-stone-900 text-sm font-bold text-white dark:bg-stone-100 dark:text-stone-900">
-                        {initials}
+        <div className="relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${C.softOrange} 0%, ${C.milk} 60%, ${C.white} 100%)` }}>
+            {/* Decorative organic shapes */}
+            <div className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full" style={{ background: `${C.orange}08` }} />
+            <div className="pointer-events-none absolute -left-6 bottom-0 size-28 rounded-full" style={{ background: `${C.orange}05` }} />
+
+            <div className="relative px-5 pb-5 pt-4">
+                {/* Back button row */}
+                {showBack && (
+                    <div className="mb-3">
+                        <button
+                            onClick={onBack}
+                            className="flex size-8 items-center justify-center rounded-xl transition-colors hover:bg-white/60"
+                            aria-label="Назад"
+                        >
+                            <ArrowLeft className="size-4" style={{ color: C.graphite }} />
+                        </button>
                     </div>
                 )}
-                <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-stone-900 dark:text-stone-50">
-                        {master.name}
-                    </p>
-                    {master.specialty && (
-                        <p className="truncate text-xs text-stone-400 dark:text-stone-500">
-                            {master.specialty}
-                        </p>
-                    )}
-                    {master.address && (
-                        <div className="mt-0.5 flex items-center gap-1.5 text-xs text-stone-400 dark:text-stone-500">
-                            <MapPin className="size-3" />
-                            {master.address}
+
+                <div className="flex items-center gap-4">
+                    {master.avatar_url ? (
+                        <img
+                            src={master.avatar_url}
+                            alt={master.name}
+                            className="size-[72px] shrink-0 rounded-full object-cover ring-3 ring-white/80"
+                        />
+                    ) : (
+                        <div
+                            className="flex size-[72px] shrink-0 items-center justify-center rounded-full text-lg font-bold text-white ring-3 ring-white/80"
+                            style={{ background: C.ink }}
+                        >
+                            {initials}
                         </div>
                     )}
+                    <div className="min-w-0 flex-1">
+                        <p className="text-lg font-bold tracking-tight" style={{ color: C.ink }}>
+                            {master.name}
+                        </p>
+                        {master.specialty && (
+                            <p className="mt-0.5 text-sm" style={{ color: C.graphite }}>
+                                {master.specialty}
+                            </p>
+                        )}
+                        {master.address && (
+                            <div className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
+                                <MapPin className="size-3" />
+                                {master.address}
+                            </div>
+                        )}
+                    </div>
                 </div>
+            </div>
+        </div>
+    );
+}
+
+/* ═══════════════ Progress ═══════════════ */
+
+function ProgressBar({ step, total }: { step: number; total: number }) {
+    return (
+        <div className="px-5 pb-1 pt-3">
+            <div className="flex items-center justify-between">
+                <span className="text-xs font-medium" style={{ color: C.muted }}>
+                    Шаг {step} из {total}
+                </span>
+            </div>
+            <div className="mt-2 h-1 w-full rounded-full" style={{ background: C.line }}>
+                <div
+                    className="h-full rounded-full transition-all duration-500 ease-out"
+                    style={{ width: `${(step / total) * 100}%`, background: C.orange }}
+                />
             </div>
         </div>
     );
@@ -129,17 +175,14 @@ function StepServices({
     onSelect: (s: Service) => void;
 }) {
     return (
-        <div className="flex-1 overflow-y-auto pb-28">
+        <div className="flex-1 overflow-y-auto pb-32">
             <div className="px-5 pt-6 pb-4">
-                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
                     Выберите услугу
                 </h2>
-                <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                    Нажмите на карточку, чтобы продолжить
-                </p>
             </div>
 
-            <div className="space-y-2 px-5">
+            <div className="space-y-2.5 px-5">
                 {services.map((service) => {
                     const isActive = selected?.id === service.id;
 
@@ -147,21 +190,40 @@ function StepServices({
                         <button
                             key={service.id}
                             onClick={() => onSelect(service)}
-                            className={`w-full rounded-2xl border p-4 text-left transition-all ${
-                                isActive
-                                    ? 'border-stone-900 bg-stone-900 text-white shadow-lg shadow-stone-900/20 dark:border-stone-100 dark:bg-stone-100 dark:text-stone-900 dark:shadow-stone-100/10'
-                                    : 'border-stone-200/60 bg-white/70 hover:border-stone-300 hover:bg-white dark:border-stone-700/40 dark:bg-stone-900/50 dark:hover:border-stone-600'
-                            }`}
+                            aria-pressed={isActive}
+                            className="w-full rounded-2xl border p-4 text-left transition-all"
+                            style={{
+                                background: isActive ? C.softOrange : C.white,
+                                borderColor: isActive ? C.orange : C.line,
+                            }}
                         >
-                            <div className="flex items-center justify-between">
-                                <div>
-                                    <p className="font-semibold">{service.title}</p>
-                                    <div className="mt-1 flex items-center gap-2 text-xs opacity-70">
+                            <div className="flex items-center gap-3">
+                                {/* Selection indicator */}
+                                <div
+                                    className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all"
+                                    style={{
+                                        borderColor: isActive ? C.orange : C.line,
+                                        background: isActive ? C.orange : 'transparent',
+                                    }}
+                                >
+                                    {isActive && (
+                                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
+                                            <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
+                                        </svg>
+                                    )}
+                                </div>
+
+                                <div className="min-w-0 flex-1">
+                                    <p className="font-semibold" style={{ color: C.ink }}>
+                                        {service.title}
+                                    </p>
+                                    <div className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
                                         <Clock className="size-3" />
                                         {service.duration_minutes} мин
                                     </div>
                                 </div>
-                                <span className="text-lg font-bold">
+
+                                <span className="shrink-0 text-lg font-bold" style={{ color: C.ink }}>
                                     {service.price.toLocaleString('ru-RU')} ₽
                                 </span>
                             </div>
@@ -194,7 +256,6 @@ function StepDate({
 
     const cells = useMemo(() => getMonthGrid(viewYear, viewMonth), [viewYear, viewMonth]);
 
-    // Загрузка доступных дат при смене месяца
     useEffect(() => {
         let cancelled = false;
         const controller = new AbortController();
@@ -210,59 +271,35 @@ function StepDate({
                 }
             })
             .catch((error: unknown) => {
-                if (error instanceof Error && error.name === 'AbortError') {
-                    return;
-                }
-                if (!cancelled) {
-                    setAvailableDates(new Set());
-                }
+                if (error instanceof Error && error.name === 'AbortError') return;
+                if (!cancelled) setAvailableDates(new Set());
             })
             .finally(() => {
-                if (!cancelled) {
-                    setLoadingDates(false);
-                }
+                if (!cancelled) setLoadingDates(false);
             });
 
-        return () => {
-            cancelled = true;
-            controller.abort();
-        };
+        return () => { cancelled = true; controller.abort(); };
     }, [masterSlug, serviceId, viewYear, viewMonth]);
 
-    const isPast = (d: Date) => {
-        const t = new Date(today.getFullYear(), today.getMonth(), today.getDate());
-
-        return d < t;
-    };
-
+    const isPast = (d: Date) => d < new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const isAvailable = (d: Date) => availableDates.has(formatDateKey(d));
-
-    const isSelected = (d: Date) =>
-        selectedDate?.toDateString() === d.toDateString();
+    const isSelected = (d: Date) => selectedDate?.toDateString() === d.toDateString();
 
     function prevMonth() {
-        if (viewMonth === 0) {
- setViewMonth(11); setViewYear((y) => y - 1); 
-} else {
- setViewMonth((m) => m - 1); 
-}
+        if (viewMonth === 0) { setViewMonth(11); setViewYear((y) => y - 1); } else { setViewMonth((m) => m - 1); }
     }
 
     function nextMonth() {
-        if (viewMonth === 11) {
- setViewMonth(0); setViewYear((y) => y + 1); 
-} else {
- setViewMonth((m) => m + 1); 
-}
+        if (viewMonth === 11) { setViewMonth(0); setViewYear((y) => y + 1); } else { setViewMonth((m) => m + 1); }
     }
 
     return (
-        <div className="flex-1 overflow-y-auto pb-28">
+        <div className="flex-1 overflow-y-auto pb-32">
             <div className="px-5 pt-6 pb-4">
-                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
                     Выберите дату
                 </h2>
-                <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
+                <p className="mt-1 text-sm" style={{ color: C.muted }}>
                     Серым отмечены дни без свободных слотов
                 </p>
             </div>
@@ -271,24 +308,24 @@ function StepDate({
                 <div className="flex items-center justify-between">
                     <button
                         onClick={prevMonth}
-                        className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
+                        className="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-black/5"
                     >
-                        <ChevronLeft className="size-5 text-stone-500 dark:text-stone-400" />
+                        <ChevronLeft className="size-5" style={{ color: C.graphite }} />
                     </button>
-                    <p className="text-base font-semibold text-stone-900 dark:text-stone-50">
+                    <p className="text-base font-semibold" style={{ color: C.ink }}>
                         {MONTH_NAMES[viewMonth]} {viewYear}
                     </p>
                     <button
                         onClick={nextMonth}
-                        className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
+                        className="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-black/5"
                     >
-                        <ChevronRight className="size-5 text-stone-500 dark:text-stone-400" />
+                        <ChevronRight className="size-5" style={{ color: C.graphite }} />
                     </button>
                 </div>
 
                 <div className="mt-4 grid grid-cols-7 gap-1">
                     {DAY_LETTERS.map((l) => (
-                        <div key={l} className="py-1 text-center text-xs font-medium text-stone-400 dark:text-stone-500">
+                        <div key={l} className="py-1 text-center text-xs font-medium" style={{ color: C.muted }}>
                             {l}
                         </div>
                     ))}
@@ -297,13 +334,11 @@ function StepDate({
                 <div className="mt-1 grid grid-cols-7 gap-1">
                     {loadingDates && (
                         <div className="col-span-7 flex justify-center py-8">
-                            <Loader2 className="size-5 animate-spin text-stone-400" />
+                            <Loader2 className="size-5 animate-spin" style={{ color: C.muted }} />
                         </div>
                     )}
                     {!loadingDates && cells.map((d, i) => {
-                        if (!d) {
-return <div key={`empty-${i}`} />;
-}
+                        if (!d) return <div key={`empty-${i}`} />;
 
                         const past = isPast(d);
                         const available = isAvailable(d);
@@ -315,15 +350,17 @@ return <div key={`empty-${i}`} />;
                                 key={d.toISOString()}
                                 onClick={() => !disabled && onSelectDate(d)}
                                 disabled={disabled}
-                                className={`flex aspect-square items-center justify-center rounded-full text-sm font-medium transition-all ${
-                                    disabled
-                                        ? past
-                                            ? 'text-stone-300 pointer-events-none dark:text-stone-700'
-                                            : 'text-stone-300 cursor-not-allowed dark:text-stone-700'
-                                        : selected
-                                            ? 'bg-stone-900 text-white shadow-md shadow-stone-900/20 dark:bg-stone-100 dark:text-stone-900'
-                                            : 'text-stone-700 hover:bg-stone-200/70 dark:text-stone-300 dark:hover:bg-stone-700/60'
-                                }`}
+                                className="flex aspect-square items-center justify-center rounded-full text-sm font-medium transition-all"
+                                style={{
+                                    color: disabled
+                                        ? past ? '#D1CFC9' : '#D1CFC9'
+                                        : selected ? C.white : C.ink,
+                                    background: selected ? C.orange : 'transparent',
+                                    cursor: disabled ? (past ? 'default' : 'not-allowed') : 'pointer',
+                                    opacity: disabled && !past ? 0.5 : 1,
+                                }}
+                                onMouseEnter={(e) => { if (!disabled && !selected) e.currentTarget.style.background = C.softLine; }}
+                                onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = selected ? C.orange : 'transparent'; }}
                             >
                                 {d.getDate()}
                             </button>
@@ -350,18 +387,15 @@ function StepTime({
     loadingSlots: boolean;
     onSelectTime: (t: string) => void;
 }) {
-    const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-    const monthNames = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-
     return (
-        <div className="flex-1 overflow-y-auto pb-28">
+        <div className="flex-1 overflow-y-auto pb-32">
             <div className="px-5 pt-6 pb-4">
-                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
                     Выберите время
                 </h2>
                 {selectedDate && (
-                    <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                        {dayNames[selectedDate.getDay()]}, {selectedDate.getDate()} {monthNames[selectedDate.getMonth()]}
+                    <p className="mt-1 text-sm" style={{ color: C.muted }}>
+                        {dayNamesFull[selectedDate.getDay()]}, {selectedDate.getDate()} {monthNamesGen[selectedDate.getMonth()]}
                     </p>
                 )}
             </div>
@@ -369,12 +403,12 @@ function StepTime({
             <div className="px-5">
                 {loadingSlots ? (
                     <div className="flex items-center justify-center py-12">
-                        <Loader2 className="size-5 animate-spin text-stone-400" />
+                        <Loader2 className="size-5 animate-spin" style={{ color: C.muted }} />
                     </div>
                 ) : availableSlots.length === 0 ? (
-                    <p className="py-8 text-center text-sm text-stone-400 dark:text-stone-500">
-                        Нет свободных слотов на эту дату
-                    </p>
+                    <div className="rounded-2xl border py-8 text-center" style={{ borderColor: C.line, background: C.white }}>
+                        <p className="text-sm" style={{ color: C.muted }}>Нет свободных слотов на эту дату</p>
+                    </div>
                 ) : (
                     <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
                         {availableSlots.map((t) => {
@@ -384,11 +418,14 @@ function StepTime({
                                 <button
                                     key={t}
                                     onClick={() => onSelectTime(t)}
-                                    className={`rounded-xl py-2.5 text-sm font-medium transition-all ${
-                                        active
-                                            ? 'bg-stone-900 text-white shadow-md dark:bg-stone-100 dark:text-stone-900'
-                                            : 'bg-stone-100 text-stone-600 hover:bg-stone-200 dark:bg-stone-800 dark:text-stone-300 dark:hover:bg-stone-700'
-                                    }`}
+                                    className="rounded-xl border py-2.5 text-sm font-medium transition-all"
+                                    style={{
+                                        background: active ? C.orange : C.white,
+                                        borderColor: active ? C.orange : C.line,
+                                        color: active ? C.white : C.ink,
+                                    }}
+                                    onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = C.softOrange; e.currentTarget.style.borderColor = C.orange; } }}
+                                    onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = C.white; e.currentTarget.style.borderColor = C.line; } }}
                                 >
                                     {t}
                                 </button>
@@ -414,70 +451,67 @@ function StepProvider({
     loadingProvider: 'telegram' | 'max' | 'vk' | null;
     maxBotName: string | null;
 }) {
+    const providers: { key: 'telegram' | 'max' | 'vk'; label: string; color: string; show: boolean }[] = [
+        { key: 'telegram', label: 'Telegram', color: '#2AABEE', show: true },
+        { key: 'max', label: 'MAX', color: '#6366F1', show: !!maxBotName },
+        { key: 'vk', label: 'VK', color: '#0077FF', show: true },
+    ];
+
     return (
-        <div className="flex-1 overflow-y-auto pb-28">
+        <div className="flex-1 overflow-y-auto pb-32">
             <div className="px-5 pt-6 pb-4">
-                <h2 className="text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
-                    Подтверждение
+                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
+                    Выберите мессенджер
                 </h2>
-                <p className="mt-1 text-sm text-stone-400 dark:text-stone-500">
-                    Выберите мессенджер для подтверждения записи
+                <p className="mt-1 text-sm" style={{ color: C.muted }}>
+                    В нём мы завершим подтверждение записи
                 </p>
             </div>
 
-            <div className="space-y-4 px-5">
+            <div className="space-y-3 px-5">
                 {errors.limit && (
-                    <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 dark:border-amber-800/50 dark:bg-amber-900/20">
-                        <p className="text-sm text-amber-700 dark:text-amber-400">{errors.limit}</p>
+                    <div className="rounded-2xl border px-4 py-3" style={{ borderColor: '#F5D0A0', background: '#FFF8F0' }}>
+                        <p className="text-sm" style={{ color: '#B8860B' }}>{errors.limit}</p>
                     </div>
                 )}
                 {errors.time && (
-                    <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 dark:border-red-800/50 dark:bg-red-900/20">
-                        <p className="text-sm text-red-600 dark:text-red-400">{errors.time}</p>
+                    <div className="rounded-2xl border px-4 py-3" style={{ borderColor: '#F0C0C0', background: '#FFF5F5' }}>
+                        <p className="text-sm" style={{ color: '#C44351' }}>{errors.time}</p>
                     </div>
                 )}
 
-                <div className="space-y-3 pt-2">
-                    <button
-                        onClick={() => onSubmit('telegram')}
-                        disabled={loadingProvider !== null}
-                        className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#2AABEE] py-5 text-base font-semibold text-white shadow-lg shadow-[#2AABEE]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
-                    >
-                        {loadingProvider === 'telegram' ? (
-                            <Loader2 className="size-5 animate-spin" />
-                        ) : (
-                            <MessageCircle className="size-5" />
-                        )}
-                        {loadingProvider === 'telegram' ? 'Отправка...' : 'Записаться через Telegram'}
-                    </button>
-
-                    {maxBotName && (
+                <div className="space-y-2.5 pt-1">
+                    {providers.filter((p) => p.show).map((p) => (
                         <button
-                            onClick={() => onSubmit('max')}
+                            key={p.key}
+                            onClick={() => onSubmit(p.key)}
                             disabled={loadingProvider !== null}
-                            className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#6366F1] py-5 text-base font-semibold text-white shadow-lg shadow-[#6366F1]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
+                            className="flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition-all disabled:opacity-50"
+                            style={{
+                                background: C.white,
+                                borderColor: C.line,
+                            }}
+                            onMouseEnter={(e) => { if (!loadingProvider) e.currentTarget.style.borderColor = p.color; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.line; }}
                         >
-                            {loadingProvider === 'max' ? (
-                                <Loader2 className="size-5 animate-spin" />
-                            ) : (
-                                <MessageCircle className="size-5" />
-                            )}
-                            {loadingProvider === 'max' ? 'Отправка...' : 'Записаться через MAX'}
+                            <div
+                                className="flex size-10 shrink-0 items-center justify-center rounded-xl"
+                                style={{ background: `${p.color}15` }}
+                            >
+                                {loadingProvider === p.key ? (
+                                    <Loader2 className="size-5 animate-spin" style={{ color: p.color }} />
+                                ) : (
+                                    <MessageCircle className="size-5" style={{ color: p.color }} />
+                                )}
+                            </div>
+                            <div className="flex-1">
+                                <p className="font-semibold" style={{ color: C.ink }}>
+                                    {loadingProvider === p.key ? 'Отправка...' : p.label}
+                                </p>
+                            </div>
+                            <ArrowRight className="size-4 shrink-0" style={{ color: C.muted }} />
                         </button>
-                    )}
-
-                    <button
-                        onClick={() => onSubmit('vk')}
-                        disabled={loadingProvider !== null}
-                        className="flex w-full items-center justify-center gap-3 rounded-2xl bg-[#0077FF] py-5 text-base font-semibold text-white shadow-lg shadow-[#0077FF]/20 transition-all hover:scale-[1.02] hover:shadow-xl disabled:opacity-50 disabled:hover:scale-100"
-                    >
-                        {loadingProvider === 'vk' ? (
-                            <Loader2 className="size-5 animate-spin" />
-                        ) : (
-                            <MessageCircle className="size-5" />
-                        )}
-                        {loadingProvider === 'vk' ? 'Отправка...' : 'Записаться через VK'}
-                    </button>
+                    ))}
                 </div>
             </div>
         </div>
@@ -495,35 +529,32 @@ function StepConfirmation({
     date: Date;
     time: string;
 }) {
-    const dayNames = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
-    const monthNames = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
-
     return (
-        <div className="flex-1 flex flex-col items-center justify-center px-5 py-12 text-center">
-            <div className="flex size-20 items-center justify-center rounded-full bg-green-50 dark:bg-green-900/30">
-                <CheckCircle2 className="size-10 text-green-500 dark:text-green-400" />
+        <div className="flex flex-1 flex-col items-center justify-center px-5 py-12 text-center">
+            <div className="flex size-16 items-center justify-center rounded-full" style={{ background: C.softOrange }}>
+                <CheckCircle2 className="size-8" style={{ color: C.orange }} />
             </div>
 
-            <h2 className="mt-6 text-xl font-bold tracking-tight text-stone-900 dark:text-stone-50">
+            <h2 className="mt-5 text-xl font-bold tracking-tight" style={{ color: C.ink }}>
                 Заявка создана!
             </h2>
 
-            <div className="mt-4 rounded-2xl border border-stone-200/60 bg-white/70 p-4 dark:border-stone-700/40 dark:bg-stone-900/50">
-                <p className="text-sm font-medium text-stone-900 dark:text-stone-50">{service.title}</p>
-                <p className="mt-1 text-xs text-stone-400 dark:text-stone-500">
-                    {dayNames[date.getDay()]}, {date.getDate()} {monthNames[date.getMonth()]} · {time}
+            <div className="mt-4 w-full rounded-2xl border p-4" style={{ borderColor: C.line, background: C.white }}>
+                <p className="text-sm font-medium" style={{ color: C.ink }}>{service.title}</p>
+                <p className="mt-1 text-xs" style={{ color: C.muted }}>
+                    {dayNamesFull[date.getDay()]}, {date.getDate()} {monthNamesGen[date.getMonth()]} · {time}
                 </p>
             </div>
 
-            <div className="mt-6 flex items-start gap-2.5 rounded-2xl bg-stone-50 p-4 text-left dark:bg-stone-800/50">
-                <MessageCircle className="mt-0.5 size-4 shrink-0 text-stone-400 dark:text-stone-500" />
-                <p className="text-sm leading-relaxed text-stone-500 dark:text-stone-400">
+            <div className="mt-5 flex w-full items-start gap-2.5 rounded-2xl p-4 text-left" style={{ background: C.softLine }}>
+                <MessageCircle className="mt-0.5 size-4 shrink-0" style={{ color: C.muted }} />
+                <p className="text-sm leading-relaxed" style={{ color: C.graphite }}>
                     Откройте чат с ботом и нажмите кнопку
-                    <strong className="text-stone-700 dark:text-stone-200"> «Поделиться номером»</strong> для завершения бронирования.
+                    <strong style={{ color: C.ink }}> «Поделиться номером»</strong> для завершения бронирования.
                 </p>
             </div>
 
-            <p className="mt-4 text-xs text-stone-400 dark:text-stone-500">
+            <p className="mt-4 text-xs" style={{ color: C.muted }}>
                 Слот временно зарезервирован в календаре мастера
             </p>
         </div>
@@ -540,7 +571,6 @@ export default function Widget() {
     const pageProps = usePage<{ errors: Record<string, string> }>().props;
     const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
 
-    // Определяем предвыбранную услугу: preselectedServiceId (из ?service) или initialServiceId (из ?service_id)
     const effectiveServiceId = preselectedServiceId ?? initialServiceId;
     const hasPreselectedService = effectiveServiceId !== null && effectiveServiceId !== undefined;
 
@@ -570,11 +600,9 @@ export default function Widget() {
 
     function buildUrlWithParams(extraParams: Record<string, string>): string {
         const params = new URLSearchParams(extraParams);
-
         return `/book/${master.master_slug}?${params.toString()}`;
     }
 
-    // Загрузка слотов при входе на шаг 3
     useEffect(() => {
         if (step === 3 && selectedDate && selectedService) {
             setLoadingSlots(true);
@@ -591,9 +619,7 @@ export default function Widget() {
                     const props = page.props as { availableSlots?: string[] };
                     setSlots(props.availableSlots ?? []);
                 },
-                onFinish: () => {
-                    setLoadingSlots(false);
-                },
+                onFinish: () => setLoadingSlots(false),
             });
         }
     }, [step, selectedDate, selectedService, master.master_slug]);
@@ -609,21 +635,15 @@ export default function Widget() {
     }
 
     function handleNext() {
-        if (step < TOTAL_STEPS) {
-setStep((s) => (s + 1) as Step);
-}
+        if (step < TOTAL_STEPS) setStep((s) => (s + 1) as Step);
     }
 
     function handleBack() {
-        if (step > 1) {
-setStep((s) => (s - 1) as Step);
-}
+        if (step > 1) setStep((s) => (s - 1) as Step);
     }
 
     async function handleSubmit(provider: 'telegram' | 'max' | 'vk') {
-        if (!selectedService || !selectedDate || !selectedTime || loadingProvider) {
-return;
-}
+        if (!selectedService || !selectedDate || !selectedTime || loadingProvider) return;
 
         setLoadingProvider(provider);
         setErrors({});
@@ -655,9 +675,7 @@ return;
                 } else {
                     setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
                 }
-
                 setLoadingProvider(null);
-
                 return;
             }
 
@@ -670,7 +688,6 @@ return;
             if (!redirectUrl) {
                 setErrors({ time: 'Не удалось получить ссылку для перехода. Попробуйте позже.' });
                 setLoadingProvider(null);
-
                 return;
             }
 
@@ -681,43 +698,26 @@ return;
         }
     }
 
-    const progress = step <= TOTAL_STEPS ? (step / TOTAL_STEPS) * 100 : 100;
-    const showNav = step >= 1 && step <= TOTAL_STEPS;
     const showHeader = step < 5;
 
     return (
         <>
             <Head title="Запись — Вовремя" />
 
-            <div className="mx-auto flex min-h-screen max-w-md flex-col bg-[#FAF8F5] dark:bg-[#121110]">
-                <div className="flex items-center justify-between border-b border-stone-200/50 px-5 py-4 dark:border-stone-800/50">
-                    {step > 1 && step <= TOTAL_STEPS ? (
-                        <button
-                            onClick={handleBack}
-                            className="flex size-9 items-center justify-center rounded-full transition-colors hover:bg-stone-200/60 dark:hover:bg-stone-700/60"
-                        >
-                            <ArrowLeft className="size-5 text-stone-600 dark:text-stone-400" />
-                        </button>
-                    ) : (
-                        <div className="size-9" />
-                    )}
-                    <span className="text-sm font-medium text-stone-500 dark:text-stone-400">
-                        {step <= TOTAL_STEPS ? `Шаг ${step} из ${TOTAL_STEPS}` : 'Готово'}
-                    </span>
-                    <div className="size-9" />
-                </div>
-
+            <div className="mx-auto flex min-h-screen max-w-md flex-col" style={{ background: C.milk }}>
+                {/* Master header */}
                 {showHeader && (
-                    <div className="h-0.5 w-full bg-stone-200/50 dark:bg-stone-800/50">
-                        <div
-                            className="h-full bg-stone-900 transition-all duration-500 ease-out dark:bg-stone-100"
-                            style={{ width: `${progress}%` }}
-                        />
-                    </div>
+                    <MasterProfileHeader
+                        master={master}
+                        showBack={step > 1 && step <= TOTAL_STEPS}
+                        onBack={handleBack}
+                    />
                 )}
 
-                {showHeader && <MasterProfileHeader master={master} />}
+                {/* Progress */}
+                {step <= TOTAL_STEPS && <ProgressBar step={step} total={TOTAL_STEPS} />}
 
+                {/* Steps */}
                 {step === 1 && (
                     <StepServices
                         services={services}
@@ -758,27 +758,44 @@ return;
                     />
                 )}
 
-                {showNav && step < TOTAL_STEPS && (
-                    <div className="fixed bottom-0 left-0 right-0 z-40">
-                        <div className="mx-auto max-w-md px-5 pb-5 pt-3">
-                            <Button
+                {/* Bottom CTA */}
+                {step <= TOTAL_STEPS && step < TOTAL_STEPS && (
+                    <div className="fixed bottom-0 left-0 right-0 z-40" style={{ background: `linear-gradient(to top, ${C.milk} 60%, transparent)` }}>
+                        <div className="mx-auto max-w-md px-5 pb-5 pt-6">
+                            <button
                                 onClick={handleNext}
                                 disabled={!canNext}
-                                className="h-13 w-full rounded-2xl bg-stone-900 text-base font-semibold text-white shadow-xl shadow-stone-900/20 transition-all hover:scale-[1.02] hover:shadow-2xl disabled:opacity-30 disabled:hover:scale-100 dark:bg-stone-100 dark:text-stone-900 dark:shadow-stone-100/10"
+                                className="flex w-full items-center justify-center gap-2 rounded-2xl text-base font-semibold text-white transition-all disabled:cursor-not-allowed"
+                                style={{
+                                    height: '54px',
+                                    background: canNext ? C.orange : C.line,
+                                    color: canNext ? C.white : C.muted,
+                                    boxShadow: canNext ? '0 4px 14px rgba(255, 90, 31, 0.2)' : 'none',
+                                }}
+                                onMouseEnter={(e) => { if (canNext) e.currentTarget.style.background = C.orangeHover; }}
+                                onMouseLeave={(e) => { e.currentTarget.style.background = canNext ? C.orange : C.line; }}
                             >
-                                Далее
+                                Продолжить
                                 <ArrowRight className="size-4" />
-                            </Button>
+                            </button>
+
+                            <div className="mt-3 flex items-center justify-center gap-1.5">
+                                <Lock className="size-3" style={{ color: C.muted }} />
+                                <span className="text-xs" style={{ color: C.muted }}>Безопасная запись через ИРСИ</span>
+                            </div>
                         </div>
                     </div>
                 )}
-            </div>
 
-            <p className="mt-6 text-center text-xs text-gray-400">
-                <Link href="/offer" target="_blank" className="hover:text-gray-600">Оферта</Link>
-                <span className="mx-1">·</span>
-                <Link href="/privacy" target="_blank" className="hover:text-gray-600">Политика конфиденциальности</Link>
-            </p>
+                {/* Footer with legal links */}
+                <div className="px-5 pb-4 pt-2 text-center">
+                    <span className="text-xs" style={{ color: C.muted }}>
+                        <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.muted }}>Оферта</Link>
+                        <span className="mx-1">·</span>
+                        <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.muted }}>Политика</Link>
+                    </span>
+                </div>
+            </div>
         </>
     );
 }

@@ -28,7 +28,7 @@ vi.mock('lucide-react', () => {
     return {
         ArrowRight: Icon, ArrowLeft: Icon, Clock: Icon,
         CheckCircle2: Icon, MessageCircle: Icon,
-        ChevronLeft: Icon, ChevronRight: Icon, MapPin: Icon, Loader2,
+        ChevronLeft: Icon, ChevronRight: Icon, MapPin: Icon, Loader2, Lock: Icon,
     };
 });
 

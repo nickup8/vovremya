@@ -48,13 +48,13 @@ async function navigateToProviderStep() {
     const { default: Widget } = await import('@/pages/booking/widget');
     render(React.createElement(Widget));
 
-    fireEvent.click(screen.getByText('Далее'));
+    fireEvent.click(screen.getByText('Продолжить'));
 
     await waitFor(() => {
         expect(screen.getByText('10:00')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('10:00'));
-    fireEvent.click(screen.getByText('Далее'));
+    fireEvent.click(screen.getByText('Продолжить'));
 }
 
 describe('Booking widget — VK provider', () => {
@@ -64,7 +64,7 @@ describe('Booking widget — VK provider', () => {
 
     it('displays VK booking option', async () => {
         await navigateToProviderStep();
-        expect(screen.getByText('Записаться через VK')).toBeInTheDocument();
+        expect(screen.getByText('VK')).toBeInTheDocument();
     });
 
     it('sends provider=vk on VK submit', async () => {
@@ -76,7 +76,7 @@ describe('Booking widget — VK provider', () => {
         });
         vi.stubGlobal('fetch', mockFetch);
 
-        fireEvent.click(screen.getByText('Записаться через VK'));
+        fireEvent.click(screen.getByText('VK'));
 
         await waitFor(() => {
             expect(mockFetch).toHaveBeenCalled();
@@ -96,7 +96,7 @@ describe('Booking widget — VK provider', () => {
         });
         vi.stubGlobal('fetch', mockFetch);
 
-        fireEvent.click(screen.getByText('Записаться через VK'));
+        fireEvent.click(screen.getByText('VK'));
 
         await waitFor(() => {
             expect(mockFetch).toHaveBeenCalled();
@@ -116,7 +116,7 @@ describe('Booking widget — VK provider', () => {
         });
         vi.stubGlobal('fetch', mockFetch);
 
-        fireEvent.click(screen.getByText('Записаться через Telegram'));
+        fireEvent.click(screen.getByText('Telegram'));
 
         await waitFor(() => {
             expect(mockFetch).toHaveBeenCalled();
@@ -135,7 +135,7 @@ describe('Booking widget — VK provider', () => {
         });
         vi.stubGlobal('fetch', mockFetch);
 
-        fireEvent.click(screen.getByText('Записаться через MAX'));
+        fireEvent.click(screen.getByText('MAX'));
 
         await waitFor(() => {
             expect(mockFetch).toHaveBeenCalled();
@@ -154,7 +154,7 @@ describe('Booking widget — VK provider', () => {
         });
         vi.stubGlobal('fetch', mockFetch);
 
-        fireEvent.click(screen.getByText('Записаться через VK'));
+        fireEvent.click(screen.getByText('VK'));
 
         await waitFor(() => {
             expect(screen.getByText('Не удалось получить ссылку для перехода. Попробуйте позже.')).toBeInTheDocument();
