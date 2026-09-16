@@ -4,9 +4,11 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
+use App\Models\Appointment;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -19,6 +21,8 @@ class SuperAdminController extends Controller
 {
     public function index(): Response
     {
+        // ── Financial (by subscription data) ──
+
         $activeSubscriptions = Subscription::where('status', SubscriptionStatus::Active)
             ->where('expires_at', '>', now())
             ->get();
@@ -37,6 +41,56 @@ class SuperAdminController extends Controller
             ->count('workspace_id');
         $ltv = $uniquePayers > 0 ? round($totalRevenue / $uniquePayers, 2) : 0;
 
+        // ── Masters / accounts ──
+
+        $totalMasters = User::where('is_master', true)->count();
+        $newMasters7d = User::where('is_master', true)
+            ->where('created_at', '>=', now()->subDays(7))
+            ->count();
+        $newMasters30d = User::where('is_master', true)
+            ->where('created_at', '>=', now()->subDays(30))
+            ->count();
+
+        // ── Workspaces ──
+
+        $totalWorkspaces = Workspace::count();
+
+        // ── Tariffs (by workspace) ──
+
+        $proPlanId = TariffPlan::where('code', 'pro')->value('id');
+
+        $proCount = $proPlanId
+            ? Subscription::where('status', SubscriptionStatus::Active)
+                ->where('expires_at', '>', now())
+                ->where('tariff_plan_id', $proPlanId)
+                ->distinct('workspace_id')
+                ->count('workspace_id')
+            : 0;
+
+        $workspacesWithActive = Subscription::where('status', SubscriptionStatus::Active)
+            ->where('expires_at', '>', now())
+            ->distinct('workspace_id')
+            ->count('workspace_id');
+
+        $startCount = $totalWorkspaces - $workspacesWithActive;
+
+        // ── Appointment activity ──
+
+        $appointmentsCreated30d = Appointment::where('created_at', '>=', now()->subDays(30))->count();
+        $cancellations30d = Appointment::whereNotNull('cancelled_at')
+            ->where('cancelled_at', '>=', now()->subDays(30))
+            ->count();
+
+        // ── Messenger penetration (identity linkage) ──
+
+        $mastersBase = User::where('is_master', true);
+
+        $telegramLinked = (clone $mastersBase)->whereNotNull('telegram_id')->count();
+        $maxLinked = (clone $mastersBase)->whereNotNull('max_id')->count();
+        $vkLinked = (clone $mastersBase)->whereNotNull('vk_id')->count();
+
+        // ── Tariff distribution (legacy format for frontend) ──
+
         $usersByTariff = User::join('workspaces', 'users.workspace_id', '=', 'workspaces.id')
             ->join('subscriptions', 'workspaces.id', '=', 'subscriptions.workspace_id')
             ->join('tariff_plans', 'subscriptions.tariff_plan_id', '=', 'tariff_plans.id')
@@ -47,18 +101,16 @@ class SuperAdminController extends Controller
             ->pluck('count', 'tariff')
             ->toArray();
 
-        // Users without active subscription are "start" tier
-        $startCount = User::whereDoesntHave('workspace.subscriptions', function ($q) {
+        $startUsers = User::whereDoesntHave('workspace.subscriptions', function ($q) {
             $q->where('status', SubscriptionStatus::Active)
                 ->where('expires_at', '>', now());
         })->count();
 
-        if ($startCount > 0) {
-            $usersByTariff['start'] = ($usersByTariff['start'] ?? 0) + $startCount;
+        if ($startUsers > 0) {
+            $usersByTariff['start'] = ($usersByTariff['start'] ?? 0) + $startUsers;
         }
 
         $totalUsers = User::count();
-
         $activeCount = $activeSubscriptions->count();
 
         return Inertia::render('SuperAdmin/Dashboard', [
@@ -68,6 +120,17 @@ class SuperAdminController extends Controller
             'users_by_tariff' => $usersByTariff,
             'total_users' => $totalUsers,
             'active_subscriptions' => $activeCount,
+            'total_masters' => $totalMasters,
+            'new_masters_7d' => $newMasters7d,
+            'new_masters_30d' => $newMasters30d,
+            'total_workspaces' => $totalWorkspaces,
+            'start_count' => $startCount,
+            'pro_count' => $proCount,
+            'appointments_30d' => $appointmentsCreated30d,
+            'cancellations_30d' => $cancellations30d,
+            'telegram_linked' => $telegramLinked,
+            'max_linked' => $maxLinked,
+            'vk_linked' => $vkLinked,
         ]);
     }
 
