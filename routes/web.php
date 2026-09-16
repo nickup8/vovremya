@@ -179,11 +179,12 @@ Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function
     Route::post('/users/{user}/block', [SuperAdminController::class, 'blockUser'])->name('super_admin.block');
     Route::post('/users/{user}/extend', [SuperAdminController::class, 'extendSubscription'])->name('super_admin.extend');
     Route::post('/users/{user}/impersonate', [SuperAdminController::class, 'impersonate'])->name('super_admin.impersonate');
-    Route::post('/leave-impersonate', [SuperAdminController::class, 'leaveImpersonate'])->name('super_admin.leave_impersonate');
     Route::get('/plans', [SuperAdminController::class, 'plans'])->name('super_admin.plans');
     Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->name('super_admin.update_plan');
     Route::get('/audit', [SuperAdminController::class, 'audit'])->name('super_admin.audit');
 });
+
+Route::middleware(['auth', 'can_leave_impersonation'])->post('/admin-root/leave-impersonate', [SuperAdminController::class, 'leaveImpersonate'])->name('super_admin.leave_impersonate');
 
 Route::middleware(['auth'])->group(function () {
     Route::post('/switch-to-client', [RoleSwitchController::class, 'toClient'])->name('switch.to.client');
