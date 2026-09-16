@@ -185,6 +185,18 @@ class SuperAdminController extends Controller
 
     public function blockUser(User $user): RedirectResponse
     {
+        $actor = auth()->user();
+
+        // A. Cannot block/unblock yourself
+        if ($actor->id === $user->id) {
+            abort(403, 'Нельзя изменить блокировку собственного аккаунта.');
+        }
+
+        // B. Limited admin cannot block/unblock ROOT
+        if (! $actor->is_super_admin && $user->is_super_admin) {
+            abort(403, 'Недостаточно прав для изменения ROOT-пользователя.');
+        }
+
         $wasBlocked = $user->is_blocked;
         $user->is_blocked = ! $wasBlocked;
         $user->save();

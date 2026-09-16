@@ -32,7 +32,8 @@ interface UsersProps {
 }
 
 export default function Users() {
-    const { users, filters, flash } = usePage().props as UsersProps;
+    const { users, filters, flash, auth } = usePage().props as UsersProps & { auth: { user?: { id: string } } };
+    const currentUserId = auth?.user?.id;
     const [search, setSearch] = useState(filters.search || '');
     const [tariffFilter, setTariffFilter] = useState(filters.tariff || '');
 
@@ -209,20 +210,22 @@ export default function Users() {
                                                 </td>
                                                 <td className="px-4 py-3">
                                                     <div className="flex flex-wrap gap-1">
-                                                        {user.is_blocked ? (
-                                                            <button
-                                                                onClick={() => handleUnblock(user.id)}
-                                                                className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#181818] hover:bg-[#F7F5F1]"
-                                                            >
-                                                                Разблокировать
+                                                        {user.id !== currentUserId && (
+                                                            user.is_blocked ? (
+                                                                <button
+                                                                    onClick={() => handleUnblock(user.id)}
+                                                                    className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#181818] hover:bg-[#F7F5F1]"
+                                                                >
+                                                                    Разблокировать
+                                                                </button>
+                                                            ) : (
+                                                                <button
+                                                                    onClick={() => setBlockUser(user)}
+                                                                    className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#C44351] hover:bg-red-50"
+                                                                >
+                                                                    Заблокировать
                                                             </button>
-                                                        ) : (
-                                                            <button
-                                                                onClick={() => setBlockUser(user)}
-                                                                className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#C44351] hover:bg-red-50"
-                                                            >
-                                                                Заблокировать
-                                                            </button>
+                                                        )
                                                         )}
                                                         <button
                                                             onClick={() => {
