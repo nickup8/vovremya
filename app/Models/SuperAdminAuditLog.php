@@ -20,6 +20,7 @@ class SuperAdminAuditLog extends Model
         'before',
         'after',
         'metadata',
+        'created_at',
     ];
 
     protected function casts(): array

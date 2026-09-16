@@ -182,6 +182,7 @@ Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function
     Route::post('/leave-impersonate', [SuperAdminController::class, 'leaveImpersonate'])->name('super_admin.leave_impersonate');
     Route::get('/plans', [SuperAdminController::class, 'plans'])->name('super_admin.plans');
     Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->name('super_admin.update_plan');
+    Route::get('/audit', [SuperAdminController::class, 'audit'])->name('super_admin.audit');
 });
 
 Route::middleware(['auth'])->group(function () {

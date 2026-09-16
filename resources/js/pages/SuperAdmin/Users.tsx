@@ -67,7 +67,15 @@ export default function Users() {
                 <header className="border-b border-slate-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
                     <div className="flex items-center justify-between">
                         <h1 className="text-xl font-bold text-slate-900 dark:text-zinc-50">Пользователи</h1>
-                        <a href="/admin-root" className="text-sm text-blue-600 hover:underline">← Dashboard</a>
+                    </div>
+                    <div className="mt-2 flex gap-2 text-sm">
+                        <a href="/admin-root" className="text-[#8E8A85] hover:text-[#181818]">Обзор</a>
+                        <span className="text-[#8E8A85]">·</span>
+                        <span className="font-semibold text-[#181818]">Пользователи</span>
+                        <span className="text-[#8E8A85]">·</span>
+                        <a href="/admin-root/plans" className="text-[#8E8A85] hover:text-[#181818]">Тарифы</a>
+                        <span className="text-[#8E8A85]">·</span>
+                        <a href="/admin-root/audit" className="text-[#8E8A85] hover:text-[#181818]">Журнал</a>
                     </div>
                 </header>
 

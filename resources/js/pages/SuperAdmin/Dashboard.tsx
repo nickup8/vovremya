@@ -37,6 +37,16 @@ export default function Dashboard() {
                     <h1 className="text-2xl font-bold tracking-tight text-[#181818]">ИРСИ</h1>
                     <p className="mt-1.5 text-sm text-[#62615F]">Обзор платформы</p>
 
+                    <div className="mt-4 flex gap-2 text-sm">
+                        <span className="font-semibold text-[#181818]">Обзор</span>
+                        <span className="text-[#8E8A85]">·</span>
+                        <a href="/admin-root/users" className="text-[#8E8A85] hover:text-[#181818]">Пользователи</a>
+                        <span className="text-[#8E8A85]">·</span>
+                        <a href="/admin-root/plans" className="text-[#8E8A85] hover:text-[#181818]">Тарифы</a>
+                        <span className="text-[#8E8A85]">·</span>
+                        <a href="/admin-root/audit" className="text-[#8E8A85] hover:text-[#181818]">Журнал</a>
+                    </div>
+
                     {/* Primary KPIs */}
                     <div className="mt-6 grid grid-cols-2 gap-3 sm:grid-cols-4">
                         <KpiCard label="Мастера" value={p.total_masters} />

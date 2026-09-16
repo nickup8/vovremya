@@ -6,6 +6,7 @@ use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Subscription;
+use App\Models\SuperAdminAuditLog;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
@@ -384,5 +385,51 @@ class SuperAdminController extends Controller
         );
 
         return back()->with('success', "Тариф «{$plan->name}» обновлён.");
+    }
+
+    public function audit(Request $request): Response
+    {
+        $query = SuperAdminAuditLog::query()
+            ->with('superAdmin')
+            ->orderByDesc('created_at');
+
+        if ($action = $request->query('action')) {
+            $query->where('action', $action);
+        }
+
+        if ($adminId = $request->query('super_admin')) {
+            $query->where('super_admin_id', $adminId);
+        }
+
+        if ($dateFrom = $request->query('date_from')) {
+            $query->where('created_at', '>=', $dateFrom);
+        }
+
+        if ($dateTo = $request->query('date_to')) {
+            $query->where('created_at', '<=', $dateTo.' 23:59:59');
+        }
+
+        $logs = $query->paginate(50)->withQueryString();
+
+        $actions = [
+            'user.blocked',
+            'user.unblocked',
+            'subscription.extended',
+            'impersonation.started',
+            'impersonation.ended',
+            'plan.start_limit_updated',
+            'plan.pro_price_updated',
+        ];
+
+        $admins = User::where('is_super_admin', true)
+            ->orderBy('name')
+            ->get(['id', 'name']);
+
+        return Inertia::render('SuperAdmin/Audit', [
+            'logs' => $logs,
+            'filters' => $request->only(['action', 'super_admin', 'date_from', 'date_to']),
+            'actions' => $actions,
+            'admins' => $admins,
+        ]);
     }
 }
