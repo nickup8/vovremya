@@ -23,25 +23,26 @@ class SuperAdminController extends Controller
 {
     public function index(): Response
     {
-        // ── Financial (by subscription data) ──
+        // ── Current subscriptions (one per workspace, matching Workspace::activeSubscription) ──
 
-        $activeSubscriptions = Subscription::where('status', SubscriptionStatus::Active)
-            ->where('expires_at', '>', now())
-            ->get();
+        $now = now()->toDateTimeString();
 
-        $mrr = (float) $activeSubscriptions->sum(fn (Subscription $s) => $s->period_months > 0
+        $currentSubIds = DB::select("
+            SELECT DISTINCT ON (workspace_id) id
+            FROM subscriptions
+            WHERE status = ? AND expires_at > ?
+            ORDER BY workspace_id, expires_at DESC
+        ", [SubscriptionStatus::Active->value, $now]);
+
+        $currentSubIds = collect($currentSubIds)->pluck('id');
+
+        $currentSubs = Subscription::whereIn('id', $currentSubIds)->get();
+
+        $mrr = (float) $currentSubs->sum(fn (Subscription $s) => $s->period_months > 0
             ? $s->amount_paid / $s->period_months
             : 0);
 
         $arr = $mrr * 12;
-
-        $totalRevenue = (float) Subscription::where('status', SubscriptionStatus::Active)
-            ->sum('amount_paid');
-
-        $uniquePayers = Subscription::where('status', SubscriptionStatus::Active)
-            ->distinct('workspace_id')
-            ->count('workspace_id');
-        $ltv = $uniquePayers > 0 ? round($totalRevenue / $uniquePayers, 2) : 0;
 
         // ── Masters / accounts ──
 
@@ -57,24 +58,19 @@ class SuperAdminController extends Controller
 
         $totalWorkspaces = Workspace::count();
 
-        // ── Tariffs (by workspace) ──
+        // ── Tariffs (by workspace current subscription) ──
 
         $proPlanId = TariffPlan::where('code', 'pro')->value('id');
 
         $proCount = $proPlanId
-            ? Subscription::where('status', SubscriptionStatus::Active)
-                ->where('expires_at', '>', now())
-                ->where('tariff_plan_id', $proPlanId)
-                ->distinct('workspace_id')
-                ->count('workspace_id')
+            ? $currentSubs->filter(fn (Subscription $s) => $s->tariff_plan_id === $proPlanId)->count()
             : 0;
 
-        $workspacesWithActive = Subscription::where('status', SubscriptionStatus::Active)
-            ->where('expires_at', '>', now())
-            ->distinct('workspace_id')
-            ->count('workspace_id');
+        $avgMrrPerPro = $proCount > 0 ? round($mrr / $proCount, 2) : 0;
 
-        $startCount = $totalWorkspaces - $workspacesWithActive;
+        $activeCount = $currentSubs->count();
+
+        $startCount = $totalWorkspaces - $activeCount;
 
         // ── Appointment activity ──
 
@@ -91,21 +87,27 @@ class SuperAdminController extends Controller
         $maxLinked = (clone $mastersBase)->whereNotNull('max_id')->count();
         $vkLinked = (clone $mastersBase)->whereNotNull('vk_id')->count();
 
-        // ── Tariff distribution (legacy format for frontend) ──
+        // ── Tariff distribution (users by current subscription) ──
 
-        $usersByTariff = User::join('workspaces', 'users.workspace_id', '=', 'workspaces.id')
-            ->join('subscriptions', 'workspaces.id', '=', 'subscriptions.workspace_id')
+        $usersByTariff = User::query()
+            ->join('workspaces', 'users.workspace_id', '=', 'workspaces.id')
+            ->join('subscriptions', function ($join) use ($currentSubIds) {
+                $join->on('subscriptions.workspace_id', '=', 'workspaces.id')
+                    ->whereIn('subscriptions.id', $currentSubIds);
+            })
             ->join('tariff_plans', 'subscriptions.tariff_plan_id', '=', 'tariff_plans.id')
             ->where('subscriptions.status', SubscriptionStatus::Active)
-            ->where('subscriptions.expires_at', '>', now())
             ->select('tariff_plans.code as tariff', DB::raw('count(distinct users.id) as count'))
             ->groupBy('tariff_plans.code')
             ->pluck('count', 'tariff')
             ->toArray();
 
-        $startUsers = User::whereDoesntHave('workspace.subscriptions', function ($q) {
-            $q->where('status', SubscriptionStatus::Active)
-                ->where('expires_at', '>', now());
+        $startUsers = User::whereDoesntHave('workspace', function ($q) use ($currentSubIds) {
+            $q->whereIn('id', function ($sub) use ($currentSubIds) {
+                $sub->select('workspace_id')
+                    ->from('subscriptions')
+                    ->whereIn('id', $currentSubIds);
+            });
         })->count();
 
         if ($startUsers > 0) {
@@ -113,12 +115,11 @@ class SuperAdminController extends Controller
         }
 
         $totalUsers = User::count();
-        $activeCount = $activeSubscriptions->count();
 
         return Inertia::render('SuperAdmin/Dashboard', [
             'mrr' => $mrr,
             'arr' => $arr,
-            'ltv' => $ltv,
+            'avg_mrr_per_pro' => $avgMrrPerPro,
             'users_by_tariff' => $usersByTariff,
             'total_users' => $totalUsers,
             'active_subscriptions' => $activeCount,

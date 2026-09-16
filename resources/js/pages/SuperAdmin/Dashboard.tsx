@@ -3,7 +3,7 @@ import { Head, usePage } from '@inertiajs/react';
 interface DashboardProps {
     mrr: number;
     arr: number;
-    ltv: number;
+    avg_mrr_per_pro: number;
     users_by_tariff: Record<string, number>;
     total_users: number;
     active_subscriptions: number;
@@ -78,7 +78,7 @@ export default function Dashboard() {
                     <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4">
                         <StatCard label="MRR" value={formatCurrency(p.mrr)} />
                         <StatCard label="ARR" value={formatCurrency(p.arr)} />
-                        <StatCard label="LTV" value={formatCurrency(p.ltv)} />
+                        <StatCard label="Средний MRR на Pro" value={formatCurrency(p.avg_mrr_per_pro)} />
                         <StatCard label="Активные подписки" value={p.active_subscriptions} />
                     </div>
                 </div>

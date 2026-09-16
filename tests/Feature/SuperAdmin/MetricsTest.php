@@ -2,7 +2,6 @@
 
 namespace Tests\Feature\SuperAdmin;
 
-use App\Enums\AppointmentStatus;
 use App\Enums\SubscriptionStatus;
 use App\Models\Appointment;
 use App\Models\Subscription;
@@ -59,7 +58,7 @@ class MetricsTest extends TestCase
             ->assertOk();
     }
 
-    // ── Financial ──
+    // ── Financial (current subscription per workspace) ──
 
     public function test_mrr_arr_active_subscriptions(): void
     {
@@ -71,6 +70,7 @@ class MetricsTest extends TestCase
         $ws2 = Workspace::create(['name' => 'WS2', 'owner_id' => $master2->id]);
         $ws3 = Workspace::create(['name' => 'WS3', 'owner_id' => $master3->id]);
 
+        // ws1: current Pro, 990/mo
         Subscription::create([
             'workspace_id' => $ws1->id,
             'tariff_plan_id' => $this->proPlan->id,
@@ -81,17 +81,18 @@ class MetricsTest extends TestCase
             'expires_at' => now()->addMonth(),
         ]);
 
+        // ws2: current Pro, 490/mo
         Subscription::create([
             'workspace_id' => $ws2->id,
             'tariff_plan_id' => $this->proPlan->id,
-            'period_months' => 12,
-            'amount_paid' => 12000,
+            'period_months' => 1,
+            'amount_paid' => 490,
             'status' => SubscriptionStatus::Active->value,
-            'starts_at' => now()->subMonths(3),
-            'expires_at' => now()->addMonths(9),
+            'starts_at' => now()->subMonth(),
+            'expires_at' => now()->addMonth(),
         ]);
 
-        // Expired subscription
+        // ws3: expired — not current
         Subscription::create([
             'workspace_id' => $ws3->id,
             'tariff_plan_id' => $this->proPlan->id,
@@ -107,48 +108,37 @@ class MetricsTest extends TestCase
         $response = $this->get(route('super_admin.dashboard'));
 
         $response->assertInertia(fn (Assert $page) => $page
-            ->where('mrr', 1990)
-            ->where('arr', 23880)
+            ->where('mrr', 1480)
+            ->where('arr', 17760)
             ->where('active_subscriptions', 2)
         );
     }
 
-    public function test_ltv_and_total_revenue(): void
+    public function test_overlapping_subscriptions_uses_latest(): void
     {
-        $master1 = User::factory()->master()->create();
-        $master2 = User::factory()->master()->create();
+        $master = User::factory()->master()->create();
+        $ws = Workspace::create(['name' => 'WS', 'owner_id' => $master->id]);
 
-        $ws1 = Workspace::create(['name' => 'WS1', 'owner_id' => $master1->id]);
-        $ws2 = Workspace::create(['name' => 'WS2', 'owner_id' => $master2->id]);
-
+        // Older active subscription (should be ignored for MRR)
         Subscription::create([
-            'workspace_id' => $ws1->id,
+            'workspace_id' => $ws->id,
             'tariff_plan_id' => $this->proPlan->id,
             'period_months' => 1,
-            'amount_paid' => 1000,
+            'amount_paid' => 490,
             'status' => SubscriptionStatus::Active->value,
-            'starts_at' => now()->subMonth(),
-            'expires_at' => now()->addMonth(),
+            'starts_at' => now()->subDays(60),
+            'expires_at' => now()->addDays(10),
         ]);
 
+        // Newer active subscription (expires later — this is current)
         Subscription::create([
-            'workspace_id' => $ws1->id,
+            'workspace_id' => $ws->id,
             'tariff_plan_id' => $this->proPlan->id,
-            'period_months' => 3,
-            'amount_paid' => 3000,
+            'period_months' => 1,
+            'amount_paid' => 690,
             'status' => SubscriptionStatus::Active->value,
-            'starts_at' => now()->subMonth(),
-            'expires_at' => now()->addMonths(2),
-        ]);
-
-        Subscription::create([
-            'workspace_id' => $ws2->id,
-            'tariff_plan_id' => $this->proPlan->id,
-            'period_months' => 6,
-            'amount_paid' => 6000,
-            'status' => SubscriptionStatus::Active->value,
-            'starts_at' => now()->subMonths(2),
-            'expires_at' => now()->addMonths(4),
+            'starts_at' => now()->subDays(5),
+            'expires_at' => now()->addDays(30),
         ]);
 
         $this->actingAs($this->admin);
@@ -156,8 +146,49 @@ class MetricsTest extends TestCase
         $response = $this->get(route('super_admin.dashboard'));
 
         $response->assertInertia(fn (Assert $page) => $page
-            ->where('mrr', 3000)
-            ->where('ltv', 5000)
+            ->where('active_subscriptions', 1)
+            ->where('pro_count', 1)
+            ->where('mrr', 690)
+            ->where('arr', 8280)
+            ->where('avg_mrr_per_pro', 690)
+        );
+    }
+
+    public function test_two_workspaces_each_current_subscription(): void
+    {
+        $m1 = User::factory()->master()->create();
+        $m2 = User::factory()->master()->create();
+        $ws1 = Workspace::create(['name' => 'W1', 'owner_id' => $m1->id]);
+        $ws2 = Workspace::create(['name' => 'W2', 'owner_id' => $m2->id]);
+
+        Subscription::create([
+            'workspace_id' => $ws1->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_months' => 1,
+            'amount_paid' => 490,
+            'status' => SubscriptionStatus::Active->value,
+            'starts_at' => now()->subMonth(),
+            'expires_at' => now()->addMonth(),
+        ]);
+
+        Subscription::create([
+            'workspace_id' => $ws2->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_months' => 1,
+            'amount_paid' => 990,
+            'status' => SubscriptionStatus::Active->value,
+            'starts_at' => now()->subMonth(),
+            'expires_at' => now()->addMonth(),
+        ]);
+
+        $this->actingAs($this->admin);
+
+        $response = $this->get(route('super_admin.dashboard'));
+
+        $response->assertInertia(fn (Assert $page) => $page
+            ->where('mrr', 1480)
+            ->where('active_subscriptions', 2)
+            ->where('pro_count', 2)
         );
     }
 
@@ -285,6 +316,17 @@ class MetricsTest extends TestCase
         $response->assertInertia(fn (Assert $page) => $page
             ->where('start_count', 1)
             ->where('pro_count', 1)
+        );
+    }
+
+    public function test_avg_mrr_per_pro_zero_when_no_pro(): void
+    {
+        $this->actingAs($this->admin);
+
+        $response = $this->get(route('super_admin.dashboard'));
+
+        $response->assertInertia(fn (Assert $page) => $page
+            ->where('avg_mrr_per_pro', 0)
         );
     }
 
