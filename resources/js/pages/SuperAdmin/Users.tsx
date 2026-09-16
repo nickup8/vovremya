@@ -27,48 +27,80 @@ interface UsersProps {
         tariff?: string;
         is_blocked?: boolean;
     };
+    flash?: { success?: string; error?: string };
 }
 
 export default function Users() {
-    const { users, filters } = usePage().props as UsersProps;
+    const { users, filters, flash } = usePage().props as UsersProps;
     const [search, setSearch] = useState(filters.search || '');
     const [tariffFilter, setTariffFilter] = useState(filters.tariff || '');
 
-    const handleSearch = () => {
-        router.get('/admin-root/users', {
-            search,
-            tariff: tariffFilter,
-        }, { preserveState: true });
-    };
+    const [extendUser, setExtendUser] = useState<User | null>(null);
+    const [extendDays, setExtendDays] = useState('30');
+    const [extendLoading, setExtendLoading] = useState(false);
+    const [extendError, setExtendError] = useState('');
 
-    const handleBlock = (userId: string) => {
+    const [blockUser, setBlockUser] = useState<User | null>(null);
+
+    const hasFilters = search || tariffFilter;
+
+    function handleSearch() {
+        router.get('/admin-root/users', { search, tariff: tariffFilter }, { preserveState: true });
+    }
+
+    function resetFilters() {
+        setSearch('');
+        setTariffFilter('');
+        router.get('/admin-root/users');
+    }
+
+    function handleBlockConfirm() {
+        if (!blockUser) return;
+        router.post(`/admin-root/users/${blockUser.id}/block`, {}, {
+            preserveState: true,
+            onFinish: () => setBlockUser(null),
+        });
+    }
+
+    function handleUnblock(userId: string) {
         router.post(`/admin-root/users/${userId}/block`, {}, { preserveState: true });
-    };
+    }
 
-    const handleExtend = (userId: string) => {
-        const days = prompt('Количество дней для продления:', '30');
-
-        if (days) {
-            router.post(`/admin-root/users/${userId}/extend`, { days: parseInt(days) }, { preserveState: true });
+    function handleExtendSubmit() {
+        if (!extendUser) return;
+        const days = parseInt(extendDays, 10);
+        if (!days || days < 1) {
+            setExtendError('Укажите целое число ≥ 1');
+            return;
         }
-    };
+        setExtendLoading(true);
+        setExtendError('');
+        router.post(`/admin-root/users/${extendUser.id}/extend`, { days }, {
+            preserveState: true,
+            onSuccess: () => {
+                setExtendUser(null);
+                setExtendDays('30');
+            },
+            onError: () => setExtendError('Ошибка сервера'),
+            onFinish: () => setExtendLoading(false),
+        });
+    }
 
-    const handleImpersonate = (userId: string) => {
-        if (confirm('Войти как этот пользователь?')) {
-            router.post(`/admin-root/users/${userId}/impersonate`);
-        }
-    };
+    function handleImpersonate(userId: string) {
+        router.post(`/admin-root/users/${userId}/impersonate`);
+    }
 
     return (
         <>
-            <Head title="Super Admin — Пользователи" />
+            <Head title="Пользователи — ИРСИ" />
 
-            <div className="min-h-screen bg-slate-50 dark:bg-zinc-950">
-                <header className="border-b border-slate-200 bg-white px-6 py-4 dark:border-zinc-800 dark:bg-zinc-900">
-                    <div className="flex items-center justify-between">
-                        <h1 className="text-xl font-bold text-slate-900 dark:text-zinc-50">Пользователи</h1>
-                    </div>
-                    <div className="mt-2 flex gap-2 text-sm">
+            <div className="min-h-screen bg-[#F7F5F1]">
+                <div className="mx-auto max-w-4xl px-4 py-10">
+                    {/* Header */}
+                    <h1 className="text-2xl font-bold tracking-tight text-[#181818]">Пользователи</h1>
+                    <p className="mt-1.5 text-sm text-[#62615F]">Мастера и их доступ к ИРСИ</p>
+
+                    <div className="mt-4 flex gap-2 text-sm">
                         <a href="/admin-root" className="text-[#8E8A85] hover:text-[#181818]">Обзор</a>
                         <span className="text-[#8E8A85]">·</span>
                         <span className="font-semibold text-[#181818]">Пользователи</span>
@@ -77,115 +109,252 @@ export default function Users() {
                         <span className="text-[#8E8A85]">·</span>
                         <a href="/admin-root/audit" className="text-[#8E8A85] hover:text-[#181818]">Журнал</a>
                     </div>
-                </header>
 
-                <main className="mx-auto max-w-7xl px-6 py-8">
-                    <div className="mb-6 flex flex-wrap gap-3">
-                        <input
-                            type="text"
-                            placeholder="Поиск по имени, телефону, email..."
-                            value={search}
-                            onChange={(e) => setSearch(e.target.value)}
-                            onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
-                            className="rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                        />
-                        <select
-                            value={tariffFilter}
-                            onChange={(e) => setTariffFilter(e.target.value)}
-                            className="rounded-lg border border-slate-300 px-4 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800 dark:text-zinc-100"
-                        >
-                            <option value="">Все тарифы</option>
-                            <option value="start">Start</option>
-                            <option value="pro">Pro</option>
-                        </select>
-                        <button
-                            onClick={handleSearch}
-                            className="rounded-lg bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-700"
-                        >
-                            Найти
-                        </button>
-                    </div>
-
-                    <div className="overflow-hidden rounded-2xl border border-slate-200 bg-white shadow-xs dark:border-zinc-800 dark:bg-zinc-900/50">
-                        <table className="w-full text-left text-sm">
-                            <thead className="border-b border-slate-200 bg-slate-50 dark:border-zinc-800 dark:bg-zinc-900">
-                                <tr>
-                                    <th className="px-4 py-3 font-medium text-slate-600 dark:text-zinc-400">Имя</th>
-                                    <th className="px-4 py-3 font-medium text-slate-600 dark:text-zinc-400">Email</th>
-                                    <th className="px-4 py-3 font-medium text-slate-600 dark:text-zinc-400">Телефон</th>
-                                    <th className="px-4 py-3 font-medium text-slate-600 dark:text-zinc-400">Тариф</th>
-                                    <th className="px-4 py-3 font-medium text-slate-600 dark:text-zinc-400">Статус</th>
-                                    <th className="px-4 py-3 font-medium text-slate-600 dark:text-zinc-400">Действия</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-slate-100 dark:divide-zinc-800">
-                                {users.data.map((user) => (
-                                    <tr key={user.id} className="hover:bg-slate-50 dark:hover:bg-zinc-900/50">
-                                        <td className="px-4 py-3 text-slate-900 dark:text-zinc-100">{user.name}</td>
-                                        <td className="px-4 py-3 text-slate-500 dark:text-zinc-400">{user.email}</td>
-                                        <td className="px-4 py-3 text-slate-500 dark:text-zinc-400">{user.phone || '—'}</td>
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                                                user.tariff === 'pro' ? 'bg-blue-100 text-blue-700' :
-                                                'bg-slate-100 text-slate-700'
-                                            }`}>
-                                                {user.tariff}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <span className={`inline-flex rounded-full px-2 py-0.5 text-xs font-medium ${
-                                                user.is_blocked ? 'bg-red-100 text-red-700' : 'bg-green-100 text-green-700'
-                                            }`}>
-                                                {user.is_blocked ? 'Заблокирован' : 'Активен'}
-                                            </span>
-                                        </td>
-                                        <td className="px-4 py-3">
-                                            <div className="flex gap-2">
-                                                <button
-                                                    onClick={() => handleBlock(user.id)}
-                                                    className="rounded px-2 py-1 text-xs font-medium text-red-600 hover:bg-red-50"
-                                                >
-                                                    {user.is_blocked ? 'Разблокировать' : 'Блокировать'}
-                                                </button>
-                                                <button
-                                                    onClick={() => handleExtend(user.id)}
-                                                    className="rounded px-2 py-1 text-xs font-medium text-blue-600 hover:bg-blue-50"
-                                                >
-                                                    Продлить
-                                                </button>
-                                                <button
-                                                    onClick={() => handleImpersonate(user.id)}
-                                                    className="rounded px-2 py-1 text-xs font-medium text-emerald-600 hover:bg-emerald-50"
-                                                >
-                                                    Войти как
-                                                </button>
-                                            </div>
-                                        </td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
-                    </div>
-
-                    {users.last_page > 1 && (
-                        <div className="mt-4 flex justify-center gap-2">
-                            {Array.from({ length: users.last_page }, (_, i) => i + 1).map((page) => (
-                                <button
-                                    key={page}
-                                    onClick={() => router.get('/admin-root/users', { ...filters, page }, { preserveState: true })}
-                                    className={`rounded px-3 py-1 text-sm ${
-                                        page === users.current_page
-                                            ? 'bg-blue-600 text-white'
-                                            : 'bg-white text-slate-700 hover:bg-slate-100 dark:bg-zinc-800 dark:text-zinc-300'
-                                    }`}
-                                >
-                                    {page}
-                                </button>
-                            ))}
+                    {/* Flash */}
+                    {flash?.success && (
+                        <div className="mt-5 rounded-xl border border-[#E7E4DF] bg-white px-4 py-3 text-sm font-medium text-[#16875E]">
+                            {flash.success}
                         </div>
                     )}
-                </main>
+                    {flash?.error && (
+                        <div className="mt-5 rounded-xl border border-[#E7E4DF] bg-white px-4 py-3 text-sm font-medium text-[#C44351]">
+                            {flash.error}
+                        </div>
+                    )}
+
+                    {/* Filters */}
+                    <div className="mt-6 rounded-2xl border border-[#E7E4DF] bg-white p-5">
+                        <div className="flex flex-wrap items-end gap-3">
+                            <div className="flex-1 min-w-[180px]">
+                                <input
+                                    type="text"
+                                    placeholder="Поиск по имени или телефону"
+                                    value={search}
+                                    onChange={(e) => setSearch(e.target.value)}
+                                    onKeyDown={(e) => e.key === 'Enter' && handleSearch()}
+                                    className="w-full rounded-xl border border-[#E7E4DF] bg-white px-3.5 py-2.5 text-sm text-[#181818] outline-none transition-colors focus:border-[#FF5A1F] focus:ring-1 focus:ring-[#FF5A1F]"
+                                />
+                            </div>
+                            <div>
+                                <select
+                                    value={tariffFilter}
+                                    onChange={(e) => setTariffFilter(e.target.value)}
+                                    className="rounded-xl border border-[#E7E4DF] bg-white px-3.5 py-2.5 text-sm text-[#181818] outline-none transition-colors focus:border-[#FF5A1F] focus:ring-1 focus:ring-[#FF5A1F]"
+                                >
+                                    <option value="">Все тарифы</option>
+                                    <option value="start">Start</option>
+                                    <option value="pro">Pro</option>
+                                </select>
+                            </div>
+                            <button
+                                onClick={handleSearch}
+                                className="rounded-xl bg-[#FF5A1F] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#E94D14]"
+                            >
+                                Найти
+                            </button>
+                            {hasFilters && (
+                                <button
+                                    onClick={resetFilters}
+                                    className="rounded-xl border border-[#E7E4DF] bg-white px-5 py-2.5 text-sm font-semibold text-[#181818] transition-colors hover:bg-[#F7F5F1]"
+                                >
+                                    Сбросить
+                                </button>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Table */}
+                    {users.data.length === 0 ? (
+                        <div className="mt-10 text-center">
+                            <p className="text-sm font-semibold text-[#181818]">Пользователи не найдены</p>
+                            <p className="mt-1 text-sm text-[#8E8A85]">
+                                Попробуйте изменить параметры поиска.
+                            </p>
+                        </div>
+                    ) : (
+                        <>
+                            <div className="mt-6 overflow-x-auto rounded-2xl border border-[#E7E4DF] bg-white">
+                                <table className="w-full text-sm">
+                                    <thead>
+                                        <tr className="border-b border-[#F0EEEA] text-left">
+                                            <th className="px-4 py-3 text-xs font-semibold text-[#8E8A85]">Имя</th>
+                                            <th className="px-4 py-3 text-xs font-semibold text-[#8E8A85]">Контакт</th>
+                                            <th className="px-4 py-3 text-xs font-semibold text-[#8E8A85]">Тариф</th>
+                                            <th className="px-4 py-3 text-xs font-semibold text-[#8E8A85]">Статус</th>
+                                            <th className="px-4 py-3 text-xs font-semibold text-[#8E8A85]">Действия</th>
+                                        </tr>
+                                    </thead>
+                                    <tbody className="divide-y divide-[#F0EEEA]">
+                                        {users.data.map((user) => (
+                                            <tr key={user.id} className="align-top">
+                                                <td className="px-4 py-3">
+                                                    <p className="font-medium text-[#181818]">{user.name}</p>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <p className="text-[#181818]">{user.phone || '—'}</p>
+                                                    {user.email && (
+                                                        <p className="text-xs text-[#8E8A85]">{user.email}</p>
+                                                    )}
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`inline-block rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                                                        user.tariff === 'pro'
+                                                            ? 'bg-[#FF5A1F]/10 text-[#FF5A1F]'
+                                                            : 'bg-[#F7F5F1] text-[#62615F]'
+                                                    }`}>
+                                                        {user.tariff}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <span className={`inline-block rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                                                        user.is_blocked
+                                                            ? 'bg-[#F7F5F1] text-[#C44351]'
+                                                            : 'bg-[#F7F5F1] text-[#62615F]'
+                                                    }`}>
+                                                        {user.is_blocked ? 'Заблокирован' : 'Активен'}
+                                                    </span>
+                                                </td>
+                                                <td className="px-4 py-3">
+                                                    <div className="flex flex-wrap gap-1">
+                                                        {user.is_blocked ? (
+                                                            <button
+                                                                onClick={() => handleUnblock(user.id)}
+                                                                className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#181818] hover:bg-[#F7F5F1]"
+                                                            >
+                                                                Разблокировать
+                                                            </button>
+                                                        ) : (
+                                                            <button
+                                                                onClick={() => setBlockUser(user)}
+                                                                className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#C44351] hover:bg-red-50"
+                                                            >
+                                                                Заблокировать
+                                                            </button>
+                                                        )}
+                                                        <button
+                                                            onClick={() => {
+                                                                setExtendUser(user);
+                                                                setExtendDays('30');
+                                                                setExtendError('');
+                                                            }}
+                                                            className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#62615F] hover:bg-[#F7F5F1]"
+                                                        >
+                                                            Продлить
+                                                        </button>
+                                                        <button
+                                                            onClick={() => handleImpersonate(user.id)}
+                                                            className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#62615F] hover:bg-[#F7F5F1]"
+                                                        >
+                                                            Войти как
+                                                        </button>
+                                                    </div>
+                                                </td>
+                                            </tr>
+                                        ))}
+                                    </tbody>
+                                </table>
+                            </div>
+
+                            {/* Pagination */}
+                            {users.last_page > 1 && (
+                                <div className="mt-4 flex items-center justify-between text-sm">
+                                    <span className="text-[#8E8A85]">
+                                        {users.total} {users.total % 10 === 1 && users.total !== 11 ? 'пользователь' : (users.total % 10 >= 2 && users.total % 10 <= 4 && (users.total < 12 || users.total > 14)) ? 'пользователя' : 'пользователей'}
+                                    </span>
+                                    <div className="flex items-center gap-2">
+                                        {users.current_page > 1 && (
+                                            <button
+                                                onClick={() => router.get('/admin-root/users', { ...filters, page: String(users.current_page - 1) }, { preserveState: true })}
+                                                className="rounded-lg border border-[#E7E4DF] bg-white px-3 py-1.5 text-sm text-[#181818] hover:bg-[#F7F5F1]"
+                                            >
+                                                Назад
+                                            </button>
+                                        )}
+                                        <span className="text-[#62615F]">
+                                            {users.current_page} / {users.last_page}
+                                        </span>
+                                        {users.current_page < users.last_page && (
+                                            <button
+                                                onClick={() => router.get('/admin-root/users', { ...filters, page: String(users.current_page + 1) }, { preserveState: true })}
+                                                className="rounded-lg border border-[#E7E4DF] bg-white px-3 py-1.5 text-sm text-[#181818] hover:bg-[#F7F5F1]"
+                                            >
+                                                Вперёд
+                                            </button>
+                                        )}
+                                    </div>
+                                </div>
+                            )}
+                        </>
+                    )}
+                </div>
             </div>
+
+            {/* Extend Modal */}
+            {extendUser && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setExtendUser(null)}>
+                    <div className="w-full max-w-sm rounded-2xl border border-[#E7E4DF] bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+                        <h2 className="text-lg font-bold tracking-tight text-[#181818]">Продлить Pro</h2>
+                        <p className="mt-1 text-sm text-[#62615F]">{extendUser.name}</p>
+
+                        <label className="mt-4 block text-sm font-semibold text-[#181818]">
+                            Количество дней
+                        </label>
+                        <input
+                            type="number"
+                            min="1"
+                            value={extendDays}
+                            onChange={(e) => setExtendDays(e.target.value)}
+                            className="mt-1.5 w-full rounded-xl border border-[#E7E4DF] bg-white px-3.5 py-2.5 text-sm text-[#181818] outline-none transition-colors focus:border-[#FF5A1F] focus:ring-1 focus:ring-[#FF5A1F]"
+                        />
+                        {extendError && (
+                            <p className="mt-1.5 text-xs text-[#C44351]">{extendError}</p>
+                        )}
+
+                        <div className="mt-5 flex justify-end gap-3">
+                            <button
+                                onClick={() => setExtendUser(null)}
+                                className="rounded-xl border border-[#E7E4DF] bg-white px-4 py-2 text-sm font-semibold text-[#181818] hover:bg-[#F7F5F1]"
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                onClick={handleExtendSubmit}
+                                disabled={extendLoading}
+                                className="rounded-xl bg-[#FF5A1F] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#E94D14] disabled:opacity-50"
+                            >
+                                {extendLoading ? 'Сохранение…' : 'Продлить'}
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Block Confirmation Modal */}
+            {blockUser && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setBlockUser(null)}>
+                    <div className="w-full max-w-sm rounded-2xl border border-[#E7E4DF] bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+                        <h2 className="text-lg font-bold tracking-tight text-[#181818]">Заблокировать пользователя?</h2>
+                        <p className="mt-1 text-sm text-[#62615F]">
+                            {blockUser.name} потеряет доступ к ИРСИ.
+                        </p>
+
+                        <div className="mt-5 flex justify-end gap-3">
+                            <button
+                                onClick={() => setBlockUser(null)}
+                                className="rounded-xl border border-[#E7E4DF] bg-white px-4 py-2 text-sm font-semibold text-[#181818] hover:bg-[#F7F5F1]"
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                onClick={handleBlockConfirm}
+                                className="rounded-xl bg-[#C44351] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#A83843]"
+                            >
+                                Заблокировать
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
         </>
     );
 }
