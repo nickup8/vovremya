@@ -422,7 +422,9 @@ class SuperAdminController extends Controller
             'plan.pro_price_updated',
         ];
 
-        $admins = User::where('is_super_admin', true)
+        $admins = User::query()
+            ->where('is_super_admin', true)
+            ->orWhereHas('platformAdminAccess')
             ->orderBy('name')
             ->get(['id', 'name']);
 

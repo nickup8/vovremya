@@ -27,6 +27,7 @@ return Application::configure(basePath: dirname(__DIR__))
         $middleware->alias([
             'super_admin' => SuperAdminMiddleware::class,
             'can_leave_impersonation' => \App\Http\Middleware\EnsureCanLeaveImpersonation::class,
+            'platform_permission' => \App\Http\Middleware\EnsureHasPlatformPermission::class,
             'max.initdata' => VerifyMaxInitData::class,
             'vk.launch' => VerifyVkLaunchParams::class,
             'miniapp.auth' => VerifyMiniAppAuth::class,

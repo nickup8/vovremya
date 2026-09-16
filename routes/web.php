@@ -173,15 +173,15 @@ Route::get('/max/diag/send-test-button', function (\Illuminate\Http\Request $req
 
 Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
 
-Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function () {
-    Route::get('/', [SuperAdminController::class, 'index'])->name('super_admin.dashboard');
-    Route::get('/users', [SuperAdminController::class, 'users'])->name('super_admin.users');
-    Route::post('/users/{user}/block', [SuperAdminController::class, 'blockUser'])->name('super_admin.block');
-    Route::post('/users/{user}/extend', [SuperAdminController::class, 'extendSubscription'])->name('super_admin.extend');
-    Route::post('/users/{user}/impersonate', [SuperAdminController::class, 'impersonate'])->name('super_admin.impersonate');
-    Route::get('/plans', [SuperAdminController::class, 'plans'])->name('super_admin.plans');
-    Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->name('super_admin.update_plan');
-    Route::get('/audit', [SuperAdminController::class, 'audit'])->name('super_admin.audit');
+Route::middleware(['auth'])->prefix('admin-root')->group(function () {
+    Route::get('/', [SuperAdminController::class, 'index'])->middleware('platform_permission:dashboard.view')->name('super_admin.dashboard');
+    Route::get('/users', [SuperAdminController::class, 'users'])->middleware('platform_permission:users.view')->name('super_admin.users');
+    Route::post('/users/{user}/block', [SuperAdminController::class, 'blockUser'])->middleware('platform_permission:users.block')->name('super_admin.block');
+    Route::post('/users/{user}/extend', [SuperAdminController::class, 'extendSubscription'])->middleware('platform_permission:subscriptions.extend')->name('super_admin.extend');
+    Route::post('/users/{user}/impersonate', [SuperAdminController::class, 'impersonate'])->middleware('platform_permission:impersonation.use')->name('super_admin.impersonate');
+    Route::get('/plans', [SuperAdminController::class, 'plans'])->middleware('platform_permission:plans.view')->name('super_admin.plans');
+    Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->middleware('platform_permission:plans.update')->name('super_admin.update_plan');
+    Route::get('/audit', [SuperAdminController::class, 'audit'])->middleware('platform_permission:audit.view')->name('super_admin.audit');
 });
 
 Route::middleware(['auth', 'can_leave_impersonation'])->post('/admin-root/leave-impersonate', [SuperAdminController::class, 'leaveImpersonate'])->name('super_admin.leave_impersonate');

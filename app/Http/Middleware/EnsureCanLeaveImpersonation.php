@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\PlatformPermission;
 use App\Models\User;
 use Closure;
 use Illuminate\Http\Request;
@@ -20,10 +21,22 @@ class EnsureCanLeaveImpersonation
 
         $originalAdmin = User::find($originalAdminId);
 
-        if (! $originalAdmin || ! $originalAdmin->is_super_admin) {
+        if (! $originalAdmin) {
             abort(403, 'Нет активной сессии подмены.');
         }
 
-        return $next($request);
+        // ROOT can always leave
+        if ($originalAdmin->is_super_admin) {
+            return $next($request);
+        }
+
+        // Limited admin with impersonation.use permission can leave
+        $access = $originalAdmin->platformAdminAccess;
+
+        if ($access && $access->is_active && $access->hasPermission(PlatformPermission::ImpersonationUse)) {
+            return $next($request);
+        }
+
+        abort(403, 'Нет активной сессии подмены.');
     }
 }
