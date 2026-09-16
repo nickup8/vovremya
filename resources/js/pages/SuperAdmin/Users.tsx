@@ -1,5 +1,6 @@
 import { Head, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
+import SuperAdminNav from '@/components/super-admin/SuperAdminNav';
 
 interface User {
     id: string;
@@ -100,15 +101,7 @@ export default function Users() {
                     <h1 className="text-2xl font-bold tracking-tight text-[#181818]">Пользователи</h1>
                     <p className="mt-1.5 text-sm text-[#62615F]">Мастера и их доступ к ИРСИ</p>
 
-                    <div className="mt-4 flex gap-2 text-sm">
-                        <a href="/admin-root" className="text-[#8E8A85] hover:text-[#181818]">Обзор</a>
-                        <span className="text-[#8E8A85]">·</span>
-                        <span className="font-semibold text-[#181818]">Пользователи</span>
-                        <span className="text-[#8E8A85]">·</span>
-                        <a href="/admin-root/plans" className="text-[#8E8A85] hover:text-[#181818]">Тарифы</a>
-                        <span className="text-[#8E8A85]">·</span>
-                        <a href="/admin-root/audit" className="text-[#8E8A85] hover:text-[#181818]">Журнал</a>
-                    </div>
+                    <SuperAdminNav current="users" />
 
                     {/* Flash */}
                     {flash?.success && (

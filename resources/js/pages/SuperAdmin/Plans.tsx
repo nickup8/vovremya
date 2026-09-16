@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
+import SuperAdminNav from '@/components/super-admin/SuperAdminNav';
 
 interface Plan {
     id: string;
@@ -33,15 +34,7 @@ export default function Plans() {
                         Настройки тарифов ИРСИ
                     </p>
 
-                    <div className="mt-4 flex gap-2 text-sm">
-                        <a href="/admin-root" className="text-[#8E8A85] hover:text-[#181818]">Обзор</a>
-                        <span className="text-[#8E8A85]">·</span>
-                        <a href="/admin-root/users" className="text-[#8E8A85] hover:text-[#181818]">Пользователи</a>
-                        <span className="text-[#8E8A85]">·</span>
-                        <span className="font-semibold text-[#181818]">Тарифы</span>
-                        <span className="text-[#8E8A85]">·</span>
-                        <a href="/admin-root/audit" className="text-[#8E8A85] hover:text-[#181818]">Журнал</a>
-                    </div>
+                    <SuperAdminNav current="plans" />
 
                     {flash?.success && (
                         <div className="mt-5 rounded-xl border border-[#E7E4DF] bg-white px-4 py-3 text-sm font-medium text-[#16875E]">

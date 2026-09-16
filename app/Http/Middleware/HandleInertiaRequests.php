@@ -2,6 +2,7 @@
 
 namespace App\Http\Middleware;
 
+use App\Enums\PlatformPermission;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\Billing\TariffLimitService;
@@ -107,6 +108,32 @@ class HandleInertiaRequests extends Middleware
                 'message' => fn () => $request->session()->get('message'),
             ],
             'tariff_limits' => $tariffLimits,
+            'platformAdmin' => $this->platformAdminProps($user),
         ];
+    }
+
+    private function platformAdminProps($user): array
+    {
+        if (! $user instanceof User) {
+            return ['isRoot' => false, 'permissions' => []];
+        }
+
+        if ($user->is_super_admin) {
+            return [
+                'isRoot' => true,
+                'permissions' => array_map(fn (PlatformPermission $p) => $p->value, PlatformPermission::cases()),
+            ];
+        }
+
+        $access = $user->platformAdminAccess;
+
+        if ($access && $access->is_active) {
+            return [
+                'isRoot' => false,
+                'permissions' => $access->permissions ?? [],
+            ];
+        }
+
+        return ['isRoot' => false, 'permissions' => []];
     }
 }

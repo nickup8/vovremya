@@ -1,4 +1,5 @@
 import { Head, router, usePage } from '@inertiajs/react';
+import SuperAdminNav from '@/components/super-admin/SuperAdminNav';
 
 interface AuditEntry {
     id: string;
@@ -45,6 +46,10 @@ const ACTION_LABELS: Record<string, string> = {
     'impersonation.ended': 'Выход из режима пользователя',
     'plan.start_limit_updated': 'Изменён лимит Start',
     'plan.pro_price_updated': 'Изменена цена Pro',
+    'platform_admin.access_granted': 'Назначен администратор',
+    'platform_admin.permissions_changed': 'Изменены права администратора',
+    'platform_admin.activated': 'Доступ администратора включён',
+    'platform_admin.deactivated': 'Доступ администратора отключён',
 };
 
 const DIFF_LABELS: Record<string, string> = {
@@ -115,15 +120,7 @@ export default function Audit() {
                     <h1 className="text-2xl font-bold tracking-tight text-[#181818]">Журнал действий</h1>
                     <p className="mt-1.5 text-sm text-[#62615F]">История изменений и административных действий</p>
 
-                    <div className="mt-4 flex gap-2 text-sm">
-                        <a href="/admin-root" className="text-[#8E8A85] hover:text-[#181818]">Обзор</a>
-                        <span className="text-[#8E8A85]">·</span>
-                        <a href="/admin-root/users" className="text-[#8E8A85] hover:text-[#181818]">Пользователи</a>
-                        <span className="text-[#8E8A85]">·</span>
-                        <a href="/admin-root/plans" className="text-[#8E8A85] hover:text-[#181818]">Тарифы</a>
-                        <span className="text-[#8E8A85]">·</span>
-                        <span className="font-semibold text-[#181818]">Журнал</span>
-                    </div>
+                    <SuperAdminNav current="audit" />
 
                     {/* Filters */}
                     <form onSubmit={applyFilters} className="mt-6">

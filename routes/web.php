@@ -5,6 +5,7 @@ use App\Http\Controllers\Admin\CalendarApiController;
 use App\Http\Controllers\Admin\CalendarController;
 use App\Http\Controllers\Admin\ClientController;
 use App\Http\Controllers\Admin\PaymentController;
+use App\Http\Controllers\Admin\PlatformAdminController;
 use App\Http\Controllers\Admin\ServiceCatalogController;
 use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Admin\SettingsController;
@@ -182,6 +183,12 @@ Route::middleware(['auth'])->prefix('admin-root')->group(function () {
     Route::get('/plans', [SuperAdminController::class, 'plans'])->middleware('platform_permission:plans.view')->name('super_admin.plans');
     Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->middleware('platform_permission:plans.update')->name('super_admin.update_plan');
     Route::get('/audit', [SuperAdminController::class, 'audit'])->middleware('platform_permission:audit.view')->name('super_admin.audit');
+
+    Route::get('/admins', [PlatformAdminController::class, 'index'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins');
+    Route::get('/admins/users/search', [PlatformAdminController::class, 'searchUsers'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.users.search');
+    Route::post('/admins', [PlatformAdminController::class, 'store'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.store');
+    Route::put('/admins/{access}', [PlatformAdminController::class, 'update'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.update');
+    Route::patch('/admins/{access}/active', [PlatformAdminController::class, 'toggleActive'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.toggle_active');
 });
 
 Route::middleware(['auth', 'can_leave_impersonation'])->post('/admin-root/leave-impersonate', [SuperAdminController::class, 'leaveImpersonate'])->name('super_admin.leave_impersonate');

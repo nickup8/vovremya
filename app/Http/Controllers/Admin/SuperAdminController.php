@@ -420,6 +420,10 @@ class SuperAdminController extends Controller
             'impersonation.ended',
             'plan.start_limit_updated',
             'plan.pro_price_updated',
+            'platform_admin.access_granted',
+            'platform_admin.permissions_changed',
+            'platform_admin.activated',
+            'platform_admin.deactivated',
         ];
 
         $admins = User::query()
