@@ -253,6 +253,20 @@ class PlanManagementTest extends TestCase
         $this->assertSame(490, $sub->amount_paid);
     }
 
+    public function test_pro_rejects_decimal_price(): void
+    {
+        $admin = User::factory()->create(['is_super_admin' => true]);
+
+        $response = $this->actingAs($admin)->put(route('super_admin.update_plan', $this->proPlan), [
+            'price_monthly' => 1499.50,
+        ]);
+
+        $response->assertSessionHasErrors('price_monthly');
+
+        $this->proPlan->refresh();
+        $this->assertSame(490, $this->proPlan->price_monthly);
+    }
+
     public function test_pro_rejects_negative_price(): void
     {
         $admin = User::factory()->create(['is_super_admin' => true]);

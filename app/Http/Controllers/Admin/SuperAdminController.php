@@ -248,7 +248,7 @@ class SuperAdminController extends Controller
             ]);
         } elseif ($plan->code === 'pro') {
             $validated = $request->validate([
-                'price_monthly' => 'required|numeric|min:0',
+                'price_monthly' => 'required|integer|min:0',
             ]);
         } else {
             abort(422, 'Изменение этого тарифа не поддерживается.');
