@@ -9,6 +9,7 @@ use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\SuperAdminAuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -196,6 +197,14 @@ class SuperAdminController extends Controller
             'is_blocked' => $user->is_blocked,
         ]);
 
+        app(SuperAdminAuditLogger::class)->log(
+            auth()->user(),
+            $user->is_blocked ? 'user.blocked' : 'user.unblocked',
+            $user,
+            ['is_blocked' => $wasBlocked],
+            ['is_blocked' => $user->is_blocked],
+        );
+
         return back()->with('success', $user->is_blocked
             ? "Пользователь {$user->name} заблокирован."
             : "Пользователь {$user->name} разблокирован."
@@ -218,6 +227,10 @@ class SuperAdminController extends Controller
 
         $activeSubscription = $workspace->activeSubscription();
 
+        $before = $activeSubscription
+            ? ['expires_at' => $activeSubscription->expires_at?->toDateTimeString()]
+            : [];
+
         if ($activeSubscription && $activeSubscription->expires_at && $activeSubscription->expires_at->isFuture()) {
             $newExpiry = $activeSubscription->expires_at->addDays($days);
         } else {
@@ -228,7 +241,7 @@ class SuperAdminController extends Controller
                 $startPlan = TariffPlan::where('code', 'pro')->first();
 
                 if ($startPlan) {
-                    $workspace->subscriptions()->create([
+                    $activeSubscription = $workspace->subscriptions()->create([
                         'tariff_plan_id' => $startPlan->id,
                         'period_months' => 1,
                         'amount_paid' => 0,
@@ -252,6 +265,17 @@ class SuperAdminController extends Controller
             'new_expires_at' => $newExpiry->toDateTimeString(),
         ]);
 
+        if ($activeSubscription) {
+            app(SuperAdminAuditLogger::class)->log(
+                auth()->user(),
+                'subscription.extended',
+                $activeSubscription,
+                $before,
+                ['expires_at' => $newExpiry->toDateTimeString()],
+                ['days_added' => $days, 'workspace_id' => $workspace->id],
+            );
+        }
+
         return back()->with('success', "Подписка {$user->name} продлена на {$days} дней.");
     }
 
@@ -262,6 +286,13 @@ class SuperAdminController extends Controller
         }
 
         $originalAdminId = auth()->id();
+
+        app(SuperAdminAuditLogger::class)->log(
+            auth()->user(),
+            'impersonation.started',
+            $user,
+            metadata: ['target_user_id' => $user->id],
+        );
 
         Auth::loginUsingId($user->id);
 
@@ -283,6 +314,9 @@ class SuperAdminController extends Controller
             abort(403, 'Нет активной сессии подмены.');
         }
 
+        $originalAdmin = User::find($originalAdminId);
+        $impersonatedUserId = auth()->id();
+
         Auth::loginUsingId($originalAdminId);
 
         session()->forget('original_admin_id');
@@ -290,6 +324,14 @@ class SuperAdminController extends Controller
         Log::info('Super admin left impersonation', [
             'admin_id' => $originalAdminId,
         ]);
+
+        if ($originalAdmin) {
+            app(SuperAdminAuditLogger::class)->log(
+                $originalAdmin,
+                'impersonation.ended',
+                metadata: ['impersonated_user_id' => $impersonatedUserId],
+            );
+        }
 
         return redirect()->route('super_admin.dashboard');
     }
@@ -317,6 +359,11 @@ class SuperAdminController extends Controller
             abort(422, 'Изменение этого тарифа не поддерживается.');
         }
 
+        $before = [];
+        foreach ($validated as $key => $value) {
+            $before[$key] = $plan->$key;
+        }
+
         $plan->update($validated);
 
         Log::info('Super admin updated plan', [
@@ -325,6 +372,16 @@ class SuperAdminController extends Controller
             'plan_code' => $plan->code,
             'fields' => array_keys($validated),
         ]);
+
+        $action = $plan->code === 'start' ? 'plan.start_limit_updated' : 'plan.pro_price_updated';
+
+        app(SuperAdminAuditLogger::class)->log(
+            auth()->user(),
+            $action,
+            $plan,
+            $before,
+            $validated,
+        );
 
         return back()->with('success', "Тариф «{$plan->name}» обновлён.");
     }
