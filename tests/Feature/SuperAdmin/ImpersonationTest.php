@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\SuperAdmin;
 
+use App\Models\PlatformAdminAccess;
 use App\Models\SuperAdminAuditLog;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -89,6 +90,74 @@ class ImpersonationTest extends TestCase
         $this->assertNotNull($log);
         $this->assertEquals($this->admin->id, $log->super_admin_id);
         $this->assertEquals($target->id, $log->metadata['impersonated_user_id']);
+    }
+
+    // ── Redirect by permission ──
+
+    public function test_root_after_leave_redirects_to_dashboard(): void
+    {
+        $target = User::factory()->master()->create();
+
+        $this->actingAs($this->admin)
+            ->post(route('super_admin.impersonate', $target));
+
+        $response = $this->post(route('super_admin.leave_impersonate'));
+
+        $response->assertRedirect(route('super_admin.dashboard'));
+    }
+
+    public function test_limited_admin_without_dashboard_redirects_to_users(): void
+    {
+        $limitedAdmin = User::factory()->master()->create(['is_super_admin' => false]);
+        PlatformAdminAccess::create([
+            'user_id' => $limitedAdmin->id,
+            'permissions' => ['users.view', 'impersonation.use'],
+            'is_active' => true,
+        ]);
+        $target = User::factory()->master()->create();
+
+        $this->actingAs($limitedAdmin)
+            ->post(route('super_admin.impersonate', $target));
+
+        $response = $this->post(route('super_admin.leave_impersonate'));
+
+        $response->assertRedirect(route('super_admin.users'));
+    }
+
+    public function test_limited_admin_with_dashboard_redirects_to_dashboard(): void
+    {
+        $limitedAdmin = User::factory()->master()->create(['is_super_admin' => false]);
+        PlatformAdminAccess::create([
+            'user_id' => $limitedAdmin->id,
+            'permissions' => ['dashboard.view', 'impersonation.use'],
+            'is_active' => true,
+        ]);
+        $target = User::factory()->master()->create();
+
+        $this->actingAs($limitedAdmin)
+            ->post(route('super_admin.impersonate', $target));
+
+        $response = $this->post(route('super_admin.leave_impersonate'));
+
+        $response->assertRedirect(route('super_admin.dashboard'));
+    }
+
+    public function test_limited_admin_with_only_plans_redirects_to_plans(): void
+    {
+        $limitedAdmin = User::factory()->master()->create(['is_super_admin' => false]);
+        PlatformAdminAccess::create([
+            'user_id' => $limitedAdmin->id,
+            'permissions' => ['plans.view', 'impersonation.use'],
+            'is_active' => true,
+        ]);
+        $target = User::factory()->master()->create();
+
+        $this->actingAs($limitedAdmin)
+            ->post(route('super_admin.impersonate', $target));
+
+        $response = $this->post(route('super_admin.leave_impersonate'));
+
+        $response->assertRedirect(route('super_admin.plans'));
     }
 
     // ── Security ──

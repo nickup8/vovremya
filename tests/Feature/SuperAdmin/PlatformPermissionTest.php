@@ -274,7 +274,7 @@ class PlatformPermissionTest extends TestCase
 
     public function test_limited_admin_can_start_and_leave_impersonation(): void
     {
-        $admin = $this->createLimitedAdmin(['impersonation.use']);
+        $admin = $this->createLimitedAdmin(['impersonation.use', 'users.view']);
         $target = User::factory()->master()->create();
 
         // Start impersonation
@@ -284,7 +284,7 @@ class PlatformPermissionTest extends TestCase
 
         // Now authenticated as target — leave
         $this->post(route('super_admin.leave_impersonate'))
-            ->assertRedirect(route('super_admin.dashboard'));
+            ->assertRedirect(route('super_admin.users'));
 
         $this->assertEquals($admin->id, auth()->id());
     }

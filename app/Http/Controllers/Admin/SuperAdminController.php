@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\PlatformPermission;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
@@ -335,7 +336,36 @@ class SuperAdminController extends Controller
             );
         }
 
-        return redirect()->route('super_admin.dashboard');
+        return $this->redirectForPlatformAdmin($originalAdmin);
+    }
+
+    private function redirectForPlatformAdmin(User $user): RedirectResponse
+    {
+        if ($user->is_super_admin) {
+            return redirect()->route('super_admin.dashboard');
+        }
+
+        $access = $user->platformAdminAccess;
+
+        if (! $access || ! $access->is_active) {
+            abort(403, 'Нет доступных разделов.');
+        }
+
+        $readRoutes = [
+            [PlatformPermission::DashboardView, 'super_admin.dashboard'],
+            [PlatformPermission::UsersView, 'super_admin.users'],
+            [PlatformPermission::PlansView, 'super_admin.plans'],
+            [PlatformPermission::AuditView, 'super_admin.audit'],
+            [PlatformPermission::PlatformAdminsManage, 'super_admin.admins'],
+        ];
+
+        foreach ($readRoutes as [$permission, $route]) {
+            if ($access->hasPermission($permission)) {
+                return redirect()->route($route);
+            }
+        }
+
+        abort(403, 'Нет доступных разделов.');
     }
 
     public function plans(): Response
