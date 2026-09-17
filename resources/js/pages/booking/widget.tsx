@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     ArrowRight, ArrowLeft, Clock, Search,
-    CheckCircle2, MessageCircle,
+    CheckCircle2, MessageCircle, ChevronRight as ChevronRightIcon,
     ChevronLeft, ChevronRight, MapPin, Loader2, Check,
 } from 'lucide-react';
 import { getInitials } from '@/lib/utils';
@@ -545,10 +545,29 @@ function StepProvider({
     selectedDate: Date | null;
     selectedTime: string | null;
 }) {
-    const providers: { key: 'telegram' | 'max' | 'vk'; label: string; color: string; show: boolean }[] = [
-        { key: 'telegram', label: 'Telegram', color: '#2AABEE', show: true },
-        { key: 'max', label: 'MAX', color: '#6366F1', show: !!maxBotName },
-        { key: 'vk', label: 'VK', color: '#0077FF', show: true },
+    const providers: { key: 'telegram' | 'max' | 'vk'; label: string; color: string; show: boolean; icon: React.ReactNode }[] = [
+        {
+            key: 'telegram', label: 'Telegram', color: '#2AABEE', show: true,
+            icon: (
+                <svg viewBox="0 0 24 24" fill="#2AABEE" width="20" height="20">
+                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-2.02 1.28-5.69 3.77-.54.37-1.03.55-1.47.54-.48-.01-1.4-.27-2.09-.49-.84-.28-1.51-.42-1.45-.89.03-.25.38-.5 1.04-.77 4.07-1.77 6.79-2.94 8.15-3.5 3.88-1.62 4.69-1.9 5.21-1.91.12 0 .37.03.54.17.14.12.18.28.2.45-.01.06.01.24 0 .38z"/>
+                </svg>
+            ),
+        },
+        {
+            key: 'max', label: 'MAX', color: '#6366F1', show: !!maxBotName,
+            icon: (
+                <span style={{ fontFamily: 'system-ui, sans-serif', fontSize: '16px', fontWeight: 800, color: '#6366F1', letterSpacing: '-0.02em' }}>M</span>
+            ),
+        },
+        {
+            key: 'vk', label: 'VK', color: '#0077FF', show: true,
+            icon: (
+                <svg viewBox="0 0 24 24" fill="#0077FF" width="20" height="20">
+                    <path d="M12.785 16.241s.288-.032.436-.194c.136-.148.132-.427.132-.427s-.02-1.304.587-1.496c.596-.189 1.362 1.259 2.174 1.814.613.42 1.079.328 1.079.328l2.172-.03s1.136-.07.598-.964c-.044-.073-.314-.66-1.618-1.866-1.365-1.264-1.182-1.06.46-3.246.999-1.332 1.398-2.145 1.273-2.496-.119-.334-.852-.246-.852-.246l-2.446.015s-.182-.025-.316.056c-.131.079-.216.263-.216.263s-.388 1.032-.906 1.91c-1.092 1.849-1.529 1.948-1.705 1.832-.415-.273-.311-1.098-.311-1.688 0-1.838.279-2.603-.545-2.804-.274-.067-.476-.112-1.177-.12-.901-.009-1.662.003-2.094.214-.288.142-.508.458-.372.476.17.023.557.104.762.383.265.362.255 1.176.255 1.176s.152 2.253-.355 2.535c-.348.192-.825-.2-1.843-2.004-.523-.928-.917-1.952-.917-1.952s-.076-.186-.212-.286c-.165-.121-.394-.16-.394-.16l-2.323.015s-.349.01-.477.162c-.114.135-.009.415-.009.415s1.822 4.255 3.882 6.403c1.886 1.967 4.032 1.836 4.032 1.836h.972z"/>
+                </svg>
+            ),
+        },
     ];
 
     return (
@@ -585,12 +604,6 @@ function StepProvider({
                 </div>
             )}
 
-            <div className="px-5 text-center" style={{ paddingTop: '10px', paddingBottom: '8px', fontSize: '11px', color: C.graphite }}>
-                <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Оферта</Link>
-                <span className="mx-1">·</span>
-                <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Политика ПДн</Link>
-            </div>
-
             <div className="px-5 pt-4 space-y-3">
                 {errors.limit && (
                     <div className="rounded-xl border px-4 py-3" style={{ borderColor: '#F5D0A0', background: '#FFF8F0' }}>
@@ -609,43 +622,44 @@ function StepProvider({
                             key={p.key}
                             onClick={() => onSubmit(p.key)}
                             disabled={loadingProvider !== null}
-                            className="flex w-full items-center gap-3 text-left transition-all disabled:opacity-50"
+                            className="flex w-full items-center text-left transition-all disabled:opacity-50"
                             style={{
-                                minHeight: '62px',
+                                minHeight: '64px',
                                 border: `1px solid ${C.line}`,
                                 borderRadius: '12px',
                                 background: C.white,
-                                padding: '11px 13px',
+                                padding: '11px 14px',
+                                alignItems: 'center',
+                                gap: '12px',
                             }}
-                            onMouseEnter={(e) => { if (!loadingProvider) e.currentTarget.style.borderColor = p.color; }}
-                            onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.line; }}
+                            onMouseEnter={(e) => { if (!loadingProvider) e.currentTarget.style.background = C.milk; }}
+                            onMouseLeave={(e) => { e.currentTarget.style.background = C.white; }}
                         >
                             <div
-                                className="flex shrink-0 items-center justify-center rounded-full"
-                                style={{ width: '32px', height: '32px', background: `${p.color}15` }}
+                                className="flex shrink-0 items-center justify-center"
+                                style={{ width: '38px', height: '38px', borderRadius: '10px', background: `${p.color}14` }}
                             >
-                                {loadingProvider === p.key ? (
-                                    <Loader2 className="animate-spin" style={{ width: '16px', height: '16px', color: p.color }} />
-                                ) : (
-                                    <MessageCircle style={{ width: '16px', height: '16px', color: p.color }} />
-                                )}
+                                {p.icon}
                             </div>
                             <div className="flex-1 min-w-0">
-                                <p className="font-semibold" style={{ fontSize: '14px', color: C.ink }}>
+                                <p style={{ fontSize: '15px', fontWeight: 700, color: C.ink }}>
                                     {loadingProvider === p.key ? 'Отправка...' : p.label}
                                 </p>
                             </div>
-                            <div
-                                className="flex shrink-0 items-center justify-center rounded-full"
-                                style={{
-                                    width: '18px',
-                                    height: '18px',
-                                    border: `2px solid ${C.line}`,
-                                }}
-                            />
+                            {loadingProvider === p.key ? (
+                                <Loader2 className="shrink-0 animate-spin" style={{ width: '18px', height: '18px', color: p.color }} />
+                            ) : (
+                                <ChevronRightIcon className="shrink-0" style={{ width: '18px', height: '18px', color: C.muted }} />
+                            )}
                         </button>
                     ))}
                 </div>
+            </div>
+
+            <div className="px-5 text-center" style={{ marginTop: '15px', paddingBottom: '14px', fontSize: '11px', color: C.graphite }}>
+                <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Оферта</Link>
+                <span className="mx-1">·</span>
+                <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Политика ПДн</Link>
             </div>
         </div>
     );
