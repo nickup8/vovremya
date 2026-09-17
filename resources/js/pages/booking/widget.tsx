@@ -1,9 +1,9 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
-    ArrowRight, ArrowLeft, Clock,
+    ArrowRight, ArrowLeft, Clock, Search,
     CheckCircle2, MessageCircle,
-    ChevronLeft, ChevronRight, MapPin, Loader2, Lock, Check,
+    ChevronLeft, ChevronRight, MapPin, Loader2, Check,
 } from 'lucide-react';
 import { getInitials } from '@/lib/utils';
 
@@ -13,7 +13,7 @@ const C = {
     milk: '#F7F5F1',
     ink: '#181818',
     graphite: '#62615F',
-    muted: '#8E8A85',
+    muted: '#96938F',
     line: '#E7E4DF',
     softLine: '#F0EEEA',
     orange: '#FF5A1F',
@@ -81,149 +81,84 @@ function formatDateKey(d: Date): string {
 const dayNamesFull = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const monthNamesGen = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
-/* ═══════════════ Step 1 — Hero Header ═══════════════ */
+function formatDuration(mins: number): string {
+    if (mins < 60) return `${mins} мин`;
+    const h = Math.floor(mins / 60);
+    const m = mins % 60;
+    return m ? `${h} ч ${m} мин` : `${h} ч`;
+}
 
-function Step1Header({ master }: { master: Master }) {
+/* ═══════════════ Compact Header ═══════════════ */
+
+function CompactHeader({ step, master, showBack, onBack }: { step: number; master: Master; showBack: boolean; onBack: () => void }) {
     const initials = getInitials(master.name);
 
     return (
-        <div className="relative" style={{ height: '380px', background: C.milk }}>
-            {/* Logo mark */}
-            <div className="absolute left-5 top-5 z-10 flex size-12 items-center justify-center rounded-full bg-white shadow-sm">
-                <img src="/images/logo-mark.svg" alt="Вовремя" className="size-7" />
+        <div
+            className="sticky top-0 z-50"
+            style={{
+                background: 'rgba(255,255,255,.96)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+                borderBottom: `1px solid ${C.line}`,
+                paddingTop: 'env(safe-area-inset-top)',
+            }}
+        >
+            <div className="px-5 pt-2.5 pb-1">
+                <div className="flex items-center justify-between mb-1.5">
+                    <span style={{ fontSize: '12px', color: C.muted }}>
+                        Шаг {step} из 4
+                    </span>
+                </div>
+                <div className="w-full rounded-full" style={{ height: '3px', background: C.line }}>
+                    <div
+                        className="h-full rounded-full transition-all duration-500 ease-out"
+                        style={{ width: `${step * 25}%`, background: C.orange }}
+                    />
+                </div>
             </div>
 
-            {/* Warm decorative shapes */}
-            <div className="pointer-events-none absolute -right-8 -top-8 size-48 rounded-full" style={{ background: '#F0E6DB' }} />
-            <div className="pointer-events-none absolute -left-10 bottom-20 size-36 rounded-full" style={{ background: '#F5E8DC' }} />
+            <div className="flex items-center gap-3" style={{ padding: '14px 20px 16px' }}>
+                {showBack ? (
+                    <button
+                        onClick={onBack}
+                        className="flex shrink-0 items-center justify-center"
+                        style={{ width: '44px', height: '44px' }}
+                        aria-label="Назад"
+                    >
+                        <ArrowLeft className="size-5" style={{ color: C.graphite }} />
+                    </button>
+                ) : null}
 
-            {/* Floating info card */}
-            <div
-                className="absolute bottom-0 left-0 right-0 z-10"
-                style={{ paddingLeft: '18px', paddingRight: '18px', marginBottom: '-44px' }}
-            >
-                <div
-                    className="flex items-center gap-4 bg-white"
-                    style={{ borderRadius: '28px', padding: '20px', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}
-                >
-                    <div className="relative shrink-0">
-                        {master.avatar_url ? (
-                            <img
-                                src={master.avatar_url}
-                                alt={master.name}
-                                className="rounded-full object-cover"
-                                style={{ width: '104px', height: '104px' }}
-                            />
-                        ) : (
-                            <div
-                                className="flex items-center justify-center rounded-full text-2xl font-bold text-white"
-                                style={{ width: '104px', height: '104px', background: C.ink }}
-                            >
-                                {initials}
-                            </div>
-                        )}
+                <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {master.avatar_url ? (
+                        <img
+                            src={master.avatar_url}
+                            alt={master.name}
+                            className="shrink-0 rounded-full object-cover"
+                            style={{ width: '42px', height: '42px' }}
+                        />
+                    ) : (
                         <div
-                            className="absolute -bottom-1 -right-1 flex size-8 items-center justify-center rounded-full"
-                            style={{ background: C.orange }}
+                            className="flex shrink-0 items-center justify-center rounded-full font-bold text-white"
+                            style={{ width: '42px', height: '42px', fontSize: '13px', background: C.ink }}
                         >
-                            <Check className="size-4 text-white" />
+                            {initials}
                         </div>
-                    </div>
+                    )}
 
                     <div className="min-w-0 flex-1">
-                        <p className="font-bold leading-tight" style={{ fontSize: '28px', color: C.ink }}>
+                        <p className="font-bold leading-tight" style={{ fontSize: '14px', color: C.ink }}>
                             {master.name}
                         </p>
                         {master.address && (
-                            <div className="mt-1.5 flex items-start gap-1.5" style={{ color: C.graphite, fontSize: '13px' }}>
-                                <MapPin className="mt-0.5 size-3.5 shrink-0" />
+                            <div className="flex items-start gap-1 mt-0.5" style={{ color: C.muted, fontSize: '11.5px' }}>
+                                <MapPin className="mt-px shrink-0" style={{ width: '13px', height: '13px' }} />
                                 <span style={{ overflowWrap: 'anywhere' }}>{master.address}</span>
                             </div>
                         )}
                     </div>
                 </div>
-            </div>
-        </div>
-    );
-}
-
-/* ═══════════════ Master Profile Header (Steps 2–4) ═══════════════ */
-
-function MasterProfileHeader({ master, showBack, onBack }: { master: Master; showBack: boolean; onBack: () => void }) {
-    const initials = getInitials(master.name);
-
-    return (
-        <div className="relative overflow-hidden" style={{ background: `linear-gradient(135deg, ${C.softOrange} 0%, ${C.milk} 60%, ${C.white} 100%)` }}>
-            {/* Decorative organic shapes */}
-            <div className="pointer-events-none absolute -right-10 -top-10 size-40 rounded-full" style={{ background: `${C.orange}08` }} />
-            <div className="pointer-events-none absolute -left-6 bottom-0 size-28 rounded-full" style={{ background: `${C.orange}05` }} />
-
-            <div className="relative px-5 pb-5 pt-4">
-                {/* Back button row */}
-                {showBack && (
-                    <div className="mb-3">
-                        <button
-                            onClick={onBack}
-                            className="flex size-8 items-center justify-center rounded-xl transition-colors hover:bg-white/60"
-                            aria-label="Назад"
-                        >
-                            <ArrowLeft className="size-4" style={{ color: C.graphite }} />
-                        </button>
-                    </div>
-                )}
-
-                <div className="flex items-center gap-4">
-                    {master.avatar_url ? (
-                        <img
-                            src={master.avatar_url}
-                            alt={master.name}
-                            className="size-[72px] shrink-0 rounded-full object-cover ring-3 ring-white/80"
-                        />
-                    ) : (
-                        <div
-                            className="flex size-[72px] shrink-0 items-center justify-center rounded-full text-lg font-bold text-white ring-3 ring-white/80"
-                            style={{ background: C.ink }}
-                        >
-                            {initials}
-                        </div>
-                    )}
-                    <div className="min-w-0 flex-1">
-                        <p className="text-lg font-bold tracking-tight" style={{ color: C.ink }}>
-                            {master.name}
-                        </p>
-                        {master.specialty && (
-                            <p className="mt-0.5 text-sm" style={{ color: C.graphite }}>
-                                {master.specialty}
-                            </p>
-                        )}
-                        {master.address && (
-                            <div className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
-                                <MapPin className="size-3" />
-                                {master.address}
-                            </div>
-                        )}
-                    </div>
-                </div>
-            </div>
-        </div>
-    );
-}
-
-/* ═══════════════ Progress ═══════════════ */
-
-function ProgressBar({ step, total }: { step: number; total: number }) {
-    return (
-        <div className="px-5 pb-1 pt-3">
-            <div className="flex items-center justify-between">
-                <span className="text-xs font-medium" style={{ color: C.muted }}>
-                    Шаг {step} из {total}
-                </span>
-            </div>
-            <div className="mt-2 h-1 w-full rounded-full" style={{ background: C.line }}>
-                <div
-                    className="h-full rounded-full transition-all duration-500 ease-out"
-                    style={{ width: `${(step / total) * 100}%`, background: C.orange }}
-                />
             </div>
         </div>
     );
@@ -240,94 +175,118 @@ function StepServices({
     selected: Service | null;
     onSelect: (s: Service) => void;
 }) {
+    const [serviceSearch, setServiceSearch] = useState('');
+    const q = serviceSearch.toLowerCase().trim();
+    const filtered = q ? services.filter((s) => s.title.toLowerCase().includes(q)) : services;
+
     return (
-        <div className="flex-1 overflow-y-auto pb-28">
-            <div className="px-5 pt-12 pb-4">
-                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
+        <div className="flex-1 overflow-y-auto" style={{ paddingBottom: '100px' }}>
+            <div className="px-5 pt-5 pb-4">
+                <h2 className="font-bold" style={{ fontSize: '22px', lineHeight: '28px', color: C.ink, letterSpacing: '-0.01em' }}>
                     Выберите услугу
                 </h2>
+                <p className="mt-1" style={{ fontSize: '13px', color: C.muted }}>
+                    Выберите один вариант, чтобы перейти к свободному времени.
+                </p>
             </div>
 
-            <div className="flex flex-col gap-3.5 px-5">
-                {services.map((service, index) => {
-                    const isActive = selected?.id === service.id;
-                    const num = String(index + 1).padStart(2, '0');
+            <div className="px-5 pb-3">
+                <div className="relative">
+                    <Search
+                        className="absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none"
+                        style={{ width: '16px', height: '16px', color: C.muted }}
+                    />
+                    <input
+                        type="text"
+                        placeholder="Найти услугу"
+                        value={serviceSearch}
+                        onChange={(e) => setServiceSearch(e.target.value)}
+                        className="w-full outline-none"
+                        style={{
+                            height: '42px',
+                            border: `1px solid ${C.line}`,
+                            borderRadius: '10px',
+                            paddingLeft: '38px',
+                            paddingRight: '14px',
+                            fontSize: '14px',
+                            background: C.white,
+                            color: C.ink,
+                        }}
+                        onFocus={(e) => { e.currentTarget.style.borderColor = C.orange; e.currentTarget.style.boxShadow = '0 0 0 3px rgba(255,90,31,0.1)'; }}
+                        onBlur={(e) => { e.currentTarget.style.borderColor = C.line; e.currentTarget.style.boxShadow = 'none'; }}
+                    />
+                </div>
+            </div>
+
+            <div className="flex flex-col px-5" style={{ gap: '8px' }} role="radiogroup">
+                {filtered.length === 0 && (
+                    <p className="py-8 text-center" style={{ fontSize: '14px', color: C.muted }}>Ничего не найдено</p>
+                )}
+                {filtered.map((service) => {
+                    const isSelected = selected?.id === service.id;
 
                     return (
                         <button
                             key={service.id}
+                            type="button"
+                            role="radio"
+                            aria-checked={isSelected}
                             onClick={() => onSelect(service)}
-                            aria-pressed={isActive}
-                            className="relative w-full text-left transition-all"
+                            className="w-full text-left transition-all"
                             style={{
-                                background: isActive ? C.softOrange : C.white,
-                                border: `1px solid ${isActive ? C.orange : C.line}`,
-                                borderLeft: isActive ? `4px solid ${C.orange}` : `1px solid ${C.line}`,
-                                borderRadius: '20px',
-                                minHeight: '98px',
-                                padding: '16px',
-                                boxShadow: isActive ? '0 4px 16px rgba(255,90,31,0.08)' : 'none',
+                                minHeight: '64px',
+                                border: `1px solid ${isSelected ? C.orange : C.line}`,
+                                borderRadius: '12px',
+                                background: isSelected ? C.softOrange : C.white,
+                                padding: '13px 14px',
+                                boxShadow: isSelected ? '0 0 0 1px #FF5A1F' : 'none',
                             }}
                         >
-                            {isActive && (
-                                <div
-                                    className="absolute flex items-center justify-center"
-                                    style={{
-                                        top: '12px', right: '12px',
-                                        width: '24px', height: '24px',
-                                        borderRadius: '8px',
-                                        background: C.orange,
-                                    }}
-                                >
-                                    <Check className="size-3.5 text-white" />
-                                </div>
-                            )}
-
-                            <div className="grid items-center" style={{ gridTemplateColumns: '42px 1fr auto', gap: '12px' }}>
-                                <div
-                                    className="flex items-center justify-center self-center"
-                                    style={{
-                                        width: '42px', height: '42px',
-                                        borderRadius: '13px',
-                                        background: isActive ? C.orange : C.softLine,
-                                        color: isActive ? C.white : C.graphite,
-                                        fontSize: '13px',
-                                        fontWeight: 700,
-                                    }}
-                                >
-                                    {num}
-                                </div>
-
-                                <div className="min-w-0" style={{ minWidth: 0 }}>
+                            <div className="flex items-center" style={{ gap: '14px' }}>
+                                <div className="min-w-0 flex-1" style={{ minWidth: 0 }}>
                                     <p
                                         className="leading-tight"
                                         style={{
-                                            fontSize: '17px',
-                                            fontWeight: 600,
-                                            color: isActive ? '#D4450F' : C.ink,
+                                            fontSize: '15px',
+                                            fontWeight: 700,
+                                            color: C.ink,
+                                            lineHeight: '19px',
                                             overflowWrap: 'anywhere',
                                             whiteSpace: 'normal',
                                         }}
                                     >
                                         {service.title}
                                     </p>
-                                    <div className="mt-1 flex items-center gap-1.5" style={{ color: C.muted, fontSize: '12px' }}>
-                                        <Clock className="size-3 shrink-0" />
-                                        {service.duration_minutes} мин
+                                    <div className="flex items-center gap-1 mt-1" style={{ color: C.muted, fontSize: '12px' }}>
+                                        <Clock className="shrink-0" style={{ width: '12px', height: '12px' }} />
+                                        {formatDuration(service.duration_minutes)}
                                     </div>
                                 </div>
 
-                                <span
-                                    className="shrink-0 self-center"
-                                    style={{
-                                        fontWeight: 700,
-                                        fontSize: '17px',
-                                        color: isActive ? '#D4450F' : C.ink,
-                                        whiteSpace: 'nowrap',
-                                    }}
-                                >
-                                    {service.price.toLocaleString('ru-RU')} ₽
-                                </span>
+                                <div className="flex shrink-0 items-center" style={{ gap: '12px' }}>
+                                    <span
+                                        className="shrink-0"
+                                        style={{
+                                            fontWeight: 700,
+                                            fontSize: '15px',
+                                            color: C.ink,
+                                            whiteSpace: 'nowrap',
+                                        }}
+                                    >
+                                        {service.price.toLocaleString('ru-RU')} ₽
+                                    </span>
+                                    <div
+                                        className="flex shrink-0 items-center justify-center rounded-full"
+                                        style={{
+                                            width: '18px',
+                                            height: '18px',
+                                            border: `2px solid ${isSelected ? C.orange : C.line}`,
+                                            background: isSelected ? C.orange : 'transparent',
+                                        }}
+                                    >
+                                        {isSelected && <Check style={{ width: '11px', height: '11px', color: C.white }} />}
+                                    </div>
+                                </div>
                             </div>
                         </button>
                     );
@@ -396,44 +355,48 @@ function StepDate({
     }
 
     return (
-        <div className="flex-1 overflow-y-auto pb-32">
-            <div className="px-5 pt-6 pb-4">
-                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
+        <div className="flex-1 overflow-y-auto" style={{ paddingBottom: '100px' }}>
+            <div className="px-5 pt-5 pb-4">
+                <h2 className="font-bold" style={{ fontSize: '22px', lineHeight: '28px', color: C.ink, letterSpacing: '-0.01em' }}>
                     Выберите дату
                 </h2>
-                <p className="mt-1 text-sm" style={{ color: C.muted }}>
-                    Серым отмечены дни без свободных слотов
+                <p className="mt-1" style={{ fontSize: '13px', color: C.muted }}>
+                    Недоступные дни отмечены серым.
                 </p>
             </div>
 
             <div className="px-5">
                 <div className="flex items-center justify-between">
-                    <button
-                        onClick={prevMonth}
-                        className="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-black/5"
-                    >
-                        <ChevronLeft className="size-5" style={{ color: C.graphite }} />
-                    </button>
-                    <p className="text-base font-semibold" style={{ color: C.ink }}>
+                    <p className="font-semibold" style={{ fontSize: '16px', color: C.ink }}>
                         {MONTH_NAMES[viewMonth]} {viewYear}
                     </p>
-                    <button
-                        onClick={nextMonth}
-                        className="flex size-9 items-center justify-center rounded-xl transition-colors hover:bg-black/5"
-                    >
-                        <ChevronRight className="size-5" style={{ color: C.graphite }} />
-                    </button>
+                    <div className="flex items-center" style={{ gap: '4px' }}>
+                        <button
+                            onClick={prevMonth}
+                            className="flex items-center justify-center transition-colors"
+                            style={{ width: '36px', height: '36px', borderRadius: '9px' }}
+                        >
+                            <ChevronLeft className="size-5" style={{ color: C.graphite }} />
+                        </button>
+                        <button
+                            onClick={nextMonth}
+                            className="flex items-center justify-center transition-colors"
+                            style={{ width: '36px', height: '36px', borderRadius: '9px' }}
+                        >
+                            <ChevronRight className="size-5" style={{ color: C.graphite }} />
+                        </button>
+                    </div>
                 </div>
 
-                <div className="mt-4 grid grid-cols-7 gap-1">
+                <div className="mt-4 grid grid-cols-7">
                     {DAY_LETTERS.map((l) => (
-                        <div key={l} className="py-1 text-center text-xs font-medium" style={{ color: C.muted }}>
+                        <div key={l} className="py-1 text-center" style={{ fontSize: '10.5px', color: C.muted }}>
                             {l}
                         </div>
                     ))}
                 </div>
 
-                <div className="mt-1 grid grid-cols-7 gap-1">
+                <div className="mt-1 grid grid-cols-7" style={{ gap: '2px' }}>
                     {loadingDates && (
                         <div className="col-span-7 flex justify-center py-8">
                             <Loader2 className="size-5 animate-spin" style={{ color: C.muted }} />
@@ -446,25 +409,44 @@ function StepDate({
                         const available = isAvailable(d);
                         const disabled = past || !available;
                         const selected = isSelected(d);
+                        const isToday = d.toDateString() === today.toDateString();
 
                         return (
                             <button
                                 key={d.toISOString()}
                                 onClick={() => !disabled && onSelectDate(d)}
                                 disabled={disabled}
-                                className="flex aspect-square items-center justify-center rounded-full text-sm font-medium transition-all"
+                                className="relative flex items-center justify-center transition-all"
                                 style={{
+                                    width: '38px',
+                                    height: '38px',
+                                    margin: '0 auto',
+                                    borderRadius: '50%',
+                                    fontSize: '14px',
+                                    fontWeight: selected ? 700 : (available && !past ? 600 : 400),
                                     color: disabled
-                                        ? past ? '#D1CFC9' : '#D1CFC9'
+                                        ? '#D1CFC9'
                                         : selected ? C.white : C.ink,
                                     background: selected ? C.orange : 'transparent',
-                                    cursor: disabled ? (past ? 'default' : 'not-allowed') : 'pointer',
+                                    cursor: disabled ? 'default' : 'pointer',
                                     opacity: disabled && !past ? 0.5 : 1,
                                 }}
                                 onMouseEnter={(e) => { if (!disabled && !selected) e.currentTarget.style.background = C.softLine; }}
                                 onMouseLeave={(e) => { if (!selected) e.currentTarget.style.background = selected ? C.orange : 'transparent'; }}
                             >
                                 {d.getDate()}
+                                {isToday && !selected && (
+                                    <div
+                                        className="absolute"
+                                        style={{
+                                            bottom: '3px',
+                                            width: '4px',
+                                            height: '4px',
+                                            borderRadius: '50%',
+                                            background: C.orange,
+                                        }}
+                                    />
+                                )}
                             </button>
                         );
                     })}
@@ -490,13 +472,13 @@ function StepTime({
     onSelectTime: (t: string) => void;
 }) {
     return (
-        <div className="flex-1 overflow-y-auto pb-32">
-            <div className="px-5 pt-6 pb-4">
-                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
+        <div className="flex-1 overflow-y-auto" style={{ paddingBottom: '100px' }}>
+            <div className="px-5 pt-5 pb-4">
+                <h2 className="font-bold" style={{ fontSize: '22px', lineHeight: '28px', color: C.ink, letterSpacing: '-0.01em' }}>
                     Выберите время
                 </h2>
                 {selectedDate && (
-                    <p className="mt-1 text-sm" style={{ color: C.muted }}>
+                    <p className="mt-1" style={{ fontSize: '13px', color: C.muted }}>
                         {dayNamesFull[selectedDate.getDay()]}, {selectedDate.getDate()} {monthNamesGen[selectedDate.getMonth()]}
                     </p>
                 )}
@@ -508,11 +490,11 @@ function StepTime({
                         <Loader2 className="size-5 animate-spin" style={{ color: C.muted }} />
                     </div>
                 ) : availableSlots.length === 0 ? (
-                    <div className="rounded-2xl border py-8 text-center" style={{ borderColor: C.line, background: C.white }}>
-                        <p className="text-sm" style={{ color: C.muted }}>Нет свободных слотов на эту дату</p>
+                    <div className="rounded-xl border py-8 text-center" style={{ borderColor: C.line, background: C.white }}>
+                        <p style={{ fontSize: '14px', color: C.muted }}>Нет свободных слотов на эту дату</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-3 gap-2 sm:grid-cols-4">
+                    <div className="grid grid-cols-4" style={{ gap: '8px' }}>
                         {availableSlots.map((t) => {
                             const active = selectedTime === t;
 
@@ -520,11 +502,15 @@ function StepTime({
                                 <button
                                     key={t}
                                     onClick={() => onSelectTime(t)}
-                                    className="rounded-xl border py-2.5 text-sm font-medium transition-all"
+                                    className="flex items-center justify-center font-semibold transition-all"
                                     style={{
+                                        height: '44px',
+                                        border: `1px solid ${active ? C.orange : C.line}`,
+                                        borderRadius: '10px',
                                         background: active ? C.orange : C.white,
-                                        borderColor: active ? C.orange : C.line,
                                         color: active ? C.white : C.ink,
+                                        fontSize: '13px',
+                                        fontWeight: 650,
                                     }}
                                     onMouseEnter={(e) => { if (!active) { e.currentTarget.style.background = C.softOrange; e.currentTarget.style.borderColor = C.orange; } }}
                                     onMouseLeave={(e) => { if (!active) { e.currentTarget.style.background = C.white; e.currentTarget.style.borderColor = C.line; } }}
@@ -540,18 +526,24 @@ function StepTime({
     );
 }
 
-/* ═══════════════ Step 4 — Provider Selection ═══════════════ */
+/* ═══════════════ Step 4 — Confirm / Provider ═══════════════ */
 
 function StepProvider({
     errors,
     onSubmit,
     loadingProvider,
     maxBotName,
+    selectedService,
+    selectedDate,
+    selectedTime,
 }: {
     errors: Record<string, string>;
     onSubmit: (provider: 'telegram' | 'max' | 'vk') => void;
     loadingProvider: 'telegram' | 'max' | 'vk' | null;
     maxBotName: string | null;
+    selectedService: Service | null;
+    selectedDate: Date | null;
+    selectedTime: string | null;
 }) {
     const providers: { key: 'telegram' | 'max' | 'vk'; label: string; color: string; show: boolean }[] = [
         { key: 'telegram', label: 'Telegram', color: '#2AABEE', show: true },
@@ -560,58 +552,91 @@ function StepProvider({
     ];
 
     return (
-        <div className="flex-1 overflow-y-auto pb-32">
-            <div className="px-5 pt-6 pb-4">
-                <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
-                    Выберите мессенджер
+        <div className="flex-1 overflow-y-auto" style={{ paddingBottom: '100px' }}>
+            <div className="px-5 pt-5 pb-4">
+                <h2 className="font-bold" style={{ fontSize: '22px', lineHeight: '28px', color: C.ink, letterSpacing: '-0.01em' }}>
+                    Подтвердите запись
                 </h2>
-                <p className="mt-1 text-sm" style={{ color: C.muted }}>
-                    В нём мы завершим подтверждение записи
+                <p className="mt-1" style={{ fontSize: '13px', color: C.muted }}>
+                    Выберите мессенджер — там завершится подтверждение.
                 </p>
             </div>
 
-            <div className="space-y-3 px-5">
+            {selectedService && selectedDate && selectedTime && (
+                <div
+                    className="mx-5"
+                    style={{
+                        padding: '14px 0',
+                        borderTop: `1px solid ${C.line}`,
+                        borderBottom: `1px solid ${C.line}`,
+                    }}
+                >
+                    <p className="font-bold" style={{ fontSize: '14px', color: C.ink }}>
+                        {selectedService.title}
+                    </p>
+                    <div className="flex items-center justify-between mt-1">
+                        <span style={{ fontSize: '12px', color: C.muted }}>
+                            {selectedDate.getDate()} {monthNamesGen[selectedDate.getMonth()]} · {selectedTime}
+                        </span>
+                        <span style={{ fontSize: '14px', fontWeight: 700, color: C.ink }}>
+                            {selectedService.price.toLocaleString('ru-RU')} ₽
+                        </span>
+                    </div>
+                </div>
+            )}
+
+            <div className="px-5 pt-4 space-y-3">
                 {errors.limit && (
-                    <div className="rounded-2xl border px-4 py-3" style={{ borderColor: '#F5D0A0', background: '#FFF8F0' }}>
-                        <p className="text-sm" style={{ color: '#B8860B' }}>{errors.limit}</p>
+                    <div className="rounded-xl border px-4 py-3" style={{ borderColor: '#F5D0A0', background: '#FFF8F0' }}>
+                        <p style={{ fontSize: '13px', color: '#B8860B' }}>{errors.limit}</p>
                     </div>
                 )}
                 {errors.time && (
-                    <div className="rounded-2xl border px-4 py-3" style={{ borderColor: '#F0C0C0', background: '#FFF5F5' }}>
-                        <p className="text-sm" style={{ color: '#C44351' }}>{errors.time}</p>
+                    <div className="rounded-xl border px-4 py-3" style={{ borderColor: '#F0C0C0', background: '#FFF5F5' }}>
+                        <p style={{ fontSize: '13px', color: '#C44351' }}>{errors.time}</p>
                     </div>
                 )}
 
-                <div className="space-y-2.5 pt-1">
+                <div className="flex flex-col" style={{ gap: '8px' }}>
                     {providers.filter((p) => p.show).map((p) => (
                         <button
                             key={p.key}
                             onClick={() => onSubmit(p.key)}
                             disabled={loadingProvider !== null}
-                            className="flex w-full items-center gap-3 rounded-2xl border p-4 text-left transition-all disabled:opacity-50"
+                            className="flex w-full items-center gap-3 text-left transition-all disabled:opacity-50"
                             style={{
+                                minHeight: '62px',
+                                border: `1px solid ${C.line}`,
+                                borderRadius: '12px',
                                 background: C.white,
-                                borderColor: C.line,
+                                padding: '11px 13px',
                             }}
                             onMouseEnter={(e) => { if (!loadingProvider) e.currentTarget.style.borderColor = p.color; }}
                             onMouseLeave={(e) => { e.currentTarget.style.borderColor = C.line; }}
                         >
                             <div
-                                className="flex size-10 shrink-0 items-center justify-center rounded-xl"
-                                style={{ background: `${p.color}15` }}
+                                className="flex shrink-0 items-center justify-center rounded-full"
+                                style={{ width: '32px', height: '32px', background: `${p.color}15` }}
                             >
                                 {loadingProvider === p.key ? (
-                                    <Loader2 className="size-5 animate-spin" style={{ color: p.color }} />
+                                    <Loader2 className="animate-spin" style={{ width: '16px', height: '16px', color: p.color }} />
                                 ) : (
-                                    <MessageCircle className="size-5" style={{ color: p.color }} />
+                                    <MessageCircle style={{ width: '16px', height: '16px', color: p.color }} />
                                 )}
                             </div>
-                            <div className="flex-1">
-                                <p className="font-semibold" style={{ color: C.ink }}>
+                            <div className="flex-1 min-w-0">
+                                <p className="font-semibold" style={{ fontSize: '14px', color: C.ink }}>
                                     {loadingProvider === p.key ? 'Отправка...' : p.label}
                                 </p>
                             </div>
-                            <ArrowRight className="size-4 shrink-0" style={{ color: C.muted }} />
+                            <div
+                                className="flex shrink-0 items-center justify-center rounded-full"
+                                style={{
+                                    width: '18px',
+                                    height: '18px',
+                                    border: `2px solid ${C.line}`,
+                                }}
+                            />
                         </button>
                     ))}
                 </div>
@@ -663,58 +688,42 @@ function StepConfirmation({
     );
 }
 
-/* ═══════════════ Step 1 — CTA ═══════════════ */
+/* ═══════════════ Action Dock ═══════════════ */
 
-function Step1CTA({
-    canNext,
-    handleNext,
-}: {
-    canNext: boolean;
-    handleNext: () => void;
-}) {
+function ActionDock({ step, canNext, onAction }: { step: number; canNext: boolean; onAction: () => void }) {
+    const labels: Record<number, string> = {
+        1: 'Далее',
+        2: 'Выбрать время',
+        3: 'Далее',
+    };
+
     return (
         <div
-            className="fixed bottom-0 left-0 right-0 z-40"
-            style={{ background: `linear-gradient(to top, ${C.milk} 60%, transparent)` }}
+            className="sticky bottom-0 z-50"
+            style={{
+                background: 'rgba(255,255,255,.96)',
+                backdropFilter: 'blur(8px)',
+                WebkitBackdropFilter: 'blur(8px)',
+                borderTop: `1px solid ${C.line}`,
+                padding: '12px 20px calc(12px + env(safe-area-inset-bottom))',
+            }}
         >
-            <div className="mx-auto max-w-md px-5 pb-5 pt-6">
-                <button
-                    onClick={handleNext}
-                    disabled={!canNext}
-                    className="flex w-full items-center justify-between text-left transition-all disabled:cursor-not-allowed"
-                    style={{
-                        height: '64px',
-                        borderRadius: '20px',
-                        background: canNext ? C.orange : C.line,
-                        paddingLeft: '24px',
-                        paddingRight: '14px',
-                        color: canNext ? C.white : C.muted,
-                        boxShadow: canNext ? '0 4px 18px rgba(255, 90, 31, 0.22)' : 'none',
-                    }}
-                    onMouseEnter={(e) => { if (canNext) e.currentTarget.style.background = C.orangeHover; }}
-                    onMouseLeave={(e) => { e.currentTarget.style.background = canNext ? C.orange : C.line; }}
-                >
-                    <div>
-                        <div className="text-base font-semibold" style={{ color: canNext ? C.white : C.muted }}>
-                            Продолжить
-                        </div>
-                        <div className="text-xs" style={{ opacity: canNext ? 0.85 : 0.6 }}>
-                            к выбору даты
-                        </div>
-                    </div>
-
-                    <div
-                        className="flex items-center justify-center"
-                        style={{
-                            width: '44px', height: '44px',
-                            borderRadius: '14px',
-                            background: canNext ? C.white : C.softLine,
-                        }}
-                    >
-                        <ArrowRight className="size-5" style={{ color: canNext ? C.orange : C.muted }} />
-                    </div>
-                </button>
-            </div>
+            <button
+                onClick={onAction}
+                disabled={!canNext}
+                className="flex w-full items-center justify-center transition-all"
+                style={{
+                    height: '48px',
+                    borderRadius: '12px',
+                    background: canNext ? C.orange : '#D7D3CE',
+                    color: C.white,
+                    fontSize: '15px',
+                    fontWeight: 700,
+                    border: 'none',
+                }}
+            >
+                {labels[step]}
+            </button>
         </div>
     );
 }
@@ -856,103 +865,76 @@ export default function Widget() {
         }
     }
 
-    const showHeader = step < 5;
+    const showHeader = step <= TOTAL_STEPS;
 
     return (
         <>
             <Head title="Запись — Вовремя" />
 
-            <div className="mx-auto flex min-h-screen max-w-md flex-col" style={{ background: C.milk }}>
-                {/* Master header */}
-                {step === 1 && <Step1Header master={master} />}
-                {step > 1 && showHeader && (
-                    <MasterProfileHeader
+            <div className="mx-auto flex min-h-screen flex-col" style={{ maxWidth: '480px', background: C.milk }}>
+                {showHeader && (
+                    <CompactHeader
+                        step={step}
                         master={master}
-                        showBack={step > 1 && step <= TOTAL_STEPS}
+                        showBack={step > 1}
                         onBack={handleBack}
                     />
                 )}
 
-                {/* Progress */}
-                {step > 1 && step <= TOTAL_STEPS && <ProgressBar step={step} total={TOTAL_STEPS} />}
+                <div className="flex flex-col flex-1" style={{ padding: '0 20px' }}>
+                    {step === 1 && (
+                        <StepServices
+                            services={services}
+                            selected={selectedService}
+                            onSelect={handleSelectService}
+                        />
+                    )}
+                    {step === 2 && selectedService && (
+                        <StepDate
+                            masterSlug={master.master_slug}
+                            serviceId={selectedService.id}
+                            selectedDate={selectedDate}
+                            onSelectDate={handleSelectDate}
+                        />
+                    )}
+                    {step === 3 && (
+                        <StepTime
+                            selectedDate={selectedDate}
+                            selectedTime={selectedTime}
+                            availableSlots={slots}
+                            loadingSlots={loadingSlots}
+                            onSelectTime={setSelectedTime}
+                        />
+                    )}
+                    {step === 4 && (
+                        <StepProvider
+                            errors={errors}
+                            onSubmit={handleSubmit}
+                            loadingProvider={loadingProvider}
+                            maxBotName={maxBotName}
+                            selectedService={selectedService}
+                            selectedDate={selectedDate}
+                            selectedTime={selectedTime}
+                        />
+                    )}
+                    {step === 5 && selectedService && selectedDate && selectedTime && (
+                        <StepConfirmation
+                            service={selectedService}
+                            date={selectedDate}
+                            time={selectedTime}
+                        />
+                    )}
+                </div>
 
-                {/* Steps */}
-                {step === 1 && (
-                    <StepServices
-                        services={services}
-                        selected={selectedService}
-                        onSelect={handleSelectService}
-                    />
-                )}
-                {step === 2 && selectedService && (
-                    <StepDate
-                        masterSlug={master.master_slug}
-                        serviceId={selectedService.id}
-                        selectedDate={selectedDate}
-                        onSelectDate={handleSelectDate}
-                    />
-                )}
-                {step === 3 && (
-                    <StepTime
-                        selectedDate={selectedDate}
-                        selectedTime={selectedTime}
-                        availableSlots={slots}
-                        loadingSlots={loadingSlots}
-                        onSelectTime={setSelectedTime}
-                    />
-                )}
-                {step === 4 && (
-                    <StepProvider
-                        errors={errors}
-                        onSubmit={handleSubmit}
-                        loadingProvider={loadingProvider}
-                        maxBotName={maxBotName}
-                    />
-                )}
-                {step === 5 && selectedService && selectedDate && selectedTime && (
-                    <StepConfirmation
-                        service={selectedService}
-                        date={selectedDate}
-                        time={selectedTime}
-                    />
-                )}
-
-                {/* Bottom CTA */}
-                {step === 1 && <Step1CTA canNext={canNext} handleNext={handleNext} />}
-                {step > 1 && step < TOTAL_STEPS && (
-                    <div className="fixed bottom-0 left-0 right-0 z-40" style={{ background: `linear-gradient(to top, ${C.milk} 60%, transparent)` }}>
-                        <div className="mx-auto max-w-md px-5 pb-5 pt-6">
-                            <button
-                                onClick={handleNext}
-                                disabled={!canNext}
-                                className="flex w-full items-center justify-center gap-2 rounded-2xl text-base font-semibold text-white transition-all disabled:cursor-not-allowed"
-                                style={{
-                                    height: '54px',
-                                    background: canNext ? C.orange : C.line,
-                                    color: canNext ? C.white : C.muted,
-                                    boxShadow: canNext ? '0 4px 14px rgba(255, 90, 31, 0.2)' : 'none',
-                                }}
-                                onMouseEnter={(e) => { if (canNext) e.currentTarget.style.background = C.orangeHover; }}
-                                onMouseLeave={(e) => { e.currentTarget.style.background = canNext ? C.orange : C.line; }}
-                            >
-                                Продолжить
-                                <ArrowRight className="size-4" />
-                            </button>
-
-                            <div className="mt-3 flex items-center justify-center gap-1.5">
-                                <Lock className="size-3" style={{ color: C.muted }} />
-                                <span className="text-xs" style={{ color: C.muted }}>Безопасная запись через ИРСИ</span>
-                            </div>
-                        </div>
-                    </div>
+                {step >= 1 && step <= 3 && (
+                    <ActionDock step={step} canNext={canNext} onAction={handleNext} />
                 )}
 
-                {/* Footer with legal links */}
                 <div className="px-5 pb-4 pt-2 text-center">
-                    <span className="text-xs" style={{ color: C.muted }}>
-                        <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.muted }}>Оферта</Link>
+                    <span style={{ fontSize: '11px', color: C.graphite }}>
+                        <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Оферта</Link>
                         <span className="mx-1">·</span>
-                        <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.muted }}>Политика</Link>
+                        <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Политика</Link>
                     </span>
                 </div>
             </div>

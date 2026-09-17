@@ -37,15 +37,14 @@ beforeAll(async () => {
     Widget = mod.default;
 });
 
-describe('Widget Step 1 — service selection redesign', () => {
+describe('Widget Step 1 — compact mobile flow', () => {
     beforeEach(() => {
         cleanup();
     });
 
-    it('renders logo-mark.svg', () => {
+    it('shows "Шаг 1 из 4"', () => {
         render(React.createElement(Widget));
-        const img = screen.getByAltText('Вовремя');
-        expect(img).toHaveAttribute('src', '/images/logo-mark.svg');
+        expect(screen.getByText('Шаг 1 из 4')).toBeInTheDocument();
     });
 
     it('renders master name', () => {
@@ -63,11 +62,38 @@ describe('Widget Step 1 — service selection redesign', () => {
         expect(screen.queryByText('Парикмахер')).not.toBeInTheDocument();
     });
 
-    it('renders service card numbers 01, 02, 03', () => {
+    it('renders search input with placeholder "Найти услугу"', () => {
         render(React.createElement(Widget));
-        expect(screen.getByText('01')).toBeInTheDocument();
-        expect(screen.getByText('02')).toBeInTheDocument();
-        expect(screen.getByText('03')).toBeInTheDocument();
+        expect(screen.getByPlaceholderText('Найти услугу')).toBeInTheDocument();
+    });
+
+    it('service cards have role="radio"', () => {
+        render(React.createElement(Widget));
+        const radios = screen.getAllByRole('radio');
+        expect(radios.length).toBe(3);
+    });
+
+    it('aria-checked changes after selection', () => {
+        render(React.createElement(Widget));
+        const striжкаBtn = screen.getByText('Стрижка').closest('button')!;
+        expect(striжкаBtn).toHaveAttribute('aria-checked', 'false');
+        fireEvent.click(striжкаBtn);
+        expect(striжкаBtn).toHaveAttribute('aria-checked', 'true');
+    });
+
+    it('search filters services by title', () => {
+        render(React.createElement(Widget));
+        const input = screen.getByPlaceholderText('Найти услугу');
+        fireEvent.change(input, { target: { value: 'Маникюр' } });
+        expect(screen.getByText('Маникюр')).toBeInTheDocument();
+        expect(screen.queryByText('Стрижка')).not.toBeInTheDocument();
+    });
+
+    it('shows "Ничего не найдено" for empty search results', () => {
+        render(React.createElement(Widget));
+        const input = screen.getByPlaceholderText('Найти услугу');
+        fireEvent.change(input, { target: { value: 'Несуществующая услуга' } });
+        expect(screen.getByText('Ничего не найдено')).toBeInTheDocument();
     });
 
     it('renders long service title in full', () => {
@@ -81,22 +107,25 @@ describe('Widget Step 1 — service selection redesign', () => {
         expect(screen.getByText(/2[\s\u00a0]500\s₽/)).toBeInTheDocument();
     });
 
-    it('selecting a service changes aria-pressed to true', () => {
+    it('CTA contains "Далее"', () => {
         render(React.createElement(Widget));
-        const striжкаBtn = screen.getByText('Стрижка').closest('button')!;
-        expect(striжкаBtn).toHaveAttribute('aria-pressed', 'false');
-        fireEvent.click(striжкаBtn);
-        expect(striжкаBtn).toHaveAttribute('aria-pressed', 'true');
+        expect(screen.getByText('Далее')).toBeInTheDocument();
     });
 
-    it('CTA contains "Продолжить" and "к выбору даты"', () => {
+    it('does not contain "к выбору даты"', () => {
         render(React.createElement(Widget));
-        expect(screen.getByText('Продолжить')).toBeInTheDocument();
-        expect(screen.getByText('к выбору даты')).toBeInTheDocument();
+        expect(screen.queryByText('к выбору даты')).not.toBeInTheDocument();
     });
 
-    it('step 1 does not render "Безопасная запись через ИРСИ"', () => {
+    it('does not render "Безопасная запись через ИРСИ"', () => {
         render(React.createElement(Widget));
         expect(screen.queryByText(/Безопасная запись через ИРСИ/)).not.toBeInTheDocument();
+    });
+
+    it('does not render numeric badges 01 / 02 / 03', () => {
+        render(React.createElement(Widget));
+        expect(screen.queryByText('01')).not.toBeInTheDocument();
+        expect(screen.queryByText('02')).not.toBeInTheDocument();
+        expect(screen.queryByText('03')).not.toBeInTheDocument();
     });
 });

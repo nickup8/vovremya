@@ -26,8 +26,8 @@ vi.mock('lucide-react', () => {
     const Loader2 = ({ className }: { className?: string }) =>
         React.createElement('div', { className });
     return {
-        ArrowRight: Icon, ArrowLeft: Icon, Clock: Icon,
-        CheckCircle2: Icon, MessageCircle: Icon,
+        ArrowRight: Icon, ArrowLeft: Icon, Clock: Icon, Search: Icon,
+        CheckCircle2: Icon, MessageCircle: Icon, Check: Icon,
         ChevronLeft: Icon, ChevronRight: Icon, MapPin: Icon, Loader2, Lock: Icon,
     };
 });

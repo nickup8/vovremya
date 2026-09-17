@@ -48,13 +48,15 @@ async function navigateToProviderStep() {
     const { default: Widget } = await import('@/pages/booking/widget');
     render(React.createElement(Widget));
 
-    fireEvent.click(screen.getByText('Продолжить'));
+    // Widget starts on step 2 (preselected service) → click "Выбрать время"
+    fireEvent.click(screen.getByText('Выбрать время'));
 
     await waitFor(() => {
         expect(screen.getByText('10:00')).toBeInTheDocument();
     });
     fireEvent.click(screen.getByText('10:00'));
-    fireEvent.click(screen.getByText('Продолжить'));
+    // Step 3 → click "Далее"
+    fireEvent.click(screen.getByText('Далее'));
 }
 
 describe('Booking widget — VK provider', () => {
