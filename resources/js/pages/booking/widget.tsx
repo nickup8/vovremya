@@ -558,7 +558,7 @@ function StepProvider({
         {
             key: 'max', label: 'MAX', color: '#6366F1', show: !!maxBotName,
             softBg: '#F7F3FF', softBorder: '#E4D9FF',
-            icon: <img src="/images/providers/max.svg" alt="" style={{ width: '28px', height: '28px' }} />,
+            icon: <img src="/images/providers/max.svg" alt="" style={{ width: '24px', height: '24px' }} />,
         },
         {
             key: 'vk', label: 'VK', color: '#0077FF', show: true,
