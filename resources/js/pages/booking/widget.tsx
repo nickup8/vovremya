@@ -3,7 +3,7 @@ import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     ArrowRight, ArrowLeft, Clock,
     CheckCircle2, MessageCircle,
-    ChevronLeft, ChevronRight, MapPin, Loader2, Lock,
+    ChevronLeft, ChevronRight, MapPin, Loader2, Lock, Check,
 } from 'lucide-react';
 import { getInitials } from '@/lib/utils';
 
@@ -81,7 +81,73 @@ function formatDateKey(d: Date): string {
 const dayNamesFull = ['Воскресенье', 'Понедельник', 'Вторник', 'Среда', 'Четверг', 'Пятница', 'Суббота'];
 const monthNamesGen = ['января', 'февраля', 'марта', 'апреля', 'мая', 'июня', 'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря'];
 
-/* ═══════════════ Master Profile Header ═══════════════ */
+/* ═══════════════ Step 1 — Hero Header ═══════════════ */
+
+function Step1Header({ master }: { master: Master }) {
+    const initials = getInitials(master.name);
+
+    return (
+        <div className="relative" style={{ height: '380px', background: C.milk }}>
+            {/* Logo mark */}
+            <div className="absolute left-5 top-5 z-10 flex size-12 items-center justify-center rounded-full bg-white shadow-sm">
+                <img src="/images/logo-mark.svg" alt="Вовремя" className="size-7" />
+            </div>
+
+            {/* Warm decorative shapes */}
+            <div className="pointer-events-none absolute -right-8 -top-8 size-48 rounded-full" style={{ background: '#F0E6DB' }} />
+            <div className="pointer-events-none absolute -left-10 bottom-20 size-36 rounded-full" style={{ background: '#F5E8DC' }} />
+
+            {/* Floating info card */}
+            <div
+                className="absolute bottom-0 left-0 right-0 z-10"
+                style={{ paddingLeft: '18px', paddingRight: '18px', marginBottom: '-44px' }}
+            >
+                <div
+                    className="flex items-center gap-4 bg-white"
+                    style={{ borderRadius: '28px', padding: '20px', boxShadow: '0 4px 24px rgba(0,0,0,0.06)' }}
+                >
+                    <div className="relative shrink-0">
+                        {master.avatar_url ? (
+                            <img
+                                src={master.avatar_url}
+                                alt={master.name}
+                                className="rounded-full object-cover"
+                                style={{ width: '104px', height: '104px' }}
+                            />
+                        ) : (
+                            <div
+                                className="flex items-center justify-center rounded-full text-2xl font-bold text-white"
+                                style={{ width: '104px', height: '104px', background: C.ink }}
+                            >
+                                {initials}
+                            </div>
+                        )}
+                        <div
+                            className="absolute -bottom-1 -right-1 flex size-8 items-center justify-center rounded-full"
+                            style={{ background: C.orange }}
+                        >
+                            <Check className="size-4 text-white" />
+                        </div>
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                        <p className="font-bold leading-tight" style={{ fontSize: '28px', color: C.ink }}>
+                            {master.name}
+                        </p>
+                        {master.address && (
+                            <div className="mt-1.5 flex items-start gap-1.5" style={{ color: C.graphite, fontSize: '13px' }}>
+                                <MapPin className="mt-0.5 size-3.5 shrink-0" />
+                                <span style={{ overflowWrap: 'anywhere' }}>{master.address}</span>
+                            </div>
+                        )}
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+}
+
+/* ═══════════════ Master Profile Header (Steps 2–4) ═══════════════ */
 
 function MasterProfileHeader({ master, showBack, onBack }: { master: Master; showBack: boolean; onBack: () => void }) {
     const initials = getInitials(master.name);
@@ -175,55 +241,91 @@ function StepServices({
     onSelect: (s: Service) => void;
 }) {
     return (
-        <div className="flex-1 overflow-y-auto pb-32">
-            <div className="px-5 pt-6 pb-4">
+        <div className="flex-1 overflow-y-auto pb-28">
+            <div className="px-5 pt-12 pb-4">
                 <h2 className="text-2xl font-bold tracking-tight" style={{ color: C.ink }}>
                     Выберите услугу
                 </h2>
             </div>
 
-            <div className="space-y-2.5 px-5">
-                {services.map((service) => {
+            <div className="flex flex-col gap-3.5 px-5">
+                {services.map((service, index) => {
                     const isActive = selected?.id === service.id;
+                    const num = String(index + 1).padStart(2, '0');
 
                     return (
                         <button
                             key={service.id}
                             onClick={() => onSelect(service)}
                             aria-pressed={isActive}
-                            className="w-full rounded-2xl border p-4 text-left transition-all"
+                            className="relative w-full text-left transition-all"
                             style={{
                                 background: isActive ? C.softOrange : C.white,
-                                borderColor: isActive ? C.orange : C.line,
+                                border: `1px solid ${isActive ? C.orange : C.line}`,
+                                borderLeft: isActive ? `4px solid ${C.orange}` : `1px solid ${C.line}`,
+                                borderRadius: '20px',
+                                minHeight: '98px',
+                                padding: '16px',
+                                boxShadow: isActive ? '0 4px 16px rgba(255,90,31,0.08)' : 'none',
                             }}
                         >
-                            <div className="flex items-center gap-3">
-                                {/* Selection indicator */}
+                            {isActive && (
                                 <div
-                                    className="flex size-5 shrink-0 items-center justify-center rounded-full border-2 transition-all"
+                                    className="absolute flex items-center justify-center"
                                     style={{
-                                        borderColor: isActive ? C.orange : C.line,
-                                        background: isActive ? C.orange : 'transparent',
+                                        top: '12px', right: '12px',
+                                        width: '24px', height: '24px',
+                                        borderRadius: '8px',
+                                        background: C.orange,
                                     }}
                                 >
-                                    {isActive && (
-                                        <svg width="10" height="8" viewBox="0 0 10 8" fill="none">
-                                            <path d="M1 4L3.5 6.5L9 1" stroke="white" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
-                                        </svg>
-                                    )}
+                                    <Check className="size-3.5 text-white" />
+                                </div>
+                            )}
+
+                            <div className="grid items-center" style={{ gridTemplateColumns: '42px 1fr auto', gap: '12px' }}>
+                                <div
+                                    className="flex items-center justify-center self-center"
+                                    style={{
+                                        width: '42px', height: '42px',
+                                        borderRadius: '13px',
+                                        background: isActive ? C.orange : C.softLine,
+                                        color: isActive ? C.white : C.graphite,
+                                        fontSize: '13px',
+                                        fontWeight: 700,
+                                    }}
+                                >
+                                    {num}
                                 </div>
 
-                                <div className="min-w-0 flex-1">
-                                    <p className="font-semibold" style={{ color: C.ink }}>
+                                <div className="min-w-0" style={{ minWidth: 0 }}>
+                                    <p
+                                        className="leading-tight"
+                                        style={{
+                                            fontSize: '17px',
+                                            fontWeight: 600,
+                                            color: isActive ? '#D4450F' : C.ink,
+                                            overflowWrap: 'anywhere',
+                                            whiteSpace: 'normal',
+                                        }}
+                                    >
                                         {service.title}
                                     </p>
-                                    <div className="mt-1 flex items-center gap-1.5 text-xs" style={{ color: C.muted }}>
-                                        <Clock className="size-3" />
+                                    <div className="mt-1 flex items-center gap-1.5" style={{ color: C.muted, fontSize: '12px' }}>
+                                        <Clock className="size-3 shrink-0" />
                                         {service.duration_minutes} мин
                                     </div>
                                 </div>
 
-                                <span className="shrink-0 text-lg font-bold" style={{ color: C.ink }}>
+                                <span
+                                    className="shrink-0 self-center"
+                                    style={{
+                                        fontWeight: 700,
+                                        fontSize: '17px',
+                                        color: isActive ? '#D4450F' : C.ink,
+                                        whiteSpace: 'nowrap',
+                                    }}
+                                >
                                     {service.price.toLocaleString('ru-RU')} ₽
                                 </span>
                             </div>
@@ -561,6 +663,62 @@ function StepConfirmation({
     );
 }
 
+/* ═══════════════ Step 1 — CTA ═══════════════ */
+
+function Step1CTA({
+    canNext,
+    handleNext,
+}: {
+    canNext: boolean;
+    handleNext: () => void;
+}) {
+    return (
+        <div
+            className="fixed bottom-0 left-0 right-0 z-40"
+            style={{ background: `linear-gradient(to top, ${C.milk} 60%, transparent)` }}
+        >
+            <div className="mx-auto max-w-md px-5 pb-5 pt-6">
+                <button
+                    onClick={handleNext}
+                    disabled={!canNext}
+                    className="flex w-full items-center justify-between text-left transition-all disabled:cursor-not-allowed"
+                    style={{
+                        height: '64px',
+                        borderRadius: '20px',
+                        background: canNext ? C.orange : C.line,
+                        paddingLeft: '24px',
+                        paddingRight: '14px',
+                        color: canNext ? C.white : C.muted,
+                        boxShadow: canNext ? '0 4px 18px rgba(255, 90, 31, 0.22)' : 'none',
+                    }}
+                    onMouseEnter={(e) => { if (canNext) e.currentTarget.style.background = C.orangeHover; }}
+                    onMouseLeave={(e) => { e.currentTarget.style.background = canNext ? C.orange : C.line; }}
+                >
+                    <div>
+                        <div className="text-base font-semibold" style={{ color: canNext ? C.white : C.muted }}>
+                            Продолжить
+                        </div>
+                        <div className="text-xs" style={{ opacity: canNext ? 0.85 : 0.6 }}>
+                            к выбору даты
+                        </div>
+                    </div>
+
+                    <div
+                        className="flex items-center justify-center"
+                        style={{
+                            width: '44px', height: '44px',
+                            borderRadius: '14px',
+                            background: canNext ? C.white : C.softLine,
+                        }}
+                    >
+                        <ArrowRight className="size-5" style={{ color: canNext ? C.orange : C.muted }} />
+                    </div>
+                </button>
+            </div>
+        </div>
+    );
+}
+
 /* ═══════════════ Main Widget ═══════════════ */
 
 type Step = 1 | 2 | 3 | 4 | 5;
@@ -706,7 +864,8 @@ export default function Widget() {
 
             <div className="mx-auto flex min-h-screen max-w-md flex-col" style={{ background: C.milk }}>
                 {/* Master header */}
-                {showHeader && (
+                {step === 1 && <Step1Header master={master} />}
+                {step > 1 && showHeader && (
                     <MasterProfileHeader
                         master={master}
                         showBack={step > 1 && step <= TOTAL_STEPS}
@@ -715,7 +874,7 @@ export default function Widget() {
                 )}
 
                 {/* Progress */}
-                {step <= TOTAL_STEPS && <ProgressBar step={step} total={TOTAL_STEPS} />}
+                {step > 1 && step <= TOTAL_STEPS && <ProgressBar step={step} total={TOTAL_STEPS} />}
 
                 {/* Steps */}
                 {step === 1 && (
@@ -759,7 +918,8 @@ export default function Widget() {
                 )}
 
                 {/* Bottom CTA */}
-                {step <= TOTAL_STEPS && step < TOTAL_STEPS && (
+                {step === 1 && <Step1CTA canNext={canNext} handleNext={handleNext} />}
+                {step > 1 && step < TOTAL_STEPS && (
                     <div className="fixed bottom-0 left-0 right-0 z-40" style={{ background: `linear-gradient(to top, ${C.milk} 60%, transparent)` }}>
                         <div className="mx-auto max-w-md px-5 pb-5 pt-6">
                             <button
