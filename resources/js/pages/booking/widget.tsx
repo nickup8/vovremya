@@ -585,6 +585,12 @@ function StepProvider({
                 </div>
             )}
 
+            <div className="px-5 text-center" style={{ paddingTop: '10px', paddingBottom: '8px', fontSize: '11px', color: C.graphite }}>
+                <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Оферта</Link>
+                <span className="mx-1">·</span>
+                <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Политика ПДн</Link>
+            </div>
+
             <div className="px-5 pt-4 space-y-3">
                 {errors.limit && (
                     <div className="rounded-xl border px-4 py-3" style={{ borderColor: '#F5D0A0', background: '#FFF8F0' }}>
@@ -871,7 +877,8 @@ export default function Widget() {
         <>
             <Head title="Запись — Вовремя" />
 
-            <div className="mx-auto flex min-h-screen flex-col" style={{ maxWidth: '480px', background: C.milk }}>
+            <div className="flex min-h-screen flex-col" style={{ background: C.milk }}>
+            <div className="mx-auto flex w-full flex-1 flex-col" style={{ maxWidth: '480px', background: C.white }}>
                 {showHeader && (
                     <CompactHeader
                         step={step}
@@ -930,13 +937,7 @@ export default function Widget() {
                     <ActionDock step={step} canNext={canNext} onAction={handleNext} />
                 )}
 
-                <div className="px-5 pb-4 pt-2 text-center">
-                    <span style={{ fontSize: '11px', color: C.graphite }}>
-                        <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Оферта</Link>
-                        <span className="mx-1">·</span>
-                        <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Политика</Link>
-                    </span>
-                </div>
+            </div>
             </div>
         </>
     );
