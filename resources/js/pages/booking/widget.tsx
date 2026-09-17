@@ -656,10 +656,11 @@ function StepProvider({
                 </div>
             </div>
 
-            <div className="px-5 text-center" style={{ marginTop: '15px', paddingBottom: '14px', fontSize: '11px', color: C.graphite }}>
-                <Link href="/offer" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Оферта</Link>
-                <span className="mx-1">·</span>
-                <Link href="/privacy" target="_blank" className="transition-colors hover:underline" style={{ color: C.graphite }}>Политика ПДн</Link>
+            <div className="px-5" style={{ marginTop: '14px', paddingBottom: '14px', fontSize: '12px', lineHeight: '18px', color: C.muted, textAlign: 'left' }}>
+                Нажимая на мессенджер, вы принимаете{' '}
+                <Link href="/offer" target="_blank" style={{ color: C.ink, fontWeight: 500, textDecoration: 'underline', textUnderlineOffset: '2px' }}>Публичную оферту</Link>
+                {' '}и{' '}
+                <Link href="/privacy" target="_blank" style={{ color: C.ink, fontWeight: 500, textDecoration: 'underline', textUnderlineOffset: '2px' }}>Политику обработки персональных данных</Link>.
             </div>
         </div>
     );
