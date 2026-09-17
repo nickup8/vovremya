@@ -494,7 +494,7 @@ function StepTime({
                         <p style={{ fontSize: '14px', color: C.muted }}>Нет свободных слотов на эту дату</p>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-4" style={{ gap: '8px' }}>
+                    <div className="grid grid-cols-4 max-[360px]:grid-cols-3" style={{ gap: '8px' }}>
                         {availableSlots.map((t) => {
                             const active = selectedTime === t;
 
