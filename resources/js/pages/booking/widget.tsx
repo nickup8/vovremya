@@ -125,9 +125,9 @@ function CompactHeader({ step, master, showBack, onBack }: { step: number; maste
                                 border: 'none',
                                 borderRadius: '12px',
                                 padding: '0 8px',
-                                color: C.ink,
+                                color: C.graphite,
                                 fontSize: '13px',
-                                fontWeight: 600,
+                                fontWeight: 500,
                                 cursor: 'pointer',
                             }}
                             aria-label="Назад"
@@ -155,7 +155,7 @@ function CompactHeader({ step, master, showBack, onBack }: { step: number; maste
                         <img
                             src="/images/logo-mark.svg"
                             alt="IRSI"
-                            style={{ width: '18px', height: '18px' }}
+                            style={{ width: '22px', height: '22px' }}
                         />
                     </div>
                 </div>
@@ -177,7 +177,7 @@ function CompactHeader({ step, master, showBack, onBack }: { step: number; maste
                 style={{
                     margin: '0 20px 12px',
                     padding: '10px 12px',
-                    background: '#FBFAF8',
+                    background: '#FCFBF9',
                     borderRadius: '14px',
                     gap: '10px',
                 }}
