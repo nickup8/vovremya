@@ -1,8 +1,8 @@
 import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
-    ArrowRight, ArrowLeft, Clock, Search,
-    CheckCircle2, MessageCircle, ChevronRight as ChevronRightIcon,
+    ArrowLeft, Clock, Search,
+    CheckCircle2, MessageCircle,
     ChevronLeft, ChevronRight, MapPin, Loader2, Check,
 } from 'lucide-react';
 import { getInitials } from '@/lib/utils';
@@ -104,12 +104,65 @@ function CompactHeader({ step, master, showBack, onBack }: { step: number; maste
                 paddingTop: 'env(safe-area-inset-top)',
             }}
         >
-            <div className="px-5 pt-2.5 pb-1">
-                <div className="flex items-center justify-between mb-1.5">
-                    <span style={{ fontSize: '12px', color: C.muted }}>
-                        Шаг {step} из 4
-                    </span>
+            {/* ROW 1: back — step label — IRSI mark */}
+            <div
+                className="items-center"
+                style={{
+                    display: 'grid',
+                    gridTemplateColumns: 'minmax(84px, 1fr) auto minmax(84px, 1fr)',
+                    padding: '10px 20px 8px',
+                }}
+            >
+                <div className="flex items-center">
+                    {showBack ? (
+                        <button
+                            onClick={onBack}
+                            className="flex shrink-0 items-center transition-colors"
+                            style={{
+                                minHeight: '44px',
+                                gap: '5px',
+                                background: 'transparent',
+                                border: 'none',
+                                borderRadius: '12px',
+                                padding: '0 8px',
+                                color: C.ink,
+                                fontSize: '13px',
+                                fontWeight: 600,
+                                cursor: 'pointer',
+                            }}
+                            aria-label="Назад"
+                        >
+                            <ArrowLeft style={{ width: '18px', height: '18px' }} />
+                            <span>Назад</span>
+                        </button>
+                    ) : null}
                 </div>
+
+                <span style={{ fontSize: '12px', color: C.muted, textAlign: 'center', whiteSpace: 'nowrap' }}>
+                    Шаг {step} из 4
+                </span>
+
+                <div className="flex items-center justify-end">
+                    <div
+                        className="flex items-center justify-center rounded-full"
+                        style={{
+                            width: '30px',
+                            height: '30px',
+                            background: C.white,
+                            border: `1px solid ${C.line}`,
+                        }}
+                    >
+                        <img
+                            src="/images/logo-mark.svg"
+                            alt="IRSI"
+                            style={{ width: '18px', height: '18px' }}
+                        />
+                    </div>
+                </div>
+            </div>
+
+            {/* ROW 2: progress bar */}
+            <div style={{ padding: '0 20px 8px' }}>
                 <div className="w-full rounded-full" style={{ height: '3px', background: C.line }}>
                     <div
                         className="h-full rounded-full transition-all duration-500 ease-out"
@@ -118,46 +171,43 @@ function CompactHeader({ step, master, showBack, onBack }: { step: number; maste
                 </div>
             </div>
 
-            <div className="flex items-center gap-3" style={{ padding: '14px 20px 16px' }}>
-                {showBack ? (
-                    <button
-                        onClick={onBack}
-                        className="flex shrink-0 items-center justify-center"
-                        style={{ width: '44px', height: '44px' }}
-                        aria-label="Назад"
+            {/* ROW 3: master soft block */}
+            <div
+                className="flex items-center"
+                style={{
+                    margin: '0 20px 12px',
+                    padding: '10px 12px',
+                    background: '#FBFAF8',
+                    borderRadius: '14px',
+                    gap: '10px',
+                }}
+            >
+                {master.avatar_url ? (
+                    <img
+                        src={master.avatar_url}
+                        alt={master.name}
+                        className="shrink-0 rounded-full object-cover"
+                        style={{ width: '42px', height: '42px' }}
+                    />
+                ) : (
+                    <div
+                        className="flex shrink-0 items-center justify-center rounded-full font-bold text-white"
+                        style={{ width: '42px', height: '42px', fontSize: '13px', background: C.ink }}
                     >
-                        <ArrowLeft className="size-5" style={{ color: C.graphite }} />
-                    </button>
-                ) : null}
+                        {initials}
+                    </div>
+                )}
 
-                <div className="flex items-center gap-3 min-w-0 flex-1">
-                    {master.avatar_url ? (
-                        <img
-                            src={master.avatar_url}
-                            alt={master.name}
-                            className="shrink-0 rounded-full object-cover"
-                            style={{ width: '42px', height: '42px' }}
-                        />
-                    ) : (
-                        <div
-                            className="flex shrink-0 items-center justify-center rounded-full font-bold text-white"
-                            style={{ width: '42px', height: '42px', fontSize: '13px', background: C.ink }}
-                        >
-                            {initials}
+                <div className="min-w-0 flex-1">
+                    <p className="leading-tight" style={{ fontSize: '14px', fontWeight: 750, color: C.ink }}>
+                        {master.name}
+                    </p>
+                    {master.address && (
+                        <div className="flex items-start gap-1 mt-0.5" style={{ color: C.muted, fontSize: '11.5px' }}>
+                            <MapPin className="mt-px shrink-0" style={{ width: '13px', height: '13px' }} />
+                            <span className="truncate">{master.address}</span>
                         </div>
                     )}
-
-                    <div className="min-w-0 flex-1">
-                        <p className="font-bold leading-tight" style={{ fontSize: '14px', color: C.ink }}>
-                            {master.name}
-                        </p>
-                        {master.address && (
-                            <div className="flex items-start gap-1 mt-0.5" style={{ color: C.muted, fontSize: '11.5px' }}>
-                                <MapPin className="mt-px shrink-0" style={{ width: '13px', height: '13px' }} />
-                                <span style={{ overflowWrap: 'anywhere' }}>{master.address}</span>
-                            </div>
-                        )}
-                    </div>
                 </div>
             </div>
         </div>
@@ -650,7 +700,7 @@ function StepProvider({
                             {loadingProvider === p.key ? (
                                 <Loader2 className="shrink-0 animate-spin" style={{ width: '18px', height: '18px', color: p.color }} />
                             ) : (
-                                <ChevronRightIcon className="shrink-0" style={{ width: '18px', height: '18px', color: C.muted }} />
+                                <ChevronRight className="shrink-0" style={{ width: '18px', height: '18px', color: C.muted }} />
                             )}
                         </button>
                     ))}
