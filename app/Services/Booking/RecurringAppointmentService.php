@@ -27,7 +27,10 @@ class RecurringAppointmentService
     /**
      * Preview: generate dates, check availability for each, return conflicts.
      *
-     * @return array{total: int, available: int, conflicts: array, dates: array}
+     * When $excludeAppointmentId is set (from-existing flow), the current appointment's
+     * date is excluded from conflict checking and returned as 'current_date'.
+     *
+     * @return array{total: int, available: int, conflicts: array, dates: array, current_date: string|null}
      */
     public function preview(
         User $master,
@@ -42,6 +45,8 @@ class RecurringAppointmentService
         ?string $excludeAppointmentId = null,
     ): array {
         $tz = $master->getTimezone();
+        $isFromExisting = $excludeAppointmentId !== null;
+        $currentDateStr = $startDate->format('Y-m-d');
 
         $rangeEnd = $endsAt ?? ($occurrencesCount
             ? $this->estimateEndDate($startDate, $recurrenceType, $interval, $occurrencesCount)
@@ -58,8 +63,23 @@ class RecurringAppointmentService
 
         $dates = $this->recurrenceService->generateOccurrences($rule, $startDate, $rangeEnd);
 
-        if ($occurrencesCount && count($dates) > $occurrencesCount) {
-            $dates = array_slice($dates, 0, $occurrencesCount);
+        // For from-existing: current appointment is first occurrence, don't count it as future
+        $currentDate = null;
+        if ($isFromExisting) {
+            foreach ($dates as $i => $date) {
+                if ($date->format('Y-m-d') === $currentDateStr) {
+                    $currentDate = $date;
+                    unset($dates[$i]);
+                    $dates = array_values($dates);
+                    break;
+                }
+            }
+        }
+
+        // If count is set and this is from-existing, we need count-1 future dates
+        $futureCount = $occurrencesCount ? ($isFromExisting ? $occurrencesCount - 1 : $occurrencesCount) : null;
+        if ($futureCount !== null && count($dates) > $futureCount) {
+            $dates = array_slice($dates, 0, $futureCount);
         }
 
         $conflicts = [];
@@ -97,10 +117,11 @@ class RecurringAppointmentService
         }
 
         return [
-            'total' => count($dates),
+            'total' => count($dates) + ($currentDate ? 1 : 0),
             'available' => count($available),
             'conflicts' => $conflicts,
             'dates' => $available,
+            'current_date' => $currentDate?->format('Y-m-d'),
         ];
     }
 
@@ -150,13 +171,13 @@ class RecurringAppointmentService
 
             $service = MasterService::findOrFail($masterServiceId);
 
-            // If existing appointment matches the start date, link it as first occurrence
-            if ($existingAppointment && in_array($startDate, $allowedDates, true)) {
+            // Always link existing appointment as first occurrence of the series
+            if ($existingAppointment) {
                 $existingAppointment->update([
                     'recurring_series_id' => $series->id,
                     'recurring_occurrence_date' => $startDate,
                 ]);
-                // Remove from allowedDates since it's already materialized
+                // Remove from allowedDates if present to avoid duplicate
                 $allowedDates = array_filter($allowedDates, fn ($d) => $d !== $startDate);
             }
 
@@ -212,11 +233,14 @@ class RecurringAppointmentService
         int $interval,
         int $count,
     ): Carbon {
-        $multiplier = max(1, (int) ceil($count / max(1, $interval)));
+        // We need `count` occurrences, each `interval` apart.
+        // The last occurrence is at (count - 1) * interval from start.
+        // Add 1 extra interval as safety margin for off-by-one in generator.
+        $span = max(1, ($count - 1) * $interval + $interval);
 
         return match ($type) {
-            RecurrenceType::Daily => $startDate->copy()->addDays($multiplier * $interval),
-            RecurrenceType::Weekly => $startDate->copy()->addWeeks($multiplier * $interval),
+            RecurrenceType::Daily => $startDate->copy()->addDays($span),
+            RecurrenceType::Weekly => $startDate->copy()->addWeeks($span),
         };
     }
 }

@@ -1181,4 +1181,339 @@ class RecurringAppointmentTest extends TestCase
         $this->assertNotEquals(200, $response->status());
         $this->assertNotEquals(201, $response->status());
     }
+
+    // ═══════════════ From Existing: Current Appointment Exclusion ═══════════════
+
+    #[Test]
+    public function from_existing_preview_excludes_current_appointment_from_conflicts(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $existing = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => 1500,
+            'duration' => 60,
+            'service_name' => 'Test',
+            'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'source' => 'admin',
+        ]);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 4,
+            'exclude_appointment_id' => $existing->id,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+
+        // Total = 4 (1 current + 3 future)
+        $this->assertEquals(4, $data['total']);
+        // current_date should be set
+        $this->assertEquals($date->format('Y-m-d'), $data['current_date']);
+        // No conflicts — current appointment is excluded
+        $this->assertEmpty($data['conflicts']);
+        // 3 future dates available
+        $this->assertEquals(3, $data['available']);
+        // dates should not include current date
+        $this->assertNotContains($date->format('Y-m-d'), $data['dates']);
+    }
+
+    #[Test]
+    public function from_existing_daily_interval_3_first_future_through_3_days(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $existing = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => 1500,
+            'duration' => 60,
+            'service_name' => 'Test',
+            'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'source' => 'admin',
+        ]);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'daily',
+            'interval' => 3,
+            'occurrences_count' => 4,
+            'exclude_appointment_id' => $existing->id,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+
+        $this->assertEquals(4, $data['total']);
+        $this->assertEquals($date->format('Y-m-d'), $data['current_date']);
+
+        // First future date should be 3 days after current
+        $firstFuture = Carbon::parse($data['dates'][0]);
+        $expectedFirstFuture = $date->copy()->addDays(3);
+        $this->assertEquals($expectedFirstFuture->format('Y-m-d'), $firstFuture->format('Y-m-d'));
+    }
+
+    #[Test]
+    public function from_existing_weekly_interval_2_first_future_through_2_weeks(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $existing = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => 1500,
+            'duration' => 60,
+            'service_name' => 'Test',
+            'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'source' => 'admin',
+        ]);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 2,
+            'weekdays' => [2],
+            'occurrences_count' => 4,
+            'exclude_appointment_id' => $existing->id,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+
+        $this->assertEquals(4, $data['total']);
+        $this->assertEquals($date->format('Y-m-d'), $data['current_date']);
+
+        // First future date should be 2 weeks after current
+        $firstFuture = Carbon::parse($data['dates'][0]);
+        $expectedFirstFuture = $date->copy()->addWeeks(2);
+        $this->assertEquals($expectedFirstFuture->format('Y-m-d'), $firstFuture->format('Y-m-d'));
+    }
+
+    #[Test]
+    public function from_existing_count_10_means_current_plus_9_future(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $existing = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => 1500,
+            'duration' => 60,
+            'service_name' => 'Test',
+            'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'source' => 'admin',
+        ]);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 10,
+            'exclude_appointment_id' => $existing->id,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+
+        // Total = 10 (1 current + 9 future)
+        $this->assertEquals(10, $data['total']);
+        // 9 future dates generated
+        $this->assertCount(9, $data['dates']);
+        // current_date is set
+        $this->assertEquals($date->format('Y-m-d'), $data['current_date']);
+    }
+
+    #[Test]
+    public function from_existing_real_future_conflict_is_detected(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $existing = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => 1500,
+            'duration' => 60,
+            'service_name' => 'Test',
+            'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'source' => 'admin',
+        ]);
+
+        // Create a conflicting appointment at the NEXT occurrence (+1 week)
+        $nextWeek = $date->copy()->addWeek();
+        Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => 1500,
+            'duration' => 60,
+            'service_name' => 'Blocking',
+            'start_time' => Carbon::parse($nextWeek->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+        ]);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 4,
+            'exclude_appointment_id' => $existing->id,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+
+        $this->assertEquals(4, $data['total']);
+        // 1 conflict at the next week's date
+        $this->assertCount(1, $data['conflicts']);
+        $this->assertEquals($nextWeek->format('Y-m-d'), $data['conflicts'][0]['date']);
+        // Current date is NOT a conflict
+        $this->assertNotContains($date->format('Y-m-d'), array_column($data['conflicts'], 'date'));
+    }
+
+    #[Test]
+    public function from_existing_always_links_appointment_even_without_matching_allowed_dates(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $existing = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => 1500,
+            'duration' => 60,
+            'service_name' => 'Test',
+            'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'source' => 'admin',
+        ]);
+
+        // allowed_dates does NOT include the current date (simulates new backend behavior)
+        $futureDates = [
+            $date->copy()->addWeeks(1)->format('Y-m-d'),
+            $date->copy()->addWeeks(2)->format('Y-m-d'),
+        ];
+
+        $response = $this->postJson("/admin/recurring-appointments/from-appointment/{$existing->id}", [
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 3,
+            'allowed_dates' => $futureDates,
+        ]);
+
+        $response->assertCreated();
+
+        // Existing appointment should still be linked
+        $existing->refresh();
+        $this->assertNotNull($existing->recurring_series_id);
+        $this->assertEquals($date->format('Y-m-d'), $existing->recurring_occurrence_date);
+
+        // Series should have 3 appointments: 1 existing + 2 new
+        $series = RecurringAppointmentSeries::find($response->json('series_id'));
+        $this->assertCount(3, $series->appointments);
+    }
+
+    #[Test]
+    public function daily_recurrence_generates_correct_dates(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'daily',
+            'interval' => 1,
+            'occurrences_count' => 5,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+        $this->assertEquals(5, $data['total']);
+        $this->assertCount(5, $data['dates']);
+
+        // Each date should be 1 day apart
+        for ($i = 1; $i < count($data['dates']); $i++) {
+            $prev = Carbon::parse($data['dates'][$i - 1]);
+            $curr = Carbon::parse($data['dates'][$i]);
+            $this->assertEquals(1, $prev->diffInDays($curr));
+        }
+    }
+
+    #[Test]
+    public function daily_recurrence_no_weekdays_required(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, $date->dayOfWeekIso);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'daily',
+            'interval' => 2,
+            'occurrences_count' => 3,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+        $this->assertEquals(3, $data['total']);
+
+        // Each date should be 2 days apart
+        for ($i = 1; $i < count($data['dates']); $i++) {
+            $prev = Carbon::parse($data['dates'][$i - 1]);
+            $curr = Carbon::parse($data['dates'][$i]);
+            $this->assertEquals(2, $prev->diffInDays($curr));
+        }
+    }
 }

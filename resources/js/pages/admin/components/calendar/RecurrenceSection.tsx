@@ -2,9 +2,19 @@ import { useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 
+export const WEEKDAY_OPTIONS = [
+    { value: 1, label: 'Пн' },
+    { value: 2, label: 'Вт' },
+    { value: 3, label: 'Ср' },
+    { value: 4, label: 'Чт' },
+    { value: 5, label: 'Пт' },
+    { value: 6, label: 'Сб' },
+    { value: 7, label: 'Вс' },
+];
+
 export interface RecurrenceConfig {
     enabled: boolean;
-    recurrence_type: 'weekly';
+    recurrence_type: 'daily' | 'weekly';
     interval: number;
     weekdays: number[];
     end_type: 'count' | 'date';
@@ -27,6 +37,7 @@ export interface PreviewResult {
     available: number;
     conflicts: Array<{ date: string; reason: string }>;
     dates: string[];
+    current_date?: string;
 }
 
 interface Props {
@@ -37,16 +48,6 @@ interface Props {
     previewResult: PreviewResult | null;
     onPreview: () => void;
 }
-
-const WEEKDAY_OPTIONS = [
-    { value: 1, label: 'Пн' },
-    { value: 2, label: 'Вт' },
-    { value: 3, label: 'Ср' },
-    { value: 4, label: 'Чт' },
-    { value: 5, label: 'Пт' },
-    { value: 6, label: 'Сб' },
-    { value: 7, label: 'Вс' },
-];
 
 export function RecurrenceSection({ value, onChange, isPro, previewLoading, previewResult, onPreview }: Props) {
     const [showConfig, setShowConfig] = useState(value.enabled);
@@ -86,45 +87,60 @@ export function RecurrenceSection({ value, onChange, isPro, previewLoading, prev
 
             {showConfig && isPro && (
                 <div className="space-y-3 rounded-lg border border-slate-200 bg-slate-50 p-3 dark:border-zinc-700 dark:bg-zinc-800/50">
-                    {/* Frequency */}
+                    {/* Frequency: Повторять каждые [ N ] [ дни / недели ] */}
                     <div>
                         <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-zinc-400">Частота</label>
-                        <Select
-                            value={String(value.interval)}
-                            onValueChange={(v) => onChange({ ...value, interval: parseInt(v) })}
-                        >
-                            <SelectTrigger className="w-full">
-                                <SelectValue />
-                            </SelectTrigger>
-                            <SelectContent>
-                                <SelectItem value="1">Каждую неделю</SelectItem>
-                                <SelectItem value="2">Каждые 2 недели</SelectItem>
-                                <SelectItem value="3">Каждые 3 недели</SelectItem>
-                                <SelectItem value="4">Каждые 4 недели</SelectItem>
-                            </SelectContent>
-                        </Select>
-                    </div>
-
-                    {/* Weekdays */}
-                    <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-zinc-400">Дни недели</label>
-                        <div className="flex gap-1.5">
-                            {WEEKDAY_OPTIONS.map((day) => (
-                                <button
-                                    key={day.value}
-                                    type="button"
-                                    onClick={() => toggleWeekday(day.value)}
-                                    className={`flex size-8 items-center justify-center rounded-lg text-xs font-medium transition-colors ${
-                                        value.weekdays.includes(day.value)
-                                            ? 'bg-[var(--color-orange)] text-white'
-                                            : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600'
-                                    }`}
-                                >
-                                    {day.label}
-                                </button>
-                            ))}
+                        <div className="flex items-center gap-2">
+                            <span className="text-sm text-slate-600 dark:text-zinc-400">Каждые</span>
+                            <input
+                                type="number"
+                                min={1}
+                                max={100}
+                                value={value.interval}
+                                onChange={(e) => onChange({ ...value, interval: Math.max(1, parseInt(e.target.value) || 1) })}
+                                className="w-16 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                            />
+                            <Select
+                                value={value.recurrence_type}
+                                onValueChange={(v: 'daily' | 'weekly') => {
+                                    const next = { ...value, recurrence_type: v };
+                                    if (v === 'daily') next.weekdays = [];
+                                    onChange(next);
+                                }}
+                            >
+                                <SelectTrigger className="w-28">
+                                    <SelectValue />
+                                </SelectTrigger>
+                                <SelectContent>
+                                    <SelectItem value="daily">{value.interval === 1 ? 'день' : (value.interval >= 2 && value.interval <= 4 ? 'дня' : 'дней')}</SelectItem>
+                                    <SelectItem value="weekly">{value.interval === 1 ? 'неделю' : (value.interval >= 2 && value.interval <= 4 ? 'недели' : 'недель')}</SelectItem>
+                                </SelectContent>
+                            </Select>
                         </div>
                     </div>
+
+                    {/* Weekdays — only for weekly */}
+                    {value.recurrence_type === 'weekly' && (
+                        <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-zinc-400">Дни недели</label>
+                            <div className="flex gap-1.5">
+                                {WEEKDAY_OPTIONS.map((day) => (
+                                    <button
+                                        key={day.value}
+                                        type="button"
+                                        onClick={() => toggleWeekday(day.value)}
+                                        className={`flex size-8 items-center justify-center rounded-lg text-xs font-medium transition-colors ${
+                                            value.weekdays.includes(day.value)
+                                                ? 'bg-[var(--color-orange)] text-white'
+                                                : 'bg-white text-slate-600 hover:bg-slate-100 dark:bg-zinc-700 dark:text-zinc-300 dark:hover:bg-zinc-600'
+                                        }`}
+                                    >
+                                        {day.label}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
 
                     {/* End condition */}
                     <div>
@@ -134,11 +150,11 @@ export function RecurrenceSection({ value, onChange, isPro, previewLoading, prev
                                 value={value.end_type}
                                 onValueChange={(v: 'count' | 'date') => onChange({ ...value, end_type: v })}
                             >
-                                <SelectTrigger className="w-40">
+                                <SelectTrigger className="w-44">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
-                                    <SelectItem value="count">После N записей</SelectItem>
+                                    <SelectItem value="count">Количество записей</SelectItem>
                                     <SelectItem value="date">До даты</SelectItem>
                                 </SelectContent>
                             </Select>
@@ -146,10 +162,10 @@ export function RecurrenceSection({ value, onChange, isPro, previewLoading, prev
                             {value.end_type === 'count' ? (
                                 <input
                                     type="number"
-                                    min={2}
+                                    min={1}
                                     max={100}
                                     value={value.occurrences_count}
-                                    onChange={(e) => onChange({ ...value, occurrences_count: parseInt(e.target.value) || 10 })}
+                                    onChange={(e) => onChange({ ...value, occurrences_count: Math.max(1, parseInt(e.target.value) || 10) })}
                                     className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                                 />
                             ) : (
@@ -169,7 +185,7 @@ export function RecurrenceSection({ value, onChange, isPro, previewLoading, prev
                         variant="outline"
                         size="sm"
                         onClick={onPreview}
-                        disabled={previewLoading || value.weekdays.length === 0}
+                        disabled={previewLoading || (value.recurrence_type === 'weekly' && value.weekdays.length === 0)}
                         className="w-full"
                     >
                         {previewLoading ? 'Проверка...' : 'Проверить доступность'}
