@@ -310,6 +310,7 @@ class RecurringAppointmentTest extends TestCase
         $this->assertEquals(3, $data['available']);
         $this->assertCount(1, $data['conflicts']);
         $this->assertEquals($date->format('Y-m-d'), $data['conflicts'][0]['date']);
+        $this->assertEquals('booked', $data['conflicts'][0]['reason']);
     }
 
     #[Test]
@@ -342,6 +343,7 @@ class RecurringAppointmentTest extends TestCase
         $this->assertEquals(4, $data['total']);
         $this->assertEquals(3, $data['available']);
         $this->assertCount(1, $data['conflicts']);
+        $this->assertEquals('blocked', $data['conflicts'][0]['reason']);
     }
 
     #[Test]
@@ -381,9 +383,80 @@ class RecurringAppointmentTest extends TestCase
         $this->assertEquals(4, $data['total']);
         $this->assertLessThan(4, $data['available']);
         $this->assertNotEmpty($data['conflicts']);
+        $this->assertEquals('blocked', $data['conflicts'][0]['reason']);
     }
 
-    // ═══════════════ Store Series ═══════════════
+    #[Test]
+    public function preview_detects_break_conflict(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+
+        // Set working hours with a break
+        WorkingHour::updateOrCreate(
+            ['user_id' => $this->proMaster->id, 'day_of_week' => 2],
+            [
+                'start_time' => '09:00',
+                'end_time' => '18:00',
+                'is_working' => true,
+                'break_start_time' => '12:00',
+                'break_end_time' => '13:00',
+            ],
+        );
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '12:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 4,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+        $this->assertEquals(4, $data['total']);
+        $this->assertLessThan(4, $data['available']);
+        $this->assertNotEmpty($data['conflicts']);
+        $this->assertEquals('break', $data['conflicts'][0]['reason']);
+    }
+
+    #[Test]
+    public function preview_detects_outside_hours_conflict(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+
+        // Working hours 09:00-18:00, but we request 08:00
+        WorkingHour::updateOrCreate(
+            ['user_id' => $this->proMaster->id, 'day_of_week' => 2],
+            [
+                'start_time' => '09:00',
+                'end_time' => '18:00',
+                'is_working' => true,
+            ],
+        );
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '08:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 4,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+        $this->assertEquals(4, $data['total']);
+        $this->assertLessThan(4, $data['available']);
+        $this->assertNotEmpty($data['conflicts']);
+        $this->assertEquals('outside_hours', $data['conflicts'][0]['reason']);
+    }
 
     #[Test]
     public function store_creates_series_and_appointments(): void

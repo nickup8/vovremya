@@ -149,6 +149,62 @@ class AvailabilityService
         );
     }
 
+    /**
+     * Returns the specific conflict reason for a slot, or null if free.
+     * Priority: outside_hours > break > booked > blocked.
+     */
+    public function getSlotConflictReason(
+        User $master,
+        Carbon $startDateTime,
+        int $durationMinutes,
+        ?string $excludeAppointmentId = null,
+    ): ?string {
+        $tz = $master->getTimezone();
+        $localSlot = $startDateTime->copy()->timezone($tz);
+        $endDateTime = $localSlot->copy()->addMinutes($durationMinutes);
+
+        $dayOfWeek = $localSlot->dayOfWeek;
+        $workingHour = WorkingHour::where('user_id', $master->id)
+            ->where('day_of_week', $dayOfWeek)->first();
+
+        if (! $workingHour || ! $workingHour->is_working) {
+            return 'outside_hours';
+        }
+
+        $dayStart = $localSlot->copy()->setTimeFromTimeString($workingHour->start_time);
+        $dayEnd = $localSlot->copy()->setTimeFromTimeString($workingHour->end_time);
+
+        if ($localSlot->lt($dayStart) || $endDateTime->gt($dayEnd)) {
+            return 'outside_hours';
+        }
+
+        $breakPeriods = $this->getBreakPeriods($workingHour, $localSlot);
+        $overlapsBreak = $breakPeriods->contains(
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
+        );
+        if ($overlapsBreak) {
+            return 'break';
+        }
+
+        $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId);
+        $overlapsBooked = $bookedPeriods->contains(
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
+        );
+        if ($overlapsBooked) {
+            return 'booked';
+        }
+
+        $blockedPeriods = $this->getBlockedPeriods($master, $localSlot);
+        $overlapsBlocked = $blockedPeriods->contains(
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
+        );
+        if ($overlapsBlocked) {
+            return 'blocked';
+        }
+
+        return null;
+    }
+
     public function isSlotBookedOrBlocked(
         User $master,
         Carbon $startDateTime,

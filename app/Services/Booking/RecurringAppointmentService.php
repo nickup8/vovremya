@@ -99,19 +99,19 @@ class RecurringAppointmentService
                 continue;
             }
 
-            $isFree = $this->availabilityService->isSlotFree(
+            $reason = $this->availabilityService->getSlotConflictReason(
                 $master,
                 $startDateTime,
                 $durationMinutes,
                 $excludeAppointmentId,
             );
 
-            if ($isFree) {
+            if ($reason === null) {
                 $available[] = $date->format('Y-m-d');
             } else {
                 $conflicts[] = [
                     'date' => $date->format('Y-m-d'),
-                    'reason' => 'conflict',
+                    'reason' => $reason,
                 ];
             }
         }

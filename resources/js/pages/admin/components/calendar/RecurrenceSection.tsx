@@ -32,10 +32,21 @@ export const DEFAULT_RECURRENCE: RecurrenceConfig = {
     ends_at: '',
 };
 
+export type ConflictReason = 'past' | 'outside_hours' | 'break' | 'booked' | 'blocked' | 'conflict';
+
+export const CONFLICT_LABELS: Record<ConflictReason, string> = {
+    past: 'Дата уже прошла',
+    outside_hours: 'Вне рабочего времени',
+    break: 'Перерыв',
+    booked: 'Время занято другой записью',
+    blocked: 'Время заблокировано',
+    conflict: 'Время недоступно',
+};
+
 export interface PreviewResult {
     total: number;
     available: number;
-    conflicts: Array<{ date: string; reason: string }>;
+    conflicts: Array<{ date: string; reason: ConflictReason }>;
     dates: string[];
     current_date?: string;
 }
@@ -47,9 +58,10 @@ interface Props {
     previewLoading: boolean;
     previewResult: PreviewResult | null;
     onPreview: () => void;
+    startTime?: string;
 }
 
-export function RecurrenceSection({ value, onChange, isPro, previewLoading, previewResult, onPreview }: Props) {
+export function RecurrenceSection({ value, onChange, isPro, previewLoading, previewResult, onPreview, startTime }: Props) {
     const [showConfig, setShowConfig] = useState(value.enabled);
 
     function toggleEnabled() {
@@ -196,13 +208,17 @@ export function RecurrenceSection({ value, onChange, isPro, previewLoading, prev
                             <p className="font-medium text-slate-700 dark:text-zinc-200">
                                 {previewResult.total} записей: {previewResult.available} доступны
                                 {previewResult.conflicts.length > 0 && (
-                                    <span className="text-red-500">, {previewResult.conflicts.length} конфликтуют</span>
+                                    <span className="text-red-500">, {previewResult.conflicts.length} конфликт</span>
                                 )}
                             </p>
                             {previewResult.conflicts.length > 0 && (
-                                <p className="mt-1 text-xs text-red-400">
-                                    Конфликты: {previewResult.conflicts.map((c) => c.date).join(', ')}
-                                </p>
+                                <div className="mt-1 space-y-0.5 text-xs text-red-400">
+                                    {previewResult.conflicts.map((c) => (
+                                        <p key={c.date}>
+                                            {c.date.split('-').reverse().join('.')} · {startTime ?? '??:??'} — {CONFLICT_LABELS[c.reason] ?? CONFLICT_LABELS.conflict}
+                                        </p>
+                                    ))}
+                                </div>
                             )}
                         </div>
                     )}

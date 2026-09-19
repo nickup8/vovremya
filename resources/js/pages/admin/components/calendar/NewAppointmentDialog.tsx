@@ -200,6 +200,7 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     previewLoading={previewLoading ?? false}
                                     previewResult={previewResult ?? null}
                                     onPreview={onPreview}
+                                    startTime={form.data.time}
                                 />
                             )}
                         </div>

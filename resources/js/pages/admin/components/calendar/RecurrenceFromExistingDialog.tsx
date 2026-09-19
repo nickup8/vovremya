@@ -4,8 +4,8 @@ import {
     Drawer, DrawerContent, DrawerHeader, DrawerTitle, DrawerDescription, DrawerBody, DrawerFooter,
 } from '@/components/ui/drawer';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
-import type { RecurrenceConfig, PreviewResult } from './RecurrenceSection';
-import { WEEKDAY_OPTIONS } from './RecurrenceSection';
+import type { RecurrenceConfig, PreviewResult, ConflictReason } from './RecurrenceSection';
+import { WEEKDAY_OPTIONS, CONFLICT_LABELS } from './RecurrenceSection';
 
 interface Props {
     open: boolean;
@@ -197,9 +197,13 @@ export function RecurrenceFromExistingDialog({
                                     )}
                                 </p>
                                 {previewResult.conflicts.length > 0 && (
-                                    <p className="mt-1 text-xs text-red-400">
-                                        Конфликты: {previewResult.conflicts.map((c) => c.date).join(', ')}
-                                    </p>
+                                    <div className="mt-1 space-y-0.5 text-xs text-red-400">
+                                        {previewResult.conflicts.map((c) => (
+                                            <p key={c.date}>
+                                                {c.date.split('-').reverse().join('.')} · {appointmentInfo?.time ?? '??:??'} — {CONFLICT_LABELS[c.reason as ConflictReason] ?? CONFLICT_LABELS.conflict}
+                                            </p>
+                                        ))}
+                                    </div>
                                 )}
                             </div>
                         )}
