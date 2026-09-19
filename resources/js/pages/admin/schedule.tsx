@@ -2,7 +2,6 @@ import { Head, usePage } from '@inertiajs/react';
 import AdminLayout from '@/layouts/AdminLayout';
 import WorkingHoursCard from '@/components/admin/schedule/WorkingHoursCard';
 import BlockedTimesCard from '@/components/admin/schedule/BlockedTimesCard';
-import RecurringBlockedTimesCard from '@/components/admin/schedule/RecurringBlockedTimesCard';
 import type { WorkingHour } from '@/components/admin/schedule/WorkingHoursCard';
 
 interface ScheduleProfile {
@@ -28,14 +27,9 @@ export default function SchedulePage() {
             <AdminLayout title="Расписание" auth={auth}>
                 <div className="max-w-[1280px] space-y-0">
 
-                    {/* ═══ Недоступное время ═══ */}
+                    {/* ═══ Недоступное время (one-off + recurring) ═══ */}
                     <div className="py-6">
                         <BlockedTimesCard masterId={profile.id} timezone={profile.timezone} />
-                    </div>
-
-                    {/* ═══ Повторяющиеся блокировки ═══ */}
-                    <div className="border-t border-[var(--color-line)] py-6">
-                        <RecurringBlockedTimesCard masterId={profile.id} />
                     </div>
 
                     {/* ═══ Рабочие часы ═══ */}
