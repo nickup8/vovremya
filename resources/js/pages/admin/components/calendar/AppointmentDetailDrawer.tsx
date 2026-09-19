@@ -42,6 +42,7 @@ interface Props {
     onEditThisAndFuture?: () => void;
     onCancelOnlyThis?: () => void;
     onCancelThisAndFuture?: () => void;
+    onSeriesSettings?: () => void;
 }
 
 function formatDateLong(dateStr: string): string {
@@ -67,7 +68,7 @@ export function AppointmentDetailDrawer({
     onEditDateChange, onEditTimeChange,
     onEditSubmit, timeOptions = [],
     isPro = false, onRepeat,
-    onEditOnlyThis, onEditThisAndFuture, onCancelOnlyThis, onCancelThisAndFuture,
+    onEditOnlyThis, onEditThisAndFuture, onCancelOnlyThis, onCancelThisAndFuture, onSeriesSettings,
 }: Props) {
     const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
     const [cancelMode, setCancelMode] = useState<'single' | 'series'>('single');
@@ -374,6 +375,16 @@ export function AppointmentDetailDrawer({
                                             >
                                                 Отменить
                                             </Button>
+                                            {onSeriesSettings && (
+                                                <Button
+                                                    onClick={() => { setRecurringMenuOpen(false); onSeriesSettings(); }}
+                                                    disabled={isProcessing}
+                                                    variant="link"
+                                                    className="w-full text-xs text-slate-400"
+                                                >
+                                                    Настройки серии
+                                                </Button>
+                                            )}
                                         </div>
                                     ) : (
                                         /* ─── Non-recurring: simple actions ─── */

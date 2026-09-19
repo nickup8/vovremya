@@ -17,6 +17,17 @@ export interface Appointment {
     reminder_24h_sent_at?: string | null;
     recurring_series_id?: string | null;
     recurring_occurrence_date?: string | null;
+    recurring_series?: {
+        id: string;
+        start_time: string;
+        recurrence_type: string;
+        interval: number;
+        weekdays: number[] | null;
+        ends_at: string | null;
+        occurrences_count: number | null;
+        master_service_id: string;
+        status: string;
+    } | null;
 }
 
 export interface BlockedTime {

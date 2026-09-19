@@ -158,6 +158,7 @@ class AvailabilityService
         Carbon $startDateTime,
         int $durationMinutes,
         ?string $excludeAppointmentId = null,
+        ?array $excludeAppointmentIds = null,
     ): ?string {
         $tz = $master->getTimezone();
         $localSlot = $startDateTime->copy()->timezone($tz);
@@ -186,7 +187,7 @@ class AvailabilityService
             return 'break';
         }
 
-        $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId);
+        $bookedPeriods = $this->getBookedPeriods($master, $localSlot, $excludeAppointmentId, $excludeAppointmentIds);
         $overlapsBooked = $bookedPeriods->contains(
             fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
         );
@@ -587,7 +588,7 @@ class AvailabilityService
         return collect($periods);
     }
 
-    private function getBookedPeriods(User $master, Carbon $date, ?string $excludeAppointmentId = null): Collection
+    private function getBookedPeriods(User $master, Carbon $date, ?string $excludeAppointmentId = null, ?array $excludeAppointmentIds = null): Collection
     {
         $tz = $master->getTimezone();
         $utcStart = $date->copy()->startOfDay()->timezone('UTC');
@@ -608,6 +609,7 @@ class AvailabilityService
                 [$utcStart],
             )
             ->when($excludeAppointmentId, fn ($q) => $q->where('id', '!=', $excludeAppointmentId))
+            ->when($excludeAppointmentIds, fn ($q) => $q->whereNotIn('id', $excludeAppointmentIds))
             ->get();
 
         return $appointments->map(function (Appointment $a) use ($tz) {

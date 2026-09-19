@@ -43,6 +43,7 @@ class RecurringAppointmentService
         ?Carbon $endsAt,
         ?int $occurrencesCount,
         ?string $excludeAppointmentId = null,
+        ?array $excludeAppointmentIds = null,
     ): array {
         $tz = $master->getTimezone();
         $isFromExisting = $excludeAppointmentId !== null;
@@ -104,6 +105,7 @@ class RecurringAppointmentService
                 $startDateTime,
                 $durationMinutes,
                 $excludeAppointmentId,
+                $excludeAppointmentIds,
             );
 
             if ($reason === null) {
@@ -384,7 +386,6 @@ class RecurringAppointmentService
         ?array $weekdays,
         ?Carbon $endsAt,
         ?int $occurrencesCount,
-        ?array $excludeAppointmentIds = null,
     ): array {
         $master = $splitAppointment->master;
         $service = $splitAppointment->masterService;
@@ -393,7 +394,15 @@ class RecurringAppointmentService
         $startTime = $splitAppointment->start_time->timezone($tz)->format('H:i');
         $durationMinutes = $service?->effective_duration ?? 60;
 
-        // Generate preview from split point (current = first occurrence)
+        // Collect all future appointment IDs in this series (they will be cancelled/replaced)
+        $excludeIds = [];
+        if ($splitAppointment->recurring_series_id) {
+            $excludeIds = Appointment::where('recurring_series_id', $splitAppointment->recurring_series_id)
+                ->where('recurring_occurrence_date', '>=', $splitAppointment->recurring_occurrence_date)
+                ->pluck('id')
+                ->all();
+        }
+
         return $this->preview(
             master: $master,
             startDate: $splitDate,
@@ -404,7 +413,8 @@ class RecurringAppointmentService
             weekdays: $weekdays,
             endsAt: $endsAt,
             occurrencesCount: $occurrencesCount,
-            excludeAppointmentId: $excludeAppointmentIds[0] ?? null,
+            excludeAppointmentId: null,
+            excludeAppointmentIds: $excludeIds,
         );
     }
 

@@ -56,7 +56,7 @@ class CalendarController extends Controller
                 : collect([$master->id]);
 
             $appointments = Appointment::whereIn('master_id', $masterIds)
-                ->with(['client', 'master', 'masterService.catalog'])
+                ->with(['client', 'master', 'masterService.catalog', 'recurringSeries'])
                 ->whereBetween('start_time', [
                     $rangeStart,
                     $rangeEnd,
@@ -86,6 +86,17 @@ class CalendarController extends Controller
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
                         'recurring_series_id' => $a->recurring_series_id,
                         'recurring_occurrence_date' => $a->recurring_occurrence_date,
+                        'recurring_series' => $a->recurringSeries ? [
+                            'id' => $a->recurringSeries->id,
+                            'start_time' => $a->recurringSeries->start_time,
+                            'recurrence_type' => $a->recurringSeries->recurrence_type->value,
+                            'interval' => $a->recurringSeries->interval,
+                            'weekdays' => $a->recurringSeries->weekdays,
+                            'ends_at' => $a->recurringSeries->ends_at?->format('Y-m-d'),
+                            'occurrences_count' => $a->recurringSeries->occurrences_count,
+                            'master_service_id' => $a->recurringSeries->master_service_id,
+                            'status' => $a->recurringSeries->status->value,
+                        ] : null,
                     ];
                 });
 
@@ -214,6 +225,17 @@ class CalendarController extends Controller
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
                         'recurring_series_id' => $a->recurring_series_id,
                         'recurring_occurrence_date' => $a->recurring_occurrence_date,
+                        'recurring_series' => $a->recurringSeries ? [
+                            'id' => $a->recurringSeries->id,
+                            'start_time' => $a->recurringSeries->start_time,
+                            'recurrence_type' => $a->recurringSeries->recurrence_type->value,
+                            'interval' => $a->recurringSeries->interval,
+                            'weekdays' => $a->recurringSeries->weekdays,
+                            'ends_at' => $a->recurringSeries->ends_at?->format('Y-m-d'),
+                            'occurrences_count' => $a->recurringSeries->occurrences_count,
+                            'master_service_id' => $a->recurringSeries->master_service_id,
+                            'status' => $a->recurringSeries->status->value,
+                        ] : null,
                     ];
                 });
 

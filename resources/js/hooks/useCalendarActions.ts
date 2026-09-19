@@ -875,51 +875,11 @@ return;
         });
     }
 
-    async function editThisAndFuture(date: string, time: string, recurrenceConfig?: { recurrence_type: string; interval: number; weekdays?: number[]; end_type?: string; occurrences_count?: number; ends_at?: string }) {
+    async function editThisAndFuture(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null; allowed_dates: string[] }) {
         if (!selected) return;
         setIsProcessing(true);
 
-        const cfg = recurrenceConfig ?? { recurrence_type: 'weekly', interval: 1, occurrences_count: 10 };
-
         try {
-            // First: preview split with current series params
-            const previewRes = await fetch(`/admin/appointments/${selected.id}/recurring/preview-split`, {
-                method: 'POST',
-                credentials: 'same-origin',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'X-Requested-With': 'XMLHttpRequest',
-                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
-                },
-                body: JSON.stringify({
-                    recurrence_type: cfg.recurrence_type,
-                    interval: cfg.interval,
-                    weekdays: cfg.weekdays,
-                    occurrences_count: cfg.occurrences_count ?? 10,
-                }),
-            });
-
-            if (!previewRes.ok) {
-                const err = await previewRes.json();
-                toast.error(err.message ?? 'Ошибка превью');
-                return;
-            }
-
-            const previewData = await previewRes.json();
-
-            // Submit the split
-            const submitBody: Record<string, unknown> = {
-                recurrence_type: cfg.recurrence_type,
-                interval: cfg.interval,
-                weekdays: cfg.weekdays,
-                allowed_dates: previewData.dates,
-            };
-            if (cfg.end_type === 'count') {
-                submitBody.occurrences_count = cfg.occurrences_count;
-            } else {
-                submitBody.ends_at = cfg.ends_at;
-            }
-
             const res = await fetch(`/admin/appointments/${selected.id}/recurring/edit-this-and-future`, {
                 method: 'POST',
                 credentials: 'same-origin',
@@ -928,7 +888,14 @@ return;
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
                 },
-                body: JSON.stringify(submitBody),
+                body: JSON.stringify({
+                    recurrence_type: params.recurrence_type,
+                    interval: params.interval,
+                    weekdays: params.weekdays,
+                    occurrences_count: params.occurrences_count,
+                    ends_at: params.ends_at,
+                    allowed_dates: params.allowed_dates,
+                }),
             });
 
             if (!res.ok) {
@@ -946,6 +913,34 @@ return;
             toast.error('Ошибка сети');
         } finally {
             setIsProcessing(false);
+        }
+    }
+
+    async function previewSplit(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null }): Promise<PreviewResult | null> {
+        if (!selected) return null;
+
+        try {
+            const res = await fetch(`/admin/appointments/${selected.id}/recurring/preview-split`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(params),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка превью');
+                return null;
+            }
+
+            return await res.json();
+        } catch {
+            toast.error('Ошибка сети');
+            return null;
         }
     }
 
@@ -1001,6 +996,7 @@ return;
         resetRecurrence,
         editOnlyThis,
         editThisAndFuture,
+        previewSplit,
         cancelOnlyThis,
         cancelThisAndFuture,
     };

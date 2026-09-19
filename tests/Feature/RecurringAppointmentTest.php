@@ -1916,4 +1916,197 @@ class RecurringAppointmentTest extends TestCase
             $this->assertNull($appt->tracking_link_id);
         }
     }
+
+    // ═══════════════ Preview Split Exclusions ═══════════════
+
+    #[Test]
+    public function preview_split_excludes_old_future_appointments(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        // Create 4 weekly appointments — first at wedge, then 3 future
+        $appts = [];
+        for ($i = 0; $i < 4; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            $appts[] = Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Preview split from 3rd appointment — should NOT show old future as conflicts
+        $response = $this->postJson("/admin/appointments/{$appts[2]->id}/recurring/preview-split", [
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 4,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+
+        // Old future appointments (appts[2], appts[3]) should NOT appear as conflicts
+        $conflictDates = array_column($data['conflicts'], 'date');
+        $this->assertNotContains($appts[2]->recurring_occurrence_date, $conflictDates);
+        $this->assertNotContains($appts[3]->recurring_occurrence_date, $conflictDates);
+    }
+
+    #[Test]
+    public function edit_this_and_future_preserves_past_appointments(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $appts = [];
+        for ($i = 0; $i < 4; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            $appts[] = Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Split from 3rd (index 2) — first 2 must stay untouched
+        $futureDates = [];
+        for ($i = 2; $i < 5; $i++) {
+            $futureDates[] = $wednesday->copy()->addWeeks($i)->format('Y-m-d');
+        }
+
+        $response = $this->postJson("/admin/appointments/{$appts[2]->id}/recurring/edit-this-and-future", [
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 4,
+            'allowed_dates' => $futureDates,
+        ]);
+
+        $response->assertStatus(201);
+
+        // First 2 appointments still booked, same series
+        $appts[0]->refresh();
+        $appts[1]->refresh();
+        $this->assertEquals(AppointmentStatus::Booked, $appts[0]->status);
+        $this->assertEquals($series->id, $appts[0]->recurring_series_id);
+        $this->assertEquals(AppointmentStatus::Booked, $appts[1]->status);
+        $this->assertEquals($series->id, $appts[1]->recurring_series_id);
+
+        // Old future cancelled
+        $appts[2]->refresh();
+        $appts[3]->refresh();
+        $this->assertEquals(AppointmentStatus::Cancelled, $appts[2]->status);
+        $this->assertEquals(AppointmentStatus::Cancelled, $appts[3]->status);
+    }
+
+    #[Test]
+    public function preview_split_detects_real_external_conflict(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $splitAppt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($wednesday->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $wednesday->format('Y-m-d'),
+        ]);
+
+        // External appointment at next Wednesday 10:00 (different client)
+        $otherClient = Client::factory()->create(['user_id' => $this->proMaster->id]);
+        $nextWeek = $wednesday->copy()->addWeek();
+        Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $otherClient->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($nextWeek->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+        ]);
+
+        $response = $this->postJson("/admin/appointments/{$splitAppt->id}/recurring/preview-split", [
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 4,
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+
+        // External conflict should still be detected
+        $conflictDates = array_column($data['conflicts'], 'date');
+        $this->assertContains($nextWeek->format('Y-m-d'), $conflictDates);
+    }
 }

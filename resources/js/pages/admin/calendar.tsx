@@ -24,6 +24,7 @@ import { AppointmentDetailDrawer } from './components/calendar/AppointmentDetail
 import { RescheduleDialog } from './components/calendar/RescheduleDialog';
 import { NewAppointmentDialog } from './components/calendar/NewAppointmentDialog';
 import { RecurrenceFromExistingDialog } from './components/calendar/RecurrenceFromExistingDialog';
+import { RecurringEditDialog } from './components/calendar/RecurringEditDialog';
 import { WarningDialog } from './components/calendar/WarningDialog';
 import { DEFAULT_RECURRENCE } from './components/calendar/RecurrenceSection';
 import type { RecurrenceConfig, PreviewResult } from './components/calendar/RecurrenceSection';
@@ -40,6 +41,36 @@ export default function CalendarPage() {
     const [repeatPreviewLoading, setRepeatPreviewLoading] = useState(false);
     const [repeatPreviewResult, setRepeatPreviewResult] = useState<PreviewResult | null>(null);
     const [repeatProcessing, setRepeatProcessing] = useState(false);
+
+    // ═══════════════ Recurring Edit / Series Settings ═══════════════
+    const [seriesEditOpen, setSeriesEditOpen] = useState(false);
+    const [seriesEditMode, setSeriesEditMode] = useState<'this-and-future' | 'series-settings'>('this-and-future');
+    const [seriesEditProcessing, setSeriesEditProcessing] = useState(false);
+
+    function openEditThisAndFuture() {
+        setSeriesEditMode('this-and-future');
+        setSeriesEditOpen(true);
+        setSheetOpen(false);
+    }
+
+    function openSeriesSettings() {
+        setSeriesEditMode('series-settings');
+        setSeriesEditOpen(true);
+        setSheetOpen(false);
+    }
+
+    async function handleSeriesPreview(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null }) {
+        return previewSplit(params);
+    }
+
+    async function handleSeriesSubmit(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null; allowed_dates: string[] }) {
+        setSeriesEditProcessing(true);
+        try {
+            await editThisAndFuture(params);
+        } finally {
+            setSeriesEditProcessing(false);
+        }
+    }
 
     function openRepeatDialog() {
         if (!selected) return;
@@ -320,6 +351,7 @@ export default function CalendarPage() {
         submitRecurringSeries,
         editOnlyThis,
         editThisAndFuture,
+        previewSplit,
         cancelOnlyThis,
         cancelThisAndFuture,
     } = useCalendarActions({
@@ -611,9 +643,10 @@ return [];
                 isPro={isPro}
                 onRepeat={openRepeatDialog}
                 onEditOnlyThis={editOnlyThis}
-                onEditThisAndFuture={() => editThisAndFuture(selected?.date ?? '', selected?.time ?? '')}
+                onEditThisAndFuture={openEditThisAndFuture}
                 onCancelOnlyThis={cancelOnlyThis}
                 onCancelThisAndFuture={cancelThisAndFuture}
+                onSeriesSettings={selected?.recurring_series_id ? openSeriesSettings : undefined}
             />
 
             {/* ─── Recurrence from Existing Dialog ─── */}
@@ -685,6 +718,19 @@ return [];
                 onTimeChange={setRescheduleTime}
                 onSubmit={submitReschedule}
                 timeOptions={timeOptions}
+            />
+
+            {/* ─── Recurring Edit / Series Settings Dialog ─── */}
+            <RecurringEditDialog
+                open={seriesEditOpen}
+                onOpenChange={setSeriesEditOpen}
+                mode={seriesEditMode}
+                appointment={selected}
+                services={services}
+                timeOptions={timeOptions}
+                isProcessing={seriesEditProcessing}
+                onPreview={handleSeriesPreview}
+                onSubmit={handleSeriesSubmit}
             />
         </>
     );
