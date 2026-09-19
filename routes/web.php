@@ -169,6 +169,13 @@ Route::middleware(['auth'])->group(function () {
         Route::delete('/admin/recurring-blocked-times/{series}/occurrences/{date}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'destroyOccurrence'])->name('admin.recurring-blocked-times.occurrence.destroy');
     });
 
+    // Recurring appointments — только ПРОФИ (feature gate)
+    Route::middleware('feature:recurring_appointments')->group(function () {
+        Route::post('/admin/recurring-appointments/preview', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'preview'])->name('admin.recurring-appointments.preview');
+        Route::post('/admin/recurring-appointments', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'store'])->name('admin.recurring-appointments.store');
+        Route::post('/admin/recurring-appointments/from-appointment/{appointment}', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'fromExisting'])->name('admin.recurring-appointments.from-existing');
+    });
+
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
 });

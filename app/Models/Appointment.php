@@ -37,6 +37,8 @@ class Appointment extends Model
         'cancelled_at',
         'cancelled_by',
         'client_confirmed_at',
+        'recurring_series_id',
+        'recurring_occurrence_date',
     ];
 
     protected function casts(): array
@@ -107,6 +109,11 @@ class Appointment extends Model
     public function cancelledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cancelled_by');
+    }
+
+    public function recurringSeries(): BelongsTo
+    {
+        return $this->belongsTo(RecurringAppointmentSeries::class, 'recurring_series_id');
     }
 
     public function activeSlotRequest(): HasOne

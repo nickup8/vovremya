@@ -4,6 +4,8 @@ import { toast } from 'sonner';
 import { AppointmentStatus } from '@/types/appointment-status';
 import type { Appointment, ClientOption, MasterOption, ServiceOption } from '@/pages/admin/components/calendar/types';
 import { dateToKey } from '@/pages/admin/components/calendar/helpers';
+import type { RecurrenceConfig, PreviewResult } from '@/pages/admin/components/calendar/RecurrenceSection';
+import { DEFAULT_RECURRENCE } from '@/pages/admin/components/calendar/RecurrenceSection';
 
 interface UseCalendarActionsParams {
     clients: ClientOption[];
@@ -54,6 +56,11 @@ export function useCalendarActions({
     const [outsideHoursOpen, setOutsideHoursOpen] = useState(false);
     const [outsideHoursMessage, setOutsideHoursMessage] = useState('');
     const [pendingOutsideHours, setPendingOutsideHours] = useState<{ appointmentId?: string; date: string; time: string } | null>(null);
+
+    // Recurrence state
+    const [recurrence, setRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE);
+    const [previewLoading, setPreviewLoading] = useState(false);
+    const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
 
     const newAppointmentForm = useForm({
         client_id: '',
@@ -485,6 +492,7 @@ return;
         newAppointmentForm.reset();
         newAppointmentForm.setData('date', dateToKey(new Date()));
         newAppointmentForm.setData('time', '09:00');
+        resetRecurrence();
         setNewAppointmentOpen(true);
     }
 
@@ -621,6 +629,171 @@ return;
         });
     }
 
+    // ═══════════════ Recurrence ═══════════════
+    function resetRecurrence() {
+        setRecurrence(DEFAULT_RECURRENCE);
+        setPreviewResult(null);
+    }
+
+    async function fetchPreview(opts?: { excludeAppointmentId?: string }) {
+        const { service_id, date, time } = newAppointmentForm.data;
+        if (!service_id || !date || !time || recurrence.weekdays.length === 0) return;
+
+        setPreviewLoading(true);
+        setPreviewResult(null);
+
+        try {
+            const body: Record<string, unknown> = {
+                service_id,
+                date,
+                time,
+                recurrence_type: recurrence.recurrence_type,
+                interval: recurrence.interval,
+                weekdays: recurrence.weekdays,
+            };
+
+            if (recurrence.end_type === 'count') {
+                body.occurrences_count = recurrence.occurrences_count;
+            } else {
+                body.ends_at = recurrence.ends_at;
+            }
+
+            if (opts?.excludeAppointmentId) {
+                body.exclude_appointment_id = opts.excludeAppointmentId;
+            }
+
+            const res = await fetch('/admin/recurring-appointments/preview', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка проверки');
+                return;
+            }
+
+            const data = await res.json();
+            setPreviewResult(data);
+        } catch {
+            toast.error('Ошибка сети');
+        } finally {
+            setPreviewLoading(false);
+        }
+    }
+
+    async function submitRecurringSeries() {
+        if (!previewResult || previewResult.available === 0) return;
+
+        const { client_id, service_id, date, time } = newAppointmentForm.data;
+        if (!client_id || !service_id || !date || !time) return;
+
+        setIsProcessing(true);
+
+        try {
+            const body: Record<string, unknown> = {
+                client_id,
+                service_id,
+                date,
+                time,
+                recurrence_type: recurrence.recurrence_type,
+                interval: recurrence.interval,
+                weekdays: recurrence.weekdays,
+                allowed_dates: previewResult.dates,
+            };
+
+            if (recurrence.end_type === 'count') {
+                body.occurrences_count = recurrence.occurrences_count;
+            } else {
+                body.ends_at = recurrence.ends_at;
+            }
+
+            const res = await fetch('/admin/recurring-appointments', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка создания серии');
+                return;
+            }
+
+            const data = await res.json();
+            toast.success(`Серия создана: ${data.created} записей`);
+            setNewAppointmentOpen(false);
+            newAppointmentForm.reset();
+            resetRecurrence();
+            clearBookingMode();
+            router.reload({ only: ['appointments'] });
+        } catch {
+            toast.error('Ошибка сети');
+        } finally {
+            setIsProcessing(false);
+        }
+    }
+
+    async function submitRecurringFromExisting(appointmentId: string) {
+        if (!previewResult || previewResult.available === 0) return;
+
+        setIsProcessing(true);
+
+        try {
+            const body: Record<string, unknown> = {
+                recurrence_type: recurrence.recurrence_type,
+                interval: recurrence.interval,
+                weekdays: recurrence.weekdays,
+                allowed_dates: previewResult.dates,
+            };
+
+            if (recurrence.end_type === 'count') {
+                body.occurrences_count = recurrence.occurrences_count;
+            } else {
+                body.ends_at = recurrence.ends_at;
+            }
+
+            const res = await fetch(`/admin/recurring-appointments/from-appointment/${appointmentId}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка создания серии');
+                return;
+            }
+
+            const data = await res.json();
+            toast.success(`Серия создана: ${data.created} записей`);
+            resetRecurrence();
+            setSheetOpen(false);
+            setSelected(null);
+            router.reload({ only: ['appointments'] });
+        } catch {
+            toast.error('Ошибка сети');
+        } finally {
+            setIsProcessing(false);
+        }
+    }
+
     // ═══════════════ Detail ═══════════════
     function openDetail(appointment: Appointment) {
         setSelected(appointment);
@@ -647,6 +820,9 @@ return;
         timeOptions: rescheduleTimeOptions,
         smartTimeSlots,
         smartTimeSlotsLoading,
+        recurrence, setRecurrence,
+        previewLoading,
+        previewResult,
 
         // Computed
         activeBookingClient,
@@ -670,5 +846,9 @@ return;
         openDetail,
         cancelBookingMode,
         clearBookingMode,
+        fetchPreview,
+        submitRecurringSeries,
+        submitRecurringFromExisting,
+        resetRecurrence,
     };
 }

@@ -35,6 +35,7 @@ class HandleInertiaRequests extends Middleware
         $authClient = null;
 
         $tariffName = 'Free';
+        $tariffCode = 'start';
         $tariffLimits = null;
 
         if ($user instanceof User) {
@@ -70,6 +71,7 @@ class HandleInertiaRequests extends Middleware
                 }
 
                 $tariffName = $tariffData['name'];
+                $tariffCode = $tariffData['code'];
                 $total = $tariffData['total'];
 
                 $tariffLimits = [
@@ -83,6 +85,7 @@ class HandleInertiaRequests extends Middleware
                 'name' => $user->name,
                 'avatar_url' => $user->avatar_url,
                 'tariff_name' => $tariffName,
+                'tariff_code' => $tariffCode,
                 'can_manage_team' => $user->role->canManageTeam(),
                 'can_manage_billing' => $user->role->canManageBilling(),
             ];

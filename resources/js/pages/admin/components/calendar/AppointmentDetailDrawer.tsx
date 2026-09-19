@@ -36,6 +36,8 @@ interface Props {
     onEditTimeChange?: (t: string) => void;
     onEditSubmit?: () => void;
     timeOptions?: string[];
+    isPro?: boolean;
+    onRepeat?: () => void;
 }
 
 function formatDateLong(dateStr: string): string {
@@ -60,6 +62,7 @@ export function AppointmentDetailDrawer({
     editDate = '', editTime = '',
     onEditDateChange, onEditTimeChange,
     onEditSubmit, timeOptions = [],
+    isPro = false, onRepeat,
 }: Props) {
     const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
     const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
@@ -313,6 +316,16 @@ export function AppointmentDetailDrawer({
                                         >
                                             Изменить
                                         </Button>
+                                        {isPro && onRepeat && (
+                                            <Button
+                                                onClick={onRepeat}
+                                                disabled={isProcessing}
+                                                variant="outline"
+                                                className="flex-1 rounded-lg"
+                                            >
+                                                Повторять
+                                            </Button>
+                                        )}
                                         <Button
                                             onClick={() => setCancelConfirmOpen(true)}
                                             disabled={isProcessing}

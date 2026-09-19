@@ -22,12 +22,153 @@ import { CalendarLegend } from './components/calendar/CalendarLegend';
 import { AppointmentDetailDrawer } from './components/calendar/AppointmentDetailDrawer';
 import { RescheduleDialog } from './components/calendar/RescheduleDialog';
 import { NewAppointmentDialog } from './components/calendar/NewAppointmentDialog';
+import { RecurrenceFromExistingDialog } from './components/calendar/RecurrenceFromExistingDialog';
 import { WarningDialog } from './components/calendar/WarningDialog';
+import { DEFAULT_RECURRENCE } from './components/calendar/RecurrenceSection';
+import type { RecurrenceConfig, PreviewResult } from './components/calendar/RecurrenceSection';
 
 /* ═══════════════ Main Calendar Page ═══════════════ */
 
 export default function CalendarPage() {
     const { appointments: initialAppointments = [], initialBlockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth, masters = [], dateRange: loadedRange } = usePage<PageProps>().props;
+    const isPro = auth?.user?.tariff_code === 'pro';
+
+    // ═══════════════ Recurrence from Existing ═══════════════
+    const [repeatDialogOpen, setRepeatDialogOpen] = useState(false);
+    const [repeatRecurrence, setRepeatRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE);
+    const [repeatPreviewLoading, setRepeatPreviewLoading] = useState(false);
+    const [repeatPreviewResult, setRepeatPreviewResult] = useState<PreviewResult | null>(null);
+    const [repeatProcessing, setRepeatProcessing] = useState(false);
+
+    function openRepeatDialog() {
+        if (!selected) return;
+        setRepeatRecurrence({ ...DEFAULT_RECURRENCE, enabled: true });
+        setRepeatPreviewResult(null);
+        setRepeatDialogOpen(true);
+        setSheetOpen(false);
+    }
+
+    async function fetchRepeatPreview() {
+        if (!selected) return;
+        const svc = services.find((s) => String(s.id) === String(selected.service));
+        // We need the service_id from the appointment; it's not directly in the Appointment type.
+        // Use the preselectedMasterId-based approach or the appointment's master_id.
+        // For preview, we need: service_id, date, time, recurrence params.
+        // The appointment has master_id but not service_id. We'll pass what we have.
+        // Actually the backend preview needs service_id to get duration. Let's find it.
+        // For now, use the service name match or skip if not found.
+
+        setRepeatPreviewLoading(true);
+        setRepeatPreviewResult(null);
+
+        try {
+            const body: Record<string, unknown> = {
+                date: selected.date,
+                time: selected.time,
+                recurrence_type: repeatRecurrence.recurrence_type,
+                interval: repeatRecurrence.interval,
+                weekdays: repeatRecurrence.weekdays,
+                exclude_appointment_id: selected.id,
+            };
+
+            // Find matching service by title (approximate) — or use master_id approach
+            // Better: find service_id from the local services list matching this appointment
+            const matchingService = services.find((s) =>
+                s.title === selected.service && String(s.master_id) === String(selected.master_id ?? ''),
+            );
+            if (matchingService) {
+                body.service_id = matchingService.id;
+            } else {
+                // Fallback: use first service for this master
+                const fallback = services.find((s) => String(s.master_id) === String(selected.master_id ?? ''));
+                if (fallback) body.service_id = fallback.id;
+            }
+
+            if (!body.service_id) {
+                toast.error('Услуга не найдена');
+                setRepeatPreviewLoading(false);
+                return;
+            }
+
+            if (repeatRecurrence.end_type === 'count') {
+                body.occurrences_count = repeatRecurrence.occurrences_count;
+            } else {
+                body.ends_at = repeatRecurrence.ends_at;
+            }
+
+            const res = await fetch('/admin/recurring-appointments/preview', {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка проверки');
+                return;
+            }
+
+            const data = await res.json();
+            setRepeatPreviewResult(data);
+        } catch {
+            toast.error('Ошибка сети');
+        } finally {
+            setRepeatPreviewLoading(false);
+        }
+    }
+
+    async function submitRepeatSeries() {
+        if (!selected || !repeatPreviewResult || repeatPreviewResult.available === 0) return;
+
+        setRepeatProcessing(true);
+
+        try {
+            const body: Record<string, unknown> = {
+                recurrence_type: repeatRecurrence.recurrence_type,
+                interval: repeatRecurrence.interval,
+                weekdays: repeatRecurrence.weekdays,
+                allowed_dates: repeatPreviewResult.dates,
+            };
+
+            if (repeatRecurrence.end_type === 'count') {
+                body.occurrences_count = repeatRecurrence.occurrences_count;
+            } else {
+                body.ends_at = repeatRecurrence.ends_at;
+            }
+
+            const res = await fetch(`/admin/recurring-appointments/from-appointment/${selected.id}`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(body),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка создания серии');
+                return;
+            }
+
+            const data = await res.json();
+            toast.success(`Серия создана: ${data.created} записей`);
+            setRepeatDialogOpen(false);
+            setSelected(null);
+            router.reload({ only: ['appointments'] });
+        } catch {
+            toast.error('Ошибка сети');
+        } finally {
+            setRepeatProcessing(false);
+        }
+    }
 
     // ═══════════════ Selected Appointment State (hoisted for both hooks) ═══════════════
     const [selected, setSelected] = useState<Appointment | null>(null);
@@ -153,6 +294,9 @@ export default function CalendarPage() {
         timeOptions,
         smartTimeSlots,
         smartTimeSlotsLoading,
+        recurrence, setRecurrence,
+        previewLoading,
+        previewResult,
         activeBookingClient,
         bookingModeService,
         preselectedMasterId,
@@ -171,6 +315,8 @@ export default function CalendarPage() {
         submitNewAppointment,
         openDetail,
         cancelBookingMode,
+        fetchPreview,
+        submitRecurringSeries,
     } = useCalendarActions({
         clients,
         services,
@@ -457,6 +603,22 @@ return [];
                 onEditTimeChange={setRescheduleTime}
                 onEditSubmit={() => submitRescheduleInDrawer(() => setDrawerEditMode(false))}
                 timeOptions={timeOptions}
+                isPro={isPro}
+                onRepeat={openRepeatDialog}
+            />
+
+            {/* ─── Recurrence from Existing Dialog ─── */}
+            <RecurrenceFromExistingDialog
+                open={repeatDialogOpen}
+                onOpenChange={setRepeatDialogOpen}
+                appointmentInfo={selected ? { service: selected.service, time: selected.time, date: selected.date, client_name: selected.client_name } : null}
+                isProcessing={repeatProcessing}
+                previewLoading={repeatPreviewLoading}
+                previewResult={repeatPreviewResult}
+                onPreview={fetchRepeatPreview}
+                onSubmit={submitRepeatSeries}
+                recurrence={repeatRecurrence}
+                onRecurrenceChange={setRepeatRecurrence}
             />
 
             {/* ─── Break Intersection Warning Dialog ─── */}
@@ -495,6 +657,13 @@ return [];
                 onClientCreated={handleClientCreated}
                 smartTimeSlots={smartTimeSlots}
                 smartTimeSlotsLoading={smartTimeSlotsLoading}
+                isPro={isPro}
+                recurrence={recurrence}
+                onRecurrenceChange={setRecurrence}
+                previewLoading={previewLoading}
+                previewResult={previewResult}
+                onPreview={fetchPreview}
+                onSubmitRecurring={submitRecurringSeries}
             />
 
             {/* ─── Reschedule Dialog ─── */}

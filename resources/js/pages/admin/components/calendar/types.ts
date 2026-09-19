@@ -47,6 +47,7 @@ export interface AuthUser {
     id: string;
     name: string;
     tariff_name?: string;
+    tariff_code?: string;
     [key: string]: unknown;
 }
 

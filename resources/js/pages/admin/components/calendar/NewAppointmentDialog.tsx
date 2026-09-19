@@ -11,6 +11,8 @@ import type { ClientOption, MasterOption, ServiceOption } from './types';
 import { ClientCombobox } from './ClientCombobox';
 import { IrsiDatePicker } from './IrsiDatePicker';
 import { IrsiTimeSelect } from './IrsiTimeSelect';
+import { RecurrenceSection } from './RecurrenceSection';
+import type { RecurrenceConfig, PreviewResult } from './RecurrenceSection';
 
 interface FormData {
     client_id: string;
@@ -54,9 +56,16 @@ interface Props {
     onClientCreated: (client: ClientOption) => void;
     smartTimeSlots: SmartTimeSlots;
     smartTimeSlotsLoading: boolean;
+    isPro?: boolean;
+    recurrence?: RecurrenceConfig;
+    onRecurrenceChange?: (config: RecurrenceConfig) => void;
+    previewLoading?: boolean;
+    previewResult?: PreviewResult | null;
+    onPreview?: () => void;
+    onSubmitRecurring?: () => void;
 }
 
-export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated, smartTimeSlots, smartTimeSlotsLoading }: Props) {
+export function NewAppointmentDialog({ open, onOpenChange, form, clients, services, masters: _masters, preselectedMasterId, onSubmit, slotInterval, onClientCreated, smartTimeSlots, smartTimeSlotsLoading, isPro = false, recurrence, onRecurrenceChange, previewLoading, previewResult, onPreview, onSubmitRecurring }: Props) {
     const visibleServices = preselectedMasterId
         ? services.filter((s) => s.master_id === preselectedMasterId)
         : services;
@@ -182,17 +191,39 @@ export function NewAppointmentDialog({ open, onOpenChange, form, clients, servic
                                     )}
                                 </div>
                             </div>
+
+                            {recurrence && onRecurrenceChange && onPreview && (
+                                <RecurrenceSection
+                                    value={recurrence}
+                                    onChange={onRecurrenceChange}
+                                    isPro={isPro}
+                                    previewLoading={previewLoading ?? false}
+                                    previewResult={previewResult ?? null}
+                                    onPreview={onPreview}
+                                />
+                            )}
                         </div>
                     </DrawerBody>
 
                     <DrawerFooter className="flex flex-col gap-2 sm:flex-row">
-                        <Button
-                            type="submit"
-                            disabled={form.processing || !form.data.client_id || !form.data.service_id || !form.data.date || !form.data.time}
-                            className="flex-1 rounded-xl bg-[var(--color-orange)] font-semibold text-white hover:bg-[var(--color-orange-600)]"
-                        >
-                            {form.processing ? 'Создание...' : 'Создать запись'}
-                        </Button>
+                        {recurrence?.enabled && onSubmitRecurring ? (
+                            <Button
+                                type="button"
+                                onClick={onSubmitRecurring}
+                                disabled={form.processing || !form.data.client_id || !form.data.service_id || !form.data.date || !form.data.time || !previewResult || previewResult.available === 0}
+                                className="flex-1 rounded-xl bg-[var(--color-orange)] font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                            >
+                                {form.processing ? 'Создание...' : `Создать серию (${previewResult?.available ?? 0})`}
+                            </Button>
+                        ) : (
+                            <Button
+                                type="submit"
+                                disabled={form.processing || !form.data.client_id || !form.data.service_id || !form.data.date || !form.data.time}
+                                className="flex-1 rounded-xl bg-[var(--color-orange)] font-semibold text-white hover:bg-[var(--color-orange-600)]"
+                            >
+                                {form.processing ? 'Создание...' : 'Создать запись'}
+                            </Button>
+                        )}
                         <Button
                             type="button"
                             variant="outline"
