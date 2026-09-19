@@ -3,10 +3,14 @@
 namespace App\Services\Booking;
 
 use App\Enums\AppointmentStatus;
+use App\Enums\RecurringSeriesStatus;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
+use App\Models\RecurringBlockedTimeSeries;
 use App\Models\User;
 use App\Models\WorkingHour;
+use App\Services\Recurrence\RecurrenceRule;
+use App\Services\Recurrence\RecurrenceService;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Collection;
@@ -14,6 +18,9 @@ use Illuminate\Support\Facades\Cache;
 
 class AvailabilityService
 {
+    public function __construct(
+        private readonly RecurrenceService $recurrenceService = new RecurrenceService(),
+    ) {}
     /**
      * Возвращает массив дат (Y-m-d), в которые есть хотя бы один свободный слот.
      * Загружает данные за месяц 3 запросами вместо N*3 (N = дней в месяце).
@@ -332,12 +339,78 @@ class AvailabilityService
             }
         }
 
+        // Recurring blocked time series
+        $this->loadRecurringBlockedPeriodsForMonth($master, $year, $month, $tz, $grouped);
+
         return $grouped;
     }
 
     // ═══════════════════════════════════════════════════════════════
     //  Slot calculation from pre-loaded data (zero DB queries)
     // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Загружает recurring blocked time series для месяца и добавляет в grouped array.
+     */
+    private function loadRecurringBlockedPeriodsForMonth(
+        User $master,
+        int $year,
+        int $month,
+        string $tz,
+        array &$grouped,
+    ): void {
+        $series = RecurringBlockedTimeSeries::where('user_id', $master->id)
+            ->where('status', RecurringSeriesStatus::Active)
+            ->with('exceptions')
+            ->get();
+
+        if ($series->isEmpty()) {
+            return;
+        }
+
+        $rangeStart = Carbon::create($year, $month, 1, 0, 0, 0, $tz)->startOfDay();
+        $rangeEnd = $rangeStart->copy()->endOfMonth()->startOfDay();
+
+        foreach ($series as $s) {
+            $rule = RecurrenceRule::fromArray([
+                'recurrence_type' => $s->recurrence_type->value,
+                'interval' => $s->interval,
+                'weekdays' => $s->weekdays,
+                'start_date' => $s->start_date->format('Y-m-d'),
+                'ends_at' => $s->ends_at?->format('Y-m-d'),
+                'timezone' => $s->timezone,
+            ]);
+
+            $occurrences = $this->recurrenceService->generateOccurrences($rule, $rangeStart, $rangeEnd);
+
+            $exceptionsByDate = [];
+            foreach ($s->exceptions as $ex) {
+                $exceptionsByDate[$ex->occurrence_date->format('Y-m-d')] = $ex;
+            }
+
+            foreach ($occurrences as $date) {
+                $dateKey = $date->format('Y-m-d');
+
+                if (isset($exceptionsByDate[$dateKey])) {
+                    $ex = $exceptionsByDate[$dateKey];
+                    if ($ex->type->value === 'skip') {
+                        continue;
+                    }
+                    // override
+                    $startTime = $ex->override_start_time ?? $s->start_time;
+                    $endTime = $ex->override_end_time ?? $s->end_time;
+                } else {
+                    $startTime = $s->start_time;
+                    $endTime = $s->end_time;
+                }
+
+                $start = $date->copy()->setTimeFromTimeString($startTime);
+                $end = $date->copy()->setTimeFromTimeString($endTime);
+
+                $grouped[$dateKey][] = ['start' => $start, 'end' => $end];
+            }
+        }
+    }
 
     /**
      * Рассчитывает слоты для одного дня из предзагруженных данных. Без запросов к БД.
@@ -400,6 +473,64 @@ class AvailabilityService
         ]);
     }
 
+    /**
+     * Загружает recurring blocked periods для одного дня.
+     */
+    private function getRecurringBlockedPeriods(User $master, Carbon $localDate): Collection
+    {
+        $dateKey = $localDate->format('Y-m-d');
+
+        $series = RecurringBlockedTimeSeries::where('user_id', $master->id)
+            ->where('status', RecurringSeriesStatus::Active)
+            ->with('exceptions')
+            ->get();
+
+        if ($series->isEmpty()) {
+            return collect();
+        }
+
+        $periods = [];
+        foreach ($series as $s) {
+            $rule = RecurrenceRule::fromArray([
+                'recurrence_type' => $s->recurrence_type->value,
+                'interval' => $s->interval,
+                'weekdays' => $s->weekdays,
+                'start_date' => $s->start_date->format('Y-m-d'),
+                'ends_at' => $s->ends_at?->format('Y-m-d'),
+                'timezone' => $s->timezone,
+            ]);
+
+            $occurrences = $this->recurrenceService->generateOccurrences($rule, $localDate, $localDate);
+
+            if (empty($occurrences)) {
+                continue;
+            }
+
+            $exception = $s->exceptions->first(
+                fn ($ex) => $ex->occurrence_date instanceof CarbonInterface
+                    ? $ex->occurrence_date->format('Y-m-d') === $dateKey
+                    : $ex->occurrence_date === $dateKey,
+            );
+            if ($exception && $exception->type->value === 'skip') {
+                continue;
+            }
+
+            $startTime = ($exception && $exception->type->value === 'override')
+                ? ($exception->override_start_time ?? $s->start_time)
+                : $s->start_time;
+            $endTime = ($exception && $exception->type->value === 'override')
+                ? ($exception->override_end_time ?? $s->end_time)
+                : $s->end_time;
+
+            $periods[] = [
+                'start' => $localDate->copy()->setTimeFromTimeString($startTime),
+                'end' => $localDate->copy()->setTimeFromTimeString($endTime),
+            ];
+        }
+
+        return collect($periods);
+    }
+
     private function getBookedPeriods(User $master, Carbon $date, ?string $excludeAppointmentId = null): Collection
     {
         $tz = $master->getTimezone();
@@ -437,10 +568,11 @@ class AvailabilityService
     private function getBlockedPeriods(User $master, Carbon $date): Collection
     {
         $tz = $master->getTimezone();
-        $utcStart = $date->copy()->startOfDay()->timezone('UTC');
-        $utcEnd = $date->copy()->endOfDay()->timezone('UTC');
+        $localDate = $date->copy()->timezone($tz)->startOfDay();
+        $utcStart = $localDate->copy()->timezone('UTC');
+        $utcEnd = $localDate->copy()->endOfDay()->timezone('UTC');
 
-        return collect(BlockedTime::where('user_id', $master->id)
+        $regular = collect(BlockedTime::where('user_id', $master->id)
             ->where('start_datetime', '<=', $utcEnd)
             ->where('end_datetime', '>=', $utcStart)
             ->get()
@@ -448,6 +580,10 @@ class AvailabilityService
                 'start' => $b->start_datetime->copy()->timezone($tz),
                 'end' => $b->end_datetime->copy()->timezone($tz),
             ]));
+
+        $recurring = $this->getRecurringBlockedPeriods($master, $localDate);
+
+        return $regular->merge($recurring);
     }
 
     /**

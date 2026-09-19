@@ -3,14 +3,18 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
+use App\Enums\RecurringSeriesStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
 use App\Models\Client;
 use App\Models\MasterService;
+use App\Models\RecurringBlockedTimeSeries;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
+use App\Services\Recurrence\RecurrenceRule;
+use App\Services\Recurrence\RecurrenceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Inertia\Inertia;
@@ -97,6 +101,59 @@ class CalendarController extends Controller
                     'reason' => $bt->reason->value,
                     'user_id' => $bt->user_id,
                 ]);
+
+            // Recurring blocked time occurrences
+            $recurringService = new RecurrenceService();
+            $rangeStartDate = Carbon::parse($validated['start'] ?? Carbon::now($tz)->subWeeks(3)->format('Y-m-d'), $tz)->startOfDay();
+            $rangeEndDate = Carbon::parse($validated['end'] ?? Carbon::now($tz)->addWeeks(3)->format('Y-m-d'), $tz)->endOfDay();
+
+            $recurringSeries = RecurringBlockedTimeSeries::whereIn('user_id', $masterIds)
+                ->where('status', RecurringSeriesStatus::Active)
+                ->with('exceptions')
+                ->get();
+
+            foreach ($recurringSeries as $series) {
+                $rule = RecurrenceRule::fromArray([
+                    'recurrence_type' => $series->recurrence_type->value,
+                    'interval' => $series->interval,
+                    'weekdays' => $series->weekdays,
+                    'start_date' => $series->start_date->format('Y-m-d'),
+                    'ends_at' => $series->ends_at?->format('Y-m-d'),
+                    'timezone' => $series->timezone,
+                ]);
+
+                $occurrences = $recurringService->generateOccurrences($rule, $rangeStartDate, $rangeEndDate);
+
+                foreach ($occurrences as $date) {
+                    $dateKey = $date->format('Y-m-d');
+                    $exception = $series->exceptions->first(
+                        fn ($ex) => $ex->occurrence_date->format('Y-m-d') === $dateKey,
+                    );
+
+                    if ($exception && $exception->type->value === 'skip') {
+                        continue;
+                    }
+
+                    $startTime = ($exception && $exception->type->value === 'override')
+                        ? ($exception->override_start_time ?? $series->start_time)
+                        : $series->start_time;
+                    $endTime = ($exception && $exception->type->value === 'override')
+                        ? ($exception->override_end_time ?? $series->end_time)
+                        : $series->end_time;
+
+                    $blockedTimes->push([
+                        'id' => "recurring:{$series->id}:{$dateKey}",
+                        'date' => $dateKey,
+                        'end_date' => $dateKey,
+                        'start_time' => substr($startTime, 0, 5),
+                        'end_time' => substr($endTime, 0, 5),
+                        'reason' => $series->reason ?? $series->title,
+                        'user_id' => $series->user_id,
+                        'is_recurring' => true,
+                        'series_id' => $series->id,
+                    ]);
+                }
+            }
 
             $workingHours = WorkingHour::whereIn('user_id', $masterIds)->get();
 

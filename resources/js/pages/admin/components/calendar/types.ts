@@ -25,6 +25,8 @@ export interface BlockedTime {
     end_time: string;
     reason: string;
     user_id?: string;
+    is_recurring?: boolean;
+    series_id?: string;
 }
 
 export interface ClientOption {

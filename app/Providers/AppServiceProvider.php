@@ -63,6 +63,8 @@ class AppServiceProvider extends ServiceProvider
         WorkingHour::observe(WorkingHourObserver::class);
         BlockedTime::observe(BlockedTimeObserver::class);
         MasterService::observe(MasterServiceObserver::class);
+        \App\Models\RecurringBlockedTimeSeries::observe(\App\Observers\RecurringBlockedTimeSeriesObserver::class);
+        \App\Models\RecurringBlockedTimeException::observe(\App\Observers\RecurringBlockedTimeExceptionObserver::class);
         Subscription::observe(SubscriptionObserver::class);
 
         // Flush availability cache on any appointment change

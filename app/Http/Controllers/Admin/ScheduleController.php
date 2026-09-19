@@ -27,6 +27,10 @@ class ScheduleController extends Controller
         return Inertia::render('admin/schedule', [
             'workingHours' => $targetMaster->workingHours()->get(),
             'blockedTimes' => $targetMaster->blockedTimes()->get(),
+            'recurringSeries' => $targetMaster->recurringBlockedTimeSeries()
+                ->with('exceptions')
+                ->get(),
+            'hasRecurringFeature' => $user->hasFeature('recurring_blocked_times'),
             'profile' => [
                 'id' => $targetMaster->id,
                 'timezone' => $targetMaster->getTimezone(),

@@ -1,6 +1,7 @@
 import type { BlockedTime } from './types';
 import { MINUTE_HEIGHT } from './constants';
 import { timeToMinutes } from './helpers';
+import { Repeat } from 'lucide-react';
 
 interface Props {
     blockedTime: BlockedTime;
@@ -39,7 +40,8 @@ export function BlockedTimeCard({ blockedTime, dayDate, dayStartHour, dayEndHour
             }}
         >
             <div className="absolute inset-y-0 left-0 w-[3px] rounded-l-[8px] bg-zinc-300 dark:bg-zinc-600/70" />
-            <p className="truncate pl-3 pt-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400">
+            <p className="truncate pl-3 pt-1 text-[10px] font-medium text-zinc-500 dark:text-zinc-400 flex items-center gap-1">
+                {blockedTime.is_recurring && <Repeat className="size-2.5 shrink-0" />}
                 {blockedTime.reason}
             </p>
         </div>

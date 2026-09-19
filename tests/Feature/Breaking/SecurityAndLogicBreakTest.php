@@ -77,8 +77,9 @@ class SecurityAndLogicBreakTest extends TestCase
         // внутри map() без eager loading — запросов будет >> 10.
         // Текущий код: masterAppointments()->with(['client', 'service'])->get()
         // Должно укладываться в 5-8 запросов.
+        // +2 constant queries for recurring blocked time series + exceptions eager load.
         // Если упадет — значит eager loading НЕ работает или есть лишние запросы.
-        $this->assertLessThanOrEqual(10, $queryCount, "Calendar generated {$queryCount} queries — N+1 detected");
+        $this->assertLessThanOrEqual(12, $queryCount, "Calendar generated {$queryCount} queries — N+1 detected");
     }
 
     /**

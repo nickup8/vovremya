@@ -170,6 +170,11 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasMany(BlockedTime::class);
     }
 
+    public function recurringBlockedTimeSeries(): HasMany
+    {
+        return $this->hasMany(\App\Models\RecurringBlockedTimeSeries::class);
+    }
+
     public function isSuperAdmin(): bool
     {
         return (bool) ($this->is_super_admin ?? false);
