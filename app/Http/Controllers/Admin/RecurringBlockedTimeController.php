@@ -12,7 +12,9 @@ use App\Services\Recurrence\RecurrenceRule;
 use App\Services\Recurrence\RecurrenceService;
 use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 
 class RecurringBlockedTimeController extends Controller
 {
@@ -68,31 +70,29 @@ class RecurringBlockedTimeController extends Controller
         ]);
     }
 
-    public function store(Request $request): JsonResponse
+    public function store(Request $request): RedirectResponse
     {
         $validated = $request->validate($this->seriesValidationRules());
 
         // Manual time validation: end_time must be after start_time
         if ($validated['end_time'] <= $validated['start_time']) {
-            return response()->json([
-                'message' => 'Время окончания должно быть после времени начала.',
-                'errors' => ['end_time' => ['Время окончания должно быть после времени начала.']],
-            ], 422);
+            throw ValidationException::withMessages([
+                'end_time' => 'Время окончания должно быть после времени начала.',
+            ]);
         }
 
         // Validate weekdays for custom_weekly
         if ($validated['recurrence_type'] === 'custom_weekly' && empty($validated['weekdays'])) {
-            return response()->json([
-                'message' => 'Для типа "каждые N недель" необходимо указать дни недели.',
-                'errors' => ['weekdays' => ['Для типа "каждые N недель" необходимо указать дни недели.']],
-            ], 422);
+            throw ValidationException::withMessages([
+                'weekdays' => 'Для типа "каждые N недель" необходимо указать дни недели.',
+            ]);
         }
 
         $targetMaster = $this->resolveTargetMaster($request, $validated);
         $validated['timezone'] = $targetMaster->getTimezone();
         unset($validated['master_id']);
 
-        $series = RecurringBlockedTimeSeries::create([
+        RecurringBlockedTimeSeries::create([
             'workspace_id' => $targetMaster->workspace_id,
             'user_id' => $targetMaster->id,
             'title' => $validated['title'],
@@ -108,13 +108,10 @@ class RecurringBlockedTimeController extends Controller
             'status' => RecurringSeriesStatus::Active,
         ]);
 
-        return response()->json([
-            'series' => $series,
-            'message' => 'Серия блокировок создана',
-        ], 201);
+        return back()->with('success', 'Серия блокировок создана');
     }
 
-    public function update(Request $request, RecurringBlockedTimeSeries $series): JsonResponse
+    public function update(Request $request, RecurringBlockedTimeSeries $series): RedirectResponse
     {
         $this->authorizeSeries($request, $series);
 
@@ -140,26 +137,23 @@ class RecurringBlockedTimeController extends Controller
 
         $series->update($validated);
 
-        return response()->json([
-            'series' => $series,
-            'message' => 'Серия обновлена',
-        ]);
+        return back()->with('success', 'Серия обновлена');
     }
 
-    public function destroy(Request $request, RecurringBlockedTimeSeries $series): JsonResponse
+    public function destroy(Request $request, RecurringBlockedTimeSeries $series): RedirectResponse
     {
         $this->authorizeSeries($request, $series);
 
         $series->update(['status' => RecurringSeriesStatus::Cancelled]);
 
-        return response()->json(['message' => 'Серия отменена']);
+        return back()->with('success', 'Серия отменена');
     }
 
     public function updateOccurrence(
         Request $request,
         RecurringBlockedTimeSeries $series,
         string $date,
-    ): JsonResponse {
+    ): RedirectResponse {
         $this->authorizeSeries($request, $series);
 
         $validated = $request->validate([
@@ -212,7 +206,7 @@ class RecurringBlockedTimeController extends Controller
                     RecurringBlockedTimeException::create($updateData);
                 }
 
-                return response()->json(['message' => 'Исключение создано/обновлено']);
+                return back()->with('success', 'Исключение создано/обновлено');
             }
 
             // No override data = skip this occurrence
@@ -226,7 +220,7 @@ class RecurringBlockedTimeController extends Controller
                 ]);
             }
 
-            return response()->json(['message' => 'Дата пропущена в серии']);
+            return back()->with('success', 'Дата пропущена в серии');
         }
 
         if ($scope === 'this_and_future') {
@@ -252,27 +246,20 @@ class RecurringBlockedTimeController extends Controller
                 'status' => RecurringSeriesStatus::Active,
             ]);
 
-            return response()->json([
-                'old_series' => $series->fresh(),
-                'new_series' => $newSeries,
-                'message' => 'Серия разделена',
-            ]);
+            return back()->with('success', 'Серия разделена');
         }
 
         // scope === 'all'
         $series->update($validated);
 
-        return response()->json([
-            'series' => $series->fresh(),
-            'message' => 'Серия обновлена',
-        ]);
+        return back()->with('success', 'Серия обновлена');
     }
 
     public function destroyOccurrence(
         Request $request,
         RecurringBlockedTimeSeries $series,
         string $date,
-    ): JsonResponse {
+    ): RedirectResponse {
         $this->authorizeSeries($request, $series);
 
         $validated = $request->validate([
@@ -288,7 +275,7 @@ class RecurringBlockedTimeController extends Controller
                 ['type' => ExceptionType::Skip],
             );
 
-            return response()->json(['message' => 'Дата пропущена']);
+            return back()->with('success', 'Дата пропущена');
         }
 
         if ($scope === 'this_and_future') {
@@ -296,13 +283,13 @@ class RecurringBlockedTimeController extends Controller
                 'ends_at' => $occurrenceDate->copy()->subDay(),
             ]);
 
-            return response()->json(['message' => 'Серия завершена']);
+            return back()->with('success', 'Серия завершена');
         }
 
         // scope === 'all'
         $series->update(['status' => RecurringSeriesStatus::Cancelled]);
 
-        return response()->json(['message' => 'Серия отменена']);
+        return back()->with('success', 'Серия отменена');
     }
 
     private function seriesValidationRules(): array

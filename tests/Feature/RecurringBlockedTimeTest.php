@@ -111,7 +111,7 @@ class RecurringBlockedTimeTest extends TestCase
             'interval' => 1,
         ]);
 
-        $response->assertStatus(201);
+        $response->assertRedirect();
         $this->assertDatabaseHas('recurring_blocked_time_series', [
             'user_id' => $this->proMaster->id,
             'title' => 'Забрать ребёнка',
@@ -438,7 +438,7 @@ class RecurringBlockedTimeTest extends TestCase
             'interval' => 1,
         ]);
 
-        $response->assertStatus(201);
+        $response->assertRedirect();
         // If observer was not registered, the save would still work but cache
         // wouldn't be flushed. We verify it was created (observer attached in provider).
         $this->assertDatabaseHas('recurring_blocked_time_series', [
@@ -552,7 +552,7 @@ class RecurringBlockedTimeTest extends TestCase
             'end_time' => '16:00',
         ]);
 
-        $response->assertOk();
+        $response->assertRedirect();
         $this->assertDatabaseHas('recurring_blocked_time_series', [
             'id' => $series->id,
             'title' => 'New title',
@@ -590,7 +590,7 @@ class RecurringBlockedTimeTest extends TestCase
             ]
         );
 
-        $response->assertOk();
+        $response->assertRedirect();
         $this->assertDatabaseHas('recurring_blocked_time_exceptions', [
             'series_id' => $series->id,
             'occurrence_date' => '2026-10-05',
@@ -631,7 +631,7 @@ class RecurringBlockedTimeTest extends TestCase
             ]
         );
 
-        $response->assertOk();
+        $response->assertRedirect();
 
         // Old series should end on Oct 14
         $series->refresh();
@@ -672,7 +672,7 @@ class RecurringBlockedTimeTest extends TestCase
             ['scope' => 'this']
         );
 
-        $response->assertOk();
+        $response->assertRedirect();
         $this->assertDatabaseHas('recurring_blocked_time_exceptions', [
             'series_id' => $series->id,
             'occurrence_date' => '2026-10-05',
@@ -706,7 +706,7 @@ class RecurringBlockedTimeTest extends TestCase
             ['scope' => 'this_and_future']
         );
 
-        $response->assertOk();
+        $response->assertRedirect();
         $series->refresh();
         $this->assertEquals('2026-10-14', $series->ends_at->format('Y-m-d'));
     }
@@ -733,7 +733,7 @@ class RecurringBlockedTimeTest extends TestCase
 
         $response = $this->deleteJson("/admin/recurring-blocked-times/{$series->id}");
 
-        $response->assertOk();
+        $response->assertRedirect();
         $series->refresh();
         $this->assertEquals(RecurringSeriesStatus::Cancelled, $series->status);
     }
@@ -948,7 +948,7 @@ class RecurringBlockedTimeTest extends TestCase
     {
         $this->actingAs($this->proMaster);
 
-        $response = $this->postJson('/admin/recurring-blocked-times', [
+        $response = $this->post('/admin/recurring-blocked-times', [
             'title' => 'Bad times',
             'start_date' => '2026-10-01',
             'start_time' => '17:00',
@@ -957,14 +957,14 @@ class RecurringBlockedTimeTest extends TestCase
             'interval' => 1,
         ]);
 
-        $response->assertStatus(422);
+        $response->assertSessionHasErrors('end_time');
     }
 
     public function test_validation_requires_weekdays_for_custom_weekly(): void
     {
         $this->actingAs($this->proMaster);
 
-        $response = $this->postJson('/admin/recurring-blocked-times', [
+        $response = $this->post('/admin/recurring-blocked-times', [
             'title' => 'Missing weekdays',
             'start_date' => '2026-10-01',
             'start_time' => '16:00',
@@ -973,7 +973,7 @@ class RecurringBlockedTimeTest extends TestCase
             'interval' => 2,
         ]);
 
-        $response->assertStatus(422);
+        $response->assertSessionHasErrors('weekdays');
     }
 
     public function test_validation_requires_valid_interval(): void
@@ -990,5 +990,93 @@ class RecurringBlockedTimeTest extends TestCase
         ]);
 
         $this->assertNotEquals(201, $response->status());
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Inertia redirect regression tests
+    // ═══════════════════════════════════════════════════════
+    public function test_store_returns_inertia_redirect(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $response = $this->post('/admin/recurring-blocked-times', [
+            'title' => 'Забрать ребёнка',
+            'start_date' => '2026-10-01',
+            'start_time' => '16:00',
+            'end_time' => '17:00',
+            'recurrence_type' => 'daily',
+            'interval' => 1,
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('success', 'Серия блокировок создана');
+    }
+
+    public function test_update_returns_inertia_redirect(): void
+    {
+        $series = RecurringBlockedTimeSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'user_id' => $this->proMaster->id,
+            'title' => 'Old',
+            'start_date' => '2026-10-01',
+            'start_time' => '16:00',
+            'end_time' => '17:00',
+            'recurrence_type' => RecurrenceType::Daily,
+            'interval' => 1,
+            'timezone' => 'Europe/Moscow',
+            'status' => RecurringSeriesStatus::Active,
+        ]);
+
+        $this->actingAs($this->proMaster);
+
+        $response = $this->patch("/admin/recurring-blocked-times/{$series->id}", [
+            'title' => 'New',
+        ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHas('success', 'Серия обновлена');
+    }
+
+    public function test_destroy_returns_inertia_redirect(): void
+    {
+        $series = RecurringBlockedTimeSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'user_id' => $this->proMaster->id,
+            'title' => 'Delete me',
+            'start_date' => '2026-10-01',
+            'start_time' => '16:00',
+            'end_time' => '17:00',
+            'recurrence_type' => RecurrenceType::Daily,
+            'interval' => 1,
+            'timezone' => 'Europe/Moscow',
+            'status' => RecurringSeriesStatus::Active,
+        ]);
+
+        $this->actingAs($this->proMaster);
+
+        $response = $this->delete("/admin/recurring-blocked-times/{$series->id}");
+
+        $response->assertRedirect();
+        $response->assertSessionHas('success', 'Серия отменена');
+    }
+
+    public function test_preview_still_returns_json(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $response = $this->postJson('/admin/recurring-blocked-times/preview', [
+            'title' => 'Preview',
+            'start_date' => '2026-10-01',
+            'start_time' => '16:00',
+            'end_time' => '17:00',
+            'recurrence_type' => 'daily',
+            'interval' => 1,
+            'ends_at' => '2026-10-05',
+        ]);
+
+        $response->assertOk();
+        $data = $response->json();
+        $this->assertArrayHasKey('occurrences', $data);
+        $this->assertArrayHasKey('total', $data);
     }
 }
