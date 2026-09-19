@@ -1634,4 +1634,286 @@ class RecurringAppointmentTest extends TestCase
             $this->assertEquals(2, $prev->diffInDays($curr));
         }
     }
+
+    // ═══════════════ Edit Only This ═══════════════
+
+    #[Test]
+    public function edit_only_this_reschedules_and_preserves_series(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $wednesday = $this->nextWeekday(3);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [2, 3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $appt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => $this->service->catalog?->title ?? '',
+            'start_time' => Carbon::parse($wednesday->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $wednesday->format('Y-m-d'),
+        ]);
+
+        $newDate = $wednesday->copy()->addWeek();
+        $response = $this->patchJson("/admin/appointments/{$appt->id}/recurring/edit-only-this", [
+            'start_time' => $newDate->format('Y-m-d').' 11:00:00',
+        ]);
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $appt->refresh();
+        $this->assertEquals($series->id, $appt->recurring_series_id);
+        // recurring_occurrence_date preserved (series slot identity)
+        $this->assertEquals($wednesday->format('Y-m-d'), $appt->recurring_occurrence_date);
+    }
+
+    // ═══════════════ Cancel Only This ═══════════════
+
+    #[Test]
+    public function cancel_only_this_cancels_appointment_preserves_series(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $appt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => $this->service->catalog?->title ?? '',
+            'start_time' => Carbon::parse($wednesday->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $wednesday->format('Y-m-d'),
+        ]);
+
+        $response = $this->patchJson("/admin/appointments/{$appt->id}/recurring/cancel-only-this");
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $appt->refresh();
+        $this->assertEquals(AppointmentStatus::Cancelled, $appt->status);
+        $this->assertEquals($series->id, $appt->recurring_series_id);
+
+        $series->refresh();
+        $this->assertEquals('active', $series->status->value);
+    }
+
+    // ═══════════════ Cancel This And Future ═══════════════
+
+    #[Test]
+    public function cancel_this_and_future_cancels_future_and_ends_series(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        // Create 4 weekly appointments
+        $appointments = [];
+        for ($i = 0; $i < 4; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            $appointments[] = Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => $this->service->catalog?->title ?? '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Cancel from 3rd appointment (index 2) onwards
+        $response = $this->postJson("/admin/appointments/{$appointments[2]->id}/recurring/cancel-this-and-future");
+
+        $response->assertOk();
+        $response->assertJson(['cancelled' => 2]);
+
+        // First 2 should still be booked
+        $appointments[0]->refresh();
+        $appointments[1]->refresh();
+        $this->assertEquals(AppointmentStatus::Booked, $appointments[0]->status);
+        $this->assertEquals(AppointmentStatus::Booked, $appointments[1]->status);
+
+        // 3rd and 4th should be cancelled
+        $appointments[2]->refresh();
+        $appointments[3]->refresh();
+        $this->assertEquals(AppointmentStatus::Cancelled, $appointments[2]->status);
+        $this->assertEquals(AppointmentStatus::Cancelled, $appointments[3]->status);
+
+        // Series should be cancelled
+        $series->refresh();
+        $this->assertEquals('cancelled', $series->status->value);
+    }
+
+    // ═══════════════ Edit This And Future ═══════════════
+
+    #[Test]
+    public function edit_this_and_future_splits_series_creates_new(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        // Create 4 weekly appointments
+        $appointments = [];
+        for ($i = 0; $i < 4; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            $appointments[] = Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => $this->service->catalog?->title ?? '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Edit from 3rd appointment onwards with new time 11:00
+        $splitDate = $appointments[2]->recurring_occurrence_date;
+        $futureDates = [];
+        for ($i = 2; $i < 5; $i++) {
+            $futureDates[] = $wednesday->copy()->addWeeks($i)->format('Y-m-d');
+        }
+
+        $response = $this->postJson("/admin/appointments/{$appointments[2]->id}/recurring/edit-this-and-future", [
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 4,
+            'allowed_dates' => $futureDates,
+        ]);
+
+        $response->assertStatus(201);
+        $data = $response->json();
+        $this->assertNotEmpty($data['series_id']);
+
+        // Old series should be ended
+        $series->refresh();
+        $this->assertEquals($appointments[1]->recurring_occurrence_date, $series->ends_at->format('Y-m-d'));
+
+        // First 2 old appointments should still be booked
+        $appointments[0]->refresh();
+        $appointments[1]->refresh();
+        $this->assertEquals(AppointmentStatus::Booked, $appointments[0]->status);
+        $this->assertEquals(AppointmentStatus::Booked, $appointments[1]->status);
+
+        // Old future appointments (3rd and 4th) should be cancelled
+        $appointments[2]->refresh();
+        $appointments[3]->refresh();
+        $this->assertEquals(AppointmentStatus::Cancelled, $appointments[2]->status);
+        $this->assertEquals(AppointmentStatus::Cancelled, $appointments[3]->status);
+
+        // New series should exist with new appointments
+        $newSeries = RecurringAppointmentSeries::findOrFail($data['series_id']);
+        $this->assertEquals('active', $newSeries->status->value);
+        $this->assertNotEquals($series->id, $newSeries->id);
+    }
+
+    // ═══════════════ Source Strategy ═══════════════
+
+    #[Test]
+    public function new_series_occurrences_use_admin_source(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $date = $this->nextWeekday(2);
+
+        $response = $this->postJson('/admin/recurring-appointments', [
+            'client_id' => $this->client->id,
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 4,
+            'allowed_dates' => [$date->format('Y-m-d'), $date->copy()->addWeek()->format('Y-m-d'), $date->copy()->addWeeks(2)->format('Y-m-d'), $date->copy()->addWeeks(3)->format('Y-m-d')],
+        ]);
+
+        $response->assertStatus(201);
+        $seriesId = $response->json('series_id');
+
+        $appointments = Appointment::where('recurring_series_id', $seriesId)->get();
+        foreach ($appointments as $appt) {
+            $this->assertEquals('admin', $appt->source->value);
+            $this->assertNull($appt->tracking_link_id);
+        }
+    }
 }

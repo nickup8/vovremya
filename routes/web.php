@@ -174,6 +174,11 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/recurring-appointments/preview', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'preview'])->name('admin.recurring-appointments.preview');
         Route::post('/admin/recurring-appointments', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'store'])->name('admin.recurring-appointments.store');
         Route::post('/admin/recurring-appointments/from-appointment/{appointment}', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'fromExisting'])->name('admin.recurring-appointments.from-existing');
+        Route::patch('/admin/appointments/{appointment}/recurring/edit-only-this', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'editOnlyThis'])->name('admin.recurring-appointments.edit-only-this');
+        Route::patch('/admin/appointments/{appointment}/recurring/cancel-only-this', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'cancelOnlyThis'])->name('admin.recurring-appointments.cancel-only-this');
+        Route::post('/admin/appointments/{appointment}/recurring/preview-split', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'previewSplit'])->name('admin.recurring-appointments.preview-split');
+        Route::post('/admin/appointments/{appointment}/recurring/edit-this-and-future', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'editThisAndFuture'])->name('admin.recurring-appointments.edit-this-and-future');
+        Route::post('/admin/appointments/{appointment}/recurring/cancel-this-and-future', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'cancelThisAndFuture'])->name('admin.recurring-appointments.cancel-this-and-future');
     });
 
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');

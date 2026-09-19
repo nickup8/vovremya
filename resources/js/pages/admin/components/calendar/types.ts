@@ -15,6 +15,8 @@ export interface Appointment {
     master_name?: string;
     client_confirmed_at?: string | null;
     reminder_24h_sent_at?: string | null;
+    recurring_series_id?: string | null;
+    recurring_occurrence_date?: string | null;
 }
 
 export interface BlockedTime {

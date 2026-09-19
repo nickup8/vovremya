@@ -84,6 +84,8 @@ class CalendarController extends Controller
                         'master_name' => $a->master?->name ?? 'Мастер',
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
+                        'recurring_series_id' => $a->recurring_series_id,
+                        'recurring_occurrence_date' => $a->recurring_occurrence_date,
                     ];
                 });
 
@@ -210,6 +212,8 @@ class CalendarController extends Controller
                         'status' => $a->status,
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
+                        'recurring_series_id' => $a->recurring_series_id,
+                        'recurring_occurrence_date' => $a->recurring_occurrence_date,
                     ];
                 });
 

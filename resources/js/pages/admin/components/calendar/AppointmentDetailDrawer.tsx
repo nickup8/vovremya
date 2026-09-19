@@ -38,6 +38,10 @@ interface Props {
     timeOptions?: string[];
     isPro?: boolean;
     onRepeat?: () => void;
+    onEditOnlyThis?: (date: string, time: string) => void;
+    onEditThisAndFuture?: () => void;
+    onCancelOnlyThis?: () => void;
+    onCancelThisAndFuture?: () => void;
 }
 
 function formatDateLong(dateStr: string): string {
@@ -63,19 +67,32 @@ export function AppointmentDetailDrawer({
     onEditDateChange, onEditTimeChange,
     onEditSubmit, timeOptions = [],
     isPro = false, onRepeat,
+    onEditOnlyThis, onEditThisAndFuture, onCancelOnlyThis, onCancelThisAndFuture,
 }: Props) {
     const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
+    const [cancelMode, setCancelMode] = useState<'single' | 'series'>('single');
     const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
+    const [recurringMenuOpen, setRecurringMenuOpen] = useState(false);
 
     useEffect(() => {
-        if (!open && onEditModeChange) {
-            onEditModeChange(false);
+        if (!open) {
+            if (onEditModeChange) {
+                onEditModeChange(false);
+            }
+            setRecurringMenuOpen(false);
         }
     }, [open]);
 
     function handleCancelConfirm() {
         setCancelConfirmOpen(false);
-        onDelete();
+        if (cancelMode === 'single' && selected?.recurring_series_id) {
+            onCancelOnlyThis?.();
+        } else if (cancelMode === 'series') {
+            onCancelThisAndFuture?.();
+        } else {
+            onDelete();
+        }
+        setCancelMode('single');
     }
 
     function handleEditClick() {
@@ -307,34 +324,88 @@ export function AppointmentDetailDrawer({
                                 </DrawerFooter>
                             ) : canEdit ? (
                                 <DrawerFooter>
-                                    <div className="flex gap-3">
-                                        <Button
-                                            onClick={handleEditClick}
-                                            disabled={isProcessing}
-                                            variant="outline"
-                                            className="flex-1 rounded-lg"
-                                        >
-                                            Изменить
-                                        </Button>
-                                        {isPro && onRepeat && (
+                                    {selected?.recurring_series_id ? (
+                                        /* ─── Recurring: split actions ─── */
+                                        <div className="space-y-2">
+                                            <div className="flex gap-3">
+                                                <Popover open={recurringMenuOpen} onOpenChange={setRecurringMenuOpen}>
+                                                    <PopoverTrigger asChild>
+                                                        <Button
+                                                            disabled={isProcessing}
+                                                            variant="outline"
+                                                            className="flex-1 rounded-lg"
+                                                        >
+                                                            Изменить
+                                                        </Button>
+                                                    </PopoverTrigger>
+                                                    <PopoverContent align="start" sideOffset={4} className="w-52 p-1">
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setRecurringMenuOpen(false); handleEditClick(); }}
+                                                            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                                        >
+                                                            Только эту
+                                                        </button>
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setRecurringMenuOpen(false); onEditThisAndFuture?.(); }}
+                                                            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                                        >
+                                                            Эту и следующие
+                                                        </button>
+                                                    </PopoverContent>
+                                                </Popover>
+                                                {isPro && onRepeat && (
+                                                    <Button
+                                                        onClick={onRepeat}
+                                                        disabled={isProcessing}
+                                                        variant="outline"
+                                                        className="flex-1 rounded-lg"
+                                                    >
+                                                        Повторять
+                                                    </Button>
+                                                )}
+                                            </div>
                                             <Button
-                                                onClick={onRepeat}
+                                                onClick={() => { setCancelMode('single'); setCancelConfirmOpen(true); }}
+                                                disabled={isProcessing}
+                                                variant="outline"
+                                                className="w-full rounded-lg border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                                            >
+                                                Отменить
+                                            </Button>
+                                        </div>
+                                    ) : (
+                                        /* ─── Non-recurring: simple actions ─── */
+                                        <div className="flex gap-3">
+                                            <Button
+                                                onClick={handleEditClick}
                                                 disabled={isProcessing}
                                                 variant="outline"
                                                 className="flex-1 rounded-lg"
                                             >
-                                                Повторять
+                                                Изменить
                                             </Button>
-                                        )}
-                                        <Button
-                                            onClick={() => setCancelConfirmOpen(true)}
-                                            disabled={isProcessing}
-                                            variant="outline"
-                                            className="rounded-lg border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
-                                        >
-                                            Отменить запись
-                                        </Button>
-                                    </div>
+                                            {isPro && onRepeat && (
+                                                <Button
+                                                    onClick={onRepeat}
+                                                    disabled={isProcessing}
+                                                    variant="outline"
+                                                    className="flex-1 rounded-lg"
+                                                >
+                                                    Повторять
+                                                </Button>
+                                            )}
+                                            <Button
+                                                onClick={() => setCancelConfirmOpen(true)}
+                                                disabled={isProcessing}
+                                                variant="outline"
+                                                className="rounded-lg border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                                            >
+                                                Отменить запись
+                                            </Button>
+                                        </div>
+                                    )}
                                 </DrawerFooter>
                             ) : null}
                         </>
@@ -346,11 +417,17 @@ export function AppointmentDetailDrawer({
             <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>Отменить запись?</AlertDialogTitle>
+                        <AlertDialogTitle>
+                            {cancelMode === 'series' ? 'Отменить серию?' : 'Отменить запись?'}
+                        </AlertDialogTitle>
                         <AlertDialogDescription>
-                            {selected && (
+                            {selected && cancelMode === 'series' ? (
+                                <>Эта запись и все последующие в серии будут отменены. Прошлые записи останутся без изменений.</>
+                            ) : selected && selected.recurring_series_id ? (
+                                <>Запись {selected.client_name} на {selected.time} ({selected.service}) будет отменена. Остальные записи в серии не затронуты.</>
+                            ) : selected ? (
                                 <>Запись {selected.client_name} на {selected.time} ({selected.service}) будет отменена. Карточка останется в календаре со статусом «Отменён».</>
-                            )}
+                            ) : null}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -360,7 +437,7 @@ export function AppointmentDetailDrawer({
                             disabled={isProcessing}
                             className="bg-red-600 text-white hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-800"
                         >
-                            Да, отменить
+                            {cancelMode === 'series' ? 'Да, отменить серию' : 'Да, отменить'}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>

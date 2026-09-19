@@ -227,6 +227,187 @@ class RecurringAppointmentService
         });
     }
 
+    /**
+     * Edit only this occurrence: reschedule, preserve series fields.
+     */
+    public function editOnlyThis(
+        Appointment $appointment,
+        string $newDate,
+        string $newTime,
+    ): array {
+        return app(BookingService::class)->rescheduleAppointment(
+            appointment: $appointment,
+            newDate: $newDate,
+            newTime: $newTime,
+            ignoreWarnings: true,
+            confirmOutsideHours: true,
+        );
+    }
+
+    /**
+     * Cancel only this occurrence.
+     */
+    public function cancelOnlyThis(Appointment $appointment): Appointment
+    {
+        return app(BookingService::class)->cancel($appointment);
+    }
+
+    /**
+     * Split series at a point, creating a new series from split_point onwards.
+     * Old series ends at the previous occurrence.
+     * Old future appointments (>= split_point) are cancelled.
+     * New appointments are materialized from the new series.
+     *
+     * @param array{allowed_dates: string[]} $previewResult
+     */
+    public function splitSeries(
+        RecurringAppointmentSeries $series,
+        Appointment $splitAppointment,
+        array $newParams,
+        array $previewResult,
+    ): RecurringAppointmentSeries {
+        $tz = $series->timezone;
+        $splitDate = $splitAppointment->recurring_occurrence_date;
+
+        return DB::transaction(function () use ($series, $splitAppointment, $splitDate, $newParams, $previewResult, $tz) {
+            // Lock series
+            $lockedSeries = RecurringAppointmentSeries::where('id', $series->id)->lockForUpdate()->first();
+
+            // Find previous occurrence
+            $prevAppointment = Appointment::where('recurring_series_id', $series->id)
+                ->where('recurring_occurrence_date', '<', $splitDate)
+                ->orderBy('recurring_occurrence_date', 'desc')
+                ->first();
+
+            if ($prevAppointment) {
+                $lockedSeries->update([
+                    'ends_at' => $prevAppointment->recurring_occurrence_date,
+                ]);
+            } else {
+                // split_point is the first occurrence — end old series entirely
+                $lockedSeries->update([
+                    'ends_at' => $splitDate,
+                    'status' => RecurringSeriesStatus::Cancelled,
+                ]);
+            }
+
+            // Get all future appointments to cancel
+            $futureAppointments = Appointment::where('recurring_series_id', $series->id)
+                ->where('recurring_occurrence_date', '>=', $splitDate)
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                    AppointmentStatus::Prepaid,
+                ])
+                ->get();
+
+            foreach ($futureAppointments as $appt) {
+                app(BookingService::class)->cancel($appt);
+            }
+
+            // Create new series
+            $master = $series->master;
+            $newSeries = $this->createSeries(
+                master: $master,
+                clientId: $series->client_id,
+                masterServiceId: $newParams['master_service_id'] ?? $series->master_service_id,
+                startDate: $splitDate,
+                startTime: $newParams['start_time'] ?? $series->start_time,
+                recurrenceType: RecurrenceType::from($newParams['recurrence_type']),
+                interval: $newParams['interval'],
+                weekdays: $newParams['weekdays'] ?? null,
+                endsAt: $newParams['ends_at'] ?? null,
+                occurrencesCount: $newParams['occurrences_count'] ?? null,
+                allowedDates: $previewResult['dates'] ?? [],
+            );
+
+            return $newSeries;
+        });
+    }
+
+    /**
+     * Cancel this and all future occurrences.
+     */
+    public function cancelThisAndFuture(
+        RecurringAppointmentSeries $series,
+        Appointment $splitAppointment,
+    ): int {
+        $splitDate = $splitAppointment->recurring_occurrence_date;
+
+        return DB::transaction(function () use ($series, $splitDate) {
+            // Lock series
+            $lockedSeries = RecurringAppointmentSeries::where('id', $series->id)->lockForUpdate()->first();
+
+            // Find previous occurrence
+            $prevAppointment = Appointment::where('recurring_series_id', $series->id)
+                ->where('recurring_occurrence_date', '<', $splitDate)
+                ->orderBy('recurring_occurrence_date', 'desc')
+                ->first();
+
+            if ($prevAppointment) {
+                $lockedSeries->update([
+                    'ends_at' => $prevAppointment->recurring_occurrence_date,
+                ]);
+            } else {
+                $lockedSeries->update([
+                    'ends_at' => $splitDate,
+                ]);
+            }
+
+            // Cancel future appointments
+            $futureAppointments = Appointment::where('recurring_series_id', $series->id)
+                ->where('recurring_occurrence_date', '>=', $splitDate)
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                    AppointmentStatus::Prepaid,
+                ])
+                ->get();
+
+            foreach ($futureAppointments as $appt) {
+                app(BookingService::class)->cancel($appt);
+            }
+
+            $lockedSeries->update(['status' => RecurringSeriesStatus::Cancelled]);
+
+            return $futureAppointments->count();
+        });
+    }
+
+    /**
+     * Preview for split: generate dates from split_point, exclude old future IDs.
+     */
+    public function previewSplit(
+        Appointment $splitAppointment,
+        RecurrenceType $recurrenceType,
+        int $interval,
+        ?array $weekdays,
+        ?Carbon $endsAt,
+        ?int $occurrencesCount,
+        ?array $excludeAppointmentIds = null,
+    ): array {
+        $master = $splitAppointment->master;
+        $service = $splitAppointment->masterService;
+        $tz = $master->getTimezone();
+        $splitDate = \Illuminate\Support\Carbon::parse($splitAppointment->recurring_occurrence_date, $tz);
+        $startTime = $splitAppointment->start_time->timezone($tz)->format('H:i');
+        $durationMinutes = $service?->effective_duration ?? 60;
+
+        // Generate preview from split point (current = first occurrence)
+        return $this->preview(
+            master: $master,
+            startDate: $splitDate,
+            startTime: $startTime,
+            durationMinutes: $durationMinutes,
+            recurrenceType: $recurrenceType,
+            interval: $interval,
+            weekdays: $weekdays,
+            endsAt: $endsAt,
+            occurrencesCount: $occurrencesCount,
+            excludeAppointmentId: $excludeAppointmentIds[0] ?? null,
+        );
+    }
+
     private function estimateEndDate(
         Carbon $startDate,
         RecurrenceType $type,

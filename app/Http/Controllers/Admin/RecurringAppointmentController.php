@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\RecurrenceType;
+use App\Enums\RecurringSeriesStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -166,6 +167,164 @@ class RecurringAppointmentController extends Controller
             'series_id' => $series->id,
             'created' => $series->appointments()->count(),
         ], 201);
+    }
+
+    /**
+     * Edit only this occurrence: reschedule date/time.
+     */
+    public function editOnlyThis(Request $request, Appointment $appointment): JsonResponse
+    {
+        $this->authorize('update', $appointment);
+
+        if (! $appointment->recurring_series_id) {
+            return response()->json(['message' => 'Запись не является частью серии.'], 422);
+        }
+
+        $validated = $request->validate([
+            'start_time' => 'required|date',
+        ]);
+
+        $tz = $appointment->master->getTimezone();
+        $newDateTime = \Illuminate\Support\Carbon::parse($validated['start_time'], $tz);
+        $newDate = $newDateTime->format('Y-m-d');
+        $newTime = $newDateTime->format('H:i');
+
+        $result = $this->recurringService->editOnlyThis($appointment, $newDate, $newTime);
+
+        if (! ($result['success'] ?? false)) {
+            return response()->json([
+                'message' => $result['message'] ?? 'Ошибка переноса.',
+            ], 422);
+        }
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Cancel only this occurrence.
+     */
+    public function cancelOnlyThis(Request $request, Appointment $appointment): JsonResponse
+    {
+        $this->authorize('update', $appointment);
+
+        if (! $appointment->recurring_series_id) {
+            return response()->json(['message' => 'Запись не является частью серии.'], 422);
+        }
+
+        $this->recurringService->cancelOnlyThis($appointment);
+
+        return response()->json(['success' => true]);
+    }
+
+    /**
+     * Preview for split operations (edit/cancel this-and-future).
+     */
+    public function previewSplit(Request $request, Appointment $appointment): JsonResponse
+    {
+        $this->authorize('view', $appointment);
+
+        $validated = $request->validate([
+            'recurrence_type' => 'required|in:daily,weekly',
+            'interval' => 'required|integer|min:1',
+            'weekdays' => 'nullable|array',
+            'weekdays.*' => 'integer|min:1|max:7',
+            'ends_at' => 'nullable|date_format:Y-m-d',
+            'occurrences_count' => 'nullable|integer|min:2|max:100',
+        ]);
+
+        if (empty($validated['ends_at']) && empty($validated['occurrences_count'])) {
+            return response()->json([
+                'message' => 'Укажите дату окончания или количество повторений.',
+            ], 422);
+        }
+
+        $result = $this->recurringService->previewSplit(
+            splitAppointment: $appointment,
+            recurrenceType: RecurrenceType::from($validated['recurrence_type']),
+            interval: $validated['interval'],
+            weekdays: $validated['weekdays'] ?? null,
+            endsAt: ! empty($validated['ends_at']) ? \Illuminate\Support\Carbon::parse($validated['ends_at']) : null,
+            occurrencesCount: $validated['occurrences_count'] ?? null,
+        );
+
+        return response()->json($result);
+    }
+
+    /**
+     * Edit this and future occurrences: split series + create new.
+     */
+    public function editThisAndFuture(Request $request, Appointment $appointment): JsonResponse
+    {
+        $this->authorize('update', $appointment);
+
+        if (! $appointment->recurring_series_id) {
+            return response()->json(['message' => 'Запись не является частью серии.'], 422);
+        }
+
+        $validated = $request->validate([
+            'recurrence_type' => 'required|in:daily,weekly',
+            'interval' => 'required|integer|min:1',
+            'weekdays' => 'nullable|array',
+            'weekdays.*' => 'integer|min:1|max:7',
+            'ends_at' => 'nullable|date_format:Y-m-d',
+            'occurrences_count' => 'nullable|integer|min:2|max:100',
+            'allowed_dates' => 'required|array|min:1',
+            'allowed_dates.*' => 'date_format:Y-m-d',
+        ]);
+
+        if (empty($validated['ends_at']) && empty($validated['occurrences_count'])) {
+            return response()->json([
+                'message' => 'Укажите дату окончания или количество повторений.',
+            ], 422);
+        }
+
+        $series = $appointment->recurringSeries;
+        if (! $series || $series->status !== RecurringSeriesStatus::Active) {
+            return response()->json(['message' => 'Серия неактивна.'], 422);
+        }
+
+        $newSeries = $this->recurringService->splitSeries(
+            series: $series,
+            splitAppointment: $appointment,
+            newParams: [
+                'recurrence_type' => $validated['recurrence_type'],
+                'interval' => $validated['interval'],
+                'weekdays' => $validated['weekdays'],
+                'ends_at' => $validated['ends_at'] ?? null,
+                'occurrences_count' => $validated['occurrences_count'] ?? null,
+            ],
+            previewResult: [
+                'dates' => $validated['allowed_dates'],
+            ],
+        );
+
+        return response()->json([
+            'series_id' => $newSeries->id,
+            'created' => $newSeries->appointments()->count(),
+        ], 201);
+    }
+
+    /**
+     * Cancel this and all future occurrences.
+     */
+    public function cancelThisAndFuture(Request $request, Appointment $appointment): JsonResponse
+    {
+        $this->authorize('update', $appointment);
+
+        if (! $appointment->recurring_series_id) {
+            return response()->json(['message' => 'Запись не является частью серии.'], 422);
+        }
+
+        $series = $appointment->recurringSeries;
+        if (! $series) {
+            return response()->json(['message' => 'Серия не найдена.'], 422);
+        }
+
+        $cancelledCount = $this->recurringService->cancelThisAndFuture($series, $appointment);
+
+        return response()->json([
+            'cancelled' => $cancelledCount,
+        ]);
     }
 
     private function resolveMaster(User $authUser, ?string $masterId): User

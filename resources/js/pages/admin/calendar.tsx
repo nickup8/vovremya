@@ -318,6 +318,10 @@ export default function CalendarPage() {
         cancelBookingMode,
         fetchPreview,
         submitRecurringSeries,
+        editOnlyThis,
+        editThisAndFuture,
+        cancelOnlyThis,
+        cancelThisAndFuture,
     } = useCalendarActions({
         clients,
         services,
@@ -606,6 +610,10 @@ return [];
                 timeOptions={timeOptions}
                 isPro={isPro}
                 onRepeat={openRepeatDialog}
+                onEditOnlyThis={editOnlyThis}
+                onEditThisAndFuture={() => editThisAndFuture(selected?.date ?? '', selected?.time ?? '')}
+                onCancelOnlyThis={cancelOnlyThis}
+                onCancelThisAndFuture={cancelThisAndFuture}
             />
 
             {/* ─── Recurrence from Existing Dialog ─── */}

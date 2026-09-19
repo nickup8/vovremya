@@ -800,6 +800,155 @@ return;
         setSheetOpen(true);
     }
 
+    // ═══════════════ Recurring: Edit/Cancel Only This ═══════════════
+    function editOnlyThis(date: string, time: string) {
+        if (!selected) return;
+        setIsProcessing(true);
+
+        router.patch(`/admin/appointments/${selected.id}/recurring/edit-only-this`, {
+            start_time: `${date} ${time}:00`,
+        }, {
+            preserveScroll: true,
+            only: ['appointments'],
+            onSuccess: () => {
+                toast.success('Запись перенесена');
+                setSheetOpen(false);
+                setSelected(null);
+            },
+            onError: (errors: Record<string, string>) => {
+                toast.error(errors.time ?? 'Ошибка переноса');
+            },
+            onFinish: () => {
+                setIsProcessing(false);
+            },
+        });
+    }
+
+    function cancelOnlyThis() {
+        if (!selected) return;
+        setIsProcessing(true);
+
+        router.patch(`/admin/appointments/${selected.id}/recurring/cancel-only-this`, {}, {
+            preserveScroll: true,
+            only: ['appointments'],
+            onSuccess: () => {
+                toast.success('Запись отменена');
+                setSheetOpen(false);
+                setSelected(null);
+            },
+            onError: (errors: Record<string, string>) => {
+                toast.error(errors.status ?? 'Ошибка отмены');
+            },
+            onFinish: () => {
+                setIsProcessing(false);
+            },
+        });
+    }
+
+    function cancelThisAndFuture() {
+        if (!selected) return;
+        setIsProcessing(true);
+
+        fetch(`/admin/appointments/${selected.id}/recurring/cancel-this-and-future`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+            },
+        }).then(async (res) => {
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка отмены');
+                return;
+            }
+            const data = await res.json();
+            toast.success(`Отменено: ${data.cancelled} записей`);
+            setSheetOpen(false);
+            setSelected(null);
+            router.reload({ only: ['appointments'] });
+        }).catch(() => {
+            toast.error('Ошибка сети');
+        }).finally(() => {
+            setIsProcessing(false);
+        });
+    }
+
+    async function editThisAndFuture(date: string, time: string, recurrenceConfig?: { recurrence_type: string; interval: number; weekdays?: number[]; end_type?: string; occurrences_count?: number; ends_at?: string }) {
+        if (!selected) return;
+        setIsProcessing(true);
+
+        const cfg = recurrenceConfig ?? { recurrence_type: 'weekly', interval: 1, occurrences_count: 10 };
+
+        try {
+            // First: preview split with current series params
+            const previewRes = await fetch(`/admin/appointments/${selected.id}/recurring/preview-split`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify({
+                    recurrence_type: cfg.recurrence_type,
+                    interval: cfg.interval,
+                    weekdays: cfg.weekdays,
+                    occurrences_count: cfg.occurrences_count ?? 10,
+                }),
+            });
+
+            if (!previewRes.ok) {
+                const err = await previewRes.json();
+                toast.error(err.message ?? 'Ошибка превью');
+                return;
+            }
+
+            const previewData = await previewRes.json();
+
+            // Submit the split
+            const submitBody: Record<string, unknown> = {
+                recurrence_type: cfg.recurrence_type,
+                interval: cfg.interval,
+                weekdays: cfg.weekdays,
+                allowed_dates: previewData.dates,
+            };
+            if (cfg.end_type === 'count') {
+                submitBody.occurrences_count = cfg.occurrences_count;
+            } else {
+                submitBody.ends_at = cfg.ends_at;
+            }
+
+            const res = await fetch(`/admin/appointments/${selected.id}/recurring/edit-this-and-future`, {
+                method: 'POST',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(submitBody),
+            });
+
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка сохранения');
+                return;
+            }
+
+            const data = await res.json();
+            toast.success(`Серия разделена: создано ${data.created} записей`);
+            setSheetOpen(false);
+            setSelected(null);
+            router.reload({ only: ['appointments'] });
+        } catch {
+            toast.error('Ошибка сети');
+        } finally {
+            setIsProcessing(false);
+        }
+    }
+
     // ═══════════════ Return ═══════════════
     return {
         // State
@@ -850,5 +999,9 @@ return;
         submitRecurringSeries,
         submitRecurringFromExisting,
         resetRecurrence,
+        editOnlyThis,
+        editThisAndFuture,
+        cancelOnlyThis,
+        cancelThisAndFuture,
     };
 }
