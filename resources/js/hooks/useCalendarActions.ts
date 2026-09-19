@@ -889,6 +889,8 @@ return;
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
                 },
                 body: JSON.stringify({
+                    service_id: params.service_id,
+                    start_time: params.time,
                     recurrence_type: params.recurrence_type,
                     interval: params.interval,
                     weekdays: params.weekdays,

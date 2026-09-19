@@ -262,6 +262,8 @@ class RecurringAppointmentController extends Controller
         }
 
         $validated = $request->validate([
+            'service_id' => 'required|uuid|exists:master_service,id',
+            'start_time' => 'required|date_format:H:i',
             'recurrence_type' => 'required|in:daily,weekly',
             'interval' => 'required|integer|min:1',
             'weekdays' => 'nullable|array',
@@ -283,6 +285,9 @@ class RecurringAppointmentController extends Controller
             return response()->json(['message' => 'Серия неактивна.'], 422);
         }
 
+        $masterService = MasterService::findOrFail($validated['service_id']);
+        $this->authorizeService(auth()->user(), $masterService);
+
         $newSeries = $this->recurringService->splitSeries(
             series: $series,
             splitAppointment: $appointment,
@@ -292,6 +297,8 @@ class RecurringAppointmentController extends Controller
                 'weekdays' => $validated['weekdays'],
                 'ends_at' => $validated['ends_at'] ?? null,
                 'occurrences_count' => $validated['occurrences_count'] ?? null,
+                'master_service_id' => $masterService->id,
+                'start_time' => $validated['start_time'],
             ],
             previewResult: [
                 'dates' => $validated['allowed_dates'],
