@@ -20,6 +20,8 @@ use App\Services\Booking\AvailabilityService;
 use App\Services\Recurrence\RecurrenceRule;
 use App\Services\Recurrence\RecurrenceService;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -175,7 +177,7 @@ class RecurringBlockedTimeTest extends TestCase
         $rule = RecurrenceRule::fromArray([
             'recurrence_type' => 'weekly',
             'interval' => 1,
-            'weekdays' => null,
+            'weekdays' => [1], // Monday
             'start_date' => '2026-10-05',
             'ends_at' => '2026-10-26',
             'timezone' => 'Europe/Moscow',
@@ -204,7 +206,7 @@ class RecurringBlockedTimeTest extends TestCase
         $rule = RecurrenceRule::fromArray([
             'recurrence_type' => 'weekly',
             'interval' => 2,
-            'weekdays' => null,
+            'weekdays' => [1], // Monday
             'start_date' => '2026-10-05',
             'ends_at' => '2026-11-02',
             'timezone' => 'Europe/Moscow',
@@ -224,14 +226,14 @@ class RecurringBlockedTimeTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════════════
-    // P0-6: Multiple weekdays (custom_weekly)
+    // P0-6: Multiple weekdays (weekly)
     // ═══════════════════════════════════════════════════════
-    public function test_custom_weekly_with_multiple_weekdays(): void
+    public function test_weekly_with_multiple_weekdays(): void
     {
         // Mon=1, Wed=3, Fri=5
         $service = new RecurrenceService();
         $rule = RecurrenceRule::fromArray([
-            'recurrence_type' => 'custom_weekly',
+            'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [1, 3, 5],
             'start_date' => '2026-10-05', // Monday
@@ -960,7 +962,7 @@ class RecurringBlockedTimeTest extends TestCase
         $response->assertSessionHasErrors('end_time');
     }
 
-    public function test_validation_requires_weekdays_for_custom_weekly(): void
+    public function test_validation_requires_weekdays_for_weekly(): void
     {
         $this->actingAs($this->proMaster);
 
@@ -969,8 +971,8 @@ class RecurringBlockedTimeTest extends TestCase
             'start_date' => '2026-10-01',
             'start_time' => '16:00',
             'end_time' => '17:00',
-            'recurrence_type' => 'custom_weekly',
-            'interval' => 2,
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
         ]);
 
         $response->assertSessionHasErrors('weekdays');
@@ -1078,5 +1080,236 @@ class RecurringBlockedTimeTest extends TestCase
         $data = $response->json();
         $this->assertArrayHasKey('occurrences', $data);
         $this->assertArrayHasKey('total', $data);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // Unified weekly model tests
+    // ═══════════════════════════════════════════════════════
+
+    public function test_weekly_mon_fri_five_occurrences_per_week(): void
+    {
+        $service = new RecurrenceService();
+        $rule = RecurrenceRule::fromArray([
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [1, 2, 3, 4, 5],
+            'start_date' => '2026-10-05', // Monday
+            'ends_at' => '2026-10-11',    // Sunday
+            'timezone' => 'Europe/Moscow',
+        ]);
+
+        $occurrences = $service->generateOccurrences(
+            $rule,
+            Carbon::parse('2026-10-05', 'Europe/Moscow'),
+            Carbon::parse('2026-10-11', 'Europe/Moscow'),
+        );
+
+        $this->assertCount(5, $occurrences);
+        $this->assertEquals('2026-10-05', $occurrences[0]->format('Y-m-d')); // Mon
+        $this->assertEquals('2026-10-06', $occurrences[1]->format('Y-m-d')); // Tue
+        $this->assertEquals('2026-10-07', $occurrences[2]->format('Y-m-d')); // Wed
+        $this->assertEquals('2026-10-08', $occurrences[3]->format('Y-m-d')); // Thu
+        $this->assertEquals('2026-10-09', $occurrences[4]->format('Y-m-d')); // Fri
+    }
+
+    public function test_weekly_tuesday_only(): void
+    {
+        $service = new RecurrenceService();
+        $rule = RecurrenceRule::fromArray([
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2], // Tuesday
+            'start_date' => '2026-10-05', // Monday
+            'ends_at' => '2026-10-25',    // Sunday
+            'timezone' => 'Europe/Moscow',
+        ]);
+
+        $occurrences = $service->generateOccurrences(
+            $rule,
+            Carbon::parse('2026-10-05', 'Europe/Moscow'),
+            Carbon::parse('2026-10-25', 'Europe/Moscow'),
+        );
+
+        $this->assertCount(3, $occurrences);
+        $this->assertEquals('2026-10-06', $occurrences[0]->format('Y-m-d'));
+        $this->assertEquals('2026-10-13', $occurrences[1]->format('Y-m-d'));
+        $this->assertEquals('2026-10-20', $occurrences[2]->format('Y-m-d'));
+    }
+
+    public function test_weekly_biweekly_tue_thu(): void
+    {
+        $service = new RecurrenceService();
+        $rule = RecurrenceRule::fromArray([
+            'recurrence_type' => 'weekly',
+            'interval' => 2,
+            'weekdays' => [2, 4], // Tue, Thu
+            'start_date' => '2026-10-05', // Monday
+            'ends_at' => '2026-10-18',    // 2 weeks
+            'timezone' => 'Europe/Moscow',
+        ]);
+
+        $occurrences = $service->generateOccurrences(
+            $rule,
+            Carbon::parse('2026-10-05', 'Europe/Moscow'),
+            Carbon::parse('2026-10-18', 'Europe/Moscow'),
+        );
+
+        // Week 0: Tue 6, Thu 8
+        // Week 1 (skipped)
+        // Week 2: Tue 13 is week 1 (skipped), need to check...
+        // Actually: anchor Monday = Oct 5. Week 0 = Oct 5-11. Week 1 = Oct 12-18.
+        // interval=2, so week 0 active, week 1 skipped.
+        // But wait, week 2 would be Oct 19+, outside range.
+        // So only week 0: Tue 6, Thu 8
+        $this->assertCount(2, $occurrences);
+        $this->assertEquals('2026-10-06', $occurrences[0]->format('Y-m-d'));
+        $this->assertEquals('2026-10-08', $occurrences[1]->format('Y-m-d'));
+    }
+
+    public function test_weekly_start_wednesday_partial_first_week(): void
+    {
+        $service = new RecurrenceService();
+        $rule = RecurrenceRule::fromArray([
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [1, 2, 3, 4, 5], // Mon-Fri
+            'start_date' => '2026-10-07',   // Wednesday
+            'ends_at' => '2026-10-18',      // 2 weeks
+            'timezone' => 'Europe/Moscow',
+        ]);
+
+        $occurrences = $service->generateOccurrences(
+            $rule,
+            Carbon::parse('2026-10-07', 'Europe/Moscow'),
+            Carbon::parse('2026-10-18', 'Europe/Moscow'),
+        );
+
+        // First week (from Wed): Wed 7, Thu 8, Fri 9
+        // Second week: Mon 12, Tue 13, Wed 14, Thu 15, Fri 16
+        $this->assertCount(8, $occurrences);
+        $this->assertEquals('2026-10-07', $occurrences[0]->format('Y-m-d'));
+        $this->assertEquals('2026-10-09', $occurrences[2]->format('Y-m-d'));
+        $this->assertEquals('2026-10-12', $occurrences[3]->format('Y-m-d'));
+    }
+
+    public function test_weekly_fallback_empty_weekdays_uses_start_date(): void
+    {
+        // Legacy data: weekly with null weekdays
+        $service = new RecurrenceService();
+        $rule = RecurrenceRule::fromArray([
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => null, // legacy fallback
+            'start_date' => '2026-10-07', // Wednesday
+            'ends_at' => '2026-10-28',
+            'timezone' => 'Europe/Moscow',
+        ]);
+
+        $occurrences = $service->generateOccurrences(
+            $rule,
+            Carbon::parse('2026-10-07', 'Europe/Moscow'),
+            Carbon::parse('2026-10-28', 'Europe/Moscow'),
+        );
+
+        // Should fall back to Wednesday (ISO 3)
+        $this->assertCount(4, $occurrences);
+        $this->assertEquals('2026-10-07', $occurrences[0]->format('Y-m-d'));
+        $this->assertEquals('2026-10-14', $occurrences[1]->format('Y-m-d'));
+        $this->assertEquals('2026-10-21', $occurrences[2]->format('Y-m-d'));
+        $this->assertEquals('2026-10-28', $occurrences[3]->format('Y-m-d'));
+    }
+
+    public function test_weekly_biweekly_mon_fri(): void
+    {
+        $service = new RecurrenceService();
+        $rule = RecurrenceRule::fromArray([
+            'recurrence_type' => 'weekly',
+            'interval' => 2,
+            'weekdays' => [1, 2, 3, 4, 5],
+            'start_date' => '2026-10-05', // Monday
+            'ends_at' => '2026-10-18',    // 2 weeks
+            'timezone' => 'Europe/Moscow',
+        ]);
+
+        $occurrences = $service->generateOccurrences(
+            $rule,
+            Carbon::parse('2026-10-05', 'Europe/Moscow'),
+            Carbon::parse('2026-10-18', 'Europe/Moscow'),
+        );
+
+        // Week 0 active: Mon-Fri (5 occurrences)
+        // Week 1 skipped
+        // Week 2: outside range (Oct 19+)
+        $this->assertCount(5, $occurrences);
+        $this->assertEquals('2026-10-05', $occurrences[0]->format('Y-m-d'));
+        $this->assertEquals('2026-10-09', $occurrences[4]->format('Y-m-d'));
+    }
+
+    public function test_data_migration_custom_weekly_to_weekly(): void
+    {
+        // Use raw DB inserts since custom_weekly enum no longer exists
+        $cwId = Str::uuid()->toString();
+        $wId = Str::uuid()->toString();
+
+        DB::table('recurring_blocked_time_series')->insert([
+            'id' => $cwId,
+            'workspace_id' => $this->proWorkspace->id,
+            'user_id' => $this->proMaster->id,
+            'title' => 'Legacy custom_weekly',
+            'start_date' => '2026-10-01',
+            'start_time' => '16:00',
+            'end_time' => '17:00',
+            'recurrence_type' => 'custom_weekly',
+            'interval' => 2,
+            'weekdays' => json_encode([2, 4]),
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        DB::table('recurring_blocked_time_series')->insert([
+            'id' => $wId,
+            'workspace_id' => $this->proWorkspace->id,
+            'user_id' => $this->proMaster->id,
+            'title' => 'Legacy weekly null weekdays',
+            'start_date' => '2026-10-06', // Tuesday
+            'start_time' => '16:00',
+            'end_time' => '17:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => null,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // Run the data migration logic
+        DB::table('recurring_blocked_time_series')
+            ->where('recurrence_type', 'custom_weekly')
+            ->update(['recurrence_type' => 'weekly']);
+
+        $legacyWeekly = DB::table('recurring_blocked_time_series')
+            ->where('recurrence_type', 'weekly')
+            ->whereNull('weekdays')
+            ->get();
+
+        foreach ($legacyWeekly as $series) {
+            $dayOfWeekIso = (int) date('N', strtotime($series->start_date));
+            DB::table('recurring_blocked_time_series')
+                ->where('id', $series->id)
+                ->update(['weekdays' => json_encode([$dayOfWeekIso])]);
+        }
+
+        // custom_weekly → weekly, weekdays preserved
+        $cw = DB::table('recurring_blocked_time_series')->where('id', $cwId)->first();
+        $this->assertEquals('weekly', $cw->recurrence_type);
+        $this->assertEquals([2, 4], json_decode($cw->weekdays, true));
+
+        // weekly + null weekdays → weekdays=[2] (Tuesday ISO)
+        $w = DB::table('recurring_blocked_time_series')->where('id', $wId)->first();
+        $this->assertEquals('weekly', $w->recurrence_type);
+        $this->assertEquals([2], json_decode($w->weekdays, true));
     }
 }

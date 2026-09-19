@@ -4,7 +4,6 @@ namespace App\Services\Recurrence;
 
 use App\Enums\RecurrenceType;
 use Carbon\Carbon;
-use Carbon\CarbonPeriod;
 
 class RecurrenceService
 {
@@ -39,7 +38,6 @@ class RecurrenceService
         return match ($rule->recurrenceType) {
             RecurrenceType::Daily => $this->generateDaily($rule, $start, $end),
             RecurrenceType::Weekly => $this->generateWeekly($rule, $start, $end),
-            RecurrenceType::CustomWeekly => $this->generateCustomWeekly($rule, $start, $end),
         };
     }
 
@@ -68,6 +66,9 @@ class RecurrenceService
     }
 
     /**
+     * Weekly recurrence: every N weeks, on the given weekdays.
+     * The first week is anchored to startDate — only dates >= startDate are returned.
+     *
      * @return Carbon[]
      */
     private function generateWeekly(
@@ -75,47 +76,33 @@ class RecurrenceService
         Carbon $start,
         Carbon $end,
     ): array {
-        $occurrences = [];
-        $ruleStart = $rule->startDate->copy()->timezone($rule->timezone)->startOfDay();
-        $current = $start->copy();
-
-        while ($current->lte($end)) {
-            $weeksSinceStart = (int) floor($ruleStart->diffInDays($current) / 7);
-            if ($weeksSinceStart % $rule->interval === 0
-                && $current->dayOfWeek === $ruleStart->dayOfWeek
-            ) {
-                $occurrences[] = $current->copy();
-            }
-            $current->addDay();
-        }
-
-        return $occurrences;
-    }
-
-    /**
-     * @return Carbon[]
-     */
-    private function generateCustomWeekly(
-        RecurrenceRule $rule,
-        Carbon $start,
-        Carbon $end,
-    ): array {
         $weekdays = $rule->weekdays;
+
+        // Fallback: if weekdays is empty (legacy data), derive from startDate
         if (empty($weekdays)) {
-            return [];
+            $weekdays = [$rule->startDate->dayOfWeekIso];
         }
 
-        $occurrences = [];
+        $weekdays = array_map('intval', $weekdays);
+        $interval = $rule->interval;
         $ruleStart = $rule->startDate->copy()->timezone($rule->timezone)->startOfDay();
+
+        // The Monday of the week containing startDate is our anchor
+        $anchorMonday = $ruleStart->copy()->startOfWeek();
         $current = $start->copy();
+        $occurrences = [];
 
         while ($current->lte($end)) {
-            $weeksSinceStart = (int) floor($ruleStart->diffInDays($current) / 7);
-            if ($weeksSinceStart % $rule->interval === 0
+            $currentMonday = $current->copy()->startOfWeek();
+            $weeksSinceAnchor = (int) $anchorMonday->diffInWeeks($currentMonday);
+
+            if ($weeksSinceAnchor % $interval === 0
+                && $current->gte($ruleStart)
                 && in_array($current->dayOfWeekIso, $weekdays, true)
             ) {
                 $occurrences[] = $current->copy();
             }
+
             $current->addDay();
         }
 

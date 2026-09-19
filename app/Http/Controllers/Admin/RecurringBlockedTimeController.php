@@ -81,10 +81,10 @@ class RecurringBlockedTimeController extends Controller
             ]);
         }
 
-        // Validate weekdays for custom_weekly
-        if ($validated['recurrence_type'] === 'custom_weekly' && empty($validated['weekdays'])) {
+        // Validate weekdays for weekly
+        if ($validated['recurrence_type'] === 'weekly' && empty($validated['weekdays'])) {
             throw ValidationException::withMessages([
-                'weekdays' => 'Для типа "каждые N недель" необходимо указать дни недели.',
+                'weekdays' => 'Для еженедельного повторения необходимо указать дни недели.',
             ]);
         }
 
@@ -120,10 +120,10 @@ class RecurringBlockedTimeController extends Controller
             'reason' => 'nullable|string|max:255',
             'start_time' => 'sometimes|date_format:H:i',
             'end_time' => 'sometimes|date_format:H:i|after:start_time',
-            'recurrence_type' => 'sometimes|in:daily,weekly,custom_weekly',
+            'recurrence_type' => 'sometimes|in:daily,weekly',
             'interval' => 'sometimes|integer|min:1',
-            'weekdays' => 'nullable|array',
-            'weekdays.*' => 'integer|min:1|max:7',
+            'weekdays' => 'nullable|array|min:1',
+            'weekdays.*' => 'integer|min:1|max:7|distinct',
             'ends_at' => 'nullable|date|after_or_equal:start_date',
             'status' => 'sometimes|in:active,paused,cancelled',
         ]);
@@ -166,10 +166,10 @@ class RecurringBlockedTimeController extends Controller
             'reason' => 'nullable|string|max:255',
             'start_time' => 'sometimes|date_format:H:i',
             'end_time' => 'sometimes|date_format:H:i',
-            'recurrence_type' => 'sometimes|in:daily,weekly,custom_weekly',
+            'recurrence_type' => 'sometimes|in:daily,weekly',
             'interval' => 'sometimes|integer|min:1',
-            'weekdays' => 'nullable|array',
-            'weekdays.*' => 'integer|min:1|max:7',
+            'weekdays' => 'nullable|array|min:1',
+            'weekdays.*' => 'integer|min:1|max:7|distinct',
             'ends_at' => 'nullable|date',
             'status' => 'sometimes|in:active,paused,cancelled',
         ]);
@@ -300,10 +300,10 @@ class RecurringBlockedTimeController extends Controller
             'start_date' => 'required|date',
             'start_time' => 'required|date_format:H:i',
             'end_time' => 'required|date_format:H:i',
-            'recurrence_type' => 'required|in:daily,weekly,custom_weekly',
+            'recurrence_type' => 'required|in:daily,weekly',
             'interval' => 'required|integer|min:1',
-            'weekdays' => 'nullable|array',
-            'weekdays.*' => 'integer|min:1|max:7',
+            'weekdays' => 'nullable|array|min:1',
+            'weekdays.*' => 'integer|min:1|max:7|distinct',
             'ends_at' => 'nullable|date|after_or_equal:start_date',
             'master_id' => 'nullable|uuid|exists:users,id',
         ];

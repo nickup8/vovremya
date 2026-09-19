@@ -20,7 +20,7 @@ export interface RecurringSeries {
     start_date: string;
     start_time: string;
     end_time: string;
-    recurrence_type: 'daily' | 'weekly' | 'custom_weekly';
+    recurrence_type: 'daily' | 'weekly';
     interval: number;
     weekdays: number[] | null;
     ends_at: string | null;
@@ -28,12 +28,6 @@ export interface RecurringSeries {
     status: 'active' | 'paused' | 'cancelled';
     exceptions: RecurringException[];
 }
-
-const RECURRENCE_LABELS: Record<string, string> = {
-    daily: 'Каждый день',
-    weekly: 'Каждую неделю',
-    custom_weekly: 'Каждые N недель',
-};
 
 const WEEKDAY_NAMES = [
     { value: 1, label: 'Пн' },
@@ -52,9 +46,7 @@ function describeRecurrence(series: RecurringSeries): string {
         parts.push(series.interval === 1 ? 'Каждый день' : `Каждые ${series.interval} дня`);
     } else if (series.recurrence_type === 'weekly') {
         parts.push(series.interval === 1 ? 'Каждую неделю' : `Каждые ${series.interval} недели`);
-    } else if (series.recurrence_type === 'custom_weekly') {
         const dayLabels = (series.weekdays || []).map(d => WEEKDAY_NAMES.find(w => w.value === d)?.label || '').filter(Boolean);
-        parts.push(series.interval === 1 ? 'Каждую неделю' : `Каждые ${series.interval} недели`);
         if (dayLabels.length > 0) {
             parts.push(dayLabels.join(', '));
         }
@@ -71,6 +63,9 @@ function describeRecurrence(series: RecurringSeries): string {
     return parts.join(' · ');
 }
 
+// UI display option: 'daily' | 'weekly' | 'n_weekly'
+type DisplayRecurrence = 'daily' | 'weekly' | 'n_weekly';
+
 export default function RecurringBlockedTimesCard({ masterId }: { masterId?: string }) {
     const { recurringSeries: rawSeries, hasRecurringFeature } = usePage<{
         recurringSeries: RecurringSeries[];
@@ -83,7 +78,7 @@ export default function RecurringBlockedTimesCard({ masterId }: { masterId?: str
     // Form state
     const [title, setTitle] = useState('');
     const [reason, setReason] = useState('');
-    const [recurrenceType, setRecurrenceType] = useState<'daily' | 'weekly' | 'custom_weekly'>('weekly');
+    const [displayRecurrence, setDisplayRecurrence] = useState<DisplayRecurrence>('weekly');
     const [interval, setInterval] = useState(1);
     const [weekdays, setWeekdays] = useState<number[]>([1, 2, 3, 4, 5]);
     const [startDate, setStartDate] = useState('');
@@ -95,7 +90,7 @@ export default function RecurringBlockedTimesCard({ masterId }: { masterId?: str
     function resetForm() {
         setTitle('');
         setReason('');
-        setRecurrenceType('weekly');
+        setDisplayRecurrence('weekly');
         setInterval(1);
         setWeekdays([1, 2, 3, 4, 5]);
         setStartDate('');
@@ -108,15 +103,17 @@ export default function RecurringBlockedTimesCard({ masterId }: { masterId?: str
     function handleAdd() {
         if (!title || !startDate || !startTime || !endTime) return;
 
+        const isDaily = displayRecurrence === 'daily';
+
         const payload: Record<string, unknown> = {
             title,
             reason: reason || null,
             start_date: startDate,
             start_time: startTime,
             end_time: endTime,
-            recurrence_type: recurrenceType,
-            interval,
-            weekdays: recurrenceType === 'custom_weekly' ? weekdays : null,
+            recurrence_type: isDaily ? 'daily' : 'weekly',
+            interval: isDaily ? interval : (displayRecurrence === 'n_weekly' ? interval : 1),
+            weekdays: isDaily ? null : weekdays,
             ends_at: neverEnds ? null : endDate || null,
         };
 
@@ -273,35 +270,40 @@ export default function RecurringBlockedTimesCard({ masterId }: { masterId?: str
                             <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
                                 Повтор
                             </label>
-                            <Select value={recurrenceType} onValueChange={(v) => setRecurrenceType(v as typeof recurrenceType)}>
+                            <Select value={displayRecurrence} onValueChange={(v) => {
+                                const val = v as DisplayRecurrence;
+                                setDisplayRecurrence(val);
+                                if (val === 'weekly') setInterval(1);
+                                if (val === 'n_weekly' && interval < 2) setInterval(2);
+                            }}>
                                 <SelectTrigger className="h-[42px] w-full rounded-[10px] border-[var(--color-line)] bg-[var(--color-surface)] text-[13px]">
                                     <SelectValue />
                                 </SelectTrigger>
                                 <SelectContent>
                                     <SelectItem value="daily">Каждый день</SelectItem>
                                     <SelectItem value="weekly">Каждую неделю</SelectItem>
-                                    <SelectItem value="custom_weekly">Каждые N недель</SelectItem>
+                                    <SelectItem value="n_weekly">Каждые N недель</SelectItem>
                                 </SelectContent>
                             </Select>
                         </div>
 
-                        {recurrenceType === 'custom_weekly' && (
+                        {displayRecurrence === 'n_weekly' && (
                             <div>
                                 <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
                                     Интервал (каждые N недель)
                                 </label>
                                 <input
                                     type="number"
-                                    min={1}
+                                    min={2}
                                     max={12}
                                     value={interval}
-                                    onChange={e => setInterval(Math.max(1, parseInt(e.target.value) || 1))}
+                                    onChange={e => setInterval(Math.max(2, parseInt(e.target.value) || 2))}
                                     className="h-[42px] w-full rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 text-[13px] text-[var(--color-ink)]"
                                 />
                             </div>
                         )}
 
-                        {(recurrenceType === 'weekly' || recurrenceType === 'custom_weekly') && (
+                        {(displayRecurrence === 'weekly' || displayRecurrence === 'n_weekly') && (
                             <div>
                                 <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
                                     Дни недели
