@@ -150,10 +150,10 @@ export function RecurrenceFromExistingDialog({
                                 {recurrence.end_type === 'count' ? (
                                     <input
                                         type="number"
-                                        min={1}
+                                        min={2}
                                         max={100}
                                         value={recurrence.occurrences_count}
-                                        onChange={(e) => onRecurrenceChange({ ...recurrence, occurrences_count: Math.max(1, parseInt(e.target.value) || 10) })}
+                                        onChange={(e) => onRecurrenceChange({ ...recurrence, occurrences_count: Math.max(2, parseInt(e.target.value) || 10) })}
                                         className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
                                     />
                                 ) : (

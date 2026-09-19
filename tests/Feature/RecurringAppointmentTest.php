@@ -535,7 +535,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
 
@@ -664,7 +664,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
 
@@ -696,7 +696,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
 
@@ -735,7 +735,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
 
@@ -780,7 +780,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [$tomorrow10am->dayOfWeekIso],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => [$dateStr],
         ]);
 
@@ -875,7 +875,10 @@ class RecurringAppointmentTest extends TestCase
         // store should skip that date gracefully (not crash, not create overlap).
         $conflictingStart = Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc();
 
-        $dates = [$date->format('Y-m-d')];
+        // Need at least 2 dates (min=2). First is conflicted, second is free.
+        $nextWeek = $date->copy()->addWeek();
+        $this->ensureWorkingHour($this->proMaster, $nextWeek->dayOfWeekIso);
+        $dates = [$date->format('Y-m-d'), $nextWeek->format('Y-m-d')];
 
         // Insert a blocking appointment AFTER preview would have passed
         Appointment::create([
@@ -898,25 +901,20 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
 
-        // Should succeed (series created) but with 0 new appointments created
-        // because the only allowed date was conflicted
+        // Should succeed (series created) but only 1 new appointment created
+        // because the first allowed date was conflicted
         $response->assertCreated();
         $data = $response->json();
 
         $series = RecurringAppointmentSeries::find($data['series_id']);
         $this->assertNotNull($series);
 
-        // No new appointments created (conflict was detected at materialization)
-        $newAppts = Appointment::where('recurring_series_id', $series->id)
-            ->where('id', '!=', Appointment::where('master_id', $this->proMaster->id)
-                ->where('service_name', 'Blocking')->first()->id)
-            ->count();
-
-        $this->assertEquals(0, $newAppts);
+        // Only the second (next week) appointment was created; first was skipped
+        $this->assertEquals(1, $data['created']);
     }
 
     #[Test]
@@ -994,7 +992,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
         $response1->assertCreated();
@@ -1004,7 +1002,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
         $response2->assertUnprocessable();
@@ -1045,7 +1043,7 @@ class RecurringAppointmentTest extends TestCase
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [2],
-            'occurrences_count' => 1,
+            'occurrences_count' => 2,
             'allowed_dates' => $dates,
         ]);
 
@@ -1180,6 +1178,53 @@ class RecurringAppointmentTest extends TestCase
         // Should get validation error (422) or server error (500)
         $this->assertNotEquals(200, $response->status());
         $this->assertNotEquals(201, $response->status());
+    }
+
+    #[Test]
+    public function store_rejects_occurrences_count_1(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+
+        $response = $this->postJson('/admin/recurring-appointments', [
+            'client_id' => $this->client->id,
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 1,
+            'allowed_dates' => [$date->format('Y-m-d')],
+        ]);
+
+        // Validation rejects min=2; may return 422 or redirect
+        $this->assertNotEquals(201, $response->getStatusCode());
+        $this->assertNotEquals(200, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function preview_rejects_occurrences_count_1(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $response = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 1,
+        ]);
+
+        // Validation rejects min=2; may return 422 or redirect
+        $this->assertNotEquals(201, $response->getStatusCode());
+        $this->assertNotEquals(200, $response->getStatusCode());
     }
 
     // ═══════════════ From Existing: Current Appointment Exclusion ═══════════════

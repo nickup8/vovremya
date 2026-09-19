@@ -31,7 +31,7 @@ class RecurringAppointmentController extends Controller
             'weekdays' => 'nullable|array',
             'weekdays.*' => 'integer|min:1|max:7',
             'ends_at' => 'nullable|date_format:Y-m-d',
-            'occurrences_count' => 'nullable|integer|min:1|max:100',
+            'occurrences_count' => 'nullable|integer|min:2|max:100',
             'exclude_appointment_id' => 'nullable|exists:appointments,id',
         ]);
 
@@ -76,7 +76,7 @@ class RecurringAppointmentController extends Controller
             'weekdays' => 'nullable|array',
             'weekdays.*' => 'integer|min:1|max:7',
             'ends_at' => 'nullable|date_format:Y-m-d',
-            'occurrences_count' => 'nullable|integer|min:1|max:100',
+            'occurrences_count' => 'nullable|integer|min:2|max:100',
             'allowed_dates' => 'required|array|min:1',
             'allowed_dates.*' => 'date_format:Y-m-d',
         ]);
@@ -125,7 +125,7 @@ class RecurringAppointmentController extends Controller
             'weekdays' => 'nullable|array',
             'weekdays.*' => 'integer|min:1|max:7',
             'ends_at' => 'nullable|date_format:Y-m-d',
-            'occurrences_count' => 'nullable|integer|min:1|max:100',
+            'occurrences_count' => 'nullable|integer|min:2|max:100',
             'allowed_dates' => 'required|array|min:1',
             'allowed_dates.*' => 'date_format:Y-m-d',
         ]);
