@@ -828,20 +828,28 @@ return;
         if (!selected) return;
         setIsProcessing(true);
 
-        router.patch(`/admin/appointments/${selected.id}/recurring/cancel-only-this`, {}, {
-            preserveScroll: true,
-            only: ['appointments'],
-            onSuccess: () => {
-                toast.success('Запись отменена');
-                setSheetOpen(false);
-                setSelected(null);
+        fetch(`/admin/appointments/${selected.id}/recurring/cancel-only-this`, {
+            method: 'PATCH',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
             },
-            onError: (errors: Record<string, string>) => {
-                toast.error(errors.status ?? 'Ошибка отмены');
-            },
-            onFinish: () => {
-                setIsProcessing(false);
-            },
+        }).then(async (res) => {
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка отмены');
+                return;
+            }
+            toast.success('Запись отменена');
+            setSheetOpen(false);
+            setSelected(null);
+            router.reload({ only: ['appointments'] });
+        }).catch(() => {
+            toast.error('Ошибка сети');
+        }).finally(() => {
+            setIsProcessing(false);
         });
     }
 
@@ -850,6 +858,36 @@ return;
         setIsProcessing(true);
 
         fetch(`/admin/appointments/${selected.id}/recurring/cancel-this-and-future`, {
+            method: 'POST',
+            credentials: 'same-origin',
+            headers: {
+                'Content-Type': 'application/json',
+                'X-Requested-With': 'XMLHttpRequest',
+                'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+            },
+        }).then(async (res) => {
+            if (!res.ok) {
+                const err = await res.json();
+                toast.error(err.message ?? 'Ошибка отмены');
+                return;
+            }
+            const data = await res.json();
+            toast.success(`Отменено: ${data.cancelled} записей`);
+            setSheetOpen(false);
+            setSelected(null);
+            router.reload({ only: ['appointments'] });
+        }).catch(() => {
+            toast.error('Ошибка сети');
+        }).finally(() => {
+            setIsProcessing(false);
+        });
+    }
+
+    function cancelWholeSeries() {
+        if (!selected) return;
+        setIsProcessing(true);
+
+        fetch(`/admin/appointments/${selected.id}/recurring/cancel-whole-series`, {
             method: 'POST',
             credentials: 'same-origin',
             headers: {
@@ -1001,5 +1039,6 @@ return;
         previewSplit,
         cancelOnlyThis,
         cancelThisAndFuture,
+        cancelWholeSeries,
     };
 }

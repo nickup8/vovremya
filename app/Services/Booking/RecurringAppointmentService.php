@@ -377,6 +377,33 @@ class RecurringAppointmentService
     }
 
     /**
+     * Cancel ALL active/cancellable appointments in the series.
+     */
+    public function cancelWholeSeries(
+        RecurringAppointmentSeries $series,
+    ): int {
+        return DB::transaction(function () use ($series) {
+            $lockedSeries = RecurringAppointmentSeries::where('id', $series->id)->lockForUpdate()->first();
+
+            $activeAppointments = Appointment::where('recurring_series_id', $series->id)
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                    AppointmentStatus::Prepaid,
+                ])
+                ->get();
+
+            foreach ($activeAppointments as $appt) {
+                app(BookingService::class)->cancel($appt);
+            }
+
+            $lockedSeries->update(['status' => RecurringSeriesStatus::Cancelled]);
+
+            return $activeAppointments->count();
+        });
+    }
+
+    /**
      * Preview for split: generate dates from split_point, exclude old future IDs.
      */
     public function previewSplit(

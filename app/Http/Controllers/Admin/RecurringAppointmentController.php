@@ -334,6 +334,29 @@ class RecurringAppointmentController extends Controller
         ]);
     }
 
+    /**
+     * Cancel ALL active appointments in the series.
+     */
+    public function cancelWholeSeries(Request $request, Appointment $appointment): JsonResponse
+    {
+        $this->authorize('update', $appointment);
+
+        if (! $appointment->recurring_series_id) {
+            return response()->json(['message' => 'Запись не является частью серии.'], 422);
+        }
+
+        $series = $appointment->recurringSeries;
+        if (! $series) {
+            return response()->json(['message' => 'Серия не найдена.'], 422);
+        }
+
+        $cancelledCount = $this->recurringService->cancelWholeSeries($series);
+
+        return response()->json([
+            'cancelled' => $cancelledCount,
+        ]);
+    }
+
     private function resolveMaster(User $authUser, ?string $masterId): User
     {
         if ($masterId) {

@@ -1,5 +1,6 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
+import { Repeat } from 'lucide-react';
 import type { AppointmentWithCollision } from './types';
 import { STATUS_STYLES } from './constants';
 import { timeToMinutes, getEndTime } from './helpers';
@@ -58,6 +59,12 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                 {!isCompact && height >= 42 && (
                     <span className="mt-px truncate text-[10.5px] leading-[14px] opacity-50">
                         {appointment.service}
+                    </span>
+                )}
+                {!isCompact && appointment.recurring_series_id && (
+                    <span className="mt-px flex items-center gap-0.5 text-[9px] leading-[12px] opacity-40">
+                        <Repeat className="size-[9px]" />
+                        Серия
                     </span>
                 )}
             </div>

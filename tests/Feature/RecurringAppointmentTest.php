@@ -2306,4 +2306,223 @@ class RecurringAppointmentTest extends TestCase
         $this->assertNotEquals(201, $response->getStatusCode());
         $this->assertNotEquals(200, $response->getStatusCode());
     }
+
+    // ═══════════════ Cancel Whole Series ═══════════════
+
+    #[Test]
+    public function cancel_whole_series_cancels_all_active_and_sets_status(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $appts = [];
+        for ($i = 0; $i < 4; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            $appts[] = Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        $response = $this->postJson("/admin/appointments/{$appts[0]->id}/recurring/cancel-whole-series");
+        $response->assertOk();
+        $response->json('cancelled', 4);
+
+        // All active appointments cancelled
+        foreach ($appts as $appt) {
+            $appt->refresh();
+            $this->assertEquals(AppointmentStatus::Cancelled, $appt->status);
+        }
+
+        // Series status cancelled
+        $series->refresh();
+        $this->assertEquals('cancelled', $series->status->value);
+    }
+
+    #[Test]
+    public function cancel_whole_series_does_not_affect_historical_statuses(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        // Past: completed
+        $pastDate = $wednesday->copy()->subWeeks(2);
+        $completedAppt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($pastDate->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Paid,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $pastDate->format('Y-m-d'),
+        ]);
+
+        // Future: active
+        $futureDate = $wednesday->copy()->addWeek();
+        $futureAppt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($futureDate->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $futureDate->format('Y-m-d'),
+        ]);
+
+        $response = $this->postJson("/admin/appointments/{$futureAppt->id}/recurring/cancel-whole-series");
+        $response->assertOk();
+        $response->json('cancelled', 1);
+
+        // Historical stays paid
+        $completedAppt->refresh();
+        $this->assertEquals(AppointmentStatus::Paid, $completedAppt->status);
+
+        // Future gets cancelled
+        $futureAppt->refresh();
+        $this->assertEquals(AppointmentStatus::Cancelled, $futureAppt->status);
+    }
+
+    #[Test]
+    public function cancel_whole_series_only_affects_current_series_uuid(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+
+        // Series A
+        $seriesA = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        // Series B (different UUID from a previous split)
+        $seriesB = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->copy()->addWeeks(6)->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $apptA = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($wednesday->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $seriesA->id,
+            'recurring_occurrence_date' => $wednesday->format('Y-m-d'),
+        ]);
+
+        $apptB = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($wednesday->copy()->addWeeks(6)->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $seriesB->id,
+            'recurring_occurrence_date' => $wednesday->copy()->addWeeks(6)->format('Y-m-d'),
+        ]);
+
+        // Cancel whole series A
+        $response = $this->postJson("/admin/appointments/{$apptA->id}/recurring/cancel-whole-series");
+        $response->assertOk();
+
+        // A is cancelled
+        $apptA->refresh();
+        $this->assertEquals(AppointmentStatus::Cancelled, $apptA->status);
+
+        // B is untouched
+        $apptB->refresh();
+        $this->assertEquals(AppointmentStatus::Booked, $apptB->status);
+    }
+
+    #[Test]
+    public function cancel_whole_series_requires_recurring_series(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $date = $this->nextWeekday(2);
+        $appt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+        ]);
+
+        $response = $this->postJson("/admin/appointments/{$appt->id}/recurring/cancel-whole-series");
+        $this->assertNotEquals(200, $response->getStatusCode());
+    }
 }

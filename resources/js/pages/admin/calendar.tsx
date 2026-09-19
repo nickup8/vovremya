@@ -354,6 +354,7 @@ export default function CalendarPage() {
         previewSplit,
         cancelOnlyThis,
         cancelThisAndFuture,
+        cancelWholeSeries,
     } = useCalendarActions({
         clients,
         services,
@@ -646,6 +647,7 @@ return [];
                 onEditThisAndFuture={openEditThisAndFuture}
                 onCancelOnlyThis={cancelOnlyThis}
                 onCancelThisAndFuture={cancelThisAndFuture}
+                onCancelWholeSeries={cancelWholeSeries}
                 onSeriesSettings={selected?.recurring_series_id ? openSeriesSettings : undefined}
             />
 

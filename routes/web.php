@@ -179,6 +179,7 @@ Route::middleware(['auth'])->group(function () {
         Route::post('/admin/appointments/{appointment}/recurring/preview-split', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'previewSplit'])->name('admin.recurring-appointments.preview-split');
         Route::post('/admin/appointments/{appointment}/recurring/edit-this-and-future', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'editThisAndFuture'])->name('admin.recurring-appointments.edit-this-and-future');
         Route::post('/admin/appointments/{appointment}/recurring/cancel-this-and-future', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'cancelThisAndFuture'])->name('admin.recurring-appointments.cancel-this-and-future');
+        Route::post('/admin/appointments/{appointment}/recurring/cancel-whole-series', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'cancelWholeSeries'])->name('admin.recurring-appointments.cancel-whole-series');
     });
 
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');

@@ -16,9 +16,12 @@ import {
 import { formatPhone } from '@/lib/phone';
 import { AppointmentStatus } from '@/types/appointment-status';
 import { DAYS_RU_FULL, MONTHS_RU_GENITIVE } from '@/lib/locale';
+import { Repeat } from 'lucide-react';
 import type { Appointment } from './types';
 import { STATUS_STYLES } from './constants';
 import { getEndTime, dateToKey } from './helpers';
+
+type CancelScope = 'single' | 'this-and-future' | 'whole-series';
 
 interface Props {
     open: boolean;
@@ -42,6 +45,7 @@ interface Props {
     onEditThisAndFuture?: () => void;
     onCancelOnlyThis?: () => void;
     onCancelThisAndFuture?: () => void;
+    onCancelWholeSeries?: () => void;
     onSeriesSettings?: () => void;
 }
 
@@ -60,6 +64,24 @@ const AVAILABLE_TRANSITIONS: Partial<Record<AppointmentStatus, AppointmentStatus
     [AppointmentStatus.Cancelled]: [],
 };
 
+const CANCEL_SCOPE_LABELS: Record<CancelScope, { title: string; description: string; action: string }> = {
+    single: {
+        title: 'Отменить запись?',
+        description: 'Будет отменена только эта запись. Остальные записи серии не изменятся.',
+        action: 'Да, отменить',
+    },
+    'this-and-future': {
+        title: 'Отменить эту и следующие?',
+        description: 'Будет отменена эта запись и все следующие записи серии.',
+        action: 'Да, отменить',
+    },
+    'whole-series': {
+        title: 'Отменить всю серию?',
+        description: 'Будут отменены все активные записи этой серии. Прошедшие записи останутся в истории.',
+        action: 'Да, отменить серию',
+    },
+};
+
 export function AppointmentDetailDrawer({
     open, onOpenChange, selected, isProcessing,
     onUpdateStatus, onReschedule, onDelete,
@@ -68,32 +90,49 @@ export function AppointmentDetailDrawer({
     onEditDateChange, onEditTimeChange,
     onEditSubmit, timeOptions = [],
     isPro = false, onRepeat,
-    onEditOnlyThis, onEditThisAndFuture, onCancelOnlyThis, onCancelThisAndFuture, onSeriesSettings,
+    onEditOnlyThis, onEditThisAndFuture,
+    onCancelOnlyThis, onCancelThisAndFuture, onCancelWholeSeries,
+    onSeriesSettings,
 }: Props) {
     const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
-    const [cancelMode, setCancelMode] = useState<'single' | 'series'>('single');
+    const [cancelScope, setCancelScope] = useState<CancelScope>('single');
+    const [cancelScopeOpen, setCancelScopeOpen] = useState(false);
     const [statusPopoverOpen, setStatusPopoverOpen] = useState(false);
-    const [recurringMenuOpen, setRecurringMenuOpen] = useState(false);
+    const [editMenuOpen, setEditMenuOpen] = useState(false);
+
+    const isRecurring = !!selected?.recurring_series_id;
 
     useEffect(() => {
         if (!open) {
             if (onEditModeChange) {
                 onEditModeChange(false);
             }
-            setRecurringMenuOpen(false);
+            setEditMenuOpen(false);
+            setCancelScopeOpen(false);
         }
     }, [open]);
 
     function handleCancelConfirm() {
         setCancelConfirmOpen(false);
-        if (cancelMode === 'single' && selected?.recurring_series_id) {
+        if (cancelScope === 'single' && isRecurring) {
             onCancelOnlyThis?.();
-        } else if (cancelMode === 'series') {
+        } else if (cancelScope === 'this-and-future') {
             onCancelThisAndFuture?.();
+        } else if (cancelScope === 'whole-series') {
+            onCancelWholeSeries?.();
         } else {
             onDelete();
         }
-        setCancelMode('single');
+        setCancelScope('single');
+    }
+
+    function handleCancelClick() {
+        if (isRecurring) {
+            setCancelScopeOpen(true);
+        } else {
+            setCancelScope('single');
+            setCancelConfirmOpen(true);
+        }
     }
 
     function handleEditClick() {
@@ -116,6 +155,7 @@ export function AppointmentDetailDrawer({
         }
     }
 
+    const scopeInfo = CANCEL_SCOPE_LABELS[cancelScope];
     const transitions = selected ? (AVAILABLE_TRANSITIONS[selected.status] ?? []) : [];
     const canChangeStatus = selected && selected.status !== AppointmentStatus.Cancelled && transitions.length > 0;
     const canEdit = selected && selected.status !== AppointmentStatus.Cancelled;
@@ -138,7 +178,6 @@ export function AppointmentDetailDrawer({
                                 {editMode ? (
                                     /* ─── Edit State ─── */
                                     <div className="space-y-4">
-                                        {/* Client (read-only) */}
                                         <div className="flex items-center gap-3">
                                             <Avatar className="size-10 shrink-0">
                                                 <AvatarImage src={selected.client_avatar_url ?? undefined} className="object-cover" />
@@ -156,7 +195,6 @@ export function AppointmentDetailDrawer({
                                             </div>
                                         </div>
 
-                                        {/* Editable fields */}
                                         <div className="space-y-3">
                                             <div>
                                                 <label className="mb-1.5 block text-sm font-medium text-slate-700 dark:text-zinc-300">
@@ -190,7 +228,6 @@ export function AppointmentDetailDrawer({
                                 ) : (
                                     /* ─── Detail State ─── */
                                     <div className="space-y-6">
-                                        {/* Client */}
                                         <div className="flex items-center gap-3">
                                             <Avatar className="size-10 shrink-0">
                                                 <AvatarImage src={selected.client_avatar_url ?? undefined} className="object-cover" />
@@ -211,7 +248,6 @@ export function AppointmentDetailDrawer({
                                             </div>
                                         </div>
 
-                                        {/* Details */}
                                         <div className="space-y-3 text-sm">
                                             <div className="flex items-baseline justify-between">
                                                 <span className="text-slate-500 dark:text-zinc-400">Время</span>
@@ -231,49 +267,56 @@ export function AppointmentDetailDrawer({
                                             </div>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-slate-500 dark:text-zinc-400">Статус</span>
-                                                {canChangeStatus ? (
-                                                    <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
-                                                        <PopoverTrigger asChild>
-                                                            <button
-                                                                type="button"
-                                                                className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80 ${STATUS_STYLES[selected.status].bg}`}
-                                                            >
-                                                                <span className={`size-1.5 rounded-full ${STATUS_STYLES[selected.status].dot}`} />
-                                                                <span className="text-slate-700 dark:text-zinc-300">
-                                                                    {STATUS_STYLES[selected.status].label}
-                                                                </span>
-                                                            </button>
-                                                        </PopoverTrigger>
-                                                        <PopoverContent align="end" sideOffset={4} className="w-48 p-1">
-                                                            {transitions.map((status) => (
-                                                                <button
-                                                                    key={status}
-                                                                    type="button"
-                                                                    disabled={isProcessing}
-                                                                    onClick={() => {
-                                                                        setStatusPopoverOpen(false);
-                                                                        onUpdateStatus(status);
-                                                                    }}
-                                                                    className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                                                >
-                                                                    <span className={`size-2 rounded-full ${STATUS_STYLES[status].dot}`} />
-                                                                    {STATUS_STYLES[status].label}
-                                                                </button>
-                                                            ))}
-                                                        </PopoverContent>
-                                                    </Popover>
-                                                ) : (
-                                                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[selected.status].bg}`}>
-                                                        <span className={`size-1.5 rounded-full ${STATUS_STYLES[selected.status].dot}`} />
-                                                        <span className="text-slate-700 dark:text-zinc-300">
-                                                            {STATUS_STYLES[selected.status].label}
+                                                <div className="flex items-center gap-2">
+                                                    {isRecurring && (
+                                                        <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-zinc-500">
+                                                            <Repeat className="size-3" />
+                                                            Серия
                                                         </span>
-                                                    </span>
-                                                )}
+                                                    )}
+                                                    {canChangeStatus ? (
+                                                        <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
+                                                            <PopoverTrigger asChild>
+                                                                <button
+                                                                    type="button"
+                                                                    className={`inline-flex cursor-pointer items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium transition-colors hover:opacity-80 ${STATUS_STYLES[selected.status].bg}`}
+                                                                >
+                                                                    <span className={`size-1.5 rounded-full ${STATUS_STYLES[selected.status].dot}`} />
+                                                                    <span className="text-slate-700 dark:text-zinc-300">
+                                                                        {STATUS_STYLES[selected.status].label}
+                                                                    </span>
+                                                                </button>
+                                                            </PopoverTrigger>
+                                                            <PopoverContent align="end" sideOffset={4} className="w-48 p-1">
+                                                                {transitions.map((status) => (
+                                                                    <button
+                                                                        key={status}
+                                                                        type="button"
+                                                                        disabled={isProcessing}
+                                                                        onClick={() => {
+                                                                            setStatusPopoverOpen(false);
+                                                                            onUpdateStatus(status);
+                                                                        }}
+                                                                        className="flex w-full items-center gap-2 rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                                                    >
+                                                                        <span className={`size-2 rounded-full ${STATUS_STYLES[status].dot}`} />
+                                                                        {STATUS_STYLES[status].label}
+                                                                    </button>
+                                                                ))}
+                                                            </PopoverContent>
+                                                        </Popover>
+                                                    ) : (
+                                                        <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-medium ${STATUS_STYLES[selected.status].bg}`}>
+                                                            <span className={`size-1.5 rounded-full ${STATUS_STYLES[selected.status].dot}`} />
+                                                            <span className="text-slate-700 dark:text-zinc-300">
+                                                                {STATUS_STYLES[selected.status].label}
+                                                            </span>
+                                                        </span>
+                                                    )}
+                                                </div>
                                             </div>
                                         </div>
 
-                                        {/* Quick status actions */}
                                         {canChangeStatus && (
                                             <div className="flex gap-2 pt-1">
                                                 {selected.status !== AppointmentStatus.Paid && (
@@ -325,70 +368,46 @@ export function AppointmentDetailDrawer({
                                 </DrawerFooter>
                             ) : canEdit ? (
                                 <DrawerFooter>
-                                    {selected?.recurring_series_id ? (
-                                        /* ─── Recurring: split actions ─── */
-                                        <div className="space-y-2">
-                                            <div className="flex gap-3">
-                                                <Popover open={recurringMenuOpen} onOpenChange={setRecurringMenuOpen}>
-                                                    <PopoverTrigger asChild>
-                                                        <Button
-                                                            disabled={isProcessing}
-                                                            variant="outline"
-                                                            className="flex-1 rounded-lg"
-                                                        >
-                                                            Изменить
-                                                        </Button>
-                                                    </PopoverTrigger>
-                                                    <PopoverContent align="start" sideOffset={4} className="w-52 p-1">
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setRecurringMenuOpen(false); handleEditClick(); }}
-                                                            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                                        >
-                                                            Только эту
-                                                        </button>
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setRecurringMenuOpen(false); onEditThisAndFuture?.(); }}
-                                                            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                                        >
-                                                            Эту и следующие
-                                                        </button>
-                                                    </PopoverContent>
-                                                </Popover>
-                                                {isPro && onRepeat && (
+                                    {/* Row 1: Изменить + Повторять */}
+                                    <div className="flex gap-3">
+                                        {isRecurring ? (
+                                            <Popover open={editMenuOpen} onOpenChange={setEditMenuOpen}>
+                                                <PopoverTrigger asChild>
                                                     <Button
-                                                        onClick={onRepeat}
                                                         disabled={isProcessing}
                                                         variant="outline"
                                                         className="flex-1 rounded-lg"
                                                     >
-                                                        Повторять
+                                                        Изменить
                                                     </Button>
-                                                )}
-                                            </div>
-                                            <Button
-                                                onClick={() => { setCancelMode('single'); setCancelConfirmOpen(true); }}
-                                                disabled={isProcessing}
-                                                variant="outline"
-                                                className="w-full rounded-lg border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
-                                            >
-                                                Отменить
-                                            </Button>
-                                            {onSeriesSettings && (
-                                                <Button
-                                                    onClick={() => { setRecurringMenuOpen(false); onSeriesSettings(); }}
-                                                    disabled={isProcessing}
-                                                    variant="link"
-                                                    className="w-full text-xs text-slate-400"
-                                                >
-                                                    Настройки серии
-                                                </Button>
-                                            )}
-                                        </div>
-                                    ) : (
-                                        /* ─── Non-recurring: simple actions ─── */
-                                        <div className="flex gap-3">
+                                                </PopoverTrigger>
+                                                <PopoverContent align="start" sideOffset={4} className="w-52 p-1">
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setEditMenuOpen(false); handleEditClick(); }}
+                                                        className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                                    >
+                                                        Только эту
+                                                    </button>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => { setEditMenuOpen(false); onEditThisAndFuture?.(); }}
+                                                        className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                                    >
+                                                        Эту и следующие
+                                                    </button>
+                                                    {onSeriesSettings && (
+                                                        <button
+                                                            type="button"
+                                                            onClick={() => { setEditMenuOpen(false); onSeriesSettings(); }}
+                                                            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
+                                                        >
+                                                            Настройки серии
+                                                        </button>
+                                                    )}
+                                                </PopoverContent>
+                                            </Popover>
+                                        ) : (
                                             <Button
                                                 onClick={handleEditClick}
                                                 disabled={isProcessing}
@@ -397,26 +416,27 @@ export function AppointmentDetailDrawer({
                                             >
                                                 Изменить
                                             </Button>
-                                            {isPro && onRepeat && (
-                                                <Button
-                                                    onClick={onRepeat}
-                                                    disabled={isProcessing}
-                                                    variant="outline"
-                                                    className="flex-1 rounded-lg"
-                                                >
-                                                    Повторять
-                                                </Button>
-                                            )}
+                                        )}
+                                        {isPro && onRepeat && (
                                             <Button
-                                                onClick={() => setCancelConfirmOpen(true)}
+                                                onClick={onRepeat}
                                                 disabled={isProcessing}
                                                 variant="outline"
-                                                className="rounded-lg border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                                                className="flex-1 rounded-lg"
                                             >
-                                                Отменить запись
+                                                Повторять
                                             </Button>
-                                        </div>
-                                    )}
+                                        )}
+                                    </div>
+                                    {/* Row 2: Отменить запись — full width */}
+                                    <Button
+                                        onClick={handleCancelClick}
+                                        disabled={isProcessing}
+                                        variant="outline"
+                                        className="w-full rounded-lg border-red-200 text-red-600 hover:bg-red-50 dark:border-red-900 dark:text-red-400 dark:hover:bg-red-950/40"
+                                    >
+                                        Отменить запись
+                                    </Button>
                                 </DrawerFooter>
                             ) : null}
                         </>
@@ -424,21 +444,54 @@ export function AppointmentDetailDrawer({
                 </DrawerContent>
             </Drawer>
 
-            {/* Cancel Confirmation AlertDialog */}
+            {/* Cancel scope selector (recurring only) */}
+            <AlertDialog open={cancelScopeOpen} onOpenChange={setCancelScopeOpen}>
+                <AlertDialogContent>
+                    <AlertDialogHeader>
+                        <AlertDialogTitle>Отменить запись</AlertDialogTitle>
+                        <AlertDialogDescription>
+                            Выберите масштаб отмены:
+                        </AlertDialogDescription>
+                    </AlertDialogHeader>
+                    <div className="flex flex-col gap-2 py-2">
+                        <Button
+                            variant="outline"
+                            className="justify-start rounded-lg text-sm"
+                            onClick={() => { setCancelScopeOpen(false); setCancelScope('single'); setCancelConfirmOpen(true); }}
+                            disabled={isProcessing}
+                        >
+                            Только эту запись
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start rounded-lg text-sm"
+                            onClick={() => { setCancelScopeOpen(false); setCancelScope('this-and-future'); setCancelConfirmOpen(true); }}
+                            disabled={isProcessing}
+                        >
+                            Эту и следующие
+                        </Button>
+                        <Button
+                            variant="outline"
+                            className="justify-start rounded-lg text-sm"
+                            onClick={() => { setCancelScopeOpen(false); setCancelScope('whole-series'); setCancelConfirmOpen(true); }}
+                            disabled={isProcessing}
+                        >
+                            Всю серию
+                        </Button>
+                    </div>
+                    <AlertDialogFooter>
+                        <AlertDialogCancel disabled={isProcessing}>Отмена</AlertDialogCancel>
+                    </AlertDialogFooter>
+                </AlertDialogContent>
+            </AlertDialog>
+
+            {/* Cancel confirmation */}
             <AlertDialog open={cancelConfirmOpen} onOpenChange={setCancelConfirmOpen}>
                 <AlertDialogContent>
                     <AlertDialogHeader>
-                        <AlertDialogTitle>
-                            {cancelMode === 'series' ? 'Отменить серию?' : 'Отменить запись?'}
-                        </AlertDialogTitle>
+                        <AlertDialogTitle>{scopeInfo.title}</AlertDialogTitle>
                         <AlertDialogDescription>
-                            {selected && cancelMode === 'series' ? (
-                                <>Эта запись и все последующие в серии будут отменены. Прошлые записи останутся без изменений.</>
-                            ) : selected && selected.recurring_series_id ? (
-                                <>Запись {selected.client_name} на {selected.time} ({selected.service}) будет отменена. Остальные записи в серии не затронуты.</>
-                            ) : selected ? (
-                                <>Запись {selected.client_name} на {selected.time} ({selected.service}) будет отменена. Карточка останется в календаре со статусом «Отменён».</>
-                            ) : null}
+                            {scopeInfo.description}
                         </AlertDialogDescription>
                     </AlertDialogHeader>
                     <AlertDialogFooter>
@@ -448,7 +501,7 @@ export function AppointmentDetailDrawer({
                             disabled={isProcessing}
                             className="bg-red-600 text-white hover:bg-red-700 dark:bg-red-700 dark:hover:bg-red-800"
                         >
-                            {cancelMode === 'series' ? 'Да, отменить серию' : 'Да, отменить'}
+                            {scopeInfo.action}
                         </AlertDialogAction>
                     </AlertDialogFooter>
                 </AlertDialogContent>
