@@ -413,12 +413,13 @@ class RecurringAppointmentService
         ?array $weekdays,
         ?Carbon $endsAt,
         ?int $occurrencesCount,
+        ?string $startTime = null,
     ): array {
         $master = $splitAppointment->master;
         $service = $splitAppointment->masterService;
         $tz = $master->getTimezone();
         $splitDate = \Illuminate\Support\Carbon::parse($splitAppointment->recurring_occurrence_date, $tz);
-        $startTime = $splitAppointment->start_time->timezone($tz)->format('H:i');
+        $startTime = $startTime ?? $splitAppointment->start_time->timezone($tz)->format('H:i');
         $durationMinutes = $service?->effective_duration ?? 60;
 
         // Collect all future appointment IDs in this series (they will be cancelled/replaced)

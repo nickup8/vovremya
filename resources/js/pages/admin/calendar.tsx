@@ -25,6 +25,7 @@ import { RescheduleDialog } from './components/calendar/RescheduleDialog';
 import { NewAppointmentDialog } from './components/calendar/NewAppointmentDialog';
 import { RecurrenceFromExistingDialog } from './components/calendar/RecurrenceFromExistingDialog';
 import { RecurringEditDialog } from './components/calendar/RecurringEditDialog';
+import { RecurringDragScopeDialog } from './components/calendar/RecurringDragScopeDialog';
 import { WarningDialog } from './components/calendar/WarningDialog';
 import { DEFAULT_RECURRENCE } from './components/calendar/RecurrenceSection';
 import type { RecurrenceConfig, PreviewResult } from './components/calendar/RecurrenceSection';
@@ -355,6 +356,11 @@ export default function CalendarPage() {
         cancelOnlyThis,
         cancelThisAndFuture,
         cancelWholeSeries,
+        recurringScopeOpen, setRecurringScopeOpen,
+        pendingRecurringDrop,
+        isDndProcessing,
+        confirmRecurringDropOnlyThis,
+        confirmRecurringDropThisAndFuture,
     } = useCalendarActions({
         clients,
         services,
@@ -720,6 +726,14 @@ return [];
                 onTimeChange={setRescheduleTime}
                 onSubmit={submitReschedule}
                 timeOptions={timeOptions}
+            />
+
+            {/* ─── Recurring DnD Scope Dialog ─── */}
+            <RecurringDragScopeDialog
+                open={recurringScopeOpen}
+                onOpenChange={setRecurringScopeOpen}
+                onOnlyThis={confirmRecurringDropOnlyThis}
+                onThisAndFuture={confirmRecurringDropThisAndFuture}
             />
 
             {/* ─── Recurring Edit / Series Settings Dialog ─── */}

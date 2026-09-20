@@ -5,7 +5,7 @@ import { AppointmentStatus } from '@/types/appointment-status';
 import type { Appointment, ClientOption, MasterOption, ServiceOption } from '@/pages/admin/components/calendar/types';
 import { dateToKey } from '@/pages/admin/components/calendar/helpers';
 import type { RecurrenceConfig, PreviewResult } from '@/pages/admin/components/calendar/RecurrenceSection';
-import { DEFAULT_RECURRENCE } from '@/pages/admin/components/calendar/RecurrenceSection';
+import { DEFAULT_RECURRENCE, CONFLICT_LABELS } from '@/pages/admin/components/calendar/RecurrenceSection';
 
 interface UseCalendarActionsParams {
     clients: ClientOption[];
@@ -61,6 +61,17 @@ export function useCalendarActions({
     const [recurrence, setRecurrence] = useState<RecurrenceConfig>(DEFAULT_RECURRENCE);
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
+
+    // ═══════════════ Recurring DnD Scope ═══════════════
+    const [recurringScopeOpen, setRecurringScopeOpen] = useState(false);
+    const [pendingRecurringDrop, setPendingRecurringDrop] = useState<{
+        appointmentId: string;
+        newDate: string;
+        newTime: string;
+        newMasterId?: string;
+        appointment: Appointment;
+    } | null>(null);
+    const [isDndProcessing, setIsDndProcessing] = useState(false);
 
     const newAppointmentForm = useForm({
         client_id: '',
@@ -575,6 +586,25 @@ return;
         const prevMasterId = prevMasterIdArg
             ?? (prev?.master_id != null ? String(prev.master_id) : undefined);
 
+        // For recurring: no undo support on DnD (scope dialog flow handles it)
+        if (isUndo) {
+            // Direct undo from undo toast is only for non-recurring
+        } else if (prev?.recurring_series_id) {
+            // Show scope dialog for recurring appointments
+            setPendingRecurringDrop({
+                appointmentId: apptId,
+                newDate,
+                newTime,
+                newMasterId,
+                appointment: prev,
+            });
+            setRecurringScopeOpen(true);
+            return;
+        }
+
+        if (isDndProcessing) return;
+        setIsDndProcessing(true);
+
         applyOptimisticMove(apptId, newDate, newTime);
 
         const payload: Record<string, string> = {
@@ -590,6 +620,7 @@ return;
             preserveState: true,
             only: ['appointments'],
             onError: (errors: Record<string, string>) => {
+                setIsDndProcessing(false);
                 if (errors.lunch_intersection) {
                     setBreakWarningMessage(errors.lunch_intersection);
                     setPendingReschedule({ appointmentId: apptId, date: newDate, time: newTime });
@@ -613,6 +644,7 @@ return;
                 }
             },
             onSuccess: () => {
+                setIsDndProcessing(false);
                 confirmOptimistic(apptId);
 
                 if (isUndo) {
@@ -627,6 +659,117 @@ return;
                 }
             },
         });
+    }
+
+    // ═══════════════ Recurring DnD: Only This ═══════════════
+    function confirmRecurringDropOnlyThis() {
+        const drop = pendingRecurringDrop;
+        if (!drop || isDndProcessing) return;
+
+        setRecurringScopeOpen(false);
+        setPendingRecurringDrop(null);
+        setIsDndProcessing(true);
+
+        applyOptimisticMove(drop.appointmentId, drop.newDate, drop.newTime);
+
+        router.patch(`/admin/appointments/${drop.appointmentId}/recurring/edit-only-this`, {
+            start_time: `${drop.newDate} ${drop.newTime}:00`,
+        }, {
+            preserveScroll: true,
+            only: ['appointments'],
+            onError: (errors: Record<string, string>) => {
+                setIsDndProcessing(false);
+                rollbackAppointment(drop.appointmentId);
+                toast.error(errors.time ?? 'Ошибка переноса');
+            },
+            onSuccess: () => {
+                setIsDndProcessing(false);
+                confirmOptimistic(drop.appointmentId);
+                toast.success('Запись перенесена');
+            },
+        });
+    }
+
+    // ═══════════════ Recurring DnD: This And Future ═══════════════
+    async function confirmRecurringDropThisAndFuture() {
+        const drop = pendingRecurringDrop;
+        if (!drop || isDndProcessing) return;
+
+        setRecurringScopeOpen(false);
+        setPendingRecurringDrop(null);
+        setIsDndProcessing(true);
+
+        try {
+            const appt = drop.appointment;
+            const series = appt.recurring_series;
+            if (!series) {
+                toast.error('Серия не найдена');
+                setIsDndProcessing(false);
+                return;
+            }
+
+            // Compute new weekdays for weekly series
+            let newWeekdays = series.weekdays;
+            if (series.recurrence_type === 'weekly' && series.weekdays) {
+                const dropDate = new Date(drop.newDate + 'T00:00:00');
+                const dropDow = dropDate.getDay() === 0 ? 7 : dropDate.getDay();
+                const origDate = new Date(appt.recurring_occurrence_date + 'T00:00:00');
+                const origDow = origDate.getDay() === 0 ? 7 : origDate.getDay();
+
+                newWeekdays = series.weekdays.map((d) => d === origDow ? dropDow : d);
+                newWeekdays = [...new Set(newWeekdays)].sort((a, b) => a - b);
+            }
+
+            // Find matching service
+            const matchingService = services.find((s) =>
+                s.title === appt.service && String(s.master_id) === String(appt.master_id ?? ''),
+            );
+            const serviceId = matchingService?.id ?? series.master_service_id;
+
+            // Preview the split with NEW drop time
+            const previewParams = {
+                service_id: serviceId,
+                time: drop.newTime,
+                recurrence_type: series.recurrence_type,
+                interval: series.interval,
+                weekdays: series.recurrence_type === 'weekly' ? newWeekdays : null,
+                ends_at: series.ends_at,
+                occurrences_count: series.occurrences_count,
+            };
+
+            const previewResult = await previewSplit(previewParams);
+            if (!previewResult) {
+                setIsDndProcessing(false);
+                return;
+            }
+
+            if (previewResult.conflicts.length > 0) {
+                // Show conflicts
+                const conflictLines = previewResult.conflicts.map((c) =>
+                    `${c.date.split('-').reverse().join('.')} — ${CONFLICT_LABELS[c.reason] ?? 'Конфликт'}`,
+                ).join('\n');
+                toast.error(`Конфликты:\n${conflictLines}`, { duration: 8000 });
+                setIsDndProcessing(false);
+                return;
+            }
+
+            // Execute split
+            await editThisAndFuture({
+                service_id: serviceId,
+                time: drop.newTime,
+                recurrence_type: series.recurrence_type,
+                interval: series.interval,
+                weekdays: series.recurrence_type === 'weekly' ? newWeekdays : null,
+                ends_at: series.ends_at,
+                occurrences_count: series.occurrences_count,
+                allowed_dates: previewResult.dates,
+                appointmentId: drop.appointmentId,
+            });
+        } catch {
+            toast.error('Ошибка сети');
+        } finally {
+            setIsDndProcessing(false);
+        }
     }
 
     // ═══════════════ Recurrence ═══════════════
@@ -913,12 +1056,13 @@ return;
         });
     }
 
-    async function editThisAndFuture(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null; allowed_dates: string[] }) {
-        if (!selected) return;
+    async function editThisAndFuture(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null; allowed_dates: string[]; appointmentId?: string }) {
+        const targetId = params.appointmentId ?? selected?.id;
+        if (!targetId) return;
         setIsProcessing(true);
 
         try {
-            const res = await fetch(`/admin/appointments/${selected.id}/recurring/edit-this-and-future`, {
+            const res = await fetch(`/admin/appointments/${targetId}/recurring/edit-this-and-future`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {
@@ -1040,5 +1184,12 @@ return;
         cancelOnlyThis,
         cancelThisAndFuture,
         cancelWholeSeries,
+
+        // Recurring DnD
+        recurringScopeOpen, setRecurringScopeOpen,
+        pendingRecurringDrop,
+        isDndProcessing,
+        confirmRecurringDropOnlyThis,
+        confirmRecurringDropThisAndFuture,
     };
 }

@@ -411,6 +411,17 @@ class CalendarController extends Controller
         }
 
         if (isset($validated['start_time'])) {
+            if (in_array($appointment->status, [
+                AppointmentStatus::Cancelled,
+                AppointmentStatus::Paid,
+                AppointmentStatus::NoShow,
+            ], true)) {
+                return response()->json([
+                    'error' => 'invalid_status',
+                    'message' => 'Невозможно перенести запись со статусом «'.$appointment->status->label().'».',
+                ], 422);
+            }
+
             $tz = $appointment->master->getTimezone();
             $newDateTime = Carbon::parse($validated['start_time'], $tz);
             $newDate = $newDateTime->format('Y-m-d');

@@ -230,6 +230,7 @@ class RecurringAppointmentController extends Controller
             'weekdays.*' => 'integer|min:1|max:7',
             'ends_at' => 'nullable|date_format:Y-m-d',
             'occurrences_count' => 'nullable|integer|min:2|max:100',
+            'start_time' => 'nullable|date_format:H:i',
         ]);
 
         if (empty($validated['ends_at']) && empty($validated['occurrences_count'])) {
@@ -245,6 +246,7 @@ class RecurringAppointmentController extends Controller
             weekdays: $validated['weekdays'] ?? null,
             endsAt: ! empty($validated['ends_at']) ? \Illuminate\Support\Carbon::parse($validated['ends_at']) : null,
             occurrencesCount: $validated['occurrences_count'] ?? null,
+            startTime: $validated['start_time'] ?? null,
         );
 
         return response()->json($result);

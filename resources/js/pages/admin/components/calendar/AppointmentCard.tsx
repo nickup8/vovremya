@@ -1,10 +1,17 @@
 import { useDraggable } from '@dnd-kit/core';
 import { CSS } from '@dnd-kit/utilities';
 import { Repeat } from 'lucide-react';
+import { AppointmentStatus } from '@/types/appointment-status';
 import type { AppointmentWithCollision } from './types';
 import { STATUS_STYLES } from './constants';
 import { timeToMinutes, getEndTime } from './helpers';
 import { MINUTE_HEIGHT } from './constants';
+
+const NON_DRAGGABLE_STATUSES = new Set([
+    AppointmentStatus.Cancelled,
+    AppointmentStatus.Paid,
+    AppointmentStatus.NoShow,
+]);
 
 interface Props {
     appointment: AppointmentWithCollision;
@@ -20,6 +27,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
     const endTime = getEndTime(appointment.time, appointment.duration);
     const isCancelled = appointment.status === 'cancelled';
     const isCompact = height <= 40;
+    const isDraggable = !NON_DRAGGABLE_STATUSES.has(appointment.status);
 
     const { colIndex, totalCols } = appointment;
     const widthPercent = 100 / totalCols;
@@ -27,6 +35,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
 
     const { attributes, listeners, setNodeRef, transform, isDragging } = useDraggable({
         id: appointment.id,
+        disabled: !isDraggable,
     });
 
     return (
@@ -35,7 +44,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
             {...listeners}
             {...attributes}
             onClick={onClick}
-            className={`absolute z-10 flex cursor-pointer overflow-hidden rounded-[8px] text-left transition-shadow duration-150 hover:shadow-md ${styles.bg} ${isDragging ? 'opacity-40 shadow-lg' : 'shadow-xs'}`}
+            className={`absolute z-10 flex overflow-hidden rounded-[8px] text-left transition-shadow duration-150 hover:shadow-md ${styles.bg} ${isDragging ? 'opacity-40 shadow-lg' : 'shadow-xs'} ${isDraggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
             style={{
                 top,
                 height: Math.max(height, 28),
