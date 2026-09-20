@@ -9,6 +9,8 @@ import {
 import type { RecurrenceConfig, PreviewResult, ConflictReason } from './RecurrenceSection';
 import { WEEKDAY_OPTIONS, CONFLICT_LABELS } from './RecurrenceSection';
 import type { Appointment, ServiceOption } from './types';
+import { useAvailableSlots } from '@/hooks/useAvailableSlots';
+import { IrsiTimeSelect } from './IrsiTimeSelect';
 
 interface SeriesData {
     start_time: string;
@@ -26,7 +28,6 @@ interface Props {
     mode: 'this-and-future' | 'series-settings';
     appointment: Appointment | null;
     services: ServiceOption[];
-    timeOptions: string[];
     isProcessing: boolean;
     onPreview: (params: PreviewParams) => Promise<PreviewResult | null>;
     onSubmit: (params: SubmitParams) => Promise<void>;
@@ -69,7 +70,7 @@ function buildConfigFromSeries(series: SeriesData): {
 }
 
 export function RecurringEditDialog({
-    open, onOpenChange, mode, appointment, services, timeOptions,
+    open, onOpenChange, mode, appointment, services,
     isProcessing, onPreview, onSubmit,
 }: Props) {
     const series = appointment?.recurring_series;
@@ -89,6 +90,15 @@ export function RecurringEditDialog({
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
 
+    // Resolve date for availability: use appointment's occurrence date
+    const slotDate = appointment?.recurring_occurrence_date ?? appointment?.date ?? '';
+
+    // Shared availability from the same backend endpoint as New Appointment
+    const { slots, loading: slotsLoading } = useAvailableSlots(
+        open ? slotDate : '',
+        open ? serviceId || undefined : undefined,
+    );
+
     // Initialize from series params on first open
     useEffect(() => {
         if (open && series && !initRef.current) {
@@ -103,6 +113,20 @@ export function RecurringEditDialog({
             initRef.current = false;
         }
     }, [open, series]);
+
+    // Clear time if no longer in available slots after service/date change
+    useEffect(() => {
+        if (slotsLoading) return;
+        const allSlots = [...slots.freeSlots, ...slots.outsideSlots];
+        if (time && allSlots.length > 0 && !allSlots.includes(time)) {
+            setTime('');
+        }
+    }, [slots, slotsLoading, time]);
+
+    const timeGroups = [
+        { label: 'Свободное время', options: slots.freeSlots },
+        { label: 'Вне рабочего времени', options: slots.outsideSlots },
+    ];
 
     async function handlePreview() {
         if (!serviceId || recurrence.weekdays.length === 0) return;
@@ -152,19 +176,16 @@ export function RecurringEditDialog({
                 </DialogHeader>
 
                 <div className="space-y-4">
-                    {/* Time */}
+                    {/* Time — IrsiTimeSelect with availability groups */}
                     <div>
                         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-zinc-300">Время</label>
-                        <Select value={time} onValueChange={setTime}>
-                            <SelectTrigger className="w-full">
-                                <SelectValue placeholder="Выберите время" />
-                            </SelectTrigger>
-                            <SelectContent>
-                                {timeOptions.map((t) => (
-                                    <SelectItem key={t} value={t}>{t}</SelectItem>
-                                ))}
-                            </SelectContent>
-                        </Select>
+                        <IrsiTimeSelect
+                            value={time}
+                            onChange={setTime}
+                            groups={timeGroups}
+                            disabled={slotsLoading}
+                            placeholder={slotsLoading ? 'Загрузка...' : 'ЧЧ:ММ'}
+                        />
                     </div>
 
                     {/* Service */}

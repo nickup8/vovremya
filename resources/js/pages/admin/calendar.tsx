@@ -746,7 +746,6 @@ return [];
                 mode={seriesEditMode}
                 appointment={seriesEditAppointment}
                 services={services}
-                timeOptions={timeOptions}
                 isProcessing={seriesEditProcessing}
                 onPreview={handleSeriesPreview}
                 onSubmit={handleSeriesSubmit}
