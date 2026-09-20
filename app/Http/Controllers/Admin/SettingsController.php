@@ -10,6 +10,7 @@ use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
@@ -245,19 +246,20 @@ class SettingsController extends Controller
         unset($validated['master_id']);
 
         $errors = [];
+        $rowsToSave = [];
 
         foreach ($validated['working_hours'] as $index => $hour) {
             if (! $hour['is_working']) {
-                $targetMaster->workingHours()->updateOrCreate(
-                    ['day_of_week' => $hour['day_of_week']],
-                    [
+                $rowsToSave[] = [
+                    'day_of_week' => $hour['day_of_week'],
+                    'data' => [
                         'is_working' => false,
                         'start_time' => null,
                         'end_time' => null,
                         'break_start_time' => null,
                         'break_end_time' => null,
-                    ]
-                );
+                    ],
+                ];
 
                 continue;
             }
@@ -313,25 +315,34 @@ class SettingsController extends Controller
                 }
             }
 
-            $targetMaster->workingHours()->updateOrCreate(
-                ['day_of_week' => $hour['day_of_week']],
-                [
+            $rowsToSave[] = [
+                'day_of_week' => $hour['day_of_week'],
+                'data' => [
                     'is_working' => true,
                     'start_time' => $startTime,
                     'end_time' => $endTime,
                     'break_start_time' => $breakStart,
                     'break_end_time' => $breakEnd,
-                ]
-            );
+                ],
+            ];
         }
 
         if (! empty($errors)) {
             return back()->withErrors($errors)->withInput();
         }
 
-        if (isset($validated['slot_interval'])) {
-            $targetMaster->update(['slot_interval' => $validated['slot_interval']]);
-        }
+        DB::transaction(function () use ($targetMaster, $rowsToSave, $validated) {
+            foreach ($rowsToSave as $row) {
+                $targetMaster->workingHours()->updateOrCreate(
+                    ['day_of_week' => $row['day_of_week']],
+                    $row['data']
+                );
+            }
+
+            if (isset($validated['slot_interval'])) {
+                $targetMaster->update(['slot_interval' => $validated['slot_interval']]);
+            }
+        });
 
         return back()->with('success', 'График работы обновлён');
     }

@@ -6,7 +6,6 @@ use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
-use App\Events\AppointmentVisitConfirmed;
 use App\Events\UserChannelsUpdated;
 use App\Exceptions\CancellationNotAllowedException;
 use App\Exceptions\InvalidStatusTransitionException;
@@ -405,7 +404,7 @@ class TelegramWebhookHandler extends WebhookHandler
 
     /**
      * Callback кнопки «✅ Подтверждаю» из напоминания за 24ч.
-     * Пишет client_confirmed_at, уведомляет мастера, обновляет календарь в реалтайме.
+     * Делегирует原子ное подтверждение AppointmentVisitConfirmationService.
      */
     public function confirmVisit(): void
     {
@@ -419,13 +418,12 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        // Владелец записи — клиент этого мастера по telegram_id
         $client = Client::byTelegramId($this->chat->chat_id)
             ->where('user_id', $appointment->master_id)
             ->first();
 
-        if (! $client || $appointment->client_id !== $client->id) {
-            Log::warning('[TG] confirmVisit: ownership violation', [
+        if (! $client) {
+            Log::warning('[TG] confirmVisit: client not found', [
                 'appointment_id' => $appointmentId,
                 'chat_id' => $this->chat?->chat_id,
             ]);
@@ -434,33 +432,24 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        // Подтверждать можно только активную (Booked) запись
-        if ($appointment->status !== AppointmentStatus::Booked) {
-            $this->reply(__('bot.visit_confirm.not_available'));
+        $result = app(\App\Services\AppointmentVisitConfirmationService::class)
+            ->confirm($appointment, $client);
 
-            return;
-        }
+        match ($result['result']) {
+            'ok' => $this->confirmVisitSuccess($appointment),
+            'already' => $this->reply(__('bot.visit_confirm.already')),
+            'not_found' => $this->reply(__('bot.errors.appointment_not_found')),
+            'not_available' => $this->reply(__('bot.visit_confirm.not_available')),
+        };
+    }
 
-        // Защита от повторного нажатия
-        if ($appointment->client_confirmed_at !== null) {
-            $this->reply(__('bot.visit_confirm.already'));
-
-            return;
-        }
-
-        $appointment->update(['client_confirmed_at' => now()]);
-
+    private function confirmVisitSuccess(Appointment $appointment): void
+    {
         Log::info('[TG] confirmVisit: success', [
-            'appointment_id' => $appointmentId,
-            'client_id' => $client->id,
+            'appointment_id' => $appointment->id,
+            'client_id' => $appointment->client_id,
         ]);
 
-        // Real-time обновление календаря мастера
-        broadcast(new AppointmentVisitConfirmed(
-            $appointment->fresh()->load(['client'])
-        ));
-
-        // Обновляем исходное сообщение (убираем кнопку) + отвечаем клиенту
         try {
             $this->chat->deleteKeyboard($this->messageId)->send();
         } catch (Throwable $e) {
@@ -468,18 +457,6 @@ class TelegramWebhookHandler extends WebhookHandler
         }
 
         $this->reply(__('bot.visit_confirm.client_thanks'));
-
-        // Уведомляем мастера
-        $tz = $appointment->master->getTimezone();
-        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
-        $time = $appointment->start_time->timezone($tz)->format('H:i');
-
-        app(MasterNotificationService::class)
-            ->sendToMaster($appointment->master, __('bot.master.visit_confirmed', [
-                'client' => $client->name ?? __('bot.fallback.client_name'),
-                'date' => $date,
-                'time' => $time,
-            ]));
     }
 
     /**

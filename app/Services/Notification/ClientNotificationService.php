@@ -5,6 +5,7 @@ namespace App\Services\Notification;
 use App\Enums\AppointmentSource;
 use App\Models\Appointment;
 use App\Services\MaxApiClient;
+use App\Services\VkApiClient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -12,7 +13,7 @@ class ClientNotificationService
 {
     /**
      * Отправить клиенту уведомление в ОДИН канал — по источнику записи.
-     * telegram → TG, max → MAX, null → фолбэк (TG если есть, иначе MAX).
+     * telegram → TG, max → MAX, vk → VK, null → фолбэк (TG если есть, иначе MAX).
      * Зеркалит логику выбора канала из SendAppointmentReminderJob.
      */
     public function sendToClientBySource(Appointment $appointment, string $text): void
@@ -29,6 +30,14 @@ class ClientNotificationService
 
         $hasTelegram = ! empty($client->telegram_id);
         $hasMax = ! empty($client->max_id);
+        $hasVk = ! empty($client->vk_id);
+
+        // VK: source == vk
+        if ($hasVk && $source === 'vk') {
+            $this->sendVk($client->vk_id, $text);
+
+            return;
+        }
 
         // Telegram: source == telegram, либо (null-фолбэк и есть telegram_id)
         if ($hasTelegram && ($source === 'telegram' || empty($source))) {
@@ -82,5 +91,10 @@ class ClientNotificationService
         if (! app(MaxApiClient::class)->sendMessage($chatId, $text)) {
             throw new \Exception('MAX API failed to send client notification');
         }
+    }
+
+    private function sendVk(string $peerId, string $text): void
+    {
+        app(VkApiClient::class)->sendMessage($peerId, $text);
     }
 }

@@ -118,4 +118,22 @@ class AppointmentVisitConfirmationServiceTest extends TestCase
         $appointment->refresh();
         $this->assertSame($confirmedAt, $appointment->client_confirmed_at->toDateTimeString());
     }
+
+    public function test_sequential_confirms_first_ok_second_already_no_duplicate_side_effects(): void
+    {
+        Event::fake([AppointmentVisitConfirmed::class]);
+
+        [$appointment, $client, $master] = $this->createAppointmentAndClient();
+
+        $mock = $this->mock(MasterNotificationService::class);
+        $mock->shouldReceive('sendToMaster')->once();
+
+        $first = $this->service->confirm($appointment, $client);
+        $this->assertSame('ok', $first['result']);
+
+        $second = $this->service->confirm($appointment, $client);
+        $this->assertSame('already', $second['result']);
+
+        Event::assertDispatchedTimes(AppointmentVisitConfirmed::class, 1);
+    }
 }

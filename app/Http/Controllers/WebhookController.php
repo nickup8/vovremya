@@ -42,7 +42,14 @@ class WebhookController extends Controller
             return response('Bot not found', 404);
         }
 
-        app(TelegramWebhookHandler::class)->handle($request, $bot);
+        try {
+            app(TelegramWebhookHandler::class)->handle($request, $bot);
+        } catch (\Throwable $e) {
+            Log::error('[TG] bypass webhook processing failed', [
+                'error' => $e->getMessage(),
+                'exception' => $e,
+            ]);
+        }
 
         return response('OK', 200);
     }

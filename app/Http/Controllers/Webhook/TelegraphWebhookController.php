@@ -35,7 +35,15 @@ class TelegraphWebhookController extends Controller
         /** @var WebhookHandler $handler */
         $handler = app($handlerClass);
 
-        $handler->handle($request, $bot);
+        try {
+            $handler->handle($request, $bot);
+        } catch (\Throwable $e) {
+            Log::error('[TG] Telegraph webhook processing failed', [
+                'bot_id' => $bot->id,
+                'error' => $e->getMessage(),
+                'exception' => $e,
+            ]);
+        }
 
         return response()->noContent();
     }

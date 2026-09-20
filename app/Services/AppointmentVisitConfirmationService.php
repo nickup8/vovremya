@@ -25,11 +25,16 @@ class AppointmentVisitConfirmationService
             return ['result' => 'not_available'];
         }
 
-        if ($appointment->client_confirmed_at !== null) {
+        $affected = $appointment->newQuery()
+            ->where('id', $appointment->id)
+            ->whereNull('client_confirmed_at')
+            ->update(['client_confirmed_at' => now()]);
+
+        if ($affected === 0) {
             return ['result' => 'already'];
         }
 
-        $appointment->update(['client_confirmed_at' => now()]);
+        $appointment->refresh();
 
         broadcast(new AppointmentVisitConfirmed(
             $appointment->fresh()->load(['client'])
