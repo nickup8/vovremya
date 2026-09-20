@@ -294,6 +294,11 @@ export function RecurringEditDialog({
                     {/* Preview result */}
                     {previewResult && (
                         <div className="rounded-lg bg-white p-2.5 text-sm dark:bg-zinc-800">
+                            {'has_paid_conflict' in previewResult && previewResult.has_paid_conflict && (
+                                <p className="font-medium text-red-500">
+                                    В серии есть оплаченная запись, которую нельзя изменить автоматически.
+                                </p>
+                            )}
                             <p className="font-medium text-slate-700 dark:text-zinc-200">
                                 Будет изменено: {previewResult.total} · Свободно: {previewResult.available}
                                 {previewResult.conflicts.length > 0 && (
@@ -319,7 +324,7 @@ export function RecurringEditDialog({
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isProcessing || !previewResult || previewResult.available === 0}
+                        disabled={isProcessing || !previewResult || previewResult.available === 0 || ('has_paid_conflict' in previewResult && !!previewResult.has_paid_conflict)}
                         className="bg-[var(--color-orange)] text-white hover:bg-[var(--color-orange-600)]"
                     >
                         {isProcessing ? 'Сохранение...' : 'Сохранить изменения'}

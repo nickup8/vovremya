@@ -767,6 +767,12 @@ return;
                 return;
             }
 
+            if ((previewResult as Record<string, unknown>).has_paid_conflict) {
+                toast.error('В серии есть оплаченная запись, которую нельзя изменить автоматически.', { duration: 8000 });
+                setIsDndProcessing(false);
+                return;
+            }
+
             if (previewResult.conflicts.length > 0) {
                 // Show conflicts
                 const conflictLines = previewResult.conflicts.map((c) =>

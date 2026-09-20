@@ -268,12 +268,6 @@ export function AppointmentDetailDrawer({
                                             <div className="flex items-center justify-between">
                                                 <span className="text-slate-500 dark:text-zinc-400">Статус</span>
                                                 <div className="flex items-center gap-2">
-                                                    {isRecurring && (
-                                                        <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-zinc-500">
-                                                            <Repeat className="size-3" />
-                                                            Серия
-                                                        </span>
-                                                    )}
                                                     {canChangeStatus ? (
                                                         <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
                                                             <PopoverTrigger asChild>
@@ -315,6 +309,16 @@ export function AppointmentDetailDrawer({
                                                     )}
                                                 </div>
                                             </div>
+
+                                            {isRecurring && (
+                                                <div className="flex items-baseline justify-between">
+                                                    <span className="text-slate-500 dark:text-zinc-400" />
+                                                    <span className="inline-flex items-center gap-1 text-xs text-slate-400 dark:text-zinc-500">
+                                                        <Repeat className="size-3" />
+                                                        Повторяющаяся запись
+                                                    </span>
+                                                </div>
+                                            )}
                                         </div>
 
                                         {canChangeStatus && (
@@ -387,7 +391,7 @@ export function AppointmentDetailDrawer({
                                                         onClick={() => { setEditMenuOpen(false); handleEditClick(); }}
                                                         className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
                                                     >
-                                                        Только эту
+                                                        Только эту запись
                                                     </button>
                                                     <button
                                                         type="button"
@@ -396,15 +400,6 @@ export function AppointmentDetailDrawer({
                                                     >
                                                         Эту и следующие
                                                     </button>
-                                                    {onSeriesSettings && (
-                                                        <button
-                                                            type="button"
-                                                            onClick={() => { setEditMenuOpen(false); onSeriesSettings(); }}
-                                                            className="flex w-full items-center rounded-md px-3 py-2 text-sm text-slate-700 transition-colors hover:bg-slate-100 dark:text-zinc-300 dark:hover:bg-zinc-800"
-                                                        >
-                                                            Настройки серии
-                                                        </button>
-                                                    )}
                                                 </PopoverContent>
                                             </Popover>
                                         ) : (
@@ -437,6 +432,17 @@ export function AppointmentDetailDrawer({
                                     >
                                         Отменить запись
                                     </Button>
+                                    {/* Row 3: Настройки серии — separate link */}
+                                    {isRecurring && onSeriesSettings && (
+                                        <button
+                                            type="button"
+                                            onClick={onSeriesSettings}
+                                            disabled={isProcessing}
+                                            className="w-full text-center text-xs text-slate-400 hover:text-slate-600 dark:text-zinc-500 dark:hover:text-zinc-300"
+                                        >
+                                            Настройки серии
+                                        </button>
+                                    )}
                                 </DrawerFooter>
                             ) : null}
                         </>

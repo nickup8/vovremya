@@ -309,22 +309,28 @@ class RecurringAppointmentController extends Controller
         $masterService = MasterService::findOrFail($validated['service_id']);
         $this->authorizeService(auth()->user(), $masterService);
 
-        $newSeries = $this->recurringService->splitSeries(
-            series: $series,
-            splitAppointment: $appointment,
-            newParams: [
-                'recurrence_type' => $validated['recurrence_type'],
-                'interval' => $validated['interval'],
-                'weekdays' => $validated['weekdays'],
-                'ends_at' => $validated['ends_at'] ?? null,
-                'occurrences_count' => $validated['occurrences_count'] ?? null,
-                'master_service_id' => $masterService->id,
-                'start_time' => $validated['start_time'],
-            ],
-            previewResult: [
-                'dates' => $validated['allowed_dates'],
-            ],
-        );
+        try {
+            $newSeries = $this->recurringService->splitSeries(
+                series: $series,
+                splitAppointment: $appointment,
+                newParams: [
+                    'recurrence_type' => $validated['recurrence_type'],
+                    'interval' => $validated['interval'],
+                    'weekdays' => $validated['weekdays'],
+                    'ends_at' => $validated['ends_at'] ?? null,
+                    'occurrences_count' => $validated['occurrences_count'] ?? null,
+                    'master_service_id' => $masterService->id,
+                    'start_time' => $validated['start_time'],
+                ],
+                previewResult: [
+                    'dates' => $validated['allowed_dates'],
+                ],
+            );
+        } catch (\Illuminate\Validation\ValidationException $e) {
+            return response()->json([
+                'message' => $e->getMessage(),
+            ], 422);
+        }
 
         return response()->json([
             'series_id' => $newSeries->id,

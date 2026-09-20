@@ -47,14 +47,17 @@ export default function CalendarPage() {
     const [seriesEditOpen, setSeriesEditOpen] = useState(false);
     const [seriesEditMode, setSeriesEditMode] = useState<'this-and-future' | 'series-settings'>('this-and-future');
     const [seriesEditProcessing, setSeriesEditProcessing] = useState(false);
+    const [seriesEditAppointment, setSeriesEditAppointment] = useState<typeof selected>(null);
 
     function openEditThisAndFuture() {
+        setSeriesEditAppointment(selected);
         setSeriesEditMode('this-and-future');
         setSeriesEditOpen(true);
         setSheetOpen(false);
     }
 
     function openSeriesSettings() {
+        setSeriesEditAppointment(selected);
         setSeriesEditMode('series-settings');
         setSeriesEditOpen(true);
         setSheetOpen(false);
@@ -741,7 +744,7 @@ return [];
                 open={seriesEditOpen}
                 onOpenChange={setSeriesEditOpen}
                 mode={seriesEditMode}
-                appointment={selected}
+                appointment={seriesEditAppointment}
                 services={services}
                 timeOptions={timeOptions}
                 isProcessing={seriesEditProcessing}
