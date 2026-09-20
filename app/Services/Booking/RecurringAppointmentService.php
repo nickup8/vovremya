@@ -236,6 +236,7 @@ class RecurringAppointmentService
         Appointment $appointment,
         string $newDate,
         string $newTime,
+        ?string $newMasterId = null,
     ): array {
         return app(BookingService::class)->rescheduleAppointment(
             appointment: $appointment,
@@ -243,6 +244,7 @@ class RecurringAppointmentService
             newTime: $newTime,
             ignoreWarnings: true,
             confirmOutsideHours: true,
+            newMasterId: $newMasterId,
         );
     }
 

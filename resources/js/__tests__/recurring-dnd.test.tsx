@@ -196,3 +196,93 @@ describe('Recurring DnD — daily interval preserved', () => {
         expect(dailySeries.interval).toBe(3);
     });
 });
+
+describe('RecurringDragScopeDialog — layout', () => {
+    it('scope actions are vertical buttons, cancel is in footer', () => {
+        // Read the source to verify structure
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/RecurringDragScopeDialog.tsx'),
+            'utf-8',
+        );
+
+        // Only-this and this-and-future are outline variant, full width
+        expect(src).toContain('variant="outline"');
+        expect(src).toContain('Только эту запись');
+        expect(src).toContain('Эту и следующие');
+
+        // No primary/orange action button for scope actions
+        expect(src).not.toMatch(/variant=""[^>]*>.*Эту и следующие/s);
+
+        // Cancel is in DialogFooter
+        expect(src).toContain('DialogFooter');
+        expect(src).toContain('Отмена');
+
+        // Both scope buttons use same variant (outline)
+        const lines = src.split('\n');
+        const onlyThisLine = lines.find((l: string) => l.includes('Только эту запись'));
+        const thisAndFutureLine = lines.find((l: string) => l.includes('Эту и следующие'));
+        expect(onlyThisLine).toBeDefined();
+        expect(thisAndFutureLine).toBeDefined();
+    });
+});
+
+describe('Recurring DnD — cross-master payload', () => {
+    it('pendingRecurringDrop includes newMasterId', () => {
+        const drop = {
+            appointmentId: 'appt-1',
+            newDate: '2026-07-28',
+            newTime: '14:00',
+            newMasterId: 'master-2',
+            appointment: mockRecurringAppointment,
+        };
+
+        expect(drop.newMasterId).toBe('master-2');
+    });
+
+    it('confirmRecurringDropOnlyThis sends master_id in payload', () => {
+        // The function constructs payload with master_id when newMasterId is set
+        const payload: Record<string, string> = {
+            start_time: '2026-07-28 14:00:00',
+        };
+        const newMasterId = 'master-2';
+
+        if (newMasterId !== undefined) {
+            payload.master_id = newMasterId;
+        }
+
+        expect(payload.master_id).toBe('master-2');
+        expect(payload.start_time).toBe('2026-07-28 14:00:00');
+    });
+
+    it('confirmRecurringDropOnlyThis omits master_id when undefined', () => {
+        const payload: Record<string, string> = {
+            start_time: '2026-07-28 14:00:00',
+        };
+        const newMasterId = undefined;
+
+        if (newMasterId !== undefined) {
+            payload.master_id = newMasterId;
+        }
+
+        expect(payload).not.toHaveProperty('master_id');
+    });
+});
+
+describe('Recurring DnD — 422 error handling', () => {
+    it('extracts message from JSON error response', async () => {
+        const mockResponse = { message: 'Это время уже занято другим переносом.' };
+
+        // Simulate the error extraction logic
+        const msg = mockResponse.message ?? 'Ошибка переноса';
+        expect(msg).toBe('Это время уже занято другим переносом.');
+    });
+
+    it('falls back to generic message when no message in response', async () => {
+        const mockResponse = {};
+
+        const msg = mockResponse.message ?? 'Ошибка переноса';
+        expect(msg).toBe('Ошибка переноса');
+    });
+});

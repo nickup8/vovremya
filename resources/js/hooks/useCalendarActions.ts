@@ -662,7 +662,7 @@ return;
     }
 
     // ═══════════════ Recurring DnD: Only This ═══════════════
-    function confirmRecurringDropOnlyThis() {
+    async function confirmRecurringDropOnlyThis() {
         const drop = pendingRecurringDrop;
         if (!drop || isDndProcessing) return;
 
@@ -672,22 +672,42 @@ return;
 
         applyOptimisticMove(drop.appointmentId, drop.newDate, drop.newTime);
 
-        router.patch(`/admin/appointments/${drop.appointmentId}/recurring/edit-only-this`, {
+        const payload: Record<string, string> = {
             start_time: `${drop.newDate} ${drop.newTime}:00`,
-        }, {
-            preserveScroll: true,
-            only: ['appointments'],
-            onError: (errors: Record<string, string>) => {
+        };
+
+        if (drop.newMasterId !== undefined) {
+            payload.master_id = drop.newMasterId;
+        }
+
+        try {
+            const res = await fetch(`/admin/appointments/${drop.appointmentId}/recurring/edit-only-this`, {
+                method: 'PATCH',
+                credentials: 'same-origin',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'X-Requested-With': 'XMLHttpRequest',
+                    'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
+                },
+                body: JSON.stringify(payload),
+            });
+
+            if (!res.ok) {
+                const err = await res.json().catch(() => ({ message: 'Ошибка переноса' }));
                 setIsDndProcessing(false);
                 rollbackAppointment(drop.appointmentId);
-                toast.error(errors.time ?? 'Ошибка переноса');
-            },
-            onSuccess: () => {
-                setIsDndProcessing(false);
-                confirmOptimistic(drop.appointmentId);
-                toast.success('Запись перенесена');
-            },
-        });
+                toast.error(err.message ?? 'Ошибка переноса');
+                return;
+            }
+
+            setIsDndProcessing(false);
+            confirmOptimistic(drop.appointmentId);
+            toast.success('Запись перенесена');
+        } catch {
+            setIsDndProcessing(false);
+            rollbackAppointment(drop.appointmentId);
+            toast.error('Ошибка сети');
+        }
     }
 
     // ═══════════════ Recurring DnD: This And Future ═══════════════

@@ -182,6 +182,7 @@ class RecurringAppointmentController extends Controller
 
         $validated = $request->validate([
             'start_time' => 'required|date',
+            'master_id' => 'nullable|string|exists:users,id',
         ]);
 
         $tz = $appointment->master->getTimezone();
@@ -189,7 +190,21 @@ class RecurringAppointmentController extends Controller
         $newDate = $newDateTime->format('Y-m-d');
         $newTime = $newDateTime->format('H:i');
 
-        $result = $this->recurringService->editOnlyThis($appointment, $newDate, $newTime);
+        $newMasterId = null;
+        if (! empty($validated['master_id'])) {
+            $newMaster = User::findOrFail($validated['master_id']);
+            $workspaceMasterIds = $appointment->master->workspace
+                ? $appointment->master->workspace->users()->pluck('id')->all()
+                : [$appointment->master->id];
+
+            if (! in_array($newMaster->id, $workspaceMasterIds, true)) {
+                abort(403, 'Мастер из другого воркспейса.');
+            }
+
+            $newMasterId = $newMaster->id;
+        }
+
+        $result = $this->recurringService->editOnlyThis($appointment, $newDate, $newTime, $newMasterId);
 
         if (! ($result['success'] ?? false)) {
             return response()->json([

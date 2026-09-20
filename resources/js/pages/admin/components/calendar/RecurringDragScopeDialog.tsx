@@ -23,7 +23,7 @@ export function RecurringDragScopeDialog({ open, onOpenChange, onOnlyThis, onThi
                     </DialogDescription>
                 </DialogHeader>
 
-                <DialogFooter className="flex flex-col gap-2">
+                <div className="flex flex-col gap-2">
                     <Button
                         variant="outline"
                         onClick={onOnlyThis}
@@ -32,11 +32,15 @@ export function RecurringDragScopeDialog({ open, onOpenChange, onOnlyThis, onThi
                         Только эту запись
                     </Button>
                     <Button
+                        variant="outline"
                         onClick={onThisAndFuture}
-                        className="w-full rounded-xl bg-[var(--color-orange)] text-white hover:bg-[var(--color-orange-600)]"
+                        className="w-full rounded-xl"
                     >
                         Эту и следующие
                     </Button>
+                </div>
+
+                <DialogFooter>
                     <Button
                         variant="ghost"
                         onClick={() => onOpenChange(false)}
