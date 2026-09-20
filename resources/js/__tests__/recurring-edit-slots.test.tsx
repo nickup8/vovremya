@@ -239,3 +239,64 @@ describe('Shared availability — same backend endpoint', () => {
         expect(slotsSource).toContain('/admin/calendar/available-slots');
     });
 });
+
+// ─── Race condition regression tests ────────────────────────
+
+describe('RecurringEditDialog — service_id race regression', () => {
+    it('effectiveServiceId derives from series without waiting for useEffect', async () => {
+        const source = await import('@/pages/admin/components/calendar/RecurringEditDialog?raw');
+        const content = typeof source === 'string' ? source : (source as { default: string }).default;
+
+        // effectiveServiceId must be computed synchronously from series
+        expect(content).toContain('series?.master_service_id');
+        expect(content).toContain('effectiveServiceId');
+        expect(content).toContain('serviceId || seriesServiceId');
+    });
+
+    it('useAvailableSlots never called with empty serviceId when open', async () => {
+        const source = await import('@/pages/admin/components/calendar/RecurringEditDialog?raw');
+        const content = typeof source === 'string' ? source : (source as { default: string }).default;
+
+        // Hook call must guard: only fetch when effectiveServiceId exists
+        expect(content).toContain('open && effectiveServiceId');
+    });
+
+    it('no fetch without service_id in the hook call path', async () => {
+        const source = await import('@/pages/admin/components/calendar/RecurringEditDialog?raw');
+        const content = typeof source === 'string' ? source : (source as { default: string }).default;
+
+        // The useAvailableSlots call must NOT pass serviceId as bare undefined
+        // It must use effectiveServiceId (which is never empty when open)
+        const hookCallMatch = content.match(/useAvailableSlots\([\s\S]*?\)/);
+        expect(hookCallMatch).not.toBeNull();
+        const hookCall = hookCallMatch![0];
+        expect(hookCall).toContain('effectiveServiceId');
+    });
+
+    it('syncs serviceId on appointment change via useEffect', async () => {
+        const source = await import('@/pages/admin/components/calendar/RecurringEditDialog?raw');
+        const content = typeof source === 'string' ? source : (source as { default: string }).default;
+
+        // Must have useEffect that re-initializes when open && series changes
+        expect(content).toContain('setServiceId(cfg.serviceId)');
+        expect(content).toContain('setTime(cfg.time)');
+        expect(content).toContain('setRecurrence(cfg.recurrence)');
+    });
+
+    it('Select displays effectiveServiceId (not stale serviceId)', async () => {
+        const source = await import('@/pages/admin/components/calendar/RecurringEditDialog?raw');
+        const content = typeof source === 'string' ? source : (source as { default: string }).default;
+
+        // Select value should use effectiveServiceId to avoid showing stale value
+        expect(content).toContain('value={effectiveServiceId}');
+    });
+
+    it('no stale slots shown before effectiveServiceId resolves', async () => {
+        const source = await import('@/pages/admin/components/calendar/RecurringEditDialog?raw');
+        const content = typeof source === 'string' ? source : (source as { default: string }).default;
+
+        // When effectiveServiceId is empty (shouldn't happen, but guard), date is ''
+        // which causes useAvailableSlots to return empty slots
+        expect(content).toContain("open && effectiveServiceId ? slotDate : ''");
+    });
+});

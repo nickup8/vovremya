@@ -76,8 +76,9 @@ export function RecurringEditDialog({
     const series = appointment?.recurring_series;
     const initRef = useRef(false);
 
+    const seriesServiceId = series?.master_service_id ?? '';
+    const [serviceId, setServiceId] = useState(seriesServiceId);
     const [time, setTime] = useState('');
-    const [serviceId, setServiceId] = useState('');
     const [recurrence, setRecurrence] = useState<RecurrenceConfig>({
         enabled: true,
         recurrence_type: 'weekly',
@@ -90,29 +91,34 @@ export function RecurringEditDialog({
     const [previewLoading, setPreviewLoading] = useState(false);
     const [previewResult, setPreviewResult] = useState<PreviewResult | null>(null);
 
-    // Resolve date for availability: use appointment's occurrence date
-    const slotDate = appointment?.recurring_occurrence_date ?? appointment?.date ?? '';
-
-    // Shared availability from the same backend endpoint as New Appointment
-    const { slots, loading: slotsLoading } = useAvailableSlots(
-        open ? slotDate : '',
-        open ? serviceId || undefined : undefined,
-    );
-
-    // Initialize from series params on first open
+    // Sync state when appointment changes (handles re-open with different appointment)
     useEffect(() => {
-        if (open && series && !initRef.current) {
+        if (open && series) {
             const cfg = buildConfigFromSeries(series);
             setTime(cfg.time);
             setServiceId(cfg.serviceId);
             setRecurrence(cfg.recurrence);
-            initRef.current = true;
             setPreviewResult(null);
+            initRef.current = true;
         }
         if (!open) {
             initRef.current = false;
         }
     }, [open, series]);
+
+    // Effective serviceId: user's choice takes priority, series as fallback.
+    // NEVER empty — prevents fetch without service_id (which returns naive slots).
+    const effectiveServiceId = serviceId || seriesServiceId;
+
+    // Resolve date for availability: use appointment's occurrence date
+    const slotDate = appointment?.recurring_occurrence_date ?? appointment?.date ?? '';
+
+    // Shared availability from the same backend endpoint as New Appointment.
+    // Only fetch when ALL required params are present.
+    const { slots, loading: slotsLoading } = useAvailableSlots(
+        open && effectiveServiceId ? slotDate : '',
+        open && effectiveServiceId ? effectiveServiceId : undefined,
+    );
 
     // Clear time if no longer in available slots after service/date change
     useEffect(() => {
@@ -191,7 +197,7 @@ export function RecurringEditDialog({
                     {/* Service */}
                     <div>
                         <label className="mb-1 block text-sm font-medium text-slate-700 dark:text-zinc-300">Услуга</label>
-                        <Select value={serviceId} onValueChange={setServiceId}>
+                        <Select value={effectiveServiceId} onValueChange={setServiceId}>
                             <SelectTrigger className="w-full">
                                 <SelectValue placeholder="Выберите услугу" />
                             </SelectTrigger>
