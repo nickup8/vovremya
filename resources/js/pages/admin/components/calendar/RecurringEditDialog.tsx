@@ -115,8 +115,9 @@ export function RecurringEditDialog({
                 recurrence_type: recurrence.recurrence_type,
                 interval: recurrence.interval,
                 weekdays: recurrence.recurrence_type === 'weekly' ? recurrence.weekdays : null,
-                ends_at: recurrence.end_type === 'date' ? recurrence.ends_at : null,
-                occurrences_count: recurrence.end_type === 'count' ? recurrence.occurrences_count : null,
+                // this-and-future: let backend auto-compute remaining count
+                ends_at: mode === 'series-settings' && recurrence.end_type === 'date' ? recurrence.ends_at : null,
+                occurrences_count: mode === 'series-settings' && recurrence.end_type === 'count' ? recurrence.occurrences_count : null,
             });
             if (result) setPreviewResult(result);
         } finally {
@@ -126,14 +127,15 @@ export function RecurringEditDialog({
 
     async function handleSubmit() {
         if (!previewResult || previewResult.available === 0) return;
+        if ('error' in previewResult && previewResult.error) return;
         await onSubmit({
             service_id: serviceId,
             time,
             recurrence_type: recurrence.recurrence_type,
             interval: recurrence.interval,
             weekdays: recurrence.recurrence_type === 'weekly' ? recurrence.weekdays : null,
-            ends_at: recurrence.end_type === 'date' ? recurrence.ends_at : null,
-            occurrences_count: recurrence.end_type === 'count' ? recurrence.occurrences_count : null,
+            ends_at: mode === 'series-settings' && recurrence.end_type === 'date' ? recurrence.ends_at : null,
+            occurrences_count: mode === 'series-settings' && recurrence.end_type === 'count' ? recurrence.occurrences_count : null,
             allowed_dates: previewResult.dates,
         });
     }
@@ -243,41 +245,50 @@ export function RecurringEditDialog({
                         </div>
                     )}
 
-                    {/* End condition */}
-                    <div>
-                        <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-zinc-400">Окончание</label>
-                        <div className="flex gap-2">
-                            <Select
-                                value={recurrence.end_type}
-                                onValueChange={(v: 'count' | 'date') => setRecurrence({ ...recurrence, end_type: v })}
-                            >
-                                <SelectTrigger className="w-44">
-                                    <SelectValue />
-                                </SelectTrigger>
-                                <SelectContent>
-                                    <SelectItem value="count">Количество записей</SelectItem>
-                                    <SelectItem value="date">До даты</SelectItem>
-                                </SelectContent>
-                            </Select>
-                            {recurrence.end_type === 'count' ? (
-                                <input
-                                    type="number"
-                                    min={2}
-                                    max={100}
-                                    value={recurrence.occurrences_count}
-                                    onChange={(e) => setRecurrence({ ...recurrence, occurrences_count: Math.max(2, parseInt(e.target.value) || 2) })}
-                                    className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
-                                />
-                            ) : (
-                                <input
-                                    type="date"
-                                    value={recurrence.ends_at}
-                                    onChange={(e) => setRecurrence({ ...recurrence, ends_at: e.target.value })}
-                                    className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
-                                />
-                            )}
+                    {/* End condition — hidden for this-and-future (backend auto-computes remaining) */}
+                    {mode === 'series-settings' && (
+                        <div>
+                            <label className="mb-1 block text-xs font-medium text-slate-500 dark:text-zinc-400">Окончание</label>
+                            <div className="flex gap-2">
+                                <Select
+                                    value={recurrence.end_type}
+                                    onValueChange={(v: 'count' | 'date') => setRecurrence({ ...recurrence, end_type: v })}
+                                >
+                                    <SelectTrigger className="w-44">
+                                        <SelectValue />
+                                    </SelectTrigger>
+                                    <SelectContent>
+                                        <SelectItem value="count">Количество записей</SelectItem>
+                                        <SelectItem value="date">До даты</SelectItem>
+                                    </SelectContent>
+                                </Select>
+                                {recurrence.end_type === 'count' ? (
+                                    <input
+                                        type="number"
+                                        min={2}
+                                        max={100}
+                                        value={recurrence.occurrences_count}
+                                        onChange={(e) => setRecurrence({ ...recurrence, occurrences_count: Math.max(2, parseInt(e.target.value) || 2) })}
+                                        className="w-20 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                                    />
+                                ) : (
+                                    <input
+                                        type="date"
+                                        value={recurrence.ends_at}
+                                        onChange={(e) => setRecurrence({ ...recurrence, ends_at: e.target.value })}
+                                        className="flex-1 rounded-lg border border-slate-200 bg-white px-3 py-2 text-sm dark:border-zinc-700 dark:bg-zinc-800"
+                                    />
+                                )}
+                            </div>
                         </div>
-                    </div>
+                    )}
+
+                    {/* Remaining count indicator — shown for this-and-future when preview returns it */}
+                    {mode === 'this-and-future' && previewResult && 'remaining_count' in previewResult && (
+                        <div className="rounded-lg bg-slate-50 px-3 py-2 text-sm text-slate-600 dark:bg-zinc-800 dark:text-zinc-300">
+                            Оставшиеся записи серии: {previewResult.remaining_count}
+                        </div>
+                    )}
 
                     {/* Preview button */}
                     <Button
@@ -294,6 +305,11 @@ export function RecurringEditDialog({
                     {/* Preview result */}
                     {previewResult && (
                         <div className="rounded-lg bg-white p-2.5 text-sm dark:bg-zinc-800">
+                            {'error' in previewResult && previewResult.error && (
+                                <p className="font-medium text-red-500">
+                                    {String(previewResult.error)}
+                                </p>
+                            )}
                             {'has_paid_conflict' in previewResult && previewResult.has_paid_conflict && (
                                 <p className="font-medium text-red-500">
                                     В серии есть оплаченная запись, которую нельзя изменить автоматически.
@@ -324,7 +340,7 @@ export function RecurringEditDialog({
                     </Button>
                     <Button
                         onClick={handleSubmit}
-                        disabled={isProcessing || !previewResult || previewResult.available === 0 || ('has_paid_conflict' in previewResult && !!previewResult.has_paid_conflict)}
+                        disabled={isProcessing || !previewResult || previewResult.available === 0 || ('has_paid_conflict' in previewResult && !!previewResult.has_paid_conflict) || ('error' in previewResult && !!previewResult.error)}
                         className="bg-[var(--color-orange)] text-white hover:bg-[var(--color-orange-600)]"
                     >
                         {isProcessing ? 'Сохранение...' : 'Сохранить изменения'}

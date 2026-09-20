@@ -750,14 +750,15 @@ return;
             const serviceId = matchingService?.id ?? series.master_service_id;
 
             // Preview the split with NEW drop time
+            // Don't send occurrences_count/ends_at: backend auto-computes remaining
             const previewParams = {
                 service_id: serviceId,
                 time: drop.newTime,
                 recurrence_type: series.recurrence_type,
                 interval: series.interval,
                 weekdays: series.recurrence_type === 'weekly' ? newWeekdays : null,
-                ends_at: series.ends_at,
-                occurrences_count: series.occurrences_count,
+                ends_at: null,
+                occurrences_count: null,
                 appointmentId: drop.appointmentId,
             };
 
@@ -773,6 +774,12 @@ return;
                 return;
             }
 
+            if ((previewResult as Record<string, unknown>).error) {
+                toast.error(String((previewResult as Record<string, unknown>).error), { duration: 8000 });
+                setIsDndProcessing(false);
+                return;
+            }
+
             if (previewResult.conflicts.length > 0) {
                 // Show conflicts
                 const conflictLines = previewResult.conflicts.map((c) =>
@@ -783,15 +790,15 @@ return;
                 return;
             }
 
-            // Execute split
+            // Execute split — don't send occurrences_count/ends_at
             await editThisAndFuture({
                 service_id: serviceId,
                 time: drop.newTime,
                 recurrence_type: series.recurrence_type,
                 interval: series.interval,
                 weekdays: series.recurrence_type === 'weekly' ? newWeekdays : null,
-                ends_at: series.ends_at,
-                occurrences_count: series.occurrences_count,
+                ends_at: null,
+                occurrences_count: null,
                 allowed_dates: previewResult.dates,
                 appointmentId: drop.appointmentId,
             });

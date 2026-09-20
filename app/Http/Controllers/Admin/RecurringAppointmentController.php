@@ -250,11 +250,8 @@ class RecurringAppointmentController extends Controller
             'start_time' => 'nullable|date_format:H:i',
         ]);
 
-        if (empty($validated['ends_at']) && empty($validated['occurrences_count'])) {
-            return response()->json([
-                'message' => 'Укажите дату окончания или количество повторений.',
-            ], 422);
-        }
+        // Allow both empty: backend auto-computes remaining from series rule
+        // (this-and-future / DnD flows don't send count)
 
         $masterService = MasterService::findOrFail($validated['service_id']);
         $this->authorizeService(auth()->user(), $masterService);
@@ -297,11 +294,7 @@ class RecurringAppointmentController extends Controller
             'allowed_dates.*' => 'date_format:Y-m-d',
         ]);
 
-        if (empty($validated['ends_at']) && empty($validated['occurrences_count'])) {
-            return response()->json([
-                'message' => 'Укажите дату окончания или количество повторений.',
-            ], 422);
-        }
+        // Allow both empty: backend auto-computes remaining from series rule
 
         $series = $appointment->recurringSeries;
         if (! $series || $series->status !== RecurringSeriesStatus::Active) {

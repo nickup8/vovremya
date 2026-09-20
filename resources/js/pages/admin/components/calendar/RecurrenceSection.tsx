@@ -49,6 +49,9 @@ export interface PreviewResult {
     conflicts: Array<{ date: string; reason: ConflictReason }>;
     dates: string[];
     current_date?: string;
+    has_paid_conflict?: boolean;
+    remaining_count?: number;
+    error?: string;
 }
 
 interface Props {

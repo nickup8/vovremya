@@ -434,3 +434,84 @@ describe('calendar.tsx — snapshot pattern', () => {
         expect(dialogSection).toContain('seriesEditAppointment');
     });
 });
+
+describe('RecurringEditDialog — remaining count', () => {
+    it('hides end condition controls in this-and-future mode', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/RecurringEditDialog.tsx'),
+            'utf-8',
+        );
+
+        // End condition wrapped in mode === 'series-settings'
+        expect(src).toContain("mode === 'series-settings'");
+        expect(src).toContain('Количество записей');
+        expect(src).toContain('До даты');
+    });
+
+    it('shows remaining count indicator in this-and-future mode', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/RecurringEditDialog.tsx'),
+            'utf-8',
+        );
+
+        expect(src).toContain('remaining_count');
+        expect(src).toContain('Оставшиеся записи серии');
+    });
+
+    it('does not send occurrences_count in this-and-future mode', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/RecurringEditDialog.tsx'),
+            'utf-8',
+        );
+
+        // Preview: occurrences_count only sent in series-settings mode
+        expect(src).toContain("mode === 'series-settings' && recurrence.end_type === 'count'");
+    });
+
+    it('disables submit when preview returns error', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/RecurringEditDialog.tsx'),
+            'utf-8',
+        );
+
+        expect(src).toContain("'error' in previewResult && !!previewResult.error");
+    });
+});
+
+describe('useCalendarActions — DnD this-and-future remaining count', () => {
+    it('DnD does not send occurrences_count or ends_at for this-and-future', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../hooks/useCalendarActions.ts'),
+            'utf-8',
+        );
+
+        // In confirmRecurringDropThisAndFuture, occurrences_count is null
+        const fnStart = src.indexOf('confirmRecurringDropThisAndFuture');
+        const fnEnd = src.indexOf('async function', fnStart + 30);
+        const fn = src.substring(fnStart, fnEnd > 0 ? fnEnd : fnStart + 2000);
+
+        expect(fn).toContain("occurrences_count: null");
+        expect(fn).toContain("ends_at: null");
+    });
+
+    it('DnD handles error field from preview response', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../hooks/useCalendarActions.ts'),
+            'utf-8',
+        );
+
+        expect(src).toContain("previewResult as Record<string, unknown>).error");
+    });
+});

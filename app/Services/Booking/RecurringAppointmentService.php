@@ -324,7 +324,20 @@ class RecurringAppointmentService
                 ]);
             }
 
-            // 3. Create new series record
+            // 3. Compute remaining count for new series
+            $newOccurrencesCount = $newParams['occurrences_count'] ?? null;
+            $newEndsAt = $newParams['ends_at'] ?? null;
+            if ($newOccurrencesCount === null && $newEndsAt === null) {
+                // Auto-compute remaining from original series rule
+                $newOccurrencesCount = $this->getRemainingOccurrencesCount($series, $splitDate);
+                if ($newOccurrencesCount <= 1) {
+                    throw ValidationException::withMessages([
+                        'message' => 'Это последняя запись серии. Измените только эту запись.',
+                    ]);
+                }
+            }
+
+            // 4. Create new series record
             $newSeries = RecurringAppointmentSeries::create([
                 'workspace_id' => $series->workspace_id,
                 'master_id' => $series->master_id,
@@ -335,8 +348,8 @@ class RecurringAppointmentService
                 'recurrence_type' => RecurrenceType::from($newParams['recurrence_type']),
                 'interval' => $newParams['interval'],
                 'weekdays' => $newParams['weekdays'] ?? null,
-                'ends_at' => $newParams['ends_at'] ?? null,
-                'occurrences_count' => $newParams['occurrences_count'] ?? null,
+                'ends_at' => $newEndsAt,
+                'occurrences_count' => $newOccurrencesCount,
                 'timezone' => $tz,
                 'status' => RecurringSeriesStatus::Active,
             ]);
@@ -619,6 +632,31 @@ class RecurringAppointmentService
         $startTime = $startTime ?? $splitAppointment->start_time->timezone($tz)->format('H:i');
         $durationMinutes = $service?->effective_duration ?? 60;
 
+        $remainingCount = null;
+        if ($splitAppointment->recurring_series_id) {
+            $series = $splitAppointment->recurringSeries;
+            if ($series) {
+                $remainingCount = $this->getRemainingOccurrencesCount($series, $splitAppointment->recurring_occurrence_date);
+
+                // For this-and-future: auto-fill occurrencesCount from remaining
+                if ($occurrencesCount === null) {
+                    if ($remainingCount <= 1) {
+                        return [
+                            'total' => 0,
+                            'available' => 0,
+                            'conflicts' => [],
+                            'dates' => [],
+                            'current_date' => null,
+                            'has_paid_conflict' => false,
+                            'remaining_count' => $remainingCount,
+                            'error' => 'Это последняя запись серии. Измените только эту запись.',
+                        ];
+                    }
+                    $occurrencesCount = $remainingCount;
+                }
+            }
+        }
+
         // Check for Paid/Prepaid in affected range
         $hasPaidConflict = false;
         if ($splitAppointment->recurring_series_id) {
@@ -652,8 +690,79 @@ class RecurringAppointmentService
         );
 
         $result['has_paid_conflict'] = $hasPaidConflict;
+        $result['remaining_count'] = $remainingCount ?? $occurrencesCount;
 
         return $result;
+    }
+
+    /**
+     * Compute the number of remaining occurrences from $splitDate onward,
+     * using the series' own recurrence rule (not DB row count).
+     *
+     * This is position-based: if the series has 10 occurrences and we split at the 5th,
+     * remaining = 6 (including the split date itself).
+     *
+     * Cancelled/NoShow occurrences still count as planned positions.
+     * Force-deleted rows do NOT break the index because we regenerate from the rule.
+     */
+    public function getRemainingOccurrencesCount(
+        RecurringAppointmentSeries $series,
+        string $splitDate,
+    ): int {
+        $tz = $series->timezone;
+        $ruleStart = Carbon::parse($series->start_date, $tz)->startOfDay();
+        $splitCarbon = Carbon::parse($splitDate, $tz)->startOfDay();
+
+        $endsAt = $series->ends_at
+            ? Carbon::parse($series->ends_at, $tz)->startOfDay()
+            : null;
+
+        $rule = new RecurrenceRule(
+            recurrenceType: $series->recurrence_type,
+            interval: $series->interval,
+            weekdays: $series->weekdays,
+            startDate: $ruleStart,
+            endsAt: $endsAt,
+            timezone: $tz,
+        );
+
+        // Generate full range from series start to either ends_at or a generous horizon
+        $rangeEnd = $endsAt
+            ? $endsAt->copy()
+            : $this->estimateEndDate($ruleStart, $series->recurrence_type, $series->interval, $series->occurrences_count ?? 52);
+
+        $allOccurrences = $this->recurrenceService->generateOccurrences($rule, $ruleStart, $rangeEnd);
+
+        // If count-bounded, trim to exactly occurrences_count
+        if ($series->occurrences_count !== null && count($allOccurrences) > $series->occurrences_count) {
+            $allOccurrences = array_slice($allOccurrences, 0, $series->occurrences_count);
+        }
+
+        // Find position of splitDate in the generated occurrences
+        $splitPosition = null;
+        foreach ($allOccurrences as $i => $date) {
+            if ($date->format('Y-m-d') === $splitCarbon->format('Y-m-d')) {
+                $splitPosition = $i;
+                break;
+            }
+        }
+
+        // If split date not found (edge case: gap in rule), count from first date >= splitDate
+        if ($splitPosition === null) {
+            foreach ($allOccurrences as $i => $date) {
+                if ($date->gte($splitCarbon)) {
+                    $splitPosition = $i;
+                    break;
+                }
+            }
+        }
+
+        // Still not found — all occurrences are before split, or split is beyond series range
+        if ($splitPosition === null) {
+            return 0;
+        }
+
+        return count($allOccurrences) - $splitPosition;
     }
 
     private function estimateEndDate(

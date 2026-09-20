@@ -3843,4 +3843,565 @@ class RecurringAppointmentTest extends TestCase
         $this->assertDatabaseHas('appointments', ['id' => $appts[2]->id]);
         $this->assertDatabaseHas('appointments', ['id' => $appts[3]->id]);
     }
+
+    // ═══════════════ Remaining occurrences count ═══════════════
+
+    #[Test]
+    public function remaining_split_first_of_10_yields_10(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 10,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $first = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($wednesday->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $wednesday->format('Y-m-d'),
+        ]);
+
+        $response = $this->postJson("/admin/appointments/{$first->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 10,
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('remaining_count', 10);
+    }
+
+    #[Test]
+    public function remaining_split_second_of_10_yields_9(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 10,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        // Create first 2 appointments
+        for ($i = 0; $i < 2; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        $second = Appointment::where('recurring_series_id', $series->id)
+            ->orderBy('recurring_occurrence_date')
+            ->skip(1)->first();
+
+        $response = $this->postJson("/admin/appointments/{$second->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 10,
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('remaining_count', 9);
+    }
+
+    #[Test]
+    public function remaining_split_5th_of_10_yields_6(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 10,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        for ($i = 0; $i < 5; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        $fifth = Appointment::where('recurring_series_id', $series->id)
+            ->orderBy('recurring_occurrence_date')
+            ->skip(4)->first();
+
+        $response = $this->postJson("/admin/appointments/{$fifth->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 10,
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('remaining_count', 6);
+    }
+
+    #[Test]
+    public function remaining_split_last_returns_error(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 3,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        for ($i = 0; $i < 3; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Split the last (3rd) occurrence
+        $last = Appointment::where('recurring_series_id', $series->id)
+            ->orderBy('recurring_occurrence_date')
+            ->skip(2)->first();
+
+        $response = $this->postJson("/admin/appointments/{$last->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+        ]);
+
+        $response->assertOk();
+        $json = $response->json();
+        $this->assertArrayHasKey('error', $json);
+        $this->assertEquals('Это последняя запись серии. Измените только эту запись.', $json['error']);
+        $this->assertEquals(0, $json['available']);
+    }
+
+    #[Test]
+    public function remaining_cancelled_occurrence_still_counts_in_position(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 5,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        // 3rd occurrence is Cancelled — still counts as a position
+        for ($i = 0; $i < 3; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => $i === 2 ? AppointmentStatus::Cancelled : AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Split at 3rd (Cancelled) — remaining should be 3 (3rd, 4th, 5th)
+        $cancelled = Appointment::where('recurring_series_id', $series->id)
+            ->where('status', AppointmentStatus::Cancelled)
+            ->first();
+
+        $response = $this->postJson("/admin/appointments/{$cancelled->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 5,
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('remaining_count', 3);
+    }
+
+    #[Test]
+    public function remaining_no_show_still_counts_in_position(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 5,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        for ($i = 0; $i < 2; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => $i === 1 ? AppointmentStatus::NoShow : AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Split at 2nd (NoShow) — remaining should be 4 (2nd through 5th)
+        $noShow = Appointment::where('recurring_series_id', $series->id)
+            ->where('status', AppointmentStatus::NoShow)
+            ->first();
+
+        $response = $this->postJson("/admin/appointments/{$noShow->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 5,
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('remaining_count', 4);
+    }
+
+    #[Test]
+    public function remaining_no_count_auto_computes(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 6,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        for ($i = 0; $i < 3; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Preview without occurrences_count — backend should auto-compute remaining
+        $third = Appointment::where('recurring_series_id', $series->id)
+            ->orderBy('recurring_occurrence_date')
+            ->skip(2)->first();
+
+        $response = $this->postJson("/admin/appointments/{$third->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            // NO occurrences_count — should auto-compute = 4
+        ]);
+
+        $response->assertOk();
+        $response->assertJsonPath('remaining_count', 4);
+        $this->assertGreaterThanOrEqual(1, $response->json('total'));
+    }
+
+    #[Test]
+    public function remaining_auto_compute_preserves_dates_count(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 5,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        for ($i = 0; $i < 5; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        // Split at 3rd, preview without count → should generate exactly remaining (3) dates
+        $third = Appointment::where('recurring_series_id', $series->id)
+            ->orderBy('recurring_occurrence_date')
+            ->skip(2)->first();
+
+        $response = $this->postJson("/admin/appointments/{$third->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+        ]);
+
+        $response->assertOk();
+        $json = $response->json();
+        $this->assertEquals(3, $json['remaining_count']);
+        // dates + current_date should equal remaining_count
+        $totalDates = count($json['dates']) + ($json['current_date'] ? 1 : 0);
+        $this->assertEquals(3, $totalDates);
+    }
+
+    #[Test]
+    public function remaining_split_last_submit_returns_422(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 2,
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        for ($i = 0; $i < 2; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        $last = Appointment::where('recurring_series_id', $series->id)
+            ->orderBy('recurring_occurrence_date')
+            ->skip(1)->first();
+
+        // Try to submit this-and-future for last occurrence — should 422
+        $response = $this->postJson("/admin/appointments/{$last->id}/recurring/edit-this-and-future", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'allowed_dates' => [$wednesday->copy()->addWeek()->format('Y-m-d')],
+        ]);
+
+        $response->assertStatus(422);
+    }
+
+    #[Test]
+    public function remaining_ends_at_preserved_for_date_bounded_series(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 3);
+
+        $wednesday = $this->nextWeekday(3);
+        $endDate = $wednesday->copy()->addWeeks(3);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $wednesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [3],
+            'ends_at' => $endDate->format('Y-m-d'),
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        for ($i = 0; $i < 3; $i++) {
+            $date = $wednesday->copy()->addWeeks($i);
+            Appointment::create([
+                'master_id' => $this->proMaster->id,
+                'client_id' => $this->client->id,
+                'master_service_id' => $this->service->id,
+                'price' => $this->service->effective_price,
+                'duration' => $this->service->effective_duration,
+                'service_name' => '',
+                'start_time' => Carbon::parse($date->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+                'status' => AppointmentStatus::Booked,
+                'recurring_series_id' => $series->id,
+                'recurring_occurrence_date' => $date->format('Y-m-d'),
+            ]);
+        }
+
+        $first = Appointment::where('recurring_series_id', $series->id)
+            ->orderBy('recurring_occurrence_date')->first();
+
+        // Preview with ends_at preserved — should use original end boundary
+        $response = $this->postJson("/admin/appointments/{$first->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
+            'start_time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'ends_at' => $endDate->format('Y-m-d'),
+        ]);
+
+        $response->assertOk();
+        $json = $response->json();
+        // With ends_at, total should include all dates from first to endDate (minus current)
+        $this->assertGreaterThanOrEqual(3, $json['total']);
+    }
 }
