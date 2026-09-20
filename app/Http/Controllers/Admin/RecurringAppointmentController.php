@@ -10,6 +10,7 @@ use App\Models\Client;
 use App\Models\MasterService;
 use App\Models\User;
 use App\Services\Booking\RecurringAppointmentService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -266,6 +267,7 @@ class RecurringAppointmentController extends Controller
             endsAt: ! empty($validated['ends_at']) ? \Illuminate\Support\Carbon::parse($validated['ends_at']) : null,
             occurrencesCount: $validated['occurrences_count'] ?? null,
             startTime: $validated['start_time'] ?? null,
+            serviceId: $validated['service_id'],
         );
 
         return response()->json($result);
@@ -330,6 +332,13 @@ class RecurringAppointmentController extends Controller
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);
+        } catch (\Illuminate\Database\QueryException $e) {
+            if ($e->errorInfo[0] === '23P01') {
+                return response()->json([
+                    'message' => 'Один из слотов уже занят. Проверьте расписание ещё раз.',
+                ], 422);
+            }
+            throw $e;
         }
 
         return response()->json([

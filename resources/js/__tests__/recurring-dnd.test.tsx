@@ -345,3 +345,92 @@ describe('AppointmentCard — medium card readability', () => {
         expect(src).toContain('text-[10px] leading-[13px] opacity-50');
     });
 });
+
+describe('AppointmentDetailDrawer — recurring edit UX', () => {
+    it('edit dropdown has only-this and this-and-future, no series settings', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/AppointmentDetailDrawer.tsx'),
+            'utf-8',
+        );
+
+        // Popover has only-this and this-and-future
+        expect(src).toContain('Только эту запись');
+        expect(src).toContain('Эту и следующие');
+
+        // Series settings NOT in PopoverContent (moved to separate link)
+        const popoverSection = src.substring(
+            src.indexOf('PopoverContent align="start"'),
+            src.indexOf('</Popover>', src.indexOf('PopoverContent align="start"')),
+        );
+        expect(popoverSection).not.toContain('Настройки серии');
+
+        // Series settings as separate text link
+        expect(src).toContain('Настройки серии');
+    });
+
+    it('recurring marker is separate row with Repeat icon', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/AppointmentDetailDrawer.tsx'),
+            'utf-8',
+        );
+
+        expect(src).toContain('Повторяющаяся запись');
+        expect(src).toContain('<Repeat className="size-3" />');
+    });
+
+    it('status row contains only badge, no series text', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/AppointmentDetailDrawer.tsx'),
+            'utf-8',
+        );
+
+        // Status row
+        const statusIdx = src.indexOf('Статус');
+        const nextRow = src.indexOf('<div className="flex items', statusIdx + 10);
+        const statusSection = src.substring(statusIdx, nextRow > 0 ? nextRow : statusIdx + 200);
+
+        // No "Серия" text in the status row area
+        expect(statusSection).not.toContain('Серия');
+    });
+});
+
+describe('RecurringEditDialog — paid conflict', () => {
+    it('disables submit when has_paid_conflict', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/RecurringEditDialog.tsx'),
+            'utf-8',
+        );
+
+        expect(src).toContain('has_paid_conflict');
+        expect(src).toContain('оплаченная запись');
+    });
+});
+
+describe('calendar.tsx — snapshot pattern', () => {
+    it('uses seriesEditAppointment snapshot for RecurringEditDialog', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/calendar.tsx'),
+            'utf-8',
+        );
+
+        // Snapshot state exists
+        expect(src).toContain('seriesEditAppointment');
+
+        // openEditThisAndFuture saves snapshot
+        expect(src).toContain('setSeriesEditAppointment(selected)');
+
+        // RecurringEditDialog uses snapshot, not selected
+        const dialogSection = src.substring(src.indexOf('RecurringEditDialog'));
+        expect(dialogSection).toContain('seriesEditAppointment');
+    });
+});

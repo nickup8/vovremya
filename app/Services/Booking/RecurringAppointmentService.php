@@ -610,9 +610,10 @@ class RecurringAppointmentService
         ?Carbon $endsAt,
         ?int $occurrencesCount,
         ?string $startTime = null,
+        ?string $serviceId = null,
     ): array {
         $master = $splitAppointment->master;
-        $service = $splitAppointment->masterService;
+        $service = $serviceId ? MasterService::findOrFail($serviceId) : $splitAppointment->masterService;
         $tz = $master->getTimezone();
         $splitDate = Carbon::parse($splitAppointment->recurring_occurrence_date, $tz);
         $startTime = $startTime ?? $splitAppointment->start_time->timezone($tz)->format('H:i');
