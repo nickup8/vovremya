@@ -696,7 +696,10 @@ return;
                 const err = await res.json().catch(() => ({ message: 'Ошибка переноса' }));
                 setIsDndProcessing(false);
                 rollbackAppointment(drop.appointmentId);
-                toast.error(err.message ?? 'Ошибка переноса');
+                const msg = err.message
+                    ?? (err.errors ? Object.values(err.errors)[0]?.[0] : null)
+                    ?? 'Ошибка переноса';
+                toast.error(msg);
                 return;
             }
 
@@ -755,6 +758,7 @@ return;
                 weekdays: series.recurrence_type === 'weekly' ? newWeekdays : null,
                 ends_at: series.ends_at,
                 occurrences_count: series.occurrences_count,
+                appointmentId: drop.appointmentId,
             };
 
             const previewResult = await previewSplit(previewParams);
@@ -1104,7 +1108,10 @@ return;
 
             if (!res.ok) {
                 const err = await res.json();
-                toast.error(err.message ?? 'Ошибка сохранения');
+                const msg = err.message
+                    ?? (err.errors ? Object.values(err.errors)[0]?.[0] : null)
+                    ?? 'Ошибка сохранения';
+                toast.error(msg);
                 return;
             }
 
@@ -1120,11 +1127,12 @@ return;
         }
     }
 
-    async function previewSplit(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null }): Promise<PreviewResult | null> {
-        if (!selected) return null;
+    async function previewSplit(params: { service_id: string; time: string; recurrence_type: string; interval: number; weekdays: number[] | null; ends_at: string | null; occurrences_count: number | null; appointmentId?: string }): Promise<PreviewResult | null> {
+        const targetId = params.appointmentId ?? selected?.id;
+        if (!targetId) return null;
 
         try {
-            const res = await fetch(`/admin/appointments/${selected.id}/recurring/preview-split`, {
+            const res = await fetch(`/admin/appointments/${targetId}/recurring/preview-split`, {
                 method: 'POST',
                 credentials: 'same-origin',
                 headers: {
@@ -1137,7 +1145,10 @@ return;
 
             if (!res.ok) {
                 const err = await res.json();
-                toast.error(err.message ?? 'Ошибка превью');
+                const msg = err.message
+                    ?? (err.errors ? Object.values(err.errors)[0]?.[0] : null)
+                    ?? 'Ошибка превью';
+                toast.error(msg);
                 return null;
             }
 

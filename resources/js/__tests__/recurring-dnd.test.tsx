@@ -198,8 +198,7 @@ describe('Recurring DnD — daily interval preserved', () => {
 });
 
 describe('RecurringDragScopeDialog — layout', () => {
-    it('scope actions are vertical buttons, cancel is in footer', () => {
-        // Read the source to verify structure
+    it('only-this button is primary orange, this-and-future is outline', () => {
         const fs = require('fs');
         const path = require('path');
         const src = fs.readFileSync(
@@ -207,24 +206,17 @@ describe('RecurringDragScopeDialog — layout', () => {
             'utf-8',
         );
 
-        // Only-this and this-and-future are outline variant, full width
-        expect(src).toContain('variant="outline"');
+        // Only-this uses orange/primary
+        expect(src).toContain('bg-[var(--color-orange)]');
+        expect(src).toContain('hover:bg-[var(--color-orange-600)]');
         expect(src).toContain('Только эту запись');
+
+        // This-and-future is outline
         expect(src).toContain('Эту и следующие');
 
-        // No primary/orange action button for scope actions
-        expect(src).not.toMatch(/variant=""[^>]*>.*Эту и следующие/s);
-
-        // Cancel is in DialogFooter
+        // Cancel in DialogFooter
         expect(src).toContain('DialogFooter');
         expect(src).toContain('Отмена');
-
-        // Both scope buttons use same variant (outline)
-        const lines = src.split('\n');
-        const onlyThisLine = lines.find((l: string) => l.includes('Только эту запись'));
-        const thisAndFutureLine = lines.find((l: string) => l.includes('Эту и следующие'));
-        expect(onlyThisLine).toBeDefined();
-        expect(thisAndFutureLine).toBeDefined();
     });
 });
 
@@ -271,18 +263,85 @@ describe('Recurring DnD — cross-master payload', () => {
 });
 
 describe('Recurring DnD — 422 error handling', () => {
-    it('extracts message from JSON error response', async () => {
+    it('extracts message from JSON error response', () => {
         const mockResponse = { message: 'Это время уже занято другим переносом.' };
 
-        // Simulate the error extraction logic
-        const msg = mockResponse.message ?? 'Ошибка переноса';
+        const msg = mockResponse.message
+            ?? (mockResponse.errors ? Object.values(mockResponse.errors)[0]?.[0] : null)
+            ?? 'Ошибка переноса';
         expect(msg).toBe('Это время уже занято другим переносом.');
     });
 
-    it('falls back to generic message when no message in response', async () => {
-        const mockResponse = {};
+    it('extracts validation errors.errors field', () => {
+        const mockResponse = { errors: { service_id: ['Услуга не найдена'] } };
 
-        const msg = mockResponse.message ?? 'Ошибка переноса';
+        const msg = mockResponse.message
+            ?? (mockResponse.errors ? Object.values(mockResponse.errors)[0]?.[0] : null)
+            ?? 'Ошибка сохранения';
+        expect(msg).toBe('Услуга не найдена');
+    });
+
+    it('falls back to generic message when no message or errors in response', () => {
+        const mockResponse: Record<string, unknown> = {};
+
+        const msg = (mockResponse as { message?: string }).message
+            ?? ((mockResponse as { errors?: Record<string, string[]> }).errors ? Object.values((mockResponse as { errors: Record<string, string[]> }).errors)[0]?.[0] : null)
+            ?? 'Ошибка переноса';
         expect(msg).toBe('Ошибка переноса');
+    });
+});
+
+describe('Recurring DnD — previewSplit appointmentId', () => {
+    it('previewSplit accepts appointmentId param', () => {
+        const params = {
+            service_id: 'svc-1',
+            time: '14:00',
+            recurrence_type: 'weekly',
+            interval: 1,
+            weekdays: [2, 3],
+            ends_at: null,
+            occurrences_count: 5,
+            appointmentId: 'appt-dnd-1',
+        };
+
+        expect(params.appointmentId).toBe('appt-dnd-1');
+        // Without appointmentId, falls back to selected.id
+        const paramsNoId = { ...params, appointmentId: undefined };
+        expect(paramsNoId.appointmentId).toBeUndefined();
+    });
+});
+
+describe('AppointmentCard — recurring icon', () => {
+    it('source has inline Repeat icon, no standalone Серия row', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/AppointmentCard.tsx'),
+            'utf-8',
+        );
+
+        // Repeat icon is inline next to time
+        expect(src).toContain('recurring_series_id && (');
+        expect(src).toContain('<Repeat className="size-[9px] shrink-0" />');
+
+        // No standalone "Серия" text row
+        expect(src).not.toContain('Серия');
+    });
+});
+
+describe('AppointmentCard — medium card readability', () => {
+    it('source has reduced padding and service text sizing for better fit', () => {
+        const fs = require('fs');
+        const path = require('path');
+        const src = fs.readFileSync(
+            path.resolve(__dirname, '../pages/admin/components/calendar/AppointmentCard.tsx'),
+            'utf-8',
+        );
+
+        // Non-compact padding reduced to fit 45-min cards
+        expect(src).toContain('py-[5px]');
+
+        // Service text uses smaller leading for medium cards
+        expect(src).toContain('text-[10px] leading-[13px] opacity-50');
     });
 });

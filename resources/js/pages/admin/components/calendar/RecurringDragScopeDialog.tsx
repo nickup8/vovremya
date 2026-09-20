@@ -25,9 +25,8 @@ export function RecurringDragScopeDialog({ open, onOpenChange, onOnlyThis, onThi
 
                 <div className="flex flex-col gap-2">
                     <Button
-                        variant="outline"
                         onClick={onOnlyThis}
-                        className="w-full rounded-xl"
+                        className="w-full rounded-xl bg-[var(--color-orange)] text-white hover:bg-[var(--color-orange-600)]"
                     >
                         Только эту запись
                     </Button>

@@ -239,6 +239,7 @@ class RecurringAppointmentController extends Controller
         $this->authorize('view', $appointment);
 
         $validated = $request->validate([
+            'service_id' => 'required|uuid|exists:master_service,id',
             'recurrence_type' => 'required|in:daily,weekly',
             'interval' => 'required|integer|min:1',
             'weekdays' => 'nullable|array',
@@ -253,6 +254,9 @@ class RecurringAppointmentController extends Controller
                 'message' => 'Укажите дату окончания или количество повторений.',
             ], 422);
         }
+
+        $masterService = MasterService::findOrFail($validated['service_id']);
+        $this->authorizeService(auth()->user(), $masterService);
 
         $result = $this->recurringService->previewSplit(
             splitAppointment: $appointment,

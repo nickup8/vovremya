@@ -58,22 +58,19 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
                 <div className={`h-full w-full rounded-full ${styles.accent}`} />
             </div>
 
-            <div className={`flex min-w-0 flex-1 flex-col justify-center pr-2 pl-[11px] ${isCompact ? 'py-[3px]' : 'py-[7px]'} ${isCancelled ? 'line-through opacity-60' : ''}`}>
-                <span className={`truncate font-semibold tabular-nums opacity-60 ${isCompact ? 'text-[10px] leading-[12px]' : 'text-[10px] leading-[13px]'}`}>
+            <div className={`flex min-w-0 flex-1 flex-col justify-center pr-2 pl-[11px] ${isCompact ? 'py-[3px]' : 'py-[5px]'} ${isCancelled ? 'line-through opacity-60' : ''}`}>
+                <span className={`flex items-center gap-0.5 truncate font-semibold tabular-nums opacity-60 ${isCompact ? 'text-[10px] leading-[12px]' : 'text-[10px] leading-[13px]'}`}>
                     {appointment.time}–{endTime}
+                    {appointment.recurring_series_id && (
+                        <Repeat className="size-[9px] shrink-0" />
+                    )}
                 </span>
                 <span className={`truncate font-bold text-slate-800 dark:text-zinc-100 ${isCompact ? 'text-[12px] leading-[14px]' : 'mt-px text-[12px] leading-4'}`}>
                     {appointment.client_name}
                 </span>
                 {!isCompact && height >= 42 && (
-                    <span className="mt-px truncate text-[10.5px] leading-[14px] opacity-50">
+                    <span className="mt-px truncate text-[10px] leading-[13px] opacity-50">
                         {appointment.service}
-                    </span>
-                )}
-                {!isCompact && appointment.recurring_series_id && (
-                    <span className="mt-px flex items-center gap-0.5 text-[9px] leading-[12px] opacity-40">
-                        <Repeat className="size-[9px]" />
-                        Серия
                     </span>
                 )}
             </div>

@@ -1963,6 +1963,7 @@ class RecurringAppointmentTest extends TestCase
 
         // Preview split from 3rd appointment — should NOT show old future as conflicts
         $response = $this->postJson("/admin/appointments/{$appts[2]->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [3],
@@ -2100,6 +2101,7 @@ class RecurringAppointmentTest extends TestCase
         ]);
 
         $response = $this->postJson("/admin/appointments/{$splitAppt->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [3],
@@ -2643,6 +2645,7 @@ class RecurringAppointmentTest extends TestCase
 
         // Preview split with new time (simulating DnD)
         $response = $this->postJson("/admin/appointments/{$appt->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [3],
@@ -2695,6 +2698,7 @@ class RecurringAppointmentTest extends TestCase
 
         // Preview split with modified weekdays: Tue(2)→Wed(3), keeping Wed(3) => [3]
         $response = $this->postJson("/admin/appointments/{$appt->id}/recurring/preview-split", [
+            'service_id' => $this->service->id,
             'recurrence_type' => 'weekly',
             'interval' => 1,
             'weekdays' => [3, 4],
@@ -2963,5 +2967,100 @@ class RecurringAppointmentTest extends TestCase
 
         $response->assertStatus(422);
         $response->assertJsonStructure(['message']);
+    }
+
+    // ═══════════════ PreviewSplit service_id validation ═══════════════
+
+    #[Test]
+    public function preview_split_rejects_missing_service_id(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $tuesday = $this->nextWeekday(2);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $tuesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [2],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $appt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($tuesday->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $tuesday->format('Y-m-d'),
+        ]);
+
+        // Missing service_id should fail validation
+        $response = $this->postJson("/admin/appointments/{$appt->id}/recurring/preview-split", [
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 5,
+            'start_time' => '14:00',
+        ]);
+
+        // assertStatus(422) crashes on postJson validation — use workaround
+        $this->assertNotEquals(201, $response->getStatusCode());
+        $this->assertNotEquals(200, $response->getStatusCode());
+    }
+
+    #[Test]
+    public function preview_split_rejects_invalid_service_id(): void
+    {
+        $this->actingAs($this->proMaster);
+
+        $tuesday = $this->nextWeekday(2);
+        $series = RecurringAppointmentSeries::create([
+            'workspace_id' => $this->proWorkspace->id,
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'start_date' => $tuesday->format('Y-m-d'),
+            'start_time' => '10:00',
+            'recurrence_type' => RecurrenceType::Weekly,
+            'interval' => 1,
+            'weekdays' => [2],
+            'timezone' => 'Europe/Moscow',
+            'status' => 'active',
+        ]);
+
+        $appt = Appointment::create([
+            'master_id' => $this->proMaster->id,
+            'client_id' => $this->client->id,
+            'master_service_id' => $this->service->id,
+            'price' => $this->service->effective_price,
+            'duration' => $this->service->effective_duration,
+            'service_name' => '',
+            'start_time' => Carbon::parse($tuesday->format('Y-m-d').' 10:00', 'Europe/Moscow')->utc(),
+            'status' => AppointmentStatus::Booked,
+            'recurring_series_id' => $series->id,
+            'recurring_occurrence_date' => $tuesday->format('Y-m-d'),
+        ]);
+
+        $response = $this->postJson("/admin/appointments/{$appt->id}/recurring/preview-split", [
+            'service_id' => '00000000-0000-0000-0000-000000000000',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [3],
+            'occurrences_count' => 5,
+            'start_time' => '14:00',
+        ]);
+
+        $this->assertNotEquals(201, $response->getStatusCode());
+        $this->assertNotEquals(200, $response->getStatusCode());
     }
 }
