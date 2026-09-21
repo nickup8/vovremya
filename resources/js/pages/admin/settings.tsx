@@ -180,7 +180,7 @@ return;
 
             if (response.ok) {
                 onClose();
-                router.reload({ only: ['profile'] });
+                router.reload({ only: ['profile', 'auth'] });
             } else {
                 const errorData = await response.json().catch(() => ({}));
                 toast.error(
