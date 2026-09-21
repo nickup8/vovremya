@@ -142,6 +142,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/admin/schedule', [ScheduleController::class, 'index'])->name('admin.schedule');
 
+    Route::get('/admin/help', fn () => Inertia::render('admin/help'))->name('admin.help');
     Route::get('/admin/settings', [SettingsController::class, 'index'])->name('admin.settings');
     Route::put('/admin/settings', [SettingsController::class, 'update'])->name('admin.settings.update');
     Route::put('/admin/settings/booking', [SettingsController::class, 'updateBooking'])->name('admin.settings.booking.update');
