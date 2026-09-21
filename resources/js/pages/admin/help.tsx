@@ -18,6 +18,7 @@ interface HelpSection {
     title: string;
     description: string;
     items: string[];
+    fullWidth?: boolean;
 }
 
 const SECTIONS: HelpSection[] = [
@@ -28,8 +29,8 @@ const SECTIONS: HelpSection[] = [
         items: [
             'Добавьте услуги, которые смогут выбирать клиенты.',
             'Настройте рабочие дни, время работы и перерывы.',
-            'Используйте ссылку онлайн-записи, чтобы клиент мог выбрать свободное время самостоятельно.',
-            'Новые записи автоматически появляются в календаре.',
+            'Поделитесь ссылкой онлайн-записи с клиентами.',
+            'Новые записи автоматически появятся в календаре.',
         ],
     },
     {
@@ -39,10 +40,9 @@ const SECTIONS: HelpSection[] = [
         items: [
             'Создание записи вручную из календаря.',
             'Просмотр дня, недели и месяца.',
-            'Перенос записи на другое время.',
-            'Отмена записи.',
+            'Перенос и отмена записи.',
             'Изменение статуса после визита.',
-            'Повторяющиеся записи для постоянных клиентов.',
+            'Повторяющиеся записи.',
         ],
     },
     {
@@ -51,11 +51,10 @@ const SECTIONS: HelpSection[] = [
         description: 'База клиентов и каталог услуг.',
         items: [
             'Создание карточки клиента с контактами.',
-            'История визитов клиента.',
-            'Заметки о клиенте.',
+            'История визитов и заметки.',
             'Блокировка клиента при необходимости.',
-            'Создание и изменение услуг в каталоге.',
-            'Услугу, которая уже использовалась в записях, нельзя удалить — это сохраняет историю визитов.',
+            'Создание и изменение услуг.',
+            'Услугу с историей записей нельзя удалить.',
         ],
     },
     {
@@ -64,10 +63,9 @@ const SECTIONS: HelpSection[] = [
         description: 'Настройка доступного времени для записи.',
         items: [
             'Рабочие и выходные дни.',
-            'Начало и окончание рабочего дня.',
-            'Перерывы в течение дня.',
-            'Интервал записи (например, каждые 30 минут).',
-            'Блокировка времени: отпуск, больничный, личное время и другие причины.',
+            'Начало, окончание рабочего дня и перерывы.',
+            'Интервал записи.',
+            'Блокировка времени: отпуск, больничный и др.',
         ],
     },
     {
@@ -75,10 +73,10 @@ const SECTIONS: HelpSection[] = [
         title: 'AutoFill и «Хочу раньше»',
         description: 'Автоматическое заполнение освободившихся окон.',
         items: [
-            'Клиент может запросить более раннее время для записи.',
+            'Клиент может запросить более раннее время.',
             'Освободившиеся окна участвуют в AutoFill.',
-            'Подходящему клиенту может быть отправлено предложение.',
-            'После принятия предложения запись переносится на новое время.',
+            'Подходящему клиенту отправляется предложение.',
+            'После принятия запись переносится автоматически.',
         ],
     },
     {
@@ -86,11 +84,9 @@ const SECTIONS: HelpSection[] = [
         title: 'MAX и VK',
         description: 'Взаимодействие клиентов через мессенджеры.',
         items: [
-            'Клиент может взаимодействовать с записью через подключённые MAX/VK сценарии.',
-            'Подтверждение визита.',
-            'Отмена доступной записи.',
-            'Работа с предложениями AutoFill / «Хочу раньше».',
-            'Уведомления, реализованные в этих каналах.',
+            'Подтверждение и отмена визита через чат.',
+            'Работа с предложениями AutoFill.',
+            'Уведомления в этих каналах.',
         ],
     },
     {
@@ -103,6 +99,7 @@ const SECTIONS: HelpSection[] = [
             'Потенциальные потери.',
             'Каналы записи.',
         ],
+        fullWidth: true,
     },
 ];
 
@@ -113,34 +110,21 @@ export default function HelpPage() {
         <>
             <Head title="Помощь — Вовремя" />
 
-            <AdminLayout title="Помощь" hideNewAppointment>
+            <AdminLayout title="Помощь" hideNewAppointment fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
                     <div className="max-w-[1280px]">
-                        {/* Header */}
-                        <h1 className="text-xl font-bold text-[var(--color-ink)] md:text-2xl">
-                            Помощь
-                        </h1>
-                        <p className="mt-1 text-sm text-[var(--color-graphite)]">
+                        <p className="mb-4 text-sm text-[var(--color-graphite)]">
                             Короткие инструкции по основным возможностям ИРСИ.
                         </p>
 
-                        {/* Getting Started Card */}
-                        <div className="mt-5 rounded-xl border border-[var(--color-line)] bg-white p-4 md:p-5 dark:bg-[var(--color-surface)]">
-                            <h2 className="text-base font-semibold text-[var(--color-ink)]">
-                                С чего начать
-                            </h2>
-                            <p className="mt-1.5 text-sm leading-relaxed text-[var(--color-graphite)]">
-                                Настройте услуги и рабочее время, затем поделитесь ссылкой на онлайн-запись с клиентами.
-                                Все новые записи появятся в календаре.
-                            </p>
-                        </div>
-
                         {/* Sections Grid */}
-                        <div className="mt-5 grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                             {SECTIONS.map((section) => (
                                 <div
                                     key={section.title}
-                                    className="rounded-xl border border-[var(--color-line)] bg-white p-4 md:p-5 dark:bg-[var(--color-surface)]"
+                                    className={`rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[14px] md:p-5 ${
+                                        section.fullWidth ? 'md:col-span-2' : ''
+                                    }`}
                                 >
                                     <div className="flex items-start gap-3">
                                         <section.icon className="mt-0.5 size-5 shrink-0 text-[var(--color-orange)]" />
@@ -153,11 +137,11 @@ export default function HelpPage() {
                                             </p>
                                         </div>
                                     </div>
-                                    <ul className="mt-3 space-y-1.5 pl-8">
+                                    <ul className="mt-2.5 space-y-1 pl-8">
                                         {section.items.map((item, i) => (
                                             <li
                                                 key={i}
-                                                className="relative text-sm leading-snug text-[var(--color-ink)] before:absolute before:-left-4 before:top-[7px] before:size-1 before:rounded-full before:bg-[var(--color-line)]"
+                                                className="relative text-[13px] leading-snug text-[var(--color-ink)] before:absolute before:-left-4 before:top-[7px] before:size-1 before:rounded-full before:bg-[var(--color-line)]"
                                             >
                                                 {item}
                                             </li>
@@ -167,15 +151,15 @@ export default function HelpPage() {
                             ))}
                         </div>
 
-                        {/* Useful Links */}
-                        <div className="mt-5 rounded-xl border border-[var(--color-line)] bg-white p-4 md:p-5 dark:bg-[var(--color-surface)]">
+                        {/* Documents */}
+                        <div className="mt-3 rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-[14px] md:p-5">
                             <div className="flex items-start gap-3">
                                 <DocumentTextIcon className="mt-0.5 size-5 shrink-0 text-[var(--color-orange)]" />
                                 <div>
-                                    <h2 className="text-sm font-semibold text-[var(--color-ink)]">
+                                    <h3 className="text-sm font-semibold text-[var(--color-ink)]">
                                         Документы
-                                    </h2>
-                                    <div className="mt-2 flex flex-wrap gap-3">
+                                    </h3>
+                                    <div className="mt-2 flex flex-wrap gap-2">
                                         <a
                                             href="/privacy"
                                             className="inline-flex items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 text-xs font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
