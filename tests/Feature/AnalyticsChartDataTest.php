@@ -138,10 +138,10 @@ class AnalyticsChartDataTest extends TestCase
     public function test_day_chartdata_covers_all_24_hours(): void
     {
         $tz = 'Europe/Moscow';
-        // UTC-время: 06:00 Moscow = 03:00 UTC, 22:00 Moscow = 19:00 UTC.
+        // UTC-время: 05:00 Moscow = 02:00 UTC, 21:00 Moscow = 18:00 UTC.
         $today = Carbon::now();
 
-        // Раннее утро (06:00 Moscow) — вне старого диапазона 08–20.
+        // Раннее утро (05:00 Moscow) — start_time определяет бакет.
         Appointment::factory()->forMaster($this->master)->create([
             'status' => AppointmentStatus::Paid,
             'price' => 1000,
@@ -150,7 +150,7 @@ class AnalyticsChartDataTest extends TestCase
             'completed_at' => $today->copy()->setTime(3, 0),
         ]);
 
-        // Поздний вечер (22:00 Moscow) — вне старого диапазона 08–20.
+        // Поздний вечер (21:00 Moscow) — start_time определяет бакет.
         Appointment::factory()->forMaster($this->master)->create([
             'status' => AppointmentStatus::Paid,
             'price' => 2000,
@@ -170,13 +170,13 @@ class AnalyticsChartDataTest extends TestCase
         // 24 hourly buckets.
         $this->assertCount(24, $chart);
 
-        // Обе записи попали в правильные buckets.
-        $bucket06 = collect($chart)->firstWhere('label', '06:00');
-        $bucket22 = collect($chart)->firstWhere('label', '22:00');
-        $this->assertNotNull($bucket06);
-        $this->assertNotNull($bucket22);
-        $this->assertSame(1000.0, (float) $bucket06['value']);
-        $this->assertSame(2000.0, (float) $bucket22['value']);
+        // Обе записи попали в правильные buckets по start_time.
+        $bucket05 = collect($chart)->firstWhere('label', '05:00');
+        $bucket21 = collect($chart)->firstWhere('label', '21:00');
+        $this->assertNotNull($bucket05);
+        $this->assertNotNull($bucket21);
+        $this->assertSame(1000.0, (float) $bucket05['value']);
+        $this->assertSame(2000.0, (float) $bucket21['value']);
 
         // Сумма chartData совпадает с metrics.
         $this->assertSame((float) $metrics['revenue'], (float) array_sum(array_column($chart, 'value')));

@@ -48,11 +48,7 @@ class AnalyticsService
     }
 
     /**
-     * Финансовые метрики по семантике completed_at.
-     *
-     * $completedByCompletedAt — записи со статусом Paid, у которых completed_at
-     * попадает в выбранный период (загружаются контроллером отдельным запросом).
-     * Используется для revenue / total_visits / avg_check вместо start_time.
+     * Финансовые метрики из набора Paid appointments, отфильтрованных по start_time.
      *
      * @return array{revenue: float, total_visits: int, avg_check: float}
      */

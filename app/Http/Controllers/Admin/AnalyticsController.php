@@ -62,21 +62,21 @@ class AnalyticsController extends Controller
             ->whereBetween('start_time', [$periodStartUtc, $periodEndUtc])
             ->get();
 
-        // Финансовый набор по completed_at (выручка, завершённые, средний чек, график, услуги, NEW/RETURNING).
-        $completedInPeriod = Appointment::whereIn('master_id', $masterIds)
+        // Финансовый набор Paid по start_time (выручка, средний чек, график, услуги, NEW/RETURNING).
+        $paidVisitsInPeriod = Appointment::whereIn('master_id', $masterIds)
             ->with(['masterService.catalog'])
             ->where('status', AppointmentStatus::Paid)
-            ->whereBetween('completed_at', [$periodStartUtc, $periodEndUtc])
+            ->whereBetween('start_time', [$periodStartUtc, $periodEndUtc])
             ->get();
 
         // Операционные метрики (отмены/неявки/посещаемость/упущенная выгода) — оставляем на start_time.
         $metrics = $this->analyticsService->calculateMetrics($appointments);
-        // Финансовые метрики — переводим на completed_at.
-        $metrics = array_merge($metrics, $this->analyticsService->financialFromCompleted($completedInPeriod));
+        // Финансовые метрики — по start_time.
+        $metrics = array_merge($metrics, $this->analyticsService->financialFromCompleted($paidVisitsInPeriod));
 
-        $chartData = $this->buildChartData($completedInPeriod, $period, $dateFrom, $dateTo, $tz);
-        $serviceStats = $this->buildServiceStats($completedInPeriod);
-        $clientRetention = $this->buildClientRetention($masterIds, $completedInPeriod, $periodStartUtc);
+        $chartData = $this->buildChartData($paidVisitsInPeriod, $period, $dateFrom, $dateTo, $tz);
+        $serviceStats = $this->buildServiceStats($paidVisitsInPeriod);
+        $clientRetention = $this->buildClientRetention($masterIds, $paidVisitsInPeriod, $periodStartUtc);
 
         $utilization = $this->analyticsService->calculateUtilization($targetMasters, $appointments, $dateStart, $dateEnd);
 
@@ -87,14 +87,14 @@ class AnalyticsController extends Controller
         $prevAppointments = Appointment::whereIn('master_id', $masterIds)
             ->whereBetween('start_time', [$prevStartUtc, $prevEndUtc])
             ->get();
-        $prevCompleted = Appointment::whereIn('master_id', $masterIds)
+        $prevPaidVisits = Appointment::whereIn('master_id', $masterIds)
             ->where('status', AppointmentStatus::Paid)
-            ->whereBetween('completed_at', [$prevStartUtc, $prevEndUtc])
+            ->whereBetween('start_time', [$prevStartUtc, $prevEndUtc])
             ->get();
 
         $prevMetrics = array_merge(
             $this->analyticsService->calculateMetrics($prevAppointments),
-            $this->analyticsService->financialFromCompleted($prevCompleted),
+            $this->analyticsService->financialFromCompleted($prevPaidVisits),
         );
         $prevUtilization = $this->analyticsService->calculateUtilization(
             $targetMasters,
@@ -197,8 +197,8 @@ class AnalyticsController extends Controller
     private function buildChartData(Collection $completed, string $period, ?string $dateFrom, ?string $dateTo, string $tz): array
     {
         $groupByFn = function ($app) use ($period, $dateFrom, $dateTo, $tz) {
-            // Финансовый график — по completed_at в timezone мастера.
-            $date = $app->completed_at?->copy()->timezone($tz) ?? $app->start_time->copy()->timezone($tz);
+            // Финансовый график — по start_time в timezone мастера.
+            $date = $app->start_time->copy()->timezone($tz);
 
             if ($period === 'custom' && $dateFrom && $dateTo) {
                 $diff = Carbon::parse($dateFrom)->diffInDays(Carbon::parse($dateTo));

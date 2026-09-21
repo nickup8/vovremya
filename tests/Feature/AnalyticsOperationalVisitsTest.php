@@ -11,9 +11,9 @@ use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 /**
- * Регрессия: operational_total_visits (по start_time) и total_visits (по completed_at)
- * могут расходиться. Проверяем, что attendance_rate и operational_total_visits используют
- * operational-набор, а total_visits остаётся финансовым.
+ * Регрессия: operational_total_visits и total_visits оба используют start_time.
+ * Проверяем, что attendance_rate, operational_total_visits и total_visits
+ *_consistentны при расхождении start_time и completed_at.
  */
 class AnalyticsOperationalVisitsTest extends TestCase
 {
@@ -34,7 +34,7 @@ class AnalyticsOperationalVisitsTest extends TestCase
         $this->master->update(['workspace_id' => $this->ws->id]);
     }
 
-    public function test_operational_total_visits_differs_from_financial_total_visits(): void
+    public function test_financial_total_visits_uses_start_time_like_operational(): void
     {
         $now = Carbon::now();
 
@@ -47,7 +47,7 @@ class AnalyticsOperationalVisitsTest extends TestCase
             'completed_at' => $now->copy()->setTime(11, 0),
         ]);
 
-        // B: start_time сегодня, completed_at ВЧЕРА → operational да, financial нет.
+        // B: start_time сегодня, completed_at ВЧЕРА → operational да, financial тоже да (start_time).
         Appointment::factory()->forMaster($this->master)->create([
             'status' => AppointmentStatus::Paid,
             'price' => 3000,
@@ -73,8 +73,8 @@ class AnalyticsOperationalVisitsTest extends TestCase
         // operational_total_visits = 2 Paid по start_time (A + B).
         $this->assertSame(2, $metrics['operational_total_visits']);
 
-        // total_visits = 1 Paid по completed_at (только A, т.к. B завершена вчера).
-        $this->assertSame(1, $metrics['total_visits']);
+        // total_visits = 2 Paid по start_time (A + B), несмотря на completed_at у B.
+        $this->assertSame(2, $metrics['total_visits']);
 
         // attendance_rate = Paid / (Paid + NoShow + Cancelled) по operational = 2 / (2+1+0) = 67%.
         $this->assertEquals(67, $metrics['attendance_rate']);
