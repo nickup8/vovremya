@@ -7,6 +7,7 @@ use App\Events\AppointmentVisitConfirmed;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\Notification\MasterNotificationService;
+use Illuminate\Support\Facades\Log;
 
 class AppointmentVisitConfirmationService
 {
@@ -44,12 +45,19 @@ class AppointmentVisitConfirmationService
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        app(MasterNotificationService::class)
-            ->sendToMaster($appointment->master, __('bot.master.visit_confirmed', [
-                'client' => $client->name ?? __('bot.fallback.client_name'),
-                'date' => $date,
-                'time' => $time,
-            ]));
+        try {
+            app(MasterNotificationService::class)
+                ->sendToMaster($appointment->master, __('bot.master.visit_confirmed', [
+                    'client' => $client->name ?? __('bot.fallback.client_name'),
+                    'date' => $date,
+                    'time' => $time,
+                ]));
+        } catch (\Throwable $e) {
+            Log::warning('AppointmentVisitConfirmation: failed to notify master', [
+                'appointment_id' => $appointment->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
 
         return ['result' => 'ok'];
     }

@@ -2,8 +2,12 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AppointmentStatus;
+use App\Exceptions\InvalidStatusTransitionException;
+use App\Models\Appointment;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Booking\BookingService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -99,5 +103,31 @@ class CalendarControllerTest extends TestCase
             ->get('/admin/calendar');
 
         $this->assertSame(7, $master->workingHours()->count());
+    }
+
+    public function test_update_status_stale_returns_422_not_500(): void
+    {
+        $owner = $this->createOwnerWithWorkspace();
+
+        $appointment = Appointment::factory()->booked()->forMaster($owner)->create([
+            'start_time' => now()->addDays(3),
+        ]);
+
+        $this->mock(BookingService::class, function ($mock) {
+            $mock->shouldReceive('updateStatus')
+                ->once()
+                ->andThrow(new InvalidStatusTransitionException(
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::Cancelled,
+                ));
+        });
+
+        $response = $this->actingAs($owner, 'web')
+            ->patch("/admin/appointments/{$appointment->id}/status", [
+                'status' => 'cancelled',
+            ]);
+
+        $response->assertRedirect();
+        $response->assertSessionHasErrors('status');
     }
 }

@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
 use App\Enums\RecurringSeriesStatus;
+use App\Exceptions\InvalidStatusTransitionException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
@@ -400,13 +401,19 @@ class CalendarController extends Controller
             $newStatus = AppointmentStatus::from($validated['status']);
 
             if (! $appointment->status->canTransitionTo($newStatus)) {
-                return response()->json([
-                    'error' => 'invalid_transition',
-                    'message' => "Невозможно перевести запись из «{$appointment->status->label()}» в «{$newStatus->label()}».",
-                ], 422);
+                return back()->withErrors([
+                    'status' => "Невозможно перевести запись из «{$appointment->status->label()}» в «{$newStatus->label()}».",
+                ]);
             }
 
-            $this->bookingService->updateStatus($appointment, $newStatus, auth()->user());
+            try {
+                $this->bookingService->updateStatus($appointment, $newStatus, auth()->user());
+            } catch (InvalidStatusTransitionException) {
+                return back()->withErrors([
+                    'status' => 'Статус записи уже изменился. Обновите страницу и попробуйте снова.',
+                ]);
+            }
+
             unset($validated['status']);
         }
 

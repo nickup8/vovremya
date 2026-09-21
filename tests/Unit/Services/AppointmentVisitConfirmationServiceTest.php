@@ -136,4 +136,20 @@ class AppointmentVisitConfirmationServiceTest extends TestCase
 
         Event::assertDispatchedTimes(AppointmentVisitConfirmed::class, 1);
     }
+
+    public function test_notification_failure_does_not_affect_confirm_result(): void
+    {
+        [$appointment, $client] = $this->createAppointmentAndClient();
+
+        $mock = $this->mock(MasterNotificationService::class);
+        $mock->shouldReceive('sendToMaster')
+            ->once()
+            ->andThrow(new \RuntimeException('bot down'));
+
+        $result = $this->service->confirm($appointment, $client);
+
+        $this->assertSame('ok', $result['result']);
+        $appointment->refresh();
+        $this->assertNotNull($appointment->client_confirmed_at);
+    }
 }

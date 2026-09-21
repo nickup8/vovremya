@@ -2,6 +2,8 @@
 
 namespace Tests\Feature\MiniApp;
 
+use App\Enums\AppointmentStatus;
+use App\Exceptions\InvalidStatusTransitionException;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\MasterService;
@@ -283,6 +285,35 @@ class AppointmentApiTest extends TestCase
             'id' => $appointment->id,
             'status' => 'cancelled',
         ]);
+    }
+
+    public function test_cancel_stale_status_returns_422_not_500(): void
+    {
+        $maxId = '111222333';
+        $master = User::factory()->master()->create(['cancellation_deadline_hours' => null]);
+        $client = Client::factory()->create(['max_id' => $maxId, 'user_id' => $master->id]);
+
+        $appointment = Appointment::factory()->booked()->forMaster($master)->forClient($client)->create([
+            'start_time' => now()->addDays(3),
+        ]);
+
+        $this->mock(BookingService::class, function ($mock) {
+            $mock->shouldReceive('cancel')
+                ->once()
+                ->andThrow(new InvalidStatusTransitionException(
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::Cancelled,
+                ));
+        });
+
+        $response = $this->postJson(
+            "/api/miniapp/appointments/{$appointment->id}/cancel",
+            [],
+            $this->authHeaders($maxId)
+        );
+
+        $response->assertStatus(422);
+        $response->assertJsonStructure(['error', 'message']);
     }
 
     // ═══════════════════════════════════════════

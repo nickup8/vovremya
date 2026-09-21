@@ -164,6 +164,58 @@ class VkMiniAppApiTest extends TestCase
 
         $response->assertOk();
         $response->assertJson(['ok' => true]);
+
+        $appointment->refresh();
+        $this->assertSame(AppointmentStatus::Cancelled, $appointment->status);
+        $this->assertNull($appointment->cancelled_by);
+    }
+
+    public function test_vk_cancel_already_cancelled_returns_ok_not_500(): void
+    {
+        $vkId = '494075';
+        $master = User::factory()->master()->create();
+        $client = Client::factory()->create(['vk_id' => $vkId, 'user_id' => $master->id]);
+        $ms = MasterService::factory()->forMaster($master)->create();
+
+        $appointment = Appointment::factory()
+            ->forMaster($master)->forClient($client)->withMasterService($ms)
+            ->create([
+                'status' => AppointmentStatus::Cancelled,
+                'start_time' => now()->addDays(3),
+            ]);
+
+        $tokenService = app(\App\Services\VkLinkTokenService::class);
+        $token = $tokenService->create($appointment->id);
+
+        $response = $this->withHeaders($this->vkAuthHeaders($vkId))
+            ->postJson('/api/miniapp/vk-cancel', ['token' => $token]);
+
+        $response->assertOk();
+        $response->assertJson(['ok' => true]);
+    }
+
+    public function test_vk_cancel_unavailable_status_returns_422(): void
+    {
+        $vkId = '494075';
+        $master = User::factory()->master()->create();
+        $client = Client::factory()->create(['vk_id' => $vkId, 'user_id' => $master->id]);
+        $ms = MasterService::factory()->forMaster($master)->create();
+
+        $appointment = Appointment::factory()
+            ->forMaster($master)->forClient($client)->withMasterService($ms)
+            ->create([
+                'status' => AppointmentStatus::Paid,
+                'start_time' => now()->addDays(3),
+            ]);
+
+        $tokenService = app(\App\Services\VkLinkTokenService::class);
+        $token = $tokenService->create($appointment->id);
+
+        $response = $this->withHeaders($this->vkAuthHeaders($vkId))
+            ->postJson('/api/miniapp/vk-cancel', ['token' => $token]);
+
+        $response->assertStatus(422);
+        $response->assertJson(['error' => 'appointment_unavailable']);
     }
 
     // ═══════════════════════════════════════════

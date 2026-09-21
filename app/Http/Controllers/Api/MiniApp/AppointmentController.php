@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Api\MiniApp;
 
 use App\Enums\AppointmentStatus;
 use App\Exceptions\CancellationNotAllowedException;
+use App\Exceptions\InvalidStatusTransitionException;
 use App\Http\Controllers\Controller;
 use App\Http\Resources\MiniApp\AppointmentResource;
 use App\Models\Appointment;
@@ -91,7 +92,14 @@ class AppointmentController extends Controller
         }
 
         // отмена (актор — строка клиента этой записи)
-        app(BookingService::class)->cancel($appointment, $appointment->client);
+        try {
+            app(BookingService::class)->cancel($appointment, $appointment->client);
+        } catch (InvalidStatusTransitionException) {
+            return response()->json([
+                'error' => 'status_changed',
+                'message' => 'Статус записи уже изменился. Обновите страницу.',
+            ], 422);
+        }
 
         // уведомление мастеру (best effort: сбой не должен заваливать уже совершённую отмену)
         try {

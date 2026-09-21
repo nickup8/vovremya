@@ -4,10 +4,10 @@ namespace App\Http\Controllers\Api\MiniApp;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentStatus;
-use App\Events\AppointmentStatusChanged;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Services\Booking\BookingService;
 use App\Services\VkLinkTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -56,22 +56,9 @@ class VkCancelController extends Controller
             return response()->json(['error' => 'appointment_unavailable'], 422);
         }
 
-        $fromStatus = $appointment->status;
-
-        $affected = Appointment::where('id', $appointmentId)
-            ->whereNull('client_id')
-            ->where('status', $fromStatus->value)
-            ->whereIn('status', [
-                AppointmentStatus::Booked->value,
-                AppointmentStatus::PendingPayment->value,
-            ])
-            ->update([
-                'status' => AppointmentStatus::Cancelled,
-                'cancelled_at' => now(),
-                'cancelled_by' => null,
-            ]);
-
-        if ($affected === 0) {
+        try {
+            app(BookingService::class)->cancel($appointment);
+        } catch (\Throwable) {
             $fresh = Appointment::find($appointmentId);
             if ($fresh && $fresh->status === AppointmentStatus::Cancelled) {
                 $tokenService->consume($token);
@@ -82,14 +69,6 @@ class VkCancelController extends Controller
 
             return response()->json(['error' => 'appointment_unavailable'], 422);
         }
-
-        $appointment->refresh();
-
-        broadcast(new AppointmentStatusChanged(
-            $appointment,
-            $fromStatus,
-            AppointmentStatus::Cancelled,
-        ));
 
         $tokenService->consume($token);
         Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);

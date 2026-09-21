@@ -202,10 +202,12 @@ return;
                     toast.error(errors.status);
                 }
             },
-            onFinish: () => {
-                setIsProcessing(false);
+            onSuccess: () => {
                 setSheetOpen(false);
                 setSelected(null);
+            },
+            onFinish: () => {
+                setIsProcessing(false);
             },
         });
     }
