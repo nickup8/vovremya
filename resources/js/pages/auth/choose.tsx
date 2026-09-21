@@ -78,7 +78,7 @@ export default function Choose({ maxBotName }: PageProps) {
                             Вход в личный кабинет
                         </h1>
                         <p className="mt-2 text-[15px] font-normal leading-[22px] text-[var(--color-graphite,#62615F)] dark:text-stone-400">
-                            Выберите способ входа
+                            Выберите мессенджер
                         </p>
                     </header>
 
@@ -155,12 +155,13 @@ export default function Choose({ maxBotName }: PageProps) {
 
                     {/* Supporting text */}
                     <p className="mx-auto w-[340px] max-w-full text-center text-[14px] leading-[20px] text-[var(--color-graphite,#62615F)] dark:text-stone-400 max-md:w-full max-md:text-left">
-                        Для входа потребуется подтверждение в выбранном сервисе.
+                        Бот попросит подтвердить вход<br />
+                        и поделиться номером телефона.
                     </p>
 
                     {/* Legal */}
                     <footer className="mx-auto w-[360px] max-w-full text-center max-md:w-full max-md:text-left">
-                        <p className="text-[12px] leading-[18px] text-[var(--color-muted,#96938F)] dark:text-stone-500">
+                        <p className="text-[12px] leading-[18px] text-[var(--color-graphite,#62615F)] dark:text-stone-400">
                             Продолжая, вы принимаете{' '}
                             <Link
                                 href="/offer"
