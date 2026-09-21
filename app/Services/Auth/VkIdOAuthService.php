@@ -92,6 +92,11 @@ class VkIdOAuthService
 
         $data = $response->json();
 
+        // VK ID wraps user profile in {"user": {...}} — unwrap to flat array
+        if (isset($data['user']) && is_array($data['user'])) {
+            $data = $data['user'];
+        }
+
         if (empty($data['user_id'])) {
             throw new \RuntimeException('VK ID user info failed: no user_id in response');
         }

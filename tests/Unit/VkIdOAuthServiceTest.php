@@ -180,6 +180,43 @@ class VkIdOAuthServiceTest extends TestCase
         });
     }
 
+    public function test_user_info_unwraps_nested_user_key(): void
+    {
+        Http::fake([
+            '*id.vk.com/oauth2/user_info*' => Http::response([
+                'user' => [
+                    'user_id' => '12345',
+                    'first_name' => 'Иван',
+                    'last_name' => 'Иванов',
+                    'phone' => '+79991234567',
+                ],
+            ]),
+        ]);
+
+        $result = $this->service->userInfo('my_access_token');
+
+        $this->assertSame('12345', $result['user_id']);
+        $this->assertSame('Иван', $result['first_name']);
+        $this->assertSame('Иванов', $result['last_name']);
+        $this->assertSame('+79991234567', $result['phone']);
+    }
+
+    public function test_user_info_throws_when_nested_user_missing_user_id(): void
+    {
+        Http::fake([
+            '*id.vk.com/oauth2/user_info*' => Http::response([
+                'user' => [
+                    'first_name' => 'Иван',
+                ],
+            ]),
+        ]);
+
+        $this->expectException(\RuntimeException::class);
+        $this->expectExceptionMessage('no user_id');
+
+        $this->service->userInfo('my_access_token');
+    }
+
     public function test_user_info_throws_on_http_error(): void
     {
         Http::fake([
