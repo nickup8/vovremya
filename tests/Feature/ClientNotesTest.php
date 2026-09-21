@@ -129,4 +129,51 @@ class ClientNotesTest extends TestCase
             ->where('clients.data.0.notes', 'Заметка в payload')
         );
     }
+
+    // ── Duplicate phone protection ──────────────────────
+
+    public function test_duplicate_phone_returns_validation_error(): void
+    {
+        $this->actingAs($this->master);
+
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->workspace->id,
+            'name' => 'Иван',
+            'phone' => '+79005551122',
+            'notes' => 'Старые заметки',
+        ]);
+
+        $response = $this->post(route('admin.clients.store'), [
+            'name' => 'Пётр',
+            'phone' => '+79005551122',
+            'notes' => 'Новые заметки',
+        ]);
+
+        $response->assertSessionHasErrors('phone');
+
+        $this->assertSame(1, Client::where('phone', '+79005551122')->count());
+
+        $existing = Client::where('phone', '+79005551122')->first();
+        $this->assertSame('Иван', $existing->name);
+        $this->assertSame('Старые заметки', $existing->notes);
+    }
+
+    public function test_unique_phone_creates_client_normally(): void
+    {
+        $this->actingAs($this->master);
+
+        $response = $this->post(route('admin.clients.store'), [
+            'name' => 'Новый',
+            'phone' => '+79005553344',
+            'notes' => 'Заметки',
+        ]);
+
+        $response->assertStatus(200);
+
+        $client = Client::where('phone', '+79005553344')->first();
+        $this->assertNotNull($client);
+        $this->assertSame('Новый', $client->name);
+        $this->assertSame('Заметки', $client->notes);
+    }
 }

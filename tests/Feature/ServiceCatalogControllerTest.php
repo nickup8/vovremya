@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Enums\UserRole;
+use App\Models\Appointment;
 use App\Models\MasterService;
 use App\Models\ServiceCatalog;
 use App\Models\User;
@@ -428,5 +429,73 @@ class ServiceCatalogControllerTest extends TestCase
 
         $response->assertForbidden();
         $this->assertDatabaseHas('service_catalog', ['id' => $catalog->id]);
+    }
+
+    // ── Delete protection (used service) ─────────────────
+
+    public function test_delete_used_service_returns_error(): void
+    {
+        [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
+        $catalog = $this->createCatalog($ws);
+        $master = User::factory()->master()->create(['workspace_id' => $ws->id]);
+
+        $masterService = MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
+        ]);
+
+        Appointment::factory()->forMaster($master)->withMasterService($masterService)->create([
+            'start_time' => now()->addDay(),
+            'status' => 'booked',
+        ]);
+
+        $response = $this->actingAs($owner)->delete("/admin/catalog/{$catalog->id}");
+
+        $response->assertSessionHasErrors('title');
+        $this->assertDatabaseHas('service_catalog', ['id' => $catalog->id]);
+        $this->assertDatabaseHas('master_service', ['catalog_id' => $catalog->id]);
+    }
+
+    public function test_delete_service_with_past_appointment_also_blocked(): void
+    {
+        [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
+        $catalog = $this->createCatalog($ws);
+        $master = User::factory()->master()->create(['workspace_id' => $ws->id]);
+
+        $masterService = MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
+        ]);
+
+        Appointment::factory()->forMaster($master)->withMasterService($masterService)->create([
+            'start_time' => now()->subDay(),
+            'status' => 'paid',
+        ]);
+
+        $response = $this->actingAs($owner)->delete("/admin/catalog/{$catalog->id}");
+
+        $response->assertSessionHasErrors('title');
+        $this->assertDatabaseHas('service_catalog', ['id' => $catalog->id]);
+    }
+
+    public function test_delete_unused_service_succeeds(): void
+    {
+        [$ws, $owner] = $this->createWorkspaceWithRole(UserRole::Owner);
+        $catalog = $this->createCatalog($ws);
+        $master = User::factory()->master()->create(['workspace_id' => $ws->id]);
+
+        MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
+        ]);
+
+        $response = $this->actingAs($owner)->delete("/admin/catalog/{$catalog->id}");
+
+        $response->assertRedirect();
+        $this->assertDatabaseMissing('service_catalog', ['id' => $catalog->id]);
+        $this->assertDatabaseMissing('master_service', ['catalog_id' => $catalog->id]);
     }
 }

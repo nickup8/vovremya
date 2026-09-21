@@ -127,16 +127,17 @@ class ClientController extends Controller
             ->first();
 
         if ($existing) {
-            $existing->update(['name' => $validated['name']]);
-            $client = $existing;
-        } else {
-            $client = $master->clients()->create([
-                'name' => $validated['name'],
-                'phone' => $validated['phone'],
-                'notes' => $validated['notes'] ?? null,
-                'workspace_id' => $master->workspace_id,
-            ]);
+            return back()->withErrors([
+                'phone' => 'Клиент с таким номером телефона уже существует.',
+            ])->withInput();
         }
+
+        $client = $master->clients()->create([
+            'name' => $validated['name'],
+            'phone' => $validated['phone'],
+            'notes' => $validated['notes'] ?? null,
+            'workspace_id' => $master->workspace_id,
+        ]);
 
         if (! $request->header('X-Inertia')) {
             return response()->json([
@@ -146,9 +147,7 @@ class ClientController extends Controller
             ]);
         }
 
-        return back()->with('success', $existing
-            ? 'Клиент обновлён (номер уже был в базе)'
-            : 'Клиент добавлен');
+        return back()->with('success', 'Клиент добавлен');
     }
 
     public function update(Request $request, Client $client)

@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
+use App\Models\Appointment;
 use App\Models\MasterService;
 use App\Models\ServiceCatalog;
 use Illuminate\Http\RedirectResponse;
@@ -139,6 +140,20 @@ class ServiceCatalogController extends Controller
     public function destroy(ServiceCatalog $catalog): RedirectResponse
     {
         $this->authorize('delete', $catalog);
+
+        $masterServiceIds = MasterService::where('catalog_id', $catalog->id)
+            ->pluck('id');
+
+        if ($masterServiceIds->isNotEmpty()) {
+            $hasAppointments = Appointment::whereIn('master_service_id', $masterServiceIds)
+                ->exists();
+
+            if ($hasAppointments) {
+                return back()->withErrors([
+                    'title' => 'Нельзя удалить услугу, потому что она используется в записях.',
+                ]);
+            }
+        }
 
         $title = $catalog->title;
         $catalog->delete();
