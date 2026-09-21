@@ -57,7 +57,7 @@ class VkCancelController extends Controller
         }
 
         try {
-            app(BookingService::class)->cancel($appointment);
+            app(BookingService::class)->cancel($appointment, $client);
         } catch (\Throwable) {
             $fresh = Appointment::find($appointmentId);
             if ($fresh && $fresh->status === AppointmentStatus::Cancelled) {

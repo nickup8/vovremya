@@ -50,7 +50,7 @@ class AppointmentStatusService
         }
 
         // AutoFill: capture freed-window snapshot BEFORE mutation
-        $freedWindow = $this->captureFreedWindow($appointment, $from, $to);
+        $freedWindow = $this->captureFreedWindow($appointment, $from, $to, $actor);
 
         $updateData = ['status' => $to];
         if ($to === AppointmentStatus::Cancelled) {
@@ -117,12 +117,13 @@ class AppointmentStatusService
         Appointment $appointment,
         AppointmentStatus $from,
         AppointmentStatus $to,
+        ?Authenticatable $actor = null,
     ): ?AppointmentWindowFreed {
         if ($from !== AppointmentStatus::Booked || $to !== AppointmentStatus::Cancelled) {
             return null;
         }
 
-        if ($appointment->client_id === null) {
+        if ($appointment->client_id === null && $actor === null) {
             return null;
         }
 

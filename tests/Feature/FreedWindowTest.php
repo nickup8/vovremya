@@ -579,4 +579,83 @@ class FreedWindowTest extends TestCase
             $this->appointment->fresh()->start_time->format('Y-m-d H:i'),
         );
     }
+
+    // ── VK draft cancel with Client actor → freed window created ──
+
+    public function test_vk_draft_cancel_with_client_actor_creates_freed_window(): void
+    {
+        $draft = Appointment::factory()
+            ->forMaster($this->master)->forClient($this->client)->withMasterService($this->masterService)
+            ->create([
+                'status' => AppointmentStatus::Booked,
+                'start_time' => Carbon::tomorrow()->setTime(10, 0),
+                'duration' => 60,
+                'client_id' => null,
+            ]);
+
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($draft, AppointmentStatus::Cancelled, $this->client);
+
+        $this->assertEquals(AppointmentStatus::Cancelled, $draft->fresh()->status);
+        $this->assertDatabaseCount('slot_opportunities', 1);
+        $this->assertDatabaseHas('slot_opportunities', [
+            'source_type' => 'cancellation',
+            'source_appointment_id' => $draft->id,
+        ]);
+    }
+
+    // ── System draft cleanup (actor=null) → no freed window ────────
+
+    public function test_system_draft_cleanup_no_freed_window(): void
+    {
+        $draft = Appointment::factory()
+            ->forMaster($this->master)->forClient($this->client)->withMasterService($this->masterService)
+            ->create([
+                'status' => AppointmentStatus::Booked,
+                'start_time' => Carbon::tomorrow()->setTime(10, 0),
+                'duration' => 60,
+                'client_id' => null,
+            ]);
+
+        // actor=null — same as CleanupDraftAppointments command
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($draft, AppointmentStatus::Cancelled);
+
+        $this->assertEquals(AppointmentStatus::Cancelled, $draft->fresh()->status);
+        $this->assertDatabaseCount('slot_opportunities', 0);
+    }
+
+    // ── Normal cancel with client_id + no actor → freed window ──────
+
+    public function test_normal_cancel_no_actor_still_creates_freed_window(): void
+    {
+        // Existing behavior: appointment with client_id, no actor → freed window
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($this->appointment, AppointmentStatus::Cancelled);
+
+        $this->assertDatabaseCount('slot_opportunities', 1);
+    }
+
+    // ── VK draft idempotency: already cancelled → no double opportunity ──
+
+    public function test_vk_draft_already_cancelled_no_double_opportunity(): void
+    {
+        $draft = Appointment::factory()
+            ->forMaster($this->master)->forClient($this->client)->withMasterService($this->masterService)
+            ->create([
+                'status' => AppointmentStatus::Booked,
+                'start_time' => Carbon::tomorrow()->setTime(10, 0),
+                'duration' => 60,
+                'client_id' => null,
+            ]);
+
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($draft, AppointmentStatus::Cancelled, $this->client);
+
+        // Same-status transition is a no-op (returns early)
+        app(\App\Services\AppointmentStatusService::class)
+            ->transition($draft, AppointmentStatus::Cancelled, $this->client);
+
+        $this->assertDatabaseCount('slot_opportunities', 1);
+    }
 }
