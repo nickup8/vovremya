@@ -185,6 +185,9 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
+
+    Route::post('/admin/notifications/{notification}/read', [\App\Http\Controllers\Admin\NotificationController::class, 'markRead'])->name('admin.notifications.read');
+    Route::post('/admin/notifications/read-all', [\App\Http\Controllers\Admin\NotificationController::class, 'markAllRead'])->name('admin.notifications.readAll');
 });
 
 Route::get('/max/diag/send-test-button', function (\Illuminate\Http\Request $request) {
@@ -207,6 +210,8 @@ Route::middleware(['auth'])->prefix('admin-root')->group(function () {
     Route::get('/plans', [SuperAdminController::class, 'plans'])->middleware('platform_permission:plans.view')->name('super_admin.plans');
     Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->middleware('platform_permission:plans.update')->name('super_admin.update_plan');
     Route::get('/audit', [SuperAdminController::class, 'audit'])->middleware('platform_permission:audit.view')->name('super_admin.audit');
+
+    Route::post('/notifications', [SuperAdminController::class, 'sendNotification'])->middleware('platform_permission:notifications.send')->name('super_admin.notifications.send');
 
     Route::get('/admins', [PlatformAdminController::class, 'index'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins');
     Route::get('/admins/users/search', [PlatformAdminController::class, 'searchUsers'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.users.search');

@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
-import { usePage, Link } from '@inertiajs/react';
+import { usePage, Link, router } from '@inertiajs/react';
 import {
     Bars3Icon, BellIcon, PlusIcon,
     SunIcon, MoonIcon,
@@ -26,6 +26,34 @@ function useIsDesktop() {
     return isDesktop;
 }
 
+interface NotificationItem {
+    id: string;
+    kind: string | null;
+    title: string | null;
+    body: string | null;
+    read_at: string | null;
+    created_at: string;
+}
+
+interface NotificationsProps {
+    unread_count: number;
+    items: NotificationItem[];
+}
+
+function formatNotificationTime(dateStr: string): string {
+    const date = new Date(dateStr);
+    const now = new Date();
+    const diffMs = now.getTime() - date.getTime();
+    const diffMin = Math.floor(diffMs / 60000);
+    if (diffMin < 1) return 'только что';
+    if (diffMin < 60) return `${diffMin} мин. назад`;
+    const diffHours = Math.floor(diffMin / 60);
+    if (diffHours < 24) return `${diffHours} ч. назад`;
+    const diffDays = Math.floor(diffHours / 24);
+    if (diffDays < 7) return `${diffDays} дн. назад`;
+    return date.toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' });
+}
+
 interface AdminLayoutProps {
     children: ReactNode;
     title: string;
@@ -44,6 +72,10 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     });
     const [notificationsOpen, setNotificationsOpen] = useState(false);
     const { appearance, updateAppearance } = useAppearance();
+    const { notifications } = usePage().props as { notifications?: NotificationsProps };
+
+    const unreadCount = notifications?.unread_count ?? 0;
+    const items = notifications?.items ?? [];
 
     const isDark = appearance === 'dark';
     const isDesktop = useIsDesktop();
@@ -59,6 +91,20 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     const toggleTheme = () => {
         updateAppearance(isDark ? 'light' : 'dark');
     };
+
+    function handleMarkRead(notificationId: string) {
+        router.post(`/admin/notifications/${notificationId}/read`, {}, {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    }
+
+    function handleMarkAllRead() {
+        router.post('/admin/notifications/read-all', {}, {
+            preserveState: true,
+            preserveScroll: true,
+        });
+    }
 
     // Close mobile menu on resize
     useEffect(() => {
@@ -82,6 +128,57 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
         const timer = setTimeout(() => document.addEventListener('click', handler), 0);
         return () => { clearTimeout(timer); document.removeEventListener('click', handler); };
     }, [notificationsOpen]);
+
+    const notificationsHeader = (
+        <div className="flex items-center justify-between gap-4 border-b border-[var(--color-line-soft)] px-4 py-[14px]">
+            <div>
+                <div className="text-[15px] leading-5 font-bold tracking-[-0.015em] text-[var(--color-ink)]">Уведомления</div>
+                <div className="mt-px text-[11px] leading-4 text-[var(--color-graphite)]">
+                    {unreadCount > 0 ? `${unreadCount} непрочитанных` : 'Нет новых'}
+                </div>
+            </div>
+            <button
+                onClick={handleMarkAllRead}
+                disabled={unreadCount === 0}
+                className="shrink-0 rounded-[7px] px-1 py-1.5 text-[12px] leading-[18px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)] disabled:opacity-40"
+            >
+                Всё прочитано
+            </button>
+        </div>
+    );
+
+    const notificationsBody = items.length === 0 ? (
+        <div className="px-4 py-5 text-center text-[13px] text-[var(--color-graphite)]">
+            Нет уведомлений
+        </div>
+    ) : (
+        <div className="max-h-[320px] overflow-y-auto">
+            {items.map((n) => (
+                <button
+                    key={n.id}
+                    onClick={() => { if (!n.read_at) handleMarkRead(n.id); }}
+                    className={`w-full border-b border-[var(--color-line-soft)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-line-soft)] last:border-b-0 ${!n.read_at ? 'bg-[var(--color-orange)]/[0.04]' : ''}`}
+                >
+                    <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                                {!n.read_at && <span className="size-1.5 shrink-0 rounded-full bg-[var(--color-orange)]" />}
+                                <p className={`text-[13px] leading-5 ${!n.read_at ? 'font-semibold text-[var(--color-ink)]' : 'font-medium text-[var(--color-graphite)]'}`}>
+                                    {n.title}
+                                </p>
+                            </div>
+                            <p className="mt-0.5 pl-[10px] text-[12px] leading-4 text-[var(--color-graphite)] line-clamp-2">
+                                {n.body}
+                            </p>
+                        </div>
+                        <span className="shrink-0 text-[11px] leading-4 text-[var(--color-graphite)]">
+                            {formatNotificationTime(n.created_at)}
+                        </span>
+                    </div>
+                </button>
+            ))}
+        </div>
+    );
 
     return (
         <div className="flex h-screen overflow-hidden bg-white text-[var(--color-ink)] dark:bg-[var(--color-cal-workspace)]">
@@ -175,11 +272,16 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                         <div className="relative">
                             <button
                                 onClick={(e) => { e.stopPropagation(); setNotificationsOpen(!notificationsOpen); }}
-                                className="flex size-10 items-center justify-center rounded-[10px] border border-transparent text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                                className="relative flex size-10 items-center justify-center rounded-[10px] border border-transparent text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
                                 aria-label="Уведомления"
                                 aria-expanded={notificationsOpen}
                             >
                                 <BellIcon className="size-5" />
+                                {unreadCount > 0 && (
+                                    <span className="absolute right-1 top-1 flex size-[18px] items-center justify-center rounded-full bg-[var(--color-orange)] text-[10px] font-bold text-white">
+                                        {unreadCount > 99 ? '99+' : unreadCount}
+                                    </span>
+                                )}
                             </button>
                             {/* Desktop popover — only mounted on desktop */}
                             {notificationsOpen && isDesktop && (
@@ -188,21 +290,8 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                                     onClick={(e) => e.stopPropagation()}
                                     aria-label="Уведомления"
                                 >
-                                    <div className="flex items-center justify-between gap-4 border-b border-[var(--color-line-soft)] px-4 py-[14px]">
-                                        <div>
-                                            <div className="text-[15px] leading-5 font-bold tracking-[-0.015em] text-[var(--color-ink)]">Уведомления</div>
-                                            <div className="mt-px text-[11px] leading-4 text-[var(--color-graphite)]">Нет новых</div>
-                                        </div>
-                                        <button
-                                            disabled
-                                            className="shrink-0 rounded-[7px] px-1 py-1.5 text-[12px] leading-[18px] font-semibold text-[var(--color-graphite)]"
-                                        >
-                                            Всё прочитано
-                                        </button>
-                                    </div>
-                                    <div className="px-4 py-5 text-center text-[13px] text-[var(--color-graphite)]">
-                                        Нет уведомлений
-                                    </div>
+                                    {notificationsHeader}
+                                    {notificationsBody}
                                 </section>
                             )}
                         </div>
@@ -240,11 +329,13 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 {notificationsOpen && !isDesktop && (
                     <div className="fixed inset-0 z-[60]">
                         <div className="fixed inset-0 bg-black/30" onClick={() => setNotificationsOpen(false)} aria-hidden="true" />
-                        <div className="fixed inset-y-0 right-0 z-10 flex w-full flex-col bg-white dark:bg-[var(--color-cal-surface)]">
+                        <div className="fixed inset-y-0 right-0 z-10 flex w-full max-w-sm flex-col bg-white dark:bg-[var(--color-cal-surface)]">
                             <div className="flex items-center justify-between border-b border-[var(--color-line)] px-4 py-4">
                                 <div>
                                     <h2 className="text-[16px] font-bold text-[var(--color-ink)]">Уведомления</h2>
-                                    <p className="text-[11px] text-[var(--color-graphite)]">Нет новых</p>
+                                    <p className="text-[11px] text-[var(--color-graphite)]">
+                                        {unreadCount > 0 ? `${unreadCount} непрочитанных` : 'Нет новых'}
+                                    </p>
                                 </div>
                                 <button
                                     onClick={() => setNotificationsOpen(false)}
@@ -253,9 +344,47 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                                     <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
                                 </button>
                             </div>
-                            <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-graphite)]">
-                                Нет уведомлений
-                            </div>
+                            {items.length === 0 ? (
+                                <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-graphite)]">
+                                    Нет уведомлений
+                                </div>
+                            ) : (
+                                <div className="flex-1 overflow-y-auto">
+                                    <div className="border-b border-[var(--color-line-soft)] px-4 py-2">
+                                        <button
+                                            onClick={handleMarkAllRead}
+                                            disabled={unreadCount === 0}
+                                            className="text-[12px] font-semibold text-[var(--color-graphite)] transition-colors hover:text-[var(--color-ink)] disabled:opacity-40"
+                                        >
+                                            Всё прочитано
+                                        </button>
+                                    </div>
+                                    {items.map((n) => (
+                                        <button
+                                            key={n.id}
+                                            onClick={() => { if (!n.read_at) handleMarkRead(n.id); }}
+                                            className={`w-full border-b border-[var(--color-line-soft)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-line-soft)] last:border-b-0 ${!n.read_at ? 'bg-[var(--color-orange)]/[0.04]' : ''}`}
+                                        >
+                                            <div className="flex items-start justify-between gap-2">
+                                                <div className="min-w-0 flex-1">
+                                                    <div className="flex items-center gap-2">
+                                                        {!n.read_at && <span className="size-1.5 shrink-0 rounded-full bg-[var(--color-orange)]" />}
+                                                        <p className={`text-[13px] leading-5 ${!n.read_at ? 'font-semibold text-[var(--color-ink)]' : 'font-medium text-[var(--color-graphite)]'}`}>
+                                                            {n.title}
+                                                        </p>
+                                                    </div>
+                                                    <p className="mt-0.5 pl-[10px] text-[12px] leading-4 text-[var(--color-graphite)] line-clamp-2">
+                                                        {n.body}
+                                                    </p>
+                                                </div>
+                                                <span className="shrink-0 text-[11px] leading-4 text-[var(--color-graphite)]">
+                                                    {formatNotificationTime(n.created_at)}
+                                                </span>
+                                            </div>
+                                        </button>
+                                    ))}
+                                </div>
+                            )}
                         </div>
                     </div>
                 )}

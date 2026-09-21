@@ -1,6 +1,7 @@
 import { Head, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import SuperAdminNav from '@/components/super-admin/SuperAdminNav';
+import { toast } from 'sonner';
 
 interface User {
     id: string;
@@ -8,6 +9,7 @@ interface User {
     email: string;
     phone: string | null;
     tariff: string;
+    is_master: boolean;
     is_blocked: boolean;
     expires_at: string | null;
     created_at: string;
@@ -43,6 +45,12 @@ export default function Users() {
     const [extendError, setExtendError] = useState('');
 
     const [blockUser, setBlockUser] = useState<User | null>(null);
+
+    const [notifyModal, setNotifyModal] = useState<{ recipientType: 'all' | 'user'; user?: User } | null>(null);
+    const [notifyTitle, setNotifyTitle] = useState('');
+    const [notifyBody, setNotifyBody] = useState('');
+    const [notifyLoading, setNotifyLoading] = useState(false);
+    const [notifyErrors, setNotifyErrors] = useState<Record<string, string>>({});
 
     const hasFilters = search || tariffFilter;
 
@@ -92,6 +100,34 @@ export default function Users() {
         router.post(`/admin-root/users/${userId}/impersonate`);
     }
 
+    function handleNotifySubmit() {
+        if (!notifyModal) return;
+        setNotifyLoading(true);
+        setNotifyErrors({});
+        router.post('/admin-root/notifications', {
+            recipient_type: notifyModal.recipientType,
+            user_id: notifyModal.user?.id,
+            title: notifyTitle,
+            body: notifyBody,
+        }, {
+            preserveState: true,
+            onSuccess: () => {
+                setNotifyModal(null);
+                setNotifyTitle('');
+                setNotifyBody('');
+                toast.success('Уведомление отправлено');
+            },
+            onError: (errors: Record<string, string>) => {
+                const mapped: Record<string, string> = {};
+                for (const [k, v] of Object.entries(errors)) {
+                    mapped[k] = Array.isArray(v) ? v[0] : String(v);
+                }
+                setNotifyErrors(mapped);
+            },
+            onFinish: () => setNotifyLoading(false),
+        });
+    }
+
     return (
         <>
             <Head title="Пользователи — ИРСИ" />
@@ -99,8 +135,23 @@ export default function Users() {
             <div className="min-h-screen bg-[#F7F5F1]">
                 <div className="mx-auto max-w-4xl px-4 py-10">
                     {/* Header */}
-                    <h1 className="text-2xl font-bold tracking-tight text-[#181818]">Пользователи</h1>
-                    <p className="mt-1.5 text-sm text-[#62615F]">Мастера и их доступ к ИРСИ</p>
+                    <div className="flex items-center justify-between">
+                        <div>
+                            <h1 className="text-2xl font-bold tracking-tight text-[#181818]">Пользователи</h1>
+                            <p className="mt-1.5 text-sm text-[#62615F]">Мастера и их доступ к ИРСИ</p>
+                        </div>
+                        <button
+                            onClick={() => {
+                                setNotifyModal({ recipientType: 'all' });
+                                setNotifyTitle('');
+                                setNotifyBody('');
+                                setNotifyErrors({});
+                            }}
+                            className="rounded-xl border border-[#E7E4DF] bg-white px-4 py-2.5 text-sm font-semibold text-[#181818] transition-colors hover:bg-[#F7F5F1]"
+                        >
+                            Отправить уведомление
+                        </button>
+                    </div>
 
                     <SuperAdminNav current="users" />
 
@@ -243,6 +294,19 @@ export default function Users() {
                                                         >
                                                             Войти как
                                                         </button>
+                                                        {!user.is_blocked && user.is_master && (
+                                                            <button
+                                                                onClick={() => {
+                                                                    setNotifyModal({ recipientType: 'user', user });
+                                                                    setNotifyTitle('');
+                                                                    setNotifyBody('');
+                                                                    setNotifyErrors({});
+                                                                }}
+                                                                className="rounded-lg px-2.5 py-1 text-xs font-medium text-[#62615F] hover:bg-[#F7F5F1]"
+                                                            >
+                                                                Уведомить
+                                                            </button>
+                                                        )}
                                                     </div>
                                                 </td>
                                             </tr>
@@ -346,6 +410,65 @@ export default function Users() {
                                 className="rounded-xl bg-[#C44351] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#A83843]"
                             >
                                 Заблокировать
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            )}
+
+            {/* Notification Modal */}
+            {notifyModal && (
+                <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/30" onClick={() => setNotifyModal(null)}>
+                    <div className="w-full max-w-md rounded-2xl border border-[#E7E4DF] bg-white p-6 shadow-lg" onClick={(e) => e.stopPropagation()}>
+                        <h2 className="text-lg font-bold tracking-tight text-[#181818]">Отправить уведомление</h2>
+                        <p className="mt-1 text-sm text-[#62615F]">
+                            {notifyModal.recipientType === 'all'
+                                ? 'Все активные мастера'
+                                : notifyModal.user?.name
+                            }
+                        </p>
+
+                        <label className="mt-4 block text-sm font-semibold text-[#181818]">
+                            Заголовок
+                        </label>
+                        <input
+                            type="text"
+                            value={notifyTitle}
+                            onChange={(e) => setNotifyTitle(e.target.value)}
+                            placeholder="Заголовок уведомления"
+                            className="mt-1.5 w-full rounded-xl border border-[#E7E4DF] bg-white px-3.5 py-2.5 text-sm text-[#181818] outline-none transition-colors focus:border-[#FF5A1F] focus:ring-1 focus:ring-[#FF5A1F]"
+                        />
+                        {notifyErrors.title && (
+                            <p className="mt-1.5 text-xs text-[#C44351]">{notifyErrors.title}</p>
+                        )}
+
+                        <label className="mt-4 block text-sm font-semibold text-[#181818]">
+                            Сообщение
+                        </label>
+                        <textarea
+                            value={notifyBody}
+                            onChange={(e) => setNotifyBody(e.target.value)}
+                            placeholder="Текст уведомления"
+                            rows={4}
+                            className="mt-1.5 w-full rounded-xl border border-[#E7E4DF] bg-white px-3.5 py-2.5 text-sm text-[#181818] outline-none transition-colors focus:border-[#FF5A1F] focus:ring-1 focus:ring-[#FF5A1F]"
+                        />
+                        {notifyErrors.body && (
+                            <p className="mt-1.5 text-xs text-[#C44351]">{notifyErrors.body}</p>
+                        )}
+
+                        <div className="mt-5 flex justify-end gap-3">
+                            <button
+                                onClick={() => setNotifyModal(null)}
+                                className="rounded-xl border border-[#E7E4DF] bg-white px-4 py-2 text-sm font-semibold text-[#181818] hover:bg-[#F7F5F1]"
+                            >
+                                Отмена
+                            </button>
+                            <button
+                                onClick={handleNotifySubmit}
+                                disabled={notifyLoading || !notifyTitle.trim() || !notifyBody.trim()}
+                                className="rounded-xl bg-[#FF5A1F] px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-[#E94D14] disabled:opacity-50"
+                            >
+                                {notifyLoading ? 'Отправка…' : 'Отправить'}
                             </button>
                         </div>
                     </div>

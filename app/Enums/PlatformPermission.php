@@ -19,4 +19,6 @@ enum PlatformPermission: string
     case AuditView = 'audit.view';
 
     case PlatformAdminsManage = 'platform_admins.manage';
+
+    case NotificationsSend = 'notifications.send';
 }

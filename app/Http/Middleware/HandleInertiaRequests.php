@@ -112,6 +112,7 @@ class HandleInertiaRequests extends Middleware
             ],
             'tariff_limits' => $tariffLimits,
             'platformAdmin' => $this->platformAdminProps($user),
+            'notifications' => fn () => $this->notificationsProps($user),
         ];
     }
 
@@ -138,5 +139,30 @@ class HandleInertiaRequests extends Middleware
         }
 
         return ['isRoot' => false, 'permissions' => []];
+    }
+
+    private function notificationsProps($user): array
+    {
+        if (! $user instanceof User) {
+            return ['unread_count' => 0, 'items' => []];
+        }
+
+        $notifications = $user->notifications()
+            ->orderByDesc('created_at')
+            ->limit(10)
+            ->get()
+            ->map(fn ($n) => [
+                'id' => $n->id,
+                'kind' => $n->data['kind'] ?? null,
+                'title' => $n->data['title'] ?? null,
+                'body' => $n->data['body'] ?? null,
+                'read_at' => $n->read_at?->toIso8601String(),
+                'created_at' => $n->created_at->toIso8601String(),
+            ]);
+
+        return [
+            'unread_count' => $user->unreadNotifications()->count(),
+            'items' => $notifications,
+        ];
     }
 }

@@ -11,12 +11,14 @@ use App\Models\SuperAdminAuditLog;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Notifications\SystemNotification;
 use App\Services\SuperAdminAuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\Notification;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -480,5 +482,58 @@ class SuperAdminController extends Controller
             'actions' => $actions,
             'admins' => $admins,
         ]);
+    }
+
+    public function sendNotification(Request $request): RedirectResponse
+    {
+        $validated = $request->validate([
+            'recipient_type' => 'required|in:all,user',
+            'user_id' => 'required_if:recipient_type,user',
+            'title' => 'required|string|max:255',
+            'body' => 'required|string|max:2000',
+        ]);
+
+        $title = $validated['title'];
+        $body = $validated['body'];
+
+        if ($validated['recipient_type'] === 'user') {
+            $user = User::where('is_master', true)
+                ->where('is_blocked', false)
+                ->findOrFail($validated['user_id']);
+
+            $user->notify(new SystemNotification($title, $body));
+
+            app(SuperAdminAuditLogger::class)->log(
+                auth()->user(),
+                'notification.sent',
+                $user,
+                metadata: [
+                    'recipient_type' => 'user',
+                    'user_id' => $user->id,
+                    'title' => $title,
+                ],
+            );
+
+            return back()->with('success', "Уведомление отправлено пользователю {$user->name}.");
+        }
+
+        $recipients = User::query()
+            ->where('is_master', true)
+            ->where('is_blocked', false)
+            ->get();
+
+        Notification::send($recipients, new SystemNotification($title, $body));
+
+        app(SuperAdminAuditLogger::class)->log(
+            auth()->user(),
+            'notification.sent',
+            metadata: [
+                'recipient_type' => 'all',
+                'recipients_count' => $recipients->count(),
+                'title' => $title,
+            ],
+        );
+
+        return back()->with('success', "Уведомление отправлено {$recipients->count()} мастерам.");
     }
 }

@@ -197,6 +197,7 @@ class PlatformAdminController extends Controller
             PlatformPermission::PlansUpdate => 'Изменение тарифов',
             PlatformPermission::AuditView => 'Журнал действий',
             PlatformPermission::PlatformAdminsManage => 'Управление администраторами',
+            PlatformPermission::NotificationsSend => 'Отправка уведомлений',
         };
     }
 }
