@@ -64,16 +64,16 @@ export default function Choose({ maxBotName }: PageProps) {
         <>
             <Head title="Вход — ИРСИ" />
 
-            <div className="flex min-h-screen items-center justify-center bg-[var(--color-warm)] px-5 dark:bg-[#121110]">
-                <div className="flex w-full max-w-[400px] flex-col items-center gap-8 max-md:items-start max-md:gap-7">
+            <main className="grid min-h-dvh place-items-center bg-[var(--color-warm)] px-5 py-8 max-md:items-start max-md:py-[calc(64px+env(safe-area-inset-top))] dark:bg-[#121110]">
+                <section className="grid w-full max-w-[400px] gap-8 max-md:w-full max-md:gap-7">
 
                     {/* Logo */}
-                    <div className="w-full flex justify-center max-md:justify-start">
-                        <img src="/images/logo.svg" alt="ИРСИ" className="h-[118px] w-auto max-md:h-[108px]" />
+                    <div className="flex justify-center max-md:justify-start">
+                        <img src="/images/logo.svg" alt="ИРСИ" className="w-[118px] max-md:w-[108px]" />
                     </div>
 
                     {/* Header */}
-                    <header className="w-full text-center max-md:text-left">
+                    <header className="text-center max-md:text-left">
                         <h1 className="text-[36px] font-[650] leading-[44px] tracking-[-0.025em] text-[var(--color-ink,#181818)] dark:text-stone-50 max-md:text-[32px] max-md:leading-[40px] max-md:tracking-[-0.02em]">
                             Вход в личный кабинет
                         </h1>
@@ -84,13 +84,13 @@ export default function Choose({ maxBotName }: PageProps) {
 
                     {/* Flash error */}
                     {flashError && (
-                        <div className="w-full rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] font-medium text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
+                        <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-[13px] font-medium text-red-700 dark:border-red-900/50 dark:bg-red-950/30 dark:text-red-300">
                             {flashError}
                         </div>
                     )}
 
-                    {/* Auth buttons */}
-                    <div className="flex w-full flex-col gap-2.5">
+                    {/* Auth buttons — 360px group centered in 400px column */}
+                    <div className="mx-auto grid w-full max-w-[360px] gap-2 max-md:max-w-full">
 
                         {/* VK */}
                         <form ref={vkFormRef} method="POST" action="/auth/vk/start" className="hidden" />
@@ -153,29 +153,33 @@ export default function Choose({ maxBotName }: PageProps) {
                         ) : null}
                     </div>
 
+                    {/* Supporting text */}
+                    <p className="mx-auto w-[340px] max-w-full text-center text-[14px] leading-[20px] text-[var(--color-graphite,#62615F)] dark:text-stone-400 max-md:w-full max-md:text-left">
+                        Для входа потребуется подтверждение в выбранном сервисе.
+                    </p>
+
                     {/* Legal */}
-                    <footer className="w-full text-center max-md:text-left">
-                        <p className="mx-auto max-w-[360px] text-[12px] leading-[18px] text-[var(--color-muted,#96938F)] dark:text-stone-500 max-md:mx-0">
-                            Нажимая кнопку, вы соглашаетесь с{' '}
+                    <footer className="mx-auto w-[360px] max-w-full text-center max-md:w-full max-md:text-left">
+                        <p className="text-[12px] leading-[18px] text-[var(--color-muted,#96938F)] dark:text-stone-500">
+                            Продолжая, вы принимаете{' '}
                             <Link
                                 href="/offer"
                                 target="_blank"
-                                className="font-medium text-[var(--color-ink,#181818)] no-underline underline-offset-[2px] decoration-[#9B9893] decoration-1 transition-colors duration-150 hover:text-[var(--color-orange,#FF5A1F)] hover:decoration-[var(--color-orange,#FF5A1F)] dark:text-stone-300 dark:hover:text-orange-400"
+                                className="font-medium text-[var(--color-ink,#181818)] underline decoration-[#9B9893] decoration-1 underline-offset-[2px] transition-colors duration-150 hover:text-[var(--color-orange,#FF5A1F)] hover:decoration-[var(--color-orange,#FF5A1F)] dark:text-stone-300 dark:hover:text-orange-400"
                             >
-                                Публичной офертой
+                                Публичную оферту
                             </Link>{' '}
-                            и{' '}
-                            <Link
+                            и&nbsp;<Link
                                 href="/privacy"
                                 target="_blank"
-                                className="font-medium text-[var(--color-ink,#181818)] no-underline underline-offset-[2px] decoration-[#9B9893] decoration-1 transition-colors duration-150 hover:text-[var(--color-orange,#FF5A1F)] hover:decoration-[var(--color-orange,#FF5A1F)] dark:text-stone-300 dark:hover:text-orange-400"
+                                className="font-medium text-[var(--color-ink,#181818)] underline decoration-[#9B9893] decoration-1 underline-offset-[2px] transition-colors duration-150 hover:text-[var(--color-orange,#FF5A1F)] hover:decoration-[var(--color-orange,#FF5A1F)] dark:text-stone-300 dark:hover:text-orange-400"
                             >
-                                Политикой обработки персональных данных
-                            </Link>
+                                Политику обработки персональных данных
+                            </Link>.
                         </p>
                     </footer>
-                </div>
-            </div>
+                </section>
+            </main>
         </>
     );
 }
