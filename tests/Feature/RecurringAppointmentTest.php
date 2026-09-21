@@ -4404,4 +4404,58 @@ class RecurringAppointmentTest extends TestCase
         // With ends_at, total should include all dates from first to endDate (minus current)
         $this->assertGreaterThanOrEqual(3, $json['total']);
     }
+
+    // ═══════════════ Batch Preview Performance ═══════════════
+
+    #[Test]
+    public function preview_batch_query_count_does_not_grow_linearly(): void
+    {
+        $this->actingAs($this->proMaster);
+        $this->ensureWorkingHour($this->proMaster, 2);
+
+        $date = $this->nextWeekday(2);
+
+        // 4 weeks (short series)
+        \DB::enableQueryLog();
+        $response4 = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 4,
+        ]);
+        $queries4 = count(\DB::getQueryLog());
+        \DB::flushQueryLog();
+
+        $response4->assertOk();
+        $this->assertEquals(4, $response4->json('total'));
+
+        // 52 weeks (long series)
+        $response52 = $this->postJson('/admin/recurring-appointments/preview', [
+            'service_id' => $this->service->id,
+            'date' => $date->format('Y-m-d'),
+            'time' => '10:00',
+            'recurrence_type' => 'weekly',
+            'interval' => 1,
+            'weekdays' => [2],
+            'occurrences_count' => 52,
+        ]);
+        $queries52 = count(\DB::getQueryLog());
+        \DB::flushQueryLog();
+        \DB::disableQueryLog();
+
+        $response52->assertOk();
+        $this->assertEquals(52, $response52->json('total'));
+
+        // Batch preview should use similar number of queries regardless of occurrence count.
+        // Allow a small tolerance (e.g., 52 should not use 13x more queries than 4).
+        // With batch loading, both should use ~5-8 queries (working hours, appointments, blocked, recurring blocked, etc.)
+        $this->assertLessThanOrEqual(
+            $queries4 * 2,
+            $queries52,
+            "Batch preview: 52-week preview ({$queries52} queries) should not use significantly more queries than 4-week preview ({$queries4} queries)"
+        );
+    }
 }

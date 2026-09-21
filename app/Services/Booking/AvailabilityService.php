@@ -21,6 +21,267 @@ class AvailabilityService
     public function __construct(
         private readonly RecurrenceService $recurrenceService = new RecurrenceService(),
     ) {}
+
+    // ═══════════════════════════════════════════════════════════════
+    //  Batch context for preview (reuses batch-loading primitives)
+    // ═══════════════════════════════════════════════════════════════
+
+    /**
+     * Pre-load all data needed for conflict checking across a date range.
+     * Returns a closure that checks a slot without hitting the DB.
+     *
+     * @return array{check: callable(string $dateKey, string $time, int $duration, ?string $excludeId, ?array $excludeIds): ?string, workingHours: Collection}
+     */
+    public function buildPreviewContext(
+        User $master,
+        CarbonInterface $rangeStart,
+        CarbonInterface $rangeEnd,
+    ): array {
+        $tz = $master->getTimezone();
+
+        // Batch 1: working hours
+        $workingHours = $this->loadWorkingHoursForMonth($master);
+
+        // Batch 2: booked periods for entire range
+        $bookedByDate = $this->loadBookedPeriodsForRange($master, $rangeStart, $rangeEnd, $tz);
+
+        // Batch 3: blocked periods for entire range
+        $blockedByDate = $this->loadBlockedPeriodsForRange($master, $rangeStart, $rangeEnd, $tz);
+
+        $check = function (
+            string $dateKey,
+            string $time,
+            int $durationMinutes,
+            ?string $excludeAppointmentId,
+            ?array $excludeAppointmentIds,
+        ) use ($master, $workingHours, $bookedByDate, $blockedByDate, $tz): ?string {
+            return $this->checkSlotFromContext(
+                $master, $workingHours, $bookedByDate, $blockedByDate,
+                $dateKey, $time, $durationMinutes,
+                $excludeAppointmentId, $excludeAppointmentIds, $tz,
+            );
+        };
+
+        return ['check' => $check, 'workingHours' => $workingHours];
+    }
+
+    /**
+     * Check a single slot against pre-loaded context data.
+     * Returns conflict reason string or null if free.
+     */
+    private function checkSlotFromContext(
+        User $master,
+        Collection $workingHours,
+        array $bookedByDate,
+        array $blockedByDate,
+        string $dateKey,
+        string $time,
+        int $durationMinutes,
+        ?string $excludeAppointmentId,
+        ?array $excludeAppointmentIds,
+        string $tz,
+    ): ?string {
+        $localSlot = Carbon::parse($dateKey.' '.$time, $tz);
+        $endDateTime = $localSlot->copy()->addMinutes($durationMinutes);
+        $dayOfWeek = $localSlot->dayOfWeek;
+
+        $workingHour = $workingHours->get($dayOfWeek);
+
+        if (! $workingHour || ! $workingHour->is_working) {
+            return 'outside_hours';
+        }
+
+        $dayStart = $localSlot->copy()->setTimeFromTimeString($workingHour->start_time);
+        $dayEnd = $localSlot->copy()->setTimeFromTimeString($workingHour->end_time);
+
+        if ($localSlot->lt($dayStart) || $endDateTime->gt($dayEnd)) {
+            return 'outside_hours';
+        }
+
+        // Break check (no DB query — break periods are derived from working hours)
+        $breakPeriods = $this->getBreakPeriods($workingHour, $localSlot);
+        if ($breakPeriods->contains(
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
+        )) {
+            return 'break';
+        }
+
+        // Booked check against pre-loaded data (apply exclusions in-memory)
+        $bookedPeriods = collect($bookedByDate[$dateKey] ?? []);
+        if ($excludeAppointmentId || $excludeAppointmentIds) {
+            $bookedPeriods = $bookedPeriods->filter(function (array $period) use ($excludeAppointmentId, $excludeAppointmentIds) {
+                if (isset($period['_id'])) {
+                    if ($excludeAppointmentId && $period['_id'] === $excludeAppointmentId) {
+                        return false;
+                    }
+                    if ($excludeAppointmentIds && in_array($period['_id'], $excludeAppointmentIds, true)) {
+                        return false;
+                    }
+                }
+                return true;
+            })->values();
+        }
+        if ($bookedPeriods->contains(
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
+        )) {
+            return 'booked';
+        }
+
+        // Blocked check against pre-loaded data
+        $blockedPeriods = collect($blockedByDate[$dateKey] ?? []);
+        if ($blockedPeriods->contains(
+            fn (array $period) => $localSlot->lt($period['end']) && $endDateTime->gt($period['start'])
+        )) {
+            return 'blocked';
+        }
+
+        return null;
+    }
+
+    /**
+     * Load booked periods for an arbitrary range (not just a month).
+     * Returns array keyed by date string (Y-m-d in master timezone).
+     */
+    private function loadBookedPeriodsForRange(
+        User $master,
+        CarbonInterface $rangeStart,
+        CarbonInterface $rangeEnd,
+        string $tz,
+    ): array {
+        $utcStart = $rangeStart->copy()->startOfDay()->timezone('UTC');
+        $utcEnd = $rangeEnd->copy()->endOfDay()->timezone('UTC');
+
+        $blockingStatuses = [
+            AppointmentStatus::Booked,
+            AppointmentStatus::PendingPayment,
+            AppointmentStatus::Prepaid,
+            AppointmentStatus::Paid,
+        ];
+
+        $appointments = Appointment::where('master_id', $master->id)
+            ->whereIn('status', $blockingStatuses)
+            ->whereBetween('start_time', [$utcStart, $utcEnd])
+            ->get();
+
+        $grouped = [];
+        foreach ($appointments as $a) {
+            $start = Carbon::parse($a->start_time)->timezone($tz);
+            $duration = $a->display_duration ?: 60;
+            $dateKey = $start->format('Y-m-d');
+
+            $grouped[$dateKey][] = [
+                'start' => $start,
+                'end' => $start->copy()->addMinutes($duration),
+                '_id' => $a->id,
+            ];
+        }
+
+        return $grouped;
+    }
+
+    /**
+     * Load blocked periods for an arbitrary range.
+     * Includes regular blocked times + recurring blocked time series.
+     */
+    private function loadBlockedPeriodsForRange(
+        User $master,
+        CarbonInterface $rangeStart,
+        CarbonInterface $rangeEnd,
+        string $tz,
+    ): array {
+        $utcStart = $rangeStart->copy()->startOfDay()->timezone('UTC');
+        $utcEnd = $rangeEnd->copy()->endOfDay()->timezone('UTC');
+
+        $blockedTimes = BlockedTime::where('user_id', $master->id)
+            ->where('start_datetime', '<=', $utcEnd)
+            ->where('end_datetime', '>=', $utcStart)
+            ->get();
+
+        $grouped = [];
+        foreach ($blockedTimes as $b) {
+            $start = $b->start_datetime->copy()->timezone($tz);
+            $end = $b->end_datetime->copy()->timezone($tz);
+            $entry = ['start' => $start, 'end' => $end];
+
+            $day = $start->copy()->startOfDay();
+            $rangeEndDay = $rangeEnd->copy()->startOfDay();
+            $guard = 0;
+            while ($day->lte($rangeEndDay) && $day->lte($end)) {
+                if (++$guard > 370) {
+                    break;
+                }
+                $grouped[$day->format('Y-m-d')][] = $entry;
+                $day = $day->addDay();
+            }
+        }
+
+        // Recurring blocked time series
+        $this->loadRecurringBlockedPeriodsForRange($master, $rangeStart, $rangeEnd, $tz, $grouped);
+
+        return $grouped;
+    }
+
+    /**
+     * Load recurring blocked periods for an arbitrary range.
+     */
+    private function loadRecurringBlockedPeriodsForRange(
+        User $master,
+        CarbonInterface $rangeStart,
+        CarbonInterface $rangeEnd,
+        string $tz,
+        array &$grouped,
+    ): void {
+        $series = RecurringBlockedTimeSeries::where('user_id', $master->id)
+            ->where('status', RecurringSeriesStatus::Active)
+            ->with('exceptions')
+            ->get();
+
+        if ($series->isEmpty()) {
+            return;
+        }
+
+        $rangeStartDay = $rangeStart->copy()->startOfDay();
+        $rangeEndDay = $rangeEnd->copy()->startOfDay();
+
+        foreach ($series as $s) {
+            $rule = RecurrenceRule::fromArray([
+                'recurrence_type' => $s->recurrence_type->value,
+                'interval' => $s->interval,
+                'weekdays' => $s->weekdays,
+                'start_date' => $s->start_date->format('Y-m-d'),
+                'ends_at' => $s->ends_at?->format('Y-m-d'),
+                'timezone' => $s->timezone,
+            ]);
+
+            $occurrences = $this->recurrenceService->generateOccurrences($rule, $rangeStartDay, $rangeEndDay);
+
+            $exceptionsByDate = [];
+            foreach ($s->exceptions as $ex) {
+                $exceptionsByDate[$ex->occurrence_date->format('Y-m-d')] = $ex;
+            }
+
+            foreach ($occurrences as $date) {
+                $dateKey = $date->format('Y-m-d');
+
+                if (isset($exceptionsByDate[$dateKey])) {
+                    $ex = $exceptionsByDate[$dateKey];
+                    if ($ex->type->value === 'skip') {
+                        continue;
+                    }
+                    $startTime = $ex->override_start_time ?? $s->start_time;
+                    $endTime = $ex->override_end_time ?? $s->end_time;
+                } else {
+                    $startTime = $s->start_time;
+                    $endTime = $s->end_time;
+                }
+
+                $start = $date->copy()->setTimeFromTimeString($startTime);
+                $end = $date->copy()->setTimeFromTimeString($endTime);
+
+                $grouped[$dateKey][] = ['start' => $start, 'end' => $end];
+            }
+        }
+    }
     /**
      * Возвращает массив дат (Y-m-d), в которые есть хотя бы один свободный слот.
      * Загружает данные за месяц 3 запросами вместо N*3 (N = дней в месяце).

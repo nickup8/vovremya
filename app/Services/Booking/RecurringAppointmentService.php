@@ -90,6 +90,14 @@ class RecurringAppointmentService
         $conflicts = [];
         $available = [];
 
+        // Batch preload: load all data once for the entire range instead of per-date N+1 queries
+        $context = $this->availabilityService->buildPreviewContext(
+            $master,
+            $dates[0] ?? $startDate,
+            $dates[array_key_last($dates)] ?? $startDate,
+        );
+        $checkSlot = $context['check'];
+
         foreach ($dates as $date) {
             $startDateTime = \Illuminate\Support\Carbon::parse(
                 $date->format('Y-m-d').' '.$startTime,
@@ -104,19 +112,20 @@ class RecurringAppointmentService
                 continue;
             }
 
-            $reason = $this->availabilityService->getSlotConflictReason(
-                $master,
-                $startDateTime,
+            $dateKey = $date->format('Y-m-d');
+            $reason = $checkSlot(
+                $dateKey,
+                $startTime,
                 $durationMinutes,
                 $excludeAppointmentId,
                 $excludeAppointmentIds,
             );
 
             if ($reason === null) {
-                $available[] = $date->format('Y-m-d');
+                $available[] = $dateKey;
             } else {
                 $conflicts[] = [
-                    'date' => $date->format('Y-m-d'),
+                    'date' => $dateKey,
                     'reason' => $reason,
                 ];
             }

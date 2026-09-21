@@ -1,4 +1,4 @@
-import { useState, useMemo, useEffect } from 'react';
+import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import { toast } from 'sonner';
 import { User, CalendarDays } from 'lucide-react';
@@ -256,7 +256,37 @@ export default function CalendarPage() {
         );
     };
 
-    const today = new Date();
+    // ═══════════════ Live "today" that updates at midnight / visibility change ═══════════════
+    const [today, setToday] = useState(() => new Date());
+
+    const refreshToday = useCallback(() => {
+        setToday(new Date());
+    }, []);
+
+    useEffect(() => {
+        // Schedule timeout for next local midnight
+        const now = new Date();
+        const midnight = new Date(now);
+        midnight.setHours(24, 0, 0, 0);
+        const msUntilMidnight = midnight.getTime() - now.getTime();
+
+        const timer = setTimeout(() => {
+            refreshToday();
+        }, msUntilMidnight);
+
+        const onVisibility = () => {
+            if (document.visibilityState === 'visible') {
+                refreshToday();
+            }
+        };
+        document.addEventListener('visibilitychange', onVisibility);
+
+        return () => {
+            clearTimeout(timer);
+            document.removeEventListener('visibilitychange', onVisibility);
+        };
+    }, [today, refreshToday]);
+
     const centerDate = useMemo(() => {
         const d = new Date(today);
         d.setDate(d.getDate() + weekOffset * 7);
@@ -506,7 +536,7 @@ return [];
     }
 
     const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const todayCount = initialAppointments.filter((a) => a.date === todayStr).length;
+    const todayCount = localAppointments.filter((a) => a.date === todayStr).length;
 
     return (
         <>

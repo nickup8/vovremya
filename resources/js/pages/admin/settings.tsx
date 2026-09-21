@@ -78,6 +78,7 @@ function AvatarCropModal({
     onClose: () => void;
     imageSrc: string;
 }) {
+    // This component is nested inside SettingsPage; router.reload is the same module-level import
     const [crop, setCrop] = useState({ x: 0, y: 0 });
     const [zoom, setZoom] = useState(1);
     const [croppedAreaPixels, setCroppedAreaPixels] = useState<{
@@ -179,17 +180,17 @@ return;
 
             if (response.ok) {
                 onClose();
-                window.location.reload();
+                router.reload({ only: ['profile'] });
             } else {
                 const errorData = await response.json().catch(() => ({}));
-                alert(
+                toast.error(
                     'Ошибка при загрузке: ' +
                         (errorData.message || 'Неизвестная ошибка'),
                 );
             }
         } catch (error) {
             console.error(error);
-            alert('Ошибка обработки: ' + (error as Error).message);
+            toast.error('Ошибка обработки: ' + (error as Error).message);
         } finally {
             setUploading(false);
         }
@@ -428,7 +429,7 @@ return;
 }
 
         if (file.size > 5 * 1024 * 1024) {
-            alert('Файл слишком большой. Максимальный размер — 5 МБ.');
+            toast.error('Файл слишком большой. Максимальный размер — 5 МБ.');
 
             return;
         }
