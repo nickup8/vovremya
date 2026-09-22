@@ -109,23 +109,9 @@ describe('Booking widget — VK provider', () => {
         vi.unstubAllGlobals();
     });
 
-    it('Telegram redirect still works (no error on success)', async () => {
+    it('Telegram is not shown as a provider option', async () => {
         await navigateToProviderStep();
-
-        const mockFetch = vi.fn().mockResolvedValue({
-            ok: true,
-            json: () => Promise.resolve({ telegram_url: 'https://t.me/test_bot?start=book_123' }),
-        });
-        vi.stubGlobal('fetch', mockFetch);
-
-        fireEvent.click(screen.getByText('Telegram'));
-
-        await waitFor(() => {
-            expect(mockFetch).toHaveBeenCalled();
-        });
-
-        expect(screen.queryByText(/Не удалось/i)).not.toBeInTheDocument();
-        vi.unstubAllGlobals();
+        expect(screen.queryByText('Telegram')).not.toBeInTheDocument();
     });
 
     it('MAX redirect still works (no error on success)', async () => {

@@ -588,23 +588,14 @@ function StepProvider({
     selectedTime,
 }: {
     errors: Record<string, string>;
-    onSubmit: (provider: 'telegram' | 'max' | 'vk') => void;
-    loadingProvider: 'telegram' | 'max' | 'vk' | null;
+    onSubmit: (provider: 'max' | 'vk') => void;
+    loadingProvider: 'max' | 'vk' | null;
     maxBotName: string | null;
     selectedService: Service | null;
     selectedDate: Date | null;
     selectedTime: string | null;
 }) {
-    const providers: { key: 'telegram' | 'max' | 'vk'; label: string; color: string; show: boolean; icon: React.ReactNode; softBg: string; softBorder: string }[] = [
-        {
-            key: 'telegram', label: 'Telegram', color: '#2AABEE', show: true,
-            softBg: '#F2FAFF', softBorder: '#D8EEFA',
-            icon: (
-                <svg viewBox="0 0 24 24" fill="#2AABEE" width="20" height="20">
-                    <path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm4.64 6.8c-.15 1.58-.8 5.42-1.13 7.19-.14.75-.42 1-.68 1.03-.58.05-1.02-.38-1.58-.75-.88-.58-1.38-.94-2.23-1.5-.99-.65-.35-1.01.22-1.59.15-.15 2.71-2.48 2.76-2.69.01-.03.01-.14-.07-.2-.08-.06-.19-.04-.27-.02-.12.03-2.02 1.28-5.69 3.77-.54.37-1.03.55-1.47.54-.48-.01-1.4-.27-2.09-.49-.84-.28-1.51-.42-1.45-.89.03-.25.38-.5 1.04-.77 4.07-1.77 6.79-2.94 8.15-3.5 3.88-1.62 4.69-1.9 5.21-1.91.12 0 .37.03.54.17.14.12.18.28.2.45-.01.06.01.24 0 .38z"/>
-                </svg>
-            ),
-        },
+    const providers: { key: 'max' | 'vk'; label: string; color: string; show: boolean; icon: React.ReactNode; softBg: string; softBorder: string }[] = [
         {
             key: 'max', label: 'MAX', color: '#6366F1', show: !!maxBotName,
             softBg: '#F7F3FF', softBorder: '#E4D9FF',
@@ -823,7 +814,7 @@ export default function Widget() {
     const [selectedTime, setSelectedTime] = useState<string | null>(null);
     const [slots, setSlots] = useState<string[]>(availableSlots ?? []);
     const [loadingSlots, setLoadingSlots] = useState(false);
-    const [loadingProvider, setLoadingProvider] = useState<'telegram' | 'max' | 'vk' | null>(null);
+    const [loadingProvider, setLoadingProvider] = useState<'max' | 'vk' | null>(null);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
     useEffect(() => {
@@ -881,7 +872,7 @@ export default function Widget() {
         if (step > 1) setStep((s) => (s - 1) as Step);
     }
 
-    async function handleSubmit(provider: 'telegram' | 'max' | 'vk') {
+    async function handleSubmit(provider: 'max' | 'vk') {
         if (!selectedService || !selectedDate || !selectedTime || loadingProvider) return;
 
         setLoadingProvider(provider);
@@ -920,9 +911,7 @@ export default function Widget() {
 
             const redirectUrl = provider === 'vk'
                 ? data.vk_url
-                : provider === 'max'
-                    ? data.max_url
-                    : data.telegram_url;
+                : data.max_url;
 
             if (!redirectUrl) {
                 setErrors({ time: 'Не удалось получить ссылку для перехода. Попробуйте позже.' });

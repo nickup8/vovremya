@@ -3,7 +3,6 @@ import { Head, router, useForm, usePage } from '@inertiajs/react';
 import { echo } from '@/echo-config';
 import Cropper from 'react-easy-crop';
 import {
-    Send,
     MessageCircle,
     Pencil,
     Copy,
@@ -718,17 +717,6 @@ return;
                                     <div className="grid grid-cols-1 gap-4 min-[520px]:grid-cols-2">
                                         <div>
                                             <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
-                                                Telegram ID
-                                            </label>
-                                            <div className="flex h-[42px] items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-line-soft)] px-3">
-                                                <span className="min-w-0 flex-1 truncate font-mono text-[13px] text-[var(--color-graphite)]">
-                                                    {profileForm.data.telegram_id || '—'}
-                                                </span>
-                                                <Lock className="size-3.5 shrink-0 text-[var(--color-graphite)]" />
-                                            </div>
-                                        </div>
-                                        <div>
-                                            <label className="mb-1.5 block text-[13px] font-medium text-[var(--color-ink)]">
                                                 ID профиля в Max
                                             </label>
                                             <div className="flex h-[42px] items-center gap-2 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-line-soft)] px-3">
@@ -775,51 +763,6 @@ return;
                                         Уведомления мастеру
                                     </div>
                                     <div>
-                                        {/* Telegram */}
-                                        <div className="flex min-h-[64px] items-center gap-3">
-                                            <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-warm)]">
-                                                <Send className="size-4 text-[var(--color-graphite)]" />
-                                            </div>
-                                            <div className="min-w-0 flex-1">
-                                                <p className="text-[14px] font-semibold text-[var(--color-ink)]">
-                                                    Telegram Bot
-                                                </p>
-                                                <p className="text-[12px] text-[var(--color-graphite)]">
-                                                    {profile.telegram_chat_id
-                                                        ? 'Новые записи и сервисные уведомления'
-                                                        : 'Сначала подключите Telegram'}
-                                                </p>
-                                            </div>
-                                            <Switch
-                                                checked={notifState.telegram_notifications}
-                                                disabled={!profile.telegram_chat_id}
-                                                onCheckedChange={(checked) => {
-                                                    if (!profile.telegram_chat_id) return;
-                                                    setNotifField('telegram_notifications', checked);
-                                                }}
-                                                className="h-6 w-10 data-[state=checked]:bg-[var(--color-orange)] [&>span]:size-5 [&>span]:data-[state=checked]:translate-x-4"
-                                            />
-                                        </div>
-                                        {!profile.telegram_chat_id && (
-                                            <div className="flex items-center gap-3 py-2.5 pl-12">
-                                                <span className="text-[12px] text-[var(--color-graphite)]">
-                                                    Telegram не подключен
-                                                </span>
-                                                <a
-                                                    href={profile.telegram_link_url || `https://t.me/${profile.telegram_bot_name}?start=${profile.telegram_auth_token}`}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="ml-auto inline-flex h-7 items-center gap-1.5 rounded-[8px] bg-[var(--color-orange)] px-3 text-[11px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)]"
-                                                >
-                                                    <Send className="size-3" />
-                                                    Подключить
-                                                </a>
-                                            </div>
-                                        )}
-
-                                        {/* Divider */}
-                                        <div className="border-t border-[var(--color-line)]" />
-
                                         {/* Max */}
                                         <div className="flex min-h-[64px] items-center gap-3">
                                             <div className="flex size-9 shrink-0 items-center justify-center rounded-[10px] bg-[var(--color-warm)]">

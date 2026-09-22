@@ -122,8 +122,8 @@ function HeroSection() {
                         </span>
                     </h1>
                     <p className="mx-auto mt-6 max-w-lg text-lg leading-relaxed text-stone-500 dark:text-stone-400 lg:mx-0">
-                        Цифровой блокнот для мастера. Клиент записывается через Telegram
-                        или Max — вы получаете подтверждение и напоминание. Без касс, комиссий и SMS.
+                        Цифровой блокнот для мастера. Клиент записывается через
+                        Max или VK — вы получаете подтверждение и напоминание. Без касс, комиссий и SMS.
                         До 30 записей в месяц — <strong className="text-stone-700 dark:text-stone-200">бесплатно навсегда</strong>.
                     </p>
 
@@ -168,7 +168,7 @@ function PainPoints() {
         {
             icon: Gift,
             title: '0 рублей за SMS-напоминания',
-            text: 'Бесплатные напоминания и каскадные нотификации через ботов Telegram и Max.',
+            text: 'Бесплатные напоминания и каскадные нотификации через ботов Max и VK.',
         },
     ];
 
@@ -442,7 +442,7 @@ function Pricing() {
                             <span className="text-sm text-stone-400 dark:text-stone-500">навсегда</span>
                         </div>
                         <ul className="mt-8 space-y-3.5">
-                            {['До 30 записей в месяц', 'Кастомные тексты напоминаний', 'Telegram и Max боты'].map((item) => (
+                            {['До 30 записей в месяц', 'Кастомные тексты напоминаний', 'Max и VK боты'].map((item) => (
                                 <li key={item} className="flex items-start gap-3 text-sm text-stone-600 dark:text-stone-300">
                                     <span className="mt-0.5 flex size-5 shrink-0 items-center justify-center rounded-full bg-stone-100 dark:bg-stone-800">
                                         <Check className="size-3 text-stone-500 dark:text-stone-400" />

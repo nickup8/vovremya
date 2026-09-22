@@ -59,8 +59,7 @@ export default function Dashboard() {
 
                     {/* Messengers */}
                     <h2 className="mt-8 text-sm font-semibold text-[#181818]">Мессенджеры</h2>
-                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-3">
-                        <MessengerCard name="Telegram" count={p.telegram_linked} total={total} />
+                    <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
                         <MessengerCard name="MAX" count={p.max_linked} total={total} />
                         <MessengerCard name="VK" count={p.vk_linked} total={total} />
                     </div>
