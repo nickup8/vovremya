@@ -5,7 +5,7 @@ namespace App\Services\Notification;
 use App\Models\Appointment;
 use App\Models\User;
 use App\Services\MaxApiClient;
-use Illuminate\Support\Facades\Http;
+use App\Services\VkApiClient;
 use Illuminate\Support\Facades\Log;
 
 class MasterNotificationService
@@ -16,7 +16,6 @@ class MasterNotificationService
         $client = $appointment->client;
         $clientName = $client?->name ?? __('bot.fallback.client_name');
         $serviceName = $appointment->display_name;
-        $time = $appointment->start_time->format('d.m.Y H:i');
 
         $text = __('bot.master.new_booking', [
             'client' => $clientName,
@@ -38,50 +37,28 @@ class MasterNotificationService
 
     public function sendToMaster(User $master, string $text): void
     {
-        if (! empty($master->telegram_id) && $master->telegram_notifications === true) {
-            $this->sendTelegram($master->telegram_id, $text);
-        }
-
         if (! empty($master->max_id) && $master->max_notifications === true) {
-            $this->sendMax($master->max_id, $text);
-        }
-    }
-
-    private function sendTelegram(string $chatId, string $text): void
-    {
-        $token = config('services.telegram.bot_token');
-
-        if (empty($token)) {
-            return;
-        }
-
-        try {
-            $response = Http::connectTimeout(3)
-                ->timeout(20)
-                ->post("https://api.telegram.org/bot{$token}/sendMessage", [
-                    'chat_id' => $chatId,
-                    'text' => $text,
-                    'parse_mode' => 'HTML',
+            try {
+                app(MaxApiClient::class)->sendMessage($master->max_id, $text);
+            } catch (\Throwable $e) {
+                Log::warning('MAX master notification failed', [
+                    'master_id' => $master->id,
+                    'channel' => 'max',
+                    'error' => $e->getMessage(),
                 ]);
-
-            if ($response->failed()) {
-                throw new \Exception('TG API failed: '.$response->body());
             }
-        } catch (\Exception $e) {
-            Log::error('Telegram master notification failed', [
-                'chat_id' => $chatId,
-                'error' => $e->getMessage(),
-                'exception' => $e,
-            ]);
-
-            throw $e;
         }
-    }
 
-    private function sendMax(string $chatId, string $text): void
-    {
-        if (! app(MaxApiClient::class)->sendMessage($chatId, $text)) {
-            throw new \Exception('MAX API failed to send master notification');
+        if (! empty($master->vk_id) && $master->vk_notifications === true) {
+            try {
+                app(VkApiClient::class)->sendMessage($master->vk_id, $text);
+            } catch (\Throwable $e) {
+                Log::warning('VK master notification failed', [
+                    'master_id' => $master->id,
+                    'channel' => 'vk',
+                    'error' => $e->getMessage(),
+                ]);
+            }
         }
     }
 }

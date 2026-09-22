@@ -40,6 +40,7 @@ class UserFactory extends Factory
             'address' => null,
             'telegram_notifications' => false,
             'max_notifications' => false,
+            'vk_notifications' => false,
             'soft_deposit' => false,
             'deposit_timeout' => 15,
             'deposit_percent' => 30,

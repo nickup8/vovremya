@@ -101,4 +101,73 @@ class NotificationSettingsTest extends TestCase
         $this->assertTrue($user->telegram_notifications);
         $this->assertSame(1, $user->getReminderHoursBeforeFinal());
     }
+
+    public function test_vk_notifications_true_saves(): void
+    {
+        $user = User::factory()->create([
+            'vk_notifications' => false,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->put(route('admin.settings.update'), [
+                'vk_notifications' => true,
+            ]);
+
+        $response->assertSessionHasNoErrors();
+        $user->refresh();
+
+        $this->assertTrue($user->vk_notifications);
+    }
+
+    public function test_vk_notifications_false_saves(): void
+    {
+        $user = User::factory()->create([
+            'vk_notifications' => true,
+        ]);
+
+        $response = $this->actingAs($user)
+            ->put(route('admin.settings.update'), [
+                'vk_notifications' => false,
+            ]);
+
+        $response->assertSessionHasNoErrors();
+        $user->refresh();
+
+        $this->assertFalse($user->vk_notifications);
+    }
+
+    public function test_vk_id_appears_in_profile_props(): void
+    {
+        $user = User::factory()->create([
+            'vk_id' => 'vk-12345',
+        ]);
+
+        $response = $this->actingAs($user)
+            ->get(route('admin.settings'));
+
+        $response->assertOk();
+        $response->assertInertia(fn ($page) =>
+            $page->where('profile.vk_id', 'vk-12345')
+        );
+    }
+
+    public function test_vk_notifications_update_does_not_break_existing_max_settings(): void
+    {
+        $user = User::factory()->create([
+            'max_id' => 'max-user-123',
+            'max_notifications' => true,
+            'vk_notifications' => false,
+        ]);
+
+        $this->actingAs($user)
+            ->put(route('admin.settings.update'), [
+                'vk_notifications' => true,
+            ]);
+
+        $user->refresh();
+
+        $this->assertTrue($user->max_notifications);
+        $this->assertSame('max-user-123', $user->max_id);
+        $this->assertTrue($user->vk_notifications);
+    }
 }

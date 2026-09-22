@@ -79,6 +79,8 @@ class SettingsController extends Controller
                 'telegram_link_url' => $telegramLinkUrl,
                 'max_id' => $user->max_id,
                 'max_link_url' => $maxLinkUrl,
+                'vk_id' => $user->vk_id,
+                'vk_notifications' => (bool) $user->vk_notifications,
                 'soft_deposit' => $user->soft_deposit,
                 'deposit_timeout' => $user->deposit_timeout,
                 'deposit_percent' => $user->deposit_percent,
@@ -120,6 +122,7 @@ class SettingsController extends Controller
             'deposit_percent' => 'nullable|integer|min:1|max:100',
             'telegram_notifications' => 'boolean',
             'max_notifications' => 'boolean',
+            'vk_notifications' => ['boolean'],
             'reminder_hours_before_final' => ['nullable', 'integer', Rule::in([0, 1, 2, 3, 12])],
         ];
 
