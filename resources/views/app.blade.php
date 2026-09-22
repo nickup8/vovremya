@@ -26,9 +26,20 @@
             }
         </style>
 
-        <link rel="icon" href="/favicon.ico" sizes="any">
-        <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-        <link rel="apple-touch-icon" href="/apple-touch-icon.png">
+        <link rel="icon" href="/favicon.ico?v=3" sizes="any">
+        <link
+            rel="icon"
+            href="/favicon-light.svg?v=3"
+            type="image/svg+xml"
+            media="(prefers-color-scheme: light)"
+        >
+        <link
+            rel="icon"
+            href="/favicon-dark.svg?v=3"
+            type="image/svg+xml"
+            media="(prefers-color-scheme: dark)"
+        >
+        <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=3">
         {{-- Golos Text self-hosted via app.css @font-face --}}
 
         @viteReactRefresh
