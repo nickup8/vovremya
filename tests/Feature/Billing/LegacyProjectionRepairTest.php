@@ -111,10 +111,15 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
-        // Corrupt attempt numbers
+        // Corrupt to reversed numbering: 3, 2, 1 (unique, avoids constraint)
         $cycle = BillingCycle::first();
         $attempts = $cycle->paymentAttempts()->orderBy('initiated_at')->get();
-        $attempts->each(fn ($a) => $a->update(['attempt_number' => 1]));
+        foreach ($attempts as $idx => $a) {
+            $a->update(['attempt_number' => -(1000 + $idx)]);
+        }
+        $attempts[0]->update(['attempt_number' => 3]);
+        $attempts[1]->update(['attempt_number' => 2]);
+        $attempts[2]->update(['attempt_number' => 1]);
 
         $service = app(LegacyProjectionRepairService::class);
         $plan = $service->repair(dryRun: true);
@@ -145,9 +150,15 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
-        // Corrupt numbering to simulate pre-T25 state
+        // Corrupt to reversed numbering: 3, 2, 1 (unique, avoids constraint)
         $cycle = BillingCycle::first();
-        $cycle->paymentAttempts()->update(['attempt_number' => 1]);
+        $attempts = $cycle->paymentAttempts()->orderBy('initiated_at')->get();
+        foreach ($attempts as $idx => $a) {
+            $a->update(['attempt_number' => -(1000 + $idx)]);
+        }
+        $attempts[0]->update(['attempt_number' => 3]);
+        $attempts[1]->update(['attempt_number' => 2]);
+        $attempts[2]->update(['attempt_number' => 1]);
 
         $service = app(LegacyProjectionRepairService::class);
         $stats = $service->repair(dryRun: false);
@@ -185,9 +196,15 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
-        // Corrupt numbering
+        // Corrupt to reversed numbering: 3, 2, 1 (unique, avoids constraint)
         $cycle = BillingCycle::first();
-        $cycle->paymentAttempts()->update(['attempt_number' => 1]);
+        $attempts = $cycle->paymentAttempts()->orderBy('initiated_at')->get();
+        foreach ($attempts as $idx => $a) {
+            $a->update(['attempt_number' => -(1000 + $idx)]);
+        }
+        $attempts[0]->update(['attempt_number' => 3]);
+        $attempts[1]->update(['attempt_number' => 2]);
+        $attempts[2]->update(['attempt_number' => 1]);
 
         $service = app(LegacyProjectionRepairService::class);
 
@@ -625,7 +642,7 @@ class LegacyProjectionRepairTest extends TestCase
             PaymentAttempt::create([
                 'billing_cycle_id' => $cycle->id,
                 'provider' => 'mock',
-                'attempt_number' => 1,
+                'attempt_number' => 4 - $i,
                 'amount' => 490,
                 'currency' => 'RUB',
                 'internal_order_id' => "mock_cli_{$i}",

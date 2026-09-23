@@ -91,6 +91,8 @@ Each legacy row with a `payment_id` becomes a `PaymentAttempt` within its corres
 
 **Idempotency key**: `internal_order_id = legacy payment_id`. The `attempt_number` is a sequence within the cycle, not an idempotency key. Re-projection with renumbering does not create duplicates.
 
+**Sequence invariant**: `UNIQUE(billing_cycle_id, attempt_number)` enforced at the database level. One `BillingCycle` cannot have two `PaymentAttempt` records with the same number. Cross-cycle numbers are independent (cycle A #1 and cycle B #1 are both allowed). The two-phase repair numbering (temp negatives → final `1..N`) is compatible with this constraint.
+
 ### Legacy Grant Semantics
 
 Zero-amount admin grants (`amount_paid=0`, `payment_id=null`) project as:

@@ -339,4 +339,152 @@ class BillingCoreSchemaTest extends TestCase
         $this->assertIsInt($cycle->fresh()->amount);
         $this->assertInstanceOf(BillingSubscriptionStatus::class, $billingSub->fresh()->status);
     }
+
+    // ── PaymentAttempt unique (billing_cycle_id, attempt_number) ──
+
+    public function test_duplicate_attempt_number_in_same_cycle_violates_unique(): void
+    {
+        $workspace = $this->createWorkspace();
+        $plan = $this->createProPlan();
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $plan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $plan->id,
+            'period_start' => '2026-07-21 00:00:00',
+            'period_end' => '2026-08-21 00:00:00',
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'internal_order_id' => 'mock_dup_1',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        $this->expectException(\Illuminate\Database\UniqueConstraintViolationException::class);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'internal_order_id' => 'mock_dup_2',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+    }
+
+    public function test_same_attempt_number_in_different_cycles_allowed(): void
+    {
+        $workspace = $this->createWorkspace();
+        $plan = $this->createProPlan();
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $plan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycleA = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $plan->id,
+            'period_start' => '2026-07-21 00:00:00',
+            'period_end' => '2026-08-21 00:00:00',
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        $cycleB = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $plan->id,
+            'period_start' => '2026-08-21 00:00:00',
+            'period_end' => '2026-09-21 00:00:00',
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycleA->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'internal_order_id' => 'mock_cross_a',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        // Same attempt_number in different cycle — should succeed
+        $attempt = PaymentAttempt::create([
+            'billing_cycle_id' => $cycleB->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'internal_order_id' => 'mock_cross_b',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        $this->assertSame(1, $attempt->attempt_number);
+    }
+
+    public function test_normal_sequence_1_2_3_persists(): void
+    {
+        $workspace = $this->createWorkspace();
+        $plan = $this->createProPlan();
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $plan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $plan->id,
+            'period_start' => '2026-07-21 00:00:00',
+            'period_end' => '2026-08-21 00:00:00',
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        for ($i = 1; $i <= 3; $i++) {
+            PaymentAttempt::create([
+                'billing_cycle_id' => $cycle->id,
+                'provider' => 'mock',
+                'attempt_number' => $i,
+                'amount' => 490,
+                'internal_order_id' => "mock_seq_{$i}",
+                'status' => PaymentAttemptStatus::Unknown,
+                'initiated_at' => now()->addSeconds($i),
+            ]);
+        }
+
+        $attempts = PaymentAttempt::where('billing_cycle_id', $cycle->id)
+            ->orderBy('attempt_number')
+            ->get();
+
+        $this->assertCount(3, $attempts);
+        $this->assertSame(1, $attempts[0]->attempt_number);
+        $this->assertSame(2, $attempts[1]->attempt_number);
+        $this->assertSame(3, $attempts[2]->attempt_number);
+    }
 }
