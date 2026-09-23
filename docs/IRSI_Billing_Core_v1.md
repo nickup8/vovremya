@@ -242,3 +242,40 @@ Runtime entitlement (`Workspace::activeSubscription()`, `hasFeature()`, `maxMast
 ### Parity Verifier
 
 `billing:verify-entitlement` — read-only Artisan command comparing legacy vs Core entitlement per workspace. Zero writes. Exit code 1 on mismatch.
+
+---
+
+## A1.2.1a Payment Core Mirror
+
+Every new legacy checkout + webhook now atomically mirrors into Billing Core.
+
+### Checkout Flow (Two-Phase)
+
+1. **Transaction A**: Create legacy pending subscription + BillingSubscription + BillingCycle (period = legacy `starts_at`/`expires_at`) + PaymentAttempt (`created`). Commit.
+2. **Gateway call** (outside transaction).
+3. **Transaction C**: Attach `provider_payment_id`, set attempt → `processing`. Legacy `payment_id` written.
+
+If gateway throws: attempt → `unknown`, legacy stays `pending`.
+
+### Webhook Flow
+
+Single transaction with row locks:
+
+- Legacy subscription: `pending → active`, `active → failed/refunded`
+- ProviderEvent dedup via `dedup_key = payment_id:status`
+- Core: `paymentSucceeded`, `paymentFailed`, or `paymentRefunded`
+- Idempotent: duplicate webhook = no-op
+
+### ProviderEvent Dedup
+
+`dedup_key` is `payment_id:raw_status` — allows different statuses for the same payment (e.g., `paid` + `refunded`). Unique constraint enforced at DB level.
+
+### Stacked Renewal
+
+Legacy computes `starts_at`/`expires_at` — Core reuses these exact boundaries. No independent period calculation.
+
+### Concurrency
+
+- `UNIQUE(billing_subscription_id, period_start, period_end)` — prevents duplicate periods
+- `UNIQUE(billing_cycle_id, attempt_number)` — prevents duplicate attempt numbers
+- Gateway outside long transaction prevents DB lock during HTTP I/O

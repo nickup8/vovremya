@@ -5,15 +5,18 @@ namespace App\Http\Controllers\Webhook;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Subscription;
+use App\Services\Billing\BillingCoreWriter;
 use App\Services\Payment\PaymentGatewayInterface;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PaymentWebhookController extends Controller
 {
     public function __construct(
         private PaymentGatewayInterface $paymentGateway,
+        private BillingCoreWriter $coreWriter,
     ) {}
 
     public function handle(Request $request): JsonResponse
@@ -87,8 +90,7 @@ class PaymentWebhookController extends Controller
             return response()->json(['error' => 'Invalid subscription status'], 400);
         }
 
-        // P1.1c: не оживляем терминальные подписки (failed/expired/refunded) запоздалым webhook.
-        // Однонаправленный state machine: активировать/менять можно только из pending или active.
+        // P1.1c: не оживляем терминальные подписки запоздалым webhook.
         if (! in_array($subscription->status, ['pending', 'active'], true)) {
             Log::warning('Payment webhook: rejected', [
                 'reason' => 'terminal_state',
@@ -101,7 +103,25 @@ class PaymentWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
-        $subscription->update(['status' => $parsedStatus]);
+        // ── Atomic legacy + Core update in one transaction ──
+        DB::transaction(function () use ($subscription, $parsedStatus, $paymentId, $rawStatus, $payload) {
+            // Lock legacy subscription for update
+            Subscription::where('id', $subscription->id)->lockForUpdate()->first();
+
+            $subscription->update(['status' => $parsedStatus]);
+
+            // ProviderEvent dedup
+            $isNewEvent = $this->coreWriter->recordProviderEvent($paymentId, $rawStatus, $payload);
+
+            if ($isNewEvent) {
+                match ($parsedStatus) {
+                    SubscriptionStatus::Active => $this->coreWriter->paymentSucceeded($paymentId),
+                    SubscriptionStatus::Failed => $this->coreWriter->paymentFailed($paymentId),
+                    SubscriptionStatus::Refunded => $this->coreWriter->paymentRefunded($paymentId),
+                    default => null,
+                };
+            }
+        });
 
         return response()->json(['ok' => true]);
     }

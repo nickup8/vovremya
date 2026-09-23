@@ -16,6 +16,7 @@ class BillingService
 {
     public function __construct(
         private PaymentGatewayInterface $gateway,
+        private BillingCoreWriter $coreWriter,
     ) {}
 
     public function calculatePrice(TariffPlan $plan, int $periodMonths): array
@@ -38,14 +39,13 @@ class BillingService
 
     public function subscribe(User $master, TariffPlan $plan, int $periodMonths): array
     {
-        return DB::transaction(function () use ($master, $plan, $periodMonths) {
-            // Если у пользователя нет workspace — создаём при первой оплате
+        // ── Phase A: DB intent (legacy + Core) ──
+        $intent = DB::transaction(function () use ($master, $plan, $periodMonths) {
             if (! $master->workspace_id) {
                 $workspace = app(WorkspaceService::class)->createForUser($master);
                 $master->refresh();
             }
 
-            // Блок понижения: если providersCount > newLimit — ValidationException
             $blockReason = $this->downgradeBlockReason($master, $plan);
             if ($blockReason !== null) {
                 throw ValidationException::withMessages([
@@ -70,7 +70,6 @@ class BillingService
             $expiresAt = $startsAt->copy()->addMonths($periodMonths);
 
             // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
-            // (supersede on new intent — не плодим дубли при повторных кликах)
             if ($master->workspace_id) {
                 Subscription::where('workspace_id', $master->workspace_id)
                     ->where('status', 'pending')
@@ -87,15 +86,44 @@ class BillingService
                 'expires_at' => $expiresAt,
             ]);
 
-            $paymentResult = $this->gateway->createPayment($subscription, $price['final']);
-
-            $subscription->update(['payment_id' => $paymentResult['payment_id']]);
+            $coreResult = $this->coreWriter->checkoutCreated($subscription, $plan, $price, $periodMonths);
 
             return [
                 'subscription' => $subscription,
-                'confirmation_url' => $paymentResult['confirmation_url'],
+                'price' => $price,
+                'coreResult' => $coreResult,
             ];
         });
+
+        // ── Phase B: Gateway call (outside transaction) ──
+        try {
+            $paymentResult = $this->gateway->createPayment($intent['subscription'], $intent['price']['final']);
+        } catch (\Throwable $e) {
+            DB::transaction(fn () => $this->coreWriter->checkoutFailed($intent['coreResult']['internalOrderId']));
+
+            throw $e;
+        }
+
+        // ── Phase C: Attach provider payment ID ──
+        DB::transaction(function () use ($intent, $paymentResult) {
+            Subscription::where('id', $intent['subscription']->id)
+                ->lockForUpdate()
+                ->first();
+
+            $this->coreWriter->paymentAttached(
+                $intent['coreResult']['internalOrderId'],
+                $paymentResult['payment_id'],
+            );
+
+            Subscription::where('id', $intent['subscription']->id)->update([
+                'payment_id' => $paymentResult['payment_id'],
+            ]);
+        });
+
+        return [
+            'subscription' => $intent['subscription']->refresh(),
+            'confirmation_url' => $paymentResult['confirmation_url'],
+        ];
     }
 
     /**
