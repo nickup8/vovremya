@@ -21,6 +21,8 @@ class PaymentWebhookController extends Controller
         $signature = $request->header('X-Webhook-Signature', '');
 
         if (! $this->paymentGateway->verifyWebhook($request->all(), $signature)) {
+            Log::warning('Payment webhook: rejected', ['reason' => 'invalid_signature']);
+
             abort(403, 'Invalid webhook signature');
         }
 
@@ -34,7 +36,10 @@ class PaymentWebhookController extends Controller
         $subscription = Subscription::where('payment_id', $paymentId)->first();
 
         if (! $subscription) {
-            Log::warning('Payment webhook: subscription not found', ['payment_id' => $paymentId]);
+            Log::warning('Payment webhook: rejected', [
+                'reason' => 'subscription_not_found',
+                'payment_id' => $paymentId,
+            ]);
 
             return response()->json(['ok' => true]);
         }
@@ -45,10 +50,36 @@ class PaymentWebhookController extends Controller
             return response()->json(['ok' => true]);
         }
 
+        // ── Amount verification ──
+        if ($rawStatus === 'paid') {
+            $webhookAmount = $payload['amount'] ?? null;
+
+            if ($webhookAmount === null || ! is_numeric($webhookAmount) || (int) $webhookAmount <= 0) {
+                Log::warning('Payment webhook: rejected', [
+                    'reason' => 'amount_invalid',
+                    'payment_id' => $paymentId,
+                    'subscription_id' => $subscription->id,
+                ]);
+
+                return response()->json(['ok' => true]);
+            }
+
+            if ((int) $webhookAmount !== $subscription->amount_paid) {
+                Log::warning('Payment webhook: rejected', [
+                    'reason' => 'amount_mismatch',
+                    'payment_id' => $paymentId,
+                    'subscription_id' => $subscription->id,
+                ]);
+
+                return response()->json(['ok' => true]);
+            }
+        }
+
         $parsedStatus = SubscriptionStatus::tryFrom($rawStatus === 'paid' ? 'active' : $rawStatus);
 
         if (! $parsedStatus) {
-            Log::warning('Payment webhook: invalid status received', [
+            Log::warning('Payment webhook: rejected', [
+                'reason' => 'invalid_status',
                 'payment_id' => $paymentId,
                 'raw_status' => $rawStatus,
             ]);
@@ -59,8 +90,10 @@ class PaymentWebhookController extends Controller
         // P1.1c: не оживляем терминальные подписки (failed/expired/refunded) запоздалым webhook.
         // Однонаправленный state machine: активировать/менять можно только из pending или active.
         if (! in_array($subscription->status, ['pending', 'active'], true)) {
-            Log::warning('Payment webhook: ignoring update for terminal subscription', [
+            Log::warning('Payment webhook: rejected', [
+                'reason' => 'terminal_state',
                 'payment_id' => $paymentId,
+                'subscription_id' => $subscription->id,
                 'current_status' => $subscription->status,
                 'incoming' => $rawStatus,
             ]);

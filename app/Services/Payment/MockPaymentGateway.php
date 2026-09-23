@@ -18,7 +18,17 @@ class MockPaymentGateway implements PaymentGatewayInterface
 
     public function verifyWebhook(array $payload, string $signature): bool
     {
-        return hash_equals('mock_secret_sig', $signature);
+        $secret = config('billing.legacy_mock_webhook_secret');
+
+        if (! is_string($secret) || $secret === '') {
+            return false;
+        }
+
+        if ($signature === '') {
+            return false;
+        }
+
+        return hash_equals($secret, $signature);
     }
 
     public function parseWebhookStatus(array $payload): ?string
