@@ -391,11 +391,11 @@ class LegacyProjectionService
                 'status' => $attemptStatus,
                 'initiated_at' => $row->created_at,
                 'finished_at' => $row->updated_at,
-                'metadata' => [
+                'metadata' => array_filter([
                     'legacy' => true,
                     'legacy_subscription_id' => $row->id,
                     'failure_source' => $row->status === 'failed' ? 'legacy_unknown' : null,
-                ],
+                ], fn ($v) => $v !== null),
             ]);
 
             $result['attempts_created']++;

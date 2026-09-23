@@ -39,19 +39,12 @@ class LegacyProjectionRepairService
 
             // Check numbering
             $sortedAttempts = $this->sortLegacyAttempts($legacyAttempts);
+            $numberingOk = true;
             foreach ($sortedAttempts->values() as $idx => $attempt) {
                 $expectedNumber = $idx + 1;
                 if ($attempt->attempt_number !== $expectedNumber) {
                     $plan['numbers_to_change']++;
-                }
-            }
-
-            // Build per-cycle detail only if numbering is wrong
-            $numberingOk = true;
-            foreach ($sortedAttempts->values() as $idx => $attempt) {
-                if ($attempt->attempt_number !== $idx + 1) {
                     $numberingOk = false;
-                    break;
                 }
             }
 
@@ -59,7 +52,7 @@ class LegacyProjectionRepairService
                 $plan['numbering_changes'][] = [
                     'cycle_id' => $cycle->id,
                     'period' => "{$cycle->period_start} → {$cycle->period_end}",
-                    'current_numbers' => $legacyAttempts->pluck('attempt_number')->toArray(),
+                    'current_numbers' => $sortedAttempts->pluck('attempt_number')->toArray(),
                     'desired_numbers' => range(1, $legacyAttempts->count()),
                 ];
                 $cycleChanged = true;
@@ -75,10 +68,23 @@ class LegacyProjectionRepairService
                     $plan['statuses_fixed']++;
                     $cycleChanged = true;
                 }
+            }
 
-                // Check metadata enrichment
+            // Check metadata enrichment
+            foreach ($legacyAttempts as $attempt) {
                 $metadata = $attempt->metadata ?? [];
-                if (! isset($metadata['legacy']) || ! isset($metadata['failure_source'])) {
+                $needsEnrichment = false;
+
+                if (! isset($metadata['legacy'])) {
+                    $needsEnrichment = true;
+                }
+
+                // failure_source only needed for Unknown status
+                if ($attempt->status === PaymentAttemptStatus::Unknown && ! isset($metadata['failure_source'])) {
+                    $needsEnrichment = true;
+                }
+
+                if ($needsEnrichment) {
                     $plan['metadata_enriched']++;
                     $cycleChanged = true;
                 }
@@ -154,7 +160,8 @@ class LegacyProjectionRepairService
                     $needsUpdate = true;
                 }
 
-                if (! isset($metadata['failure_source']) && $attempt->status === PaymentAttemptStatus::Unknown) {
+                // failure_source only needed for Unknown status
+                if ($attempt->status === PaymentAttemptStatus::Unknown && ! isset($metadata['failure_source'])) {
                     $metadata['failure_source'] = 'legacy_unknown';
                     $needsUpdate = true;
                 }
@@ -167,19 +174,19 @@ class LegacyProjectionRepairService
             }
 
             // Phase 3: Renumber (two-phase for future unique constraint safety)
+            // Compute per-cycle renumber flag based on persisted state before any writes
             $sortedAttempts = $this->sortLegacyAttempts($legacyAttempts);
+            $cycleNeedsRenumber = false;
 
-            // Count how many actually differ from desired BEFORE any writes
             foreach ($sortedAttempts->values() as $idx => $attempt) {
                 $expectedNumber = $idx + 1;
                 if ($attempt->attempt_number !== $expectedNumber) {
+                    $cycleNeedsRenumber = true;
                     $stats['numbers_to_change']++;
                 }
             }
 
-            $needsRenumber = $stats['numbers_to_change'] > 0;
-
-            if ($needsRenumber) {
+            if ($cycleNeedsRenumber) {
                 // Phase 3a: Assign temporary unique numbers (negative offset)
                 foreach ($sortedAttempts->values() as $idx => $attempt) {
                     $tempNumber = -($idx + 1000);
@@ -226,12 +233,16 @@ class LegacyProjectionRepairService
      * Sort legacy attempts deterministically:
      * 1. initiated_at ASC (nullable first)
      * 2. legacy_subscription_id ASC as stable tie-breaker
+     * 3. id ASC as final tie-breaker
      */
     private function sortLegacyAttempts(Collection $attempts): Collection
     {
-        return $attempts->sortBy([
-            fn ($a) => $a->initiated_at?->timestamp ?? PHP_INT_MIN,
-            fn ($a) => $a->metadata['legacy_subscription_id'] ?? '',
-        ])->values();
+        return $attempts->sortBy(function ($attempt) {
+            return [
+                $attempt->initiated_at?->timestamp ?? PHP_INT_MIN,
+                (string) ($attempt->metadata['legacy_subscription_id'] ?? ''),
+                (string) $attempt->id,
+            ];
+        })->values();
     }
 }

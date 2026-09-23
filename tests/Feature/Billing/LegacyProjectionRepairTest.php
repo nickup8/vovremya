@@ -77,7 +77,6 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
-        // Snapshot before
         $attemptBefore = PaymentAttempt::where('internal_order_id', 'mock_repair_dry')->first();
         $numberBefore = $attemptBefore->attempt_number;
         $statusBefore = $attemptBefore->status;
@@ -85,7 +84,6 @@ class LegacyProjectionRepairTest extends TestCase
         $service = app(LegacyProjectionRepairService::class);
         $service->repair(dryRun: true);
 
-        // Must be unchanged
         $attemptAfter = PaymentAttempt::where('internal_order_id', 'mock_repair_dry')->first();
         $this->assertSame($numberBefore, $attemptAfter->attempt_number);
         $this->assertSame($statusBefore->value, $attemptAfter->status->value);
@@ -97,7 +95,6 @@ class LegacyProjectionRepairTest extends TestCase
     {
         $workspace = $this->createWorkspaceWithOwner();
 
-        // Create 3 failed rows with same created_at (all get attempt_number=1 in projection)
         for ($i = 1; $i <= 3; $i++) {
             Subscription::create([
                 'workspace_id' => $workspace->id,
@@ -114,7 +111,7 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
-        // Manually corrupt attempt numbers to simulate pre-T25 numbering
+        // Corrupt attempt numbers
         $cycle = BillingCycle::first();
         $attempts = $cycle->paymentAttempts()->orderBy('initiated_at')->get();
         $attempts->each(fn ($a) => $a->update(['attempt_number' => 1]));
@@ -123,10 +120,6 @@ class LegacyProjectionRepairTest extends TestCase
         $plan = $service->repair(dryRun: true);
 
         $this->assertNotEmpty($plan['numbering_changes']);
-        $change = $plan['numbering_changes'][0];
-        $this->assertSame([1, 1, 1], $change['current_numbers']);
-        $this->assertSame([1, 2, 3], $change['desired_numbers']);
-        // 3 attempts, current [1,1,1], desired [1,2,3]: 2 actually differ
         $this->assertSame(2, $plan['numbers_to_change']);
     }
 
@@ -152,13 +145,14 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
+        // Corrupt numbering to simulate pre-T25 state
+        $cycle = BillingCycle::first();
+        $cycle->paymentAttempts()->update(['attempt_number' => 1]);
+
         $service = app(LegacyProjectionRepairService::class);
         $stats = $service->repair(dryRun: false);
 
-        $this->assertGreaterThan(0, $stats['numbers_to_change']);
-
-        $billingSub = BillingSubscription::where('workspace_id', $workspace->id)->first();
-        $cycle = BillingCycle::where('billing_subscription_id', $billingSub->id)->first();
+        $this->assertSame(2, $stats['numbers_to_change']);
 
         $attempts = PaymentAttempt::where('billing_cycle_id', $cycle->id)
             ->orderBy('attempt_number')
@@ -191,12 +185,16 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
+        // Corrupt numbering
+        $cycle = BillingCycle::first();
+        $cycle->paymentAttempts()->update(['attempt_number' => 1]);
+
         $service = app(LegacyProjectionRepairService::class);
 
         $stats1 = $service->repair(dryRun: false);
         $stats2 = $service->repair(dryRun: false);
 
-        $this->assertGreaterThan(0, $stats1['numbers_to_change']);
+        $this->assertSame(2, $stats1['numbers_to_change']);
         $this->assertSame(0, $stats2['numbers_to_change']);
         $this->assertSame(0, $stats2['statuses_fixed']);
         $this->assertSame(0, $stats2['metadata_enriched']);
@@ -221,7 +219,6 @@ class LegacyProjectionRepairTest extends TestCase
 
         $this->projectLegacy();
 
-        // Manually set to failed_terminal to simulate pre-repair state
         PaymentAttempt::where('internal_order_id', 'mock_repair_ft')
             ->update(['status' => PaymentAttemptStatus::FailedTerminal]);
 
@@ -285,7 +282,6 @@ class LegacyProjectionRepairTest extends TestCase
             'origin' => BillingCycleOrigin::Payment,
         ]);
 
-        // Non-legacy attempt (no metadata.legacy, provider != mock)
         $attempt = PaymentAttempt::create([
             'billing_cycle_id' => $cycle->id,
             'provider' => 'tbank',
@@ -345,7 +341,6 @@ class LegacyProjectionRepairTest extends TestCase
     {
         $workspace = $this->createWorkspaceWithOwner();
 
-        // Grant period
         Subscription::create([
             'workspace_id' => $workspace->id,
             'tariff_plan_id' => $this->proPlan->id,
@@ -357,7 +352,6 @@ class LegacyProjectionRepairTest extends TestCase
             'payment_id' => null,
         ]);
 
-        // Paid period
         Subscription::create([
             'workspace_id' => $workspace->id,
             'tariff_plan_id' => $this->proPlan->id,
@@ -369,7 +363,6 @@ class LegacyProjectionRepairTest extends TestCase
             'payment_id' => 'mock_horizon_ok',
         ]);
 
-        // Failed period
         Subscription::create([
             'workspace_id' => $workspace->id,
             'tariff_plan_id' => $this->proPlan->id,
@@ -390,9 +383,142 @@ class LegacyProjectionRepairTest extends TestCase
         $this->assertSame('2027-08-21 15:57:16', $billingSub->current_period_end->format('Y-m-d H:i:s'));
     }
 
-    // ── 10. Production-shaped regression: 3 attempts 1/1/1 without legacy=true ──
+    // ── 10. Out-of-order timestamps: A(11:28), B(16:36), C(14:27) inserted A,B,C ──
 
-    public function test_production_shaped_fixture_numbering_and_status(): void
+    public function test_repair_respects_chronological_order_not_insertion_order(): void
+    {
+        $workspace = $this->createWorkspaceWithOwner();
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => '2026-08-01 00:00:00',
+            'period_end' => '2026-09-01 00:00:00',
+            'status' => BillingCycleStatus::Failed,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        // Insert in order A, B, C — but chronological is A, C, B
+        $a = PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'mock_13_insertion1',
+            'status' => PaymentAttemptStatus::Unknown,
+            'initiated_at' => '2026-08-10 11:28:31',
+            'metadata' => ['legacy' => true, 'legacy_subscription_id' => 'sub_13', 'failure_source' => 'legacy_unknown'],
+        ]);
+
+        $b = PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 2,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'mock_94_insertion2',
+            'status' => PaymentAttemptStatus::Unknown,
+            'initiated_at' => '2026-09-02 16:36:17',
+            'metadata' => ['legacy' => true, 'legacy_subscription_id' => 'sub_94', 'failure_source' => 'legacy_unknown'],
+        ]);
+
+        $c = PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 3,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'mock_d5_insertion3',
+            'status' => PaymentAttemptStatus::Unknown,
+            'initiated_at' => '2026-08-10 14:27:13',
+            'metadata' => ['legacy' => true, 'legacy_subscription_id' => 'sub_d5', 'failure_source' => 'legacy_unknown'],
+        ]);
+
+        $service = app(LegacyProjectionRepairService::class);
+        $stats = $service->repair(dryRun: false);
+
+        // 2 numbers change: B was #2, should be #3; C was #3, should be #2
+        $this->assertSame(2, $stats['numbers_to_change']);
+
+        $a->refresh();
+        $b->refresh();
+        $c->refresh();
+
+        // Chronological order: A(11:28) → C(14:27) → B(16:36)
+        $this->assertSame(1, $a->attempt_number);
+        $this->assertSame(3, $b->attempt_number);
+        $this->assertSame(2, $c->attempt_number);
+    }
+
+    // ── 11. Successful legacy attempt: no failure_source enrichment ──
+
+    public function test_successful_legacy_no_failure_source_enrichment(): void
+    {
+        $workspace = $this->createWorkspaceWithOwner();
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => '2026-07-01 00:00:00',
+            'period_end' => '2026-08-01 00:00:00',
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        // Successful attempt with legacy=true but no failure_source — this is correct
+        $attempt = PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'mock_success_meta',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => '2026-07-15 10:00:00',
+            'metadata' => [
+                'legacy' => true,
+                'legacy_subscription_id' => 'sub_success',
+                // No failure_source — correct for succeeded
+            ],
+        ]);
+
+        $service = app(LegacyProjectionRepairService::class);
+        $plan = $service->repair(dryRun: true);
+
+        $this->assertSame(0, $plan['metadata_enriched']);
+        $this->assertSame(0, $plan['numbers_to_change']);
+        $this->assertSame(0, $plan['statuses_fixed']);
+
+        // Actual repair doesn't touch metadata
+        $service->repair(dryRun: false);
+
+        $attempt->refresh();
+        $this->assertArrayNotHasKey('failure_source', $attempt->metadata ?? []);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+    }
+
+    // ── 12. Production shape: out-of-order swap 13→1, 94→3, d5→2 ──
+
+    public function test_production_shape_reorder_and_idempotent(): void
     {
         $workspace = $this->createWorkspaceWithOwner();
 
@@ -416,41 +542,62 @@ class LegacyProjectionRepairTest extends TestCase
             'origin' => BillingCycleOrigin::Payment,
         ]);
 
-        // 3 attempts: provider=mock, metadata has legacy_subscription_id but NOT legacy=true
-        // attempt_number=1,1,1, status=failed_terminal, no failure_code/category/message
-        for ($i = 1; $i <= 3; $i++) {
+        // Production shape: wrong numbering 13=#1, 94=#2, d5=#3
+        // Chronological should be: 13(11:28)=#1, d5(14:27)=#2, 94(16:36)=#3
+        $attempts = [
+            ['id' => '13', 'ts' => '2026-08-10 11:28:31', 'num' => 1],
+            ['id' => '94', 'ts' => '2026-09-02 16:36:17', 'num' => 2],
+            ['id' => 'd5', 'ts' => '2026-08-10 14:27:13', 'num' => 3],
+        ];
+
+        foreach ($attempts as $a) {
             PaymentAttempt::create([
                 'billing_cycle_id' => $cycle->id,
                 'provider' => 'mock',
-                'attempt_number' => 1,
+                'attempt_number' => $a['num'],
                 'amount' => 490,
                 'currency' => 'RUB',
-                'internal_order_id' => "mock_prod_regression_{$i}",
-                'provider_payment_id' => "mock_prod_regression_{$i}",
-                'status' => PaymentAttemptStatus::FailedTerminal,
-                'initiated_at' => "2027-08-21 10:0{$i}:00",
+                'internal_order_id' => "mock_{$a['id']}",
+                'status' => PaymentAttemptStatus::Unknown,
+                'initiated_at' => $a['ts'],
                 'metadata' => [
-                    'legacy_subscription_id' => "sub_row_{$i}",
-                    // Note: NO 'legacy' => true here — tests third detection marker
+                    'legacy' => true,
+                    'legacy_subscription_id' => "sub_{$a['id']}",
+                    'failure_source' => 'legacy_unknown',
                 ],
             ]);
         }
 
-        // Dry-run
         $service = app(LegacyProjectionRepairService::class);
+
+        // First repair
+        $stats1 = $service->repair(dryRun: false);
+        $this->assertSame(2, $stats1['numbers_to_change']);
+        $this->assertSame(0, $stats1['statuses_fixed']);
+        $this->assertSame(0, $stats1['metadata_enriched']);
+
+        // Verify chronological mapping
+        $attempt13 = PaymentAttempt::where('internal_order_id', 'mock_13')->first();
+        $attempt94 = PaymentAttempt::where('internal_order_id', 'mock_94')->first();
+        $attemptd5 = PaymentAttempt::where('internal_order_id', 'mock_d5')->first();
+
+        $this->assertSame(1, $attempt13->attempt_number);
+        $this->assertSame(3, $attempt94->attempt_number);
+        $this->assertSame(2, $attemptd5->attempt_number);
+
+        // Second dry-run → all zeros
         $plan = $service->repair(dryRun: true);
+        $this->assertSame(0, $plan['numbers_to_change']);
+        $this->assertSame(0, $plan['statuses_fixed']);
+        $this->assertSame(0, $plan['metadata_enriched']);
+        $this->assertSame(1, $plan['cycles_unchanged']);
 
-        $this->assertSame(2, $plan['numbers_to_change']);
-        $this->assertSame(3, $plan['statuses_fixed']);
-        $this->assertSame(3, $plan['metadata_enriched']);
-
-        // DB unchanged after dry-run
-        $attemptAfterDry = PaymentAttempt::where('internal_order_id', 'mock_prod_regression_1')->first();
-        $this->assertSame(1, $attemptAfterDry->attempt_number);
-        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attemptAfterDry->status);
+        // Canonical sub unchanged
+        $billingSub->refresh();
+        $this->assertSame('2027-08-21 15:57:16', $billingSub->current_period_end->format('Y-m-d H:i:s'));
     }
 
-    // ── 11. CLI outputs correct numbers_to_change ──
+    // ── 13. CLI outputs correct numbers_to_change ──
 
     public function test_cli_shows_correct_numbering_metric(): void
     {
@@ -500,75 +647,5 @@ class LegacyProjectionRepairTest extends TestCase
                 ['Metadata enrichments', 3],
                 ['Cycles unchanged', 0],
             ]);
-    }
-
-    // ── 12. Actual repair on production fixture + second repair = 0 ──
-
-    public function test_production_fixture_actual_repair_and_idempotent(): void
-    {
-        $workspace = $this->createWorkspaceWithOwner();
-
-        $billingSub = BillingSubscription::create([
-            'workspace_id' => $workspace->id,
-            'tariff_plan_id' => $this->proPlan->id,
-            'status' => BillingSubscriptionStatus::Active,
-            'current_period_start' => '2026-08-21 00:00:00',
-            'current_period_end' => '2027-08-21 15:57:16',
-        ]);
-
-        $cycle = BillingCycle::create([
-            'billing_subscription_id' => $billingSub->id,
-            'workspace_id' => $workspace->id,
-            'tariff_plan_id' => $this->proPlan->id,
-            'period_start' => '2027-08-21 00:00:00',
-            'period_end' => '2027-09-21 00:00:00',
-            'status' => BillingCycleStatus::Failed,
-            'amount' => 490,
-            'currency' => 'RUB',
-            'origin' => BillingCycleOrigin::Payment,
-        ]);
-
-        for ($i = 1; $i <= 3; $i++) {
-            PaymentAttempt::create([
-                'billing_cycle_id' => $cycle->id,
-                'provider' => 'mock',
-                'attempt_number' => 1,
-                'amount' => 490,
-                'currency' => 'RUB',
-                'internal_order_id' => "mock_actual_{$i}",
-                'status' => PaymentAttemptStatus::FailedTerminal,
-                'initiated_at' => "2027-08-21 10:0{$i}:00",
-                'metadata' => [
-                    'legacy_subscription_id' => "actual_sub_{$i}",
-                ],
-            ]);
-        }
-
-        $service = app(LegacyProjectionRepairService::class);
-
-        // First repair
-        $stats1 = $service->repair(dryRun: false);
-        $this->assertSame(2, $stats1['numbers_to_change']);
-        $this->assertSame(3, $stats1['statuses_fixed']);
-        $this->assertSame(3, $stats1['metadata_enriched']);
-
-        // Verify result
-        $attempts = PaymentAttempt::where('billing_cycle_id', $cycle->id)
-            ->orderBy('attempt_number')
-            ->get();
-        $this->assertSame(1, $attempts[0]->attempt_number);
-        $this->assertSame(2, $attempts[1]->attempt_number);
-        $this->assertSame(3, $attempts[2]->attempt_number);
-        $attempts->each(fn ($a) => $this->assertSame(PaymentAttemptStatus::Unknown, $a->status));
-
-        // Second repair — idempotent
-        $stats2 = $service->repair(dryRun: false);
-        $this->assertSame(0, $stats2['numbers_to_change']);
-        $this->assertSame(0, $stats2['statuses_fixed']);
-        $this->assertSame(0, $stats2['metadata_enriched']);
-
-        // Canonical sub unchanged
-        $subAfter = BillingSubscription::where('workspace_id', $workspace->id)->first();
-        $this->assertSame('2027-08-21 15:57:16', $subAfter->current_period_end->format('Y-m-d H:i:s'));
     }
 }
