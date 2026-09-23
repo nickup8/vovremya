@@ -82,13 +82,34 @@ One `BillingSubscription` is created per workspace + paid plan combination. The 
 
 Each legacy row with a `payment_id` becomes a `PaymentAttempt` within its corresponding `BillingCycle`.
 
+**Numbering**: Within each `BillingCycle`, payment attempts are numbered `1..N` deterministically:
+1. Filter to legacy rows with `payment_id`
+2. Sort by `created_at ASC`, then `id ASC` as stable tie-breaker
+3. Assign sequential `attempt_number = 1..N`
+
+**Failure mapping**: Legacy `failed` status maps to `PaymentAttemptStatus::Unknown` (not `failed_terminal`), because legacy data lacks `failure_code`/`failure_category`/`failure_message` needed to classify retryability. Metadata includes `legacy: true` and `failure_source: legacy_unknown`.
+
+**Idempotency key**: `internal_order_id = legacy payment_id`. The `attempt_number` is a sequence within the cycle, not an idempotency key. Re-projection with renumbering does not create duplicates.
+
+### Legacy Grant Semantics
+
+Zero-amount admin grants (`amount_paid=0`, `payment_id=null`) project as:
+- `BillingCycle.origin = legacy_grant`
+- `BillingCycle.status = paid` (meaning entitlement-providing, not payment proven)
+- `BillingCycle.amount = 0`
+- Zero `PaymentAttempt` records
+
+### Failed Billing Cycle
+
+A `BillingCycle` with only failed attempts has `BillingCycleStatus::Failed`. This is **not** a terminal state — it means no attempt succeeded in this period. Future retries are not blocked; A1.2 will define explicit retry transitions.
+
 ### Entitlement Horizon
 
 The canonical subscription's `current_period_end` is calculated from the continuous chain of successful/grant periods. Failed periods do not extend the entitlement.
 
 ### Idempotency
 
-The projection uses `firstOrCreate` for all entities. Running the command twice produces no duplicates.
+The projection uses `firstOrCreate` for all entities. Running the command twice produces no duplicates. Attempt numbering is recomputed from legacy rows each run.
 
 ---
 
@@ -100,7 +121,7 @@ The projection uses `firstOrCreate` for all entities. Running the command twice 
 |---|---|---|---|---|
 | 2026-07-21 → 2027-07-21 | 0 | active | null | 1 BillingCycle (legacy_grant), 0 PaymentAttempts |
 | 2027-07-21 → 2027-08-21 | 490 | active | mock_... | 1 BillingCycle (payment), 1 PaymentAttempt (succeeded) |
-| 2027-08-21 → 2027-09-21 | 490 | failed | mock_... | 1 BillingCycle (failed), 3 PaymentAttempts (failed_terminal) |
+| 2027-08-21 → 2027-09-21 | 490 | failed | mock_... | 1 BillingCycle (failed), 3 PaymentAttempts (unknown, numbered 1/2/3) |
 
 ### Entitlement Horizon
 
@@ -141,6 +162,51 @@ In A1.1, this delegates to `Workspace::activeSubscription()`. Future phases will
 ## Migration Path
 
 1. **A1.1** (current): Domain foundation + shadow projection
-2. **A1.2**: Wire new billing into select controllers/middleware
-3. **A1.3**: Cutover — switch product runtime to new models
-4. **A2**: Provider integration (T-Bank, YooKassa)
+2. **A1.1.1a**: Legacy projection fix-up — true dry-run, deterministic numbering, failure mapping, repair command
+3. **A1.1.1b**: Unique constraint `(billing_cycle_id, attempt_number)` migration (after production repair)
+4. **A1.2**: Wire new billing into select controllers/middleware
+5. **A1.3**: Cutover — switch product runtime to new models
+6. **A2**: Provider integration (T-Bank, YooKassa)
+
+---
+
+## A1.1.1a — Legacy Projection Fix-up
+
+### True Dry-Run Guarantee
+
+`billing:project-legacy --dry-run` performs **zero DB writes**. It computes the projection plan via read-only existence checks. No `create()`, `firstOrCreate()`, `update()`, `delete()`, or any other mutation. No transaction/rollback trickery.
+
+### Projection Metrics
+
+Output is split into three sections:
+
+- **FOUND**: What exists in legacy (workspaces, period groups, payment rows, grants)
+- **TO CREATE**: What's missing in billing core (canonical subs, cycles, attempts)
+- **ALREADY PROJECTED**: What already exists in billing core
+
+After a completed projection, `TO CREATE` shows zeros while `FOUND` still shows legacy counts.
+
+### Ambiguity Detection
+
+Groups are flagged as ambiguous (and skipped) when:
+- More than one `active`/successful legacy row for the same period
+- Different non-zero `amount_paid` values within one period group
+- Invalid period boundaries
+
+`failed + succeeded` in one period is **not** ambiguous (normal retry→success). Multiple `failed` rows in one period is **not** ambiguous (multiple payment attempts).
+
+### Repair Command
+
+`billing:repair-legacy-projection` fixes already-projected production rows:
+
+- Renumbers payment attempts to sequential `1..N` within each cycle
+- Maps `failed_terminal` legacy attempts to `unknown` (when no failure classification exists)
+- Normalizes metadata for legacy attempts
+- Supports `--dry-run`
+- Operates only on rows with `metadata.legacy = true`
+- Two-phase renumbering: uses temp numbers to avoid conflicts with future unique constraint
+- Idempotent: second run shows 0 changes
+
+### `billing_cycles.legacy_subscription_id`
+
+This singular field exists but is **not** sufficient for one-to-many lineage (one `BillingCycle` may correspond to multiple legacy `subscriptions` rows). Do not rely on it for A1.2. Not deleted in A1.1.1a.

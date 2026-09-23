@@ -22,25 +22,82 @@ class BillingProjectLegacy extends Command
 
         $stats = $projection->projectAll(dryRun: $dryRun);
 
-        $this->table(
-            ['Metric', 'Count'],
-            [
-                ['Workspaces found', $stats['workspaces_found']],
-                ['Canonical subscriptions to create', $stats['canonical_subscriptions_to_create']],
-                ['Billing cycles to create', $stats['billing_cycles_to_create']],
-                ['Payment attempts to create', $stats['payment_attempts_to_create']],
-                ['Admin/zero-amount grants', $stats['admin_grants']],
-                ['Ambiguous rows', $stats['ambiguous_rows']],
-            ],
-        );
+        if ($dryRun) {
+            // Show plan-style output
+            $this->info('── FOUND ──');
+            $this->table(
+                ['Metric', 'Count'],
+                [
+                    ['Workspaces', $stats['found']['workspaces']],
+                    ['Legacy period groups', $stats['found']['legacy_period_groups']],
+                    ['Legacy payment rows', $stats['found']['legacy_payment_rows']],
+                    ['Legacy zero-amount grants', $stats['found']['legacy_zero_amount_grants']],
+                ],
+            );
+
+            $this->newLine();
+            $this->info('── TO CREATE ──');
+            $this->table(
+                ['Metric', 'Count'],
+                [
+                    ['Canonical subscriptions', $stats['to_create']['canonical_subscriptions']],
+                    ['Billing cycles', $stats['to_create']['billing_cycles']],
+                    ['Payment attempts', $stats['to_create']['payment_attempts']],
+                ],
+            );
+
+            $this->newLine();
+            $this->info('── ALREADY PROJECTED ──');
+            $this->table(
+                ['Metric', 'Count'],
+                [
+                    ['Canonical subscriptions', $stats['already_projected']['canonical_subscriptions']],
+                    ['Billing cycles', $stats['already_projected']['billing_cycles']],
+                    ['Payment attempts', $stats['already_projected']['payment_attempts']],
+                ],
+            );
+        } else {
+            // Show execution-style output
+            $this->info('── CREATED ──');
+            $this->table(
+                ['Metric', 'Count'],
+                [
+                    ['Canonical subscriptions', $stats['created']['canonical_subscriptions']],
+                    ['Billing cycles', $stats['created']['billing_cycles']],
+                    ['Payment attempts', $stats['created']['payment_attempts']],
+                ],
+            );
+
+            $this->newLine();
+            $this->info('── ALREADY EXISTED ──');
+            $this->table(
+                ['Metric', 'Count'],
+                [
+                    ['Canonical subscriptions', $stats['already_projected']['canonical_subscriptions']],
+                    ['Billing cycles', $stats['already_projected']['billing_cycles']],
+                    ['Payment attempts', $stats['already_projected']['payment_attempts'] ?? 0],
+                ],
+            );
+        }
+
+        if ($stats['ambiguous_groups']) {
+            $this->newLine();
+            $this->warn('── AMBIGUOUS GROUPS (skipped) ──');
+            foreach ($stats['ambiguous_groups'] as $ambiguity) {
+                $this->warn("  • {$ambiguity}");
+            }
+        }
 
         if ($stats['skipped_workspaces']) {
-            $this->info('Skipped workspaces (no paid plan): '.implode(', ', $stats['skipped_workspaces']));
+            $this->newLine();
+            $this->info('Skipped workspaces (free plan): '.implode(', ', $stats['skipped_workspaces']));
         }
 
         if ($dryRun) {
+            $this->newLine();
             $this->info('Dry run complete. No data was written.');
         } else {
+            $this->newLine();
             $this->info('Legacy projection complete.');
         }
 
