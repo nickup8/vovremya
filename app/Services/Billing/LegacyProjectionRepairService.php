@@ -19,9 +19,10 @@ class LegacyProjectionRepairService
         $plan = [
             'cycles_scanned' => $cycles->count(),
             'attempts_scanned' => 0,
+            'numbers_to_change' => 0,
             'numbering_changes' => [],
-            'status_changes' => [],
-            'metadata_enrichments' => [],
+            'statuses_fixed' => 0,
+            'metadata_enriched' => 0,
             'cycles_unchanged' => 0,
         ];
 
@@ -38,10 +39,17 @@ class LegacyProjectionRepairService
 
             // Check numbering
             $sortedAttempts = $this->sortLegacyAttempts($legacyAttempts);
-            $numberingOk = true;
             foreach ($sortedAttempts->values() as $idx => $attempt) {
                 $expectedNumber = $idx + 1;
                 if ($attempt->attempt_number !== $expectedNumber) {
+                    $plan['numbers_to_change']++;
+                }
+            }
+
+            // Build per-cycle detail only if numbering is wrong
+            $numberingOk = true;
+            foreach ($sortedAttempts->values() as $idx => $attempt) {
+                if ($attempt->attempt_number !== $idx + 1) {
                     $numberingOk = false;
                     break;
                 }
@@ -64,22 +72,14 @@ class LegacyProjectionRepairService
                     && $attempt->failure_category === null
                     && $attempt->failure_message === null
                 ) {
-                    $plan['status_changes'][] = [
-                        'attempt_id' => $attempt->id,
-                        'internal_order_id' => $attempt->internal_order_id,
-                        'from' => PaymentAttemptStatus::FailedTerminal->value,
-                        'to' => PaymentAttemptStatus::Unknown->value,
-                    ];
+                    $plan['statuses_fixed']++;
                     $cycleChanged = true;
                 }
 
                 // Check metadata enrichment
                 $metadata = $attempt->metadata ?? [];
                 if (! isset($metadata['legacy']) || ! isset($metadata['failure_source'])) {
-                    $plan['metadata_enrichments'][] = [
-                        'attempt_id' => $attempt->id,
-                        'internal_order_id' => $attempt->internal_order_id,
-                    ];
+                    $plan['metadata_enriched']++;
                     $cycleChanged = true;
                 }
             }
@@ -111,7 +111,7 @@ class LegacyProjectionRepairService
         $stats = [
             'cycles_scanned' => 0,
             'attempts_scanned' => 0,
-            'numbering_fixed' => 0,
+            'numbers_to_change' => 0,
             'statuses_fixed' => 0,
             'metadata_enriched' => 0,
             'cycles_unchanged' => 0,
@@ -168,20 +168,21 @@ class LegacyProjectionRepairService
 
             // Phase 3: Renumber (two-phase for future unique constraint safety)
             $sortedAttempts = $this->sortLegacyAttempts($legacyAttempts);
-            $needsRenumber = false;
 
+            // Count how many actually differ from desired BEFORE any writes
             foreach ($sortedAttempts->values() as $idx => $attempt) {
                 $expectedNumber = $idx + 1;
                 if ($attempt->attempt_number !== $expectedNumber) {
-                    $needsRenumber = true;
-                    break;
+                    $stats['numbers_to_change']++;
                 }
             }
+
+            $needsRenumber = $stats['numbers_to_change'] > 0;
 
             if ($needsRenumber) {
                 // Phase 3a: Assign temporary unique numbers (negative offset)
                 foreach ($sortedAttempts->values() as $idx => $attempt) {
-                    $tempNumber = -($idx + 1000); // Temporary negative number
+                    $tempNumber = -($idx + 1000);
                     if ($attempt->attempt_number !== $tempNumber) {
                         $attempt->update(['attempt_number' => $tempNumber]);
                     }
@@ -189,9 +190,7 @@ class LegacyProjectionRepairService
 
                 // Phase 3b: Assign final 1..N numbers
                 foreach ($sortedAttempts->values() as $idx => $attempt) {
-                    $finalNumber = $idx + 1;
-                    $attempt->update(['attempt_number' => $finalNumber]);
-                    $stats['numbering_fixed']++;
+                    $attempt->update(['attempt_number' => $idx + 1]);
                 }
 
                 $cycleChanged = true;
@@ -209,14 +208,17 @@ class LegacyProjectionRepairService
 
     /**
      * Get legacy attempts for a billing cycle.
-     * Legacy attempts are identified by metadata.legacy = true
-     * OR by provider = 'mock' (legacy mock gateway).
+     * Legacy attempts are identified by any of:
+     * - metadata.legacy = true
+     * - provider = 'mock' (legacy mock gateway)
+     * - metadata.legacy_subscription_id IS NOT NULL (early A1.1 rows)
      */
     private function getLegacyAttempts(BillingCycle $cycle): Collection
     {
         return $cycle->paymentAttempts()
             ->where(fn ($q) => $q->where('provider', 'mock')
-                ->orWhere(fn ($q2) => $q2->whereRaw("metadata->>'legacy' = 'true'")))
+                ->orWhere(fn ($q2) => $q2->whereRaw("metadata->>'legacy' = 'true'"))
+                ->orWhere(fn ($q3) => $q3->whereRaw("metadata->>'legacy_subscription_id' IS NOT NULL")))
             ->get();
     }
 

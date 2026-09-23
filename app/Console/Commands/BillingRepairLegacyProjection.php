@@ -27,9 +27,9 @@ class BillingRepairLegacyProjection extends Command
             [
                 ['Legacy cycles scanned', $stats['cycles_scanned']],
                 ['Legacy attempts scanned', $stats['attempts_scanned']],
-                ['Attempt numbers to change', is_array($stats['numbering_fixed'] ?? null) ? count($stats['numbering_fixed']) : ($stats['numbering_fixed'] ?? 0)],
-                ['failed_terminal → unknown', is_array($stats['status_changes'] ?? null) ? count($stats['status_changes']) : ($stats['statuses_fixed'] ?? 0)],
-                ['Metadata enrichments', is_array($stats['metadata_enrichments'] ?? null) ? count($stats['metadata_enrichments']) : ($stats['metadata_enriched'] ?? 0)],
+                ['Attempt numbers to change', $stats['numbers_to_change']],
+                ['failed_terminal → unknown', $stats['statuses_fixed']],
+                ['Metadata enrichments', $stats['metadata_enriched']],
                 ['Cycles unchanged', $stats['cycles_unchanged']],
             ],
         );
