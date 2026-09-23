@@ -212,3 +212,33 @@ Groups are flagged as ambiguous (and skipped) when:
 ### `billing_cycles.legacy_subscription_id`
 
 This singular field exists but is **not** sufficient for one-to-many lineage (one `BillingCycle` may correspond to multiple legacy `subscriptions` rows). Do not rely on it for A1.2. Not deleted in A1.1.1a.
+
+---
+
+## A1.2 Entitlement Parity Semantics
+
+### Entitlement Reader
+
+`EntitlementService` is a **read-only** Core entitlement reader. It determines workspace entitlement from `BillingCycle` + `PaymentAttempt` facts, NOT from `BillingSubscription.status` or `current_period_start/end`.
+
+### Granting Rules
+
+| Origin | Granting Condition |
+|---|---|
+| `legacy_grant`, `admin_grant` | `cycle.status = paid` |
+| `payment`, `renewal` | At least one `PaymentAttempt.status = succeeded` |
+| refunded | Never grants |
+
+### Timing
+
+- `period_start` is **intentionally NOT gated** during parity cutover (matches legacy behavior).
+- `period_end > $at` is **strict** (at exactly `period_end`, entitlement does NOT hold).
+- `BillingSubscription.status` and `current_period_start/end` are NOT entitlement authority.
+
+### Runtime
+
+Runtime entitlement (`Workspace::activeSubscription()`, `hasFeature()`, `maxMasters()`, `PlanAccessService`) remains legacy-authoritative. `EntitlementService` is available for parity verification only. Flip `BILLING_CORE_ENTITLEMENT=true` after parity passes.
+
+### Parity Verifier
+
+`billing:verify-entitlement` — read-only Artisan command comparing legacy vs Core entitlement per workspace. Zero writes. Exit code 1 on mismatch.
