@@ -354,6 +354,63 @@ class BillingCoreWriter
         };
     }
 
+    /**
+     * Mirror an admin grant / extend into Billing Core.
+     *
+     * Creates a paid BillingCycle with origin=admin_grant and NO PaymentAttempt.
+     * Caller must provide the exact period boundaries:
+     * - New grant: period_start = legacy.starts_at, period_end = legacy.expires_at
+     * - Extend:    period_start = old_expiry, period_end = new_expiry
+     *
+     * Called INSIDE the caller's transaction (with workspace lockForUpdate).
+     */
+    public function adminGrant(
+        string $workspaceId,
+        TariffPlan $plan,
+        Subscription $legacy,
+        string $periodStart,
+        string $periodEnd,
+    ): void {
+        // Find or create canonical BillingSubscription
+        $existingSub = BillingSubscription::where('workspace_id', $workspaceId)
+            ->where('tariff_plan_id', $plan->id)
+            ->first();
+
+        $billingSub = $existingSub ?? BillingSubscription::create([
+            'workspace_id' => $workspaceId,
+            'tariff_plan_id' => $plan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        // Проверяем существующий cycle по ТОЧНЫМ period_start/period_end
+        $existingCycle = BillingCycle::where('billing_subscription_id', $billingSub->id)
+            ->where('period_start', $periodStart)
+            ->where('period_end', $periodEnd)
+            ->first();
+
+        if (! $existingCycle) {
+            BillingCycle::create([
+                'billing_subscription_id' => $billingSub->id,
+                'workspace_id' => $workspaceId,
+                'tariff_plan_id' => $plan->id,
+                'period_start' => $periodStart,
+                'period_end' => $periodEnd,
+                'status' => BillingCycleStatus::Paid,
+                'amount' => 0,
+                'currency' => 'RUB',
+                'origin' => BillingCycleOrigin::AdminGrant,
+                'legacy_subscription_id' => $legacy->id,
+                'price_snapshot' => ['base' => 0, 'discount_percent' => 0, 'final' => 0],
+            ]);
+        }
+
+        // Обновляем horizon после admin grant
+        $latestCycle = BillingCycle::where('billing_subscription_id', $billingSub->id)
+            ->latest('period_end')
+            ->first();
+        $this->syncBillingSubscriptionHorizon($latestCycle);
+    }
+
     // ── Private helpers ──
 
     private function lockAttemptByProviderPaymentId(string $providerPaymentId): ?PaymentAttempt

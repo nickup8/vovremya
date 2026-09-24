@@ -12,6 +12,7 @@ use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Notifications\SystemNotification;
+use App\Services\Billing\BillingCoreWriter;
 use App\Services\SuperAdminAuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -242,37 +243,74 @@ class SuperAdminController extends Controller
             abort(422, 'У пользователя нет рабочего пространства.');
         }
 
-        $activeSubscription = $workspace->activeSubscription();
+        $coreWriter = app(BillingCoreWriter::class);
 
-        $before = $activeSubscription
-            ? ['expires_at' => $activeSubscription->expires_at?->toDateTimeString()]
-            : [];
+        // Весь legacy + core write — в одной транзакции
+        $result = DB::transaction(function () use ($workspace, $days, $coreWriter) {
+            // Workspace lockForUpdate для сериализации конкурентных extend
+            $lockedWorkspace = Workspace::where('id', $workspace->id)->lockForUpdate()->first();
 
-        if ($activeSubscription && $activeSubscription->expires_at && $activeSubscription->expires_at->isFuture()) {
-            $newExpiry = $activeSubscription->expires_at->addDays($days);
-        } else {
-            $newExpiry = now()->addDays($days);
+            // Заново читаем active subscription после lock (не stale)
+            $activeSubscription = $lockedWorkspace->activeSubscription();
 
-            // Create a new subscription if none exists
-            if (! $activeSubscription) {
-                $startPlan = TariffPlan::where('code', 'pro')->first();
+            $before = $activeSubscription
+                ? ['expires_at' => $activeSubscription->expires_at?->toDateTimeString()]
+                : [];
 
-                if ($startPlan) {
-                    $activeSubscription = $workspace->subscriptions()->create([
-                        'tariff_plan_id' => $startPlan->id,
+            $proPlan = TariffPlan::where('code', 'pro')->first();
+
+            if ($activeSubscription && $activeSubscription->expires_at && $activeSubscription->expires_at->isFuture()) {
+                // ── Extend existing ──
+                $oldExpiry = $activeSubscription->expires_at->copy();
+                $newExpiry = $oldExpiry->addDays($days);
+
+                $activeSubscription->update(['expires_at' => $newExpiry]);
+
+                // Core mirror: delta cycle [oldExpiry, newExpiry]
+                if ($proPlan) {
+                    $coreWriter->adminGrant(
+                        $workspace->id,
+                        $proPlan,
+                        $activeSubscription,
+                        $oldExpiry->toDateTimeString(),
+                        $newExpiry->toDateTimeString(),
+                    );
+                }
+            } else {
+                // ── New grant ──
+                $newExpiry = now()->addDays($days);
+
+                if (! $activeSubscription && $proPlan) {
+                    $activeSubscription = $lockedWorkspace->subscriptions()->create([
+                        'tariff_plan_id' => $proPlan->id,
                         'period_months' => 1,
                         'amount_paid' => 0,
                         'status' => SubscriptionStatus::Active->value,
                         'starts_at' => now(),
                         'expires_at' => $newExpiry,
                     ]);
+                } elseif ($activeSubscription) {
+                    $activeSubscription->update(['expires_at' => $newExpiry]);
+                }
+
+                // Core mirror: full cycle [starts_at, expires_at]
+                if ($activeSubscription && $proPlan) {
+                    $coreWriter->adminGrant(
+                        $workspace->id,
+                        $proPlan,
+                        $activeSubscription,
+                        $activeSubscription->fresh()->starts_at->toDateTimeString(),
+                        $newExpiry->toDateTimeString(),
+                    );
                 }
             }
-        }
 
-        if ($activeSubscription) {
-            $activeSubscription->update(['expires_at' => $newExpiry]);
-        }
+            return ['before' => $before, 'newExpiry' => $newExpiry, 'activeSubscription' => $activeSubscription];
+        });
+
+        $before = $result['before'];
+        $newExpiry = $result['newExpiry'];
+        $activeSubscription = $result['activeSubscription'];
 
         Log::info('Super admin extended subscription', [
             'admin_id' => auth()->id(),

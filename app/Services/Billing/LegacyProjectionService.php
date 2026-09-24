@@ -188,6 +188,9 @@ class LegacyProjectionService
 
             if ($existingCycle) {
                 $result['cycles_existing'] += 1;
+            } elseif ($billingSubId && $this->isPeriodCoveredByChain($billingSubId, $periodRows, $startsAt, $expiresAt)) {
+                // Contiguous chain of granting cycles covers [S, E] — already projected
+                $result['cycles_existing'] += 1;
             } else {
                 $result['cycles_created'] += 1;
             }
@@ -341,6 +344,20 @@ class LegacyProjectionService
 
         if ($existingCycle) {
             $billingCycle = $existingCycle;
+        } elseif ($this->isPeriodCoveredByChain($billingSub->id, $rows, $startsAt, $expiresAt)) {
+            // Contiguous chain of granting cycles covers [S, E] — already projected
+            // Skip cycle + attempt creation; still count existing payment attempts
+            $paymentRows = $rows->filter(fn ($s) => $s->payment_id !== null);
+            foreach ($paymentRows as $row) {
+                $existingAttempt = $this->findExistingAttempt($row, null);
+                if ($existingAttempt) {
+                    $result['attempts_existing']++;
+                } else {
+                    $result['attempts_created']++;
+                }
+            }
+
+            return $result;
         } else {
             $billingCycle = BillingCycle::create([
                 'billing_subscription_id' => $billingSub->id,
@@ -352,6 +369,7 @@ class LegacyProjectionService
                 'amount' => $amount,
                 'currency' => 'RUB',
                 'origin' => $origin,
+                'legacy_subscription_id' => $rows->first()->id ?? null,
                 'price_snapshot' => $this->buildPriceSnapshot($rows, $amount),
             ]);
             $result['cycle_created'] = true;
@@ -402,6 +420,83 @@ class LegacyProjectionService
         }
 
         return $result;
+    }
+
+    // ── Chain coverage (admin-extend compatibility) ──
+
+    /**
+     * Check if any legacy row in the period group is covered by a contiguous chain.
+     */
+    private function isPeriodCoveredByChain(
+        string $billingSubId,
+        Collection $rows,
+        string $startsAt,
+        string $expiresAt,
+    ): bool {
+        foreach ($rows as $row) {
+            if ($this->isChainCovered($billingSubId, (string) $row->id, $startsAt, $expiresAt)) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /**
+     * Check if legacy row L's period [S, E] is covered by a contiguous chain of granting cycles.
+     *
+     * All cycles in the chain MUST reference this specific legacy row (legacy_subscription_id = L).
+     * Foreign legacy rows are never used for coverage.
+     *
+     * Granting = (legacy_grant|admin_grant + status=paid)
+     *         OR (payment|renewal + has succeeded PaymentAttempt).
+     *
+     * Contiguous = c1.period_start == S, c1.period_end == c2.period_start, ..., cn.period_end == E.
+     * No gaps, no overlaps.
+     */
+    private function isChainCovered(
+        string $billingSubId,
+        string $legacySubId,
+        string $startsAt,
+        string $expiresAt,
+    ): bool {
+        $grantingCycles = BillingCycle::where('billing_subscription_id', $billingSubId)
+            ->where('legacy_subscription_id', $legacySubId)
+            ->where(function ($q) {
+                $q->where(function ($q2) {
+                    $q2->whereIn('origin', [BillingCycleOrigin::LegacyGrant, BillingCycleOrigin::AdminGrant])
+                        ->where('status', BillingCycleStatus::Paid);
+                })->orWhere(function ($q2) {
+                    $q2->whereIn('origin', [BillingCycleOrigin::Payment, BillingCycleOrigin::Renewal])
+                        ->whereHas('paymentAttempts', function ($q3) {
+                            $q3->where('status', PaymentAttemptStatus::Succeeded);
+                        });
+                });
+            })
+            ->orderBy('period_start')
+            ->get();
+
+        if ($grantingCycles->isEmpty()) {
+            return false;
+        }
+
+        $currentEnd = $startsAt;
+
+        foreach ($grantingCycles as $cycle) {
+            $cycleStart = $cycle->period_start instanceof \Carbon\CarbonInterface
+                ? $cycle->period_start->toDateTimeString()
+                : (string) $cycle->period_start;
+
+            if ($cycleStart === $currentEnd) {
+                $currentEnd = $cycle->period_end instanceof \Carbon\CarbonInterface
+                    ? $cycle->period_end->toDateTimeString()
+                    : (string) $cycle->period_end;
+            } else {
+                return false;
+            }
+        }
+
+        return $currentEnd === $expiresAt;
     }
 
     // ── Ambiguity detection ──
