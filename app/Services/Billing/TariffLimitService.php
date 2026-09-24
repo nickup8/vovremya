@@ -46,6 +46,12 @@ class TariffLimitService
 
     public function getMonthlyLimit(Workspace $workspace, ?Subscription $subscription = null): int
     {
+        if (config('billing.core_entitlement')) {
+            $limit = app(EntitlementService::class)->monthlyLimit($workspace);
+
+            return $limit ?? PHP_INT_MAX;
+        }
+
         $activeSubscription = $subscription ?? $workspace->activeSubscription();
 
         if ($activeSubscription && $activeSubscription->tariffPlan) {

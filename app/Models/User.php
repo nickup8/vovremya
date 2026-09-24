@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\UserRole;
+use App\Services\Billing\EntitlementService;
 use App\Traits\SearchableByProvider;
 use Database\Factories\UserFactory;
 use Illuminate\Database\Eloquent\Attributes\Fillable;
@@ -195,6 +196,12 @@ class User extends Authenticatable implements PasskeyUser
     {
         if ($this->workspace_id === null) {
             return true;
+        }
+
+        if (config('billing.core_entitlement')) {
+            $plan = app(EntitlementService::class)->currentPlan($this->workspace);
+
+            return $plan === null;
         }
 
         return $this->workspace?->activeSubscription() === null;

@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Http\Controllers\Controller;
 use App\Models\TariffPlan;
 use App\Services\Billing\BillingService;
+use App\Services\Billing\EntitlementService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Inertia\Inertia;
@@ -39,6 +40,22 @@ class PaymentController extends Controller
             ]);
 
         $user = $request->user();
+
+        if (config('billing.core_entitlement') && $user->workspace) {
+            $plan = app(EntitlementService::class)->currentPlan($user->workspace);
+
+            return Inertia::render('admin/billing', [
+                'plans' => $plans,
+                'current' => [
+                    'tariff' => $plan?->code ?? 'start',
+                    'tariff_name' => $plan?->name ?? 'Старт',
+                    'is_paid' => ($plan?->code ?? 'start') !== 'start',
+                    'expires_at' => $plan?->expiresAt?->toIso8601String(),
+                    'days_left' => $plan?->expiresAt ? (int) ceil(now()->diffInDays($plan->expiresAt, absolute: false)) : 0,
+                ],
+            ]);
+        }
+
         $activeSub = $user->workspace?->activeSubscription();
 
         return Inertia::render('admin/billing', [

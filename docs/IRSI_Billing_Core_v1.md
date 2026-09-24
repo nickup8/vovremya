@@ -279,3 +279,39 @@ Legacy computes `starts_at`/`expires_at` — Core reuses these exact boundaries.
 - `UNIQUE(billing_subscription_id, period_start, period_end)` — prevents duplicate periods
 - `UNIQUE(billing_cycle_id, attempt_number)` — prevents duplicate attempt numbers
 - Gateway outside long transaction prevents DB lock during HTTP I/O
+
+---
+
+## A1.2.2 Runtime Entitlement Cutover
+
+Flag-gated runtime reads via `config('billing.core_entitlement')`.
+
+**Default**: `false` — production stays on legacy reads after deploy.
+
+### Central Branch Points (flag=true)
+
+| Facade | Core Read |
+|--------|-----------|
+| `Workspace::hasFeature` | `EntitlementService::hasFeature()` |
+| `Workspace::maxMasters` | `EntitlementService::maxMasters()` |
+| `User::isSolo` | `EntitlementService::currentPlan() === null` |
+| `TariffLimitService::getMonthlyLimit` | `EntitlementService::monthlyLimit()` |
+| `HandleInertiaRequests` tariff props | `EntitlementService::currentPlan()` |
+| `PaymentController::index` | `EntitlementService::currentPlan()` |
+| `CheckAppointmentLimits` | BillingCycle prefilter + `EntitlementService::currentPlan()` |
+
+### What stays legacy
+
+- `Workspace::activeSubscription()` — write-path compatibility
+- `PlanAccessService` — parity verifier reference
+- `billing:verify-entitlement` — unchanged
+- `subscriptions:check-expirations` — unchanged
+- `subscriptions:cleanup-pending` — unchanged
+
+### Rollback
+
+Env flip only: `BILLING_CORE_ENTITLEMENT=false` + config/process refresh. No code rollback needed.
+
+### Null semantics
+
+`EntitlementService::monthlyLimit()` returns `?int` — null = unlimited. TariffLimitService maps `null → PHP_INT_MAX`. Frontend receives `total = null` for unlimited.

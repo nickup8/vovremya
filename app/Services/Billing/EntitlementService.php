@@ -73,7 +73,7 @@ class EntitlementService
         return $plan->maxMasters;
     }
 
-    public function monthlyLimit(Workspace $workspace, ?CarbonInterface $at = null): int
+    public function monthlyLimit(Workspace $workspace, ?CarbonInterface $at = null): ?int
     {
         $plan = $this->currentPlan($workspace, $at);
 

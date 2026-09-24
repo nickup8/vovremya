@@ -5,6 +5,7 @@ namespace App\Http\Middleware;
 use App\Enums\PlatformPermission;
 use App\Models\Client;
 use App\Models\User;
+use App\Services\Billing\EntitlementService;
 use App\Services\Billing\TariffLimitService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -45,8 +46,21 @@ class HandleInertiaRequests extends Middleware
 
                 try {
                     $tariffData = Cache::remember($cacheKey, 300, function () use ($workspace) {
-                        $activeSubscription = $workspace->activeSubscription();
                         $limitService = app(TariffLimitService::class);
+
+                        if (config('billing.core_entitlement')) {
+                            $plan = app(EntitlementService::class)->currentPlan($workspace);
+
+                            return [
+                                'code' => $plan?->code ?? 'start',
+                                'name' => $plan?->name ?? 'Старт',
+                                'max_masters' => $plan?->maxMasters ?? 0,
+                                'total' => $limitService->getMonthlyLimit($workspace),
+                                'used' => $limitService->getUsedCount($workspace),
+                            ];
+                        }
+
+                        $activeSubscription = $workspace->activeSubscription();
 
                         return [
                             'code' => $activeSubscription?->tariffPlan?->code ?? 'start',
@@ -58,16 +72,29 @@ class HandleInertiaRequests extends Middleware
                     });
                 } catch (\Throwable) {
                     // Fallback если Cache::tags() или другой драйвер не работает
-                    $activeSubscription = $workspace->activeSubscription();
                     $limitService = app(TariffLimitService::class);
 
-                    $tariffData = [
-                        'code' => $activeSubscription?->tariffPlan?->code ?? 'start',
-                        'name' => $activeSubscription?->tariffPlan?->name ?? 'Старт',
-                        'max_masters' => $activeSubscription?->tariffPlan?->max_masters ?? 0,
-                        'total' => $limitService->getMonthlyLimit($workspace, $activeSubscription),
-                        'used' => $limitService->getUsedCount($workspace, $activeSubscription),
-                    ];
+                    if (config('billing.core_entitlement')) {
+                        $plan = app(EntitlementService::class)->currentPlan($workspace);
+
+                        $tariffData = [
+                            'code' => $plan?->code ?? 'start',
+                            'name' => $plan?->name ?? 'Старт',
+                            'max_masters' => $plan?->maxMasters ?? 0,
+                            'total' => $limitService->getMonthlyLimit($workspace),
+                            'used' => $limitService->getUsedCount($workspace),
+                        ];
+                    } else {
+                        $activeSubscription = $workspace->activeSubscription();
+
+                        $tariffData = [
+                            'code' => $activeSubscription?->tariffPlan?->code ?? 'start',
+                            'name' => $activeSubscription?->tariffPlan?->name ?? 'Старт',
+                            'max_masters' => $activeSubscription?->tariffPlan?->max_masters ?? 0,
+                            'total' => $limitService->getMonthlyLimit($workspace, $activeSubscription),
+                            'used' => $limitService->getUsedCount($workspace, $activeSubscription),
+                        ];
+                    }
                 }
 
                 $tariffName = $tariffData['name'];

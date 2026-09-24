@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Services\Billing\EntitlementService;
 use App\Support\PlanDefaults;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -76,6 +77,10 @@ class Workspace extends Model
      */
     public function hasFeature(string $feature): bool
     {
+        if (config('billing.core_entitlement')) {
+            return app(EntitlementService::class)->hasFeature($this, $feature);
+        }
+
         $activeSubscription = $this->activeSubscription();
 
         if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
@@ -101,6 +106,10 @@ class Workspace extends Model
      */
     public function maxMasters(): int
     {
+        if (config('billing.core_entitlement')) {
+            return app(EntitlementService::class)->maxMasters($this);
+        }
+
         $activeSubscription = $this->activeSubscription();
 
         if (! $activeSubscription || ! $activeSubscription->tariffPlan) {
