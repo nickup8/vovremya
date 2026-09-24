@@ -26,9 +26,10 @@ class BillingCoreWriter
     private const PROVIDER = 'mock';
 
     /**
-     * Create BillingSubscription + BillingCycle + PaymentAttempt for a new checkout intent.
+     * Checkout intent: create BillingSubscription + BillingCycle + PaymentAttempt.
      *
-     * Called inside Transaction A (before gateway call).
+     * Called inside the checkout lock / Transaction A.
+     * Reuses existing in-flight cycle for same period if one exists.
      */
     public function checkoutCreated(
         Subscription $legacy,
@@ -38,33 +39,58 @@ class BillingCoreWriter
     ): array {
         $workspaceId = $legacy->workspace_id;
 
-        // Upsert BillingSubscription by workspace + plan
-        $billingSub = BillingSubscription::updateOrCreate(
-            ['workspace_id' => $workspaceId, 'tariff_plan_id' => $plan->id],
-            ['status' => BillingSubscriptionStatus::Active],
-        );
+        $existingSub = BillingSubscription::where('workspace_id', $workspaceId)
+            ->where('tariff_plan_id', $plan->id)
+            ->first();
 
-        // Mark stale pending cycles as failed (supersede on retry)
-        BillingCycle::where('billing_subscription_id', $billingSub->id)
-            ->where('status', BillingCycleStatus::Pending)
-            ->update(['status' => BillingCycleStatus::Failed]);
+        if ($existingSub) {
+            // Обновляем status если sub не active и нет current granting entitlement
+            if ($existingSub->status !== BillingSubscriptionStatus::Active
+                && ! $this->workspaceHasGrantingEntitlement($workspaceId)) {
+                $existingSub->update(['status' => BillingSubscriptionStatus::PendingInitial]);
+            }
+            $billingSub = $existingSub;
+        } else {
+            $hasGranting = $this->workspaceHasGrantingEntitlement($workspaceId);
+            $billingSub = BillingSubscription::updateOrCreate(
+                ['workspace_id' => $workspaceId, 'tariff_plan_id' => $plan->id],
+                ['status' => $hasGranting
+                    ? BillingSubscriptionStatus::Active
+                    : BillingSubscriptionStatus::PendingInitial,
+                ],
+            );
+        }
 
-        // Create BillingCycle — period exactly matches legacy
-        $cycle = BillingCycle::create([
-            'billing_subscription_id' => $billingSub->id,
-            'workspace_id' => $workspaceId,
-            'tariff_plan_id' => $plan->id,
-            'period_start' => $legacy->starts_at,
-            'period_end' => $legacy->expires_at,
-            'status' => BillingCycleStatus::Pending,
-            'amount' => $price['final'],
-            'currency' => 'RUB',
-            'origin' => BillingCycleOrigin::Payment,
-            'legacy_subscription_id' => $legacy->id,
-            'price_snapshot' => $price,
-        ]);
+        // Проверяем существующий cycle для того же периода
+        $existingCycle = BillingCycle::where('billing_subscription_id', $billingSub->id)
+            ->whereDate('period_start', $legacy->starts_at)
+            ->whereDate('period_end', $legacy->expires_at)
+            ->first();
 
-        // Compute attempt_number under conceptual lock (cycle is new in this txn)
+        if ($existingCycle) {
+            $cycle = $existingCycle;
+        } else {
+            // Помечаем stale pending cycles как failed (supersede на retry)
+            BillingCycle::where('billing_subscription_id', $billingSub->id)
+                ->where('status', BillingCycleStatus::Pending)
+                ->update(['status' => BillingCycleStatus::Failed]);
+
+            $cycle = BillingCycle::create([
+                'billing_subscription_id' => $billingSub->id,
+                'workspace_id' => $workspaceId,
+                'tariff_plan_id' => $plan->id,
+                'period_start' => $legacy->starts_at,
+                'period_end' => $legacy->expires_at,
+                'status' => BillingCycleStatus::Pending,
+                'amount' => $price['final'],
+                'currency' => 'RUB',
+                'origin' => BillingCycleOrigin::Payment,
+                'legacy_subscription_id' => $legacy->id,
+                'price_snapshot' => $price,
+            ]);
+        }
+
+        // Compute attempt_number (MAX + 1 within cycle, under conceptual lock)
         $maxNumber = PaymentAttempt::where('billing_cycle_id', $cycle->id)
             ->max('attempt_number') ?? 0;
 
@@ -90,17 +116,33 @@ class BillingCoreWriter
     }
 
     /**
-     * Attach gateway payment_id to the attempt after provider call.
+     * Attach gateway response data to the attempt after provider call (Phase C).
      *
-     * Called inside Transaction B (after gateway).
+     * Atomically writes:
+     * - legacy subscription.payment_id
+     * - attempt.provider_payment_id
+     * - attempt.status = processing
+     * - attempt.metadata.checkout_url
      */
-    public function paymentAttached(string $internalOrderId, string $providerPaymentId): void
-    {
+    public function paymentAttached(
+        string $internalOrderId,
+        string $providerPaymentId,
+        string $checkoutUrl,
+        Subscription $legacy,
+    ): void {
         $attempt = PaymentAttempt::where('internal_order_id', $internalOrderId)->firstOrFail();
+
+        $metadata = $attempt->metadata ?? [];
+        $metadata['checkout_url'] = $checkoutUrl;
 
         $attempt->update([
             'provider_payment_id' => $providerPaymentId,
             'status' => PaymentAttemptStatus::Processing,
+            'metadata' => $metadata,
+        ]);
+
+        $legacy->update([
+            'payment_id' => $providerPaymentId,
         ]);
     }
 
@@ -204,7 +246,7 @@ class BillingCoreWriter
         string $status,
         array $payload,
     ): bool {
-        $dedupKey = $paymentId . ':' . $status;
+        $dedupKey = $paymentId.':'.$status;
 
         $exists = ProviderEvent::where('dedup_key', $dedupKey)->exists();
 
@@ -223,6 +265,94 @@ class BillingCoreWriter
         return true;
     }
 
+    /**
+     * Find an existing in-flight attempt for the same workspace + plan + period.
+     *
+     * In-flight = created, processing, or unknown.
+     * Returns the attempt if found, null otherwise.
+     */
+    public function findExistingInFlightAttempt(
+        string $workspaceId,
+        string $planId,
+        string $periodStart,
+        string $periodEnd,
+    ): ?PaymentAttempt {
+        $inFlightStatuses = [
+            PaymentAttemptStatus::Created,
+            PaymentAttemptStatus::Processing,
+            PaymentAttemptStatus::Unknown,
+        ];
+
+        return PaymentAttempt::whereHas('billingCycle', function ($q) use ($workspaceId, $planId, $periodStart, $periodEnd) {
+            $q->where('workspace_id', $workspaceId)
+                ->where('tariff_plan_id', $planId)
+                ->whereDate('period_start', $periodStart)
+                ->whereDate('period_end', $periodEnd);
+        })
+            ->whereIn('status', $inFlightStatuses)
+            ->orderByDesc('attempt_number')
+            ->first();
+    }
+
+    /**
+     * Find attempt by internal_order_id (for webhook fallback).
+     */
+    public function findAttemptByInternalOrderId(string $internalOrderId): ?PaymentAttempt
+    {
+        return PaymentAttempt::where('internal_order_id', $internalOrderId)->first();
+    }
+
+    /**
+     * Recover unknown/created/processing attempt from webhook order_id fallback.
+     *
+     * Attaches provider_payment_id if null, resolves legacy subscription from metadata,
+     * and performs normal success/failed transition.
+     */
+    public function recoverAttemptFromWebhook(
+        PaymentAttempt $attempt,
+        string $providerPaymentId,
+        string $rawStatus,
+        ?Subscription $legacySubscription = null,
+    ): void {
+        // Attach provider_payment_id if missing
+        if ($attempt->provider_payment_id === null) {
+            $attempt->update(['provider_payment_id' => $providerPaymentId]);
+        }
+
+        $metadata = $attempt->metadata ?? [];
+        $legacySubId = $metadata['legacy_subscription_id'] ?? null;
+        $legacy = $legacySubscription
+            ?? ($legacySubId ? Subscription::find($legacySubId) : null);
+
+        if (! $legacy) {
+            return;
+        }
+
+        // Resolve legacy status from raw
+        $parsedStatus = match ($rawStatus) {
+            'paid', 'succeeded' => 'active',
+            'failed', 'canceled' => 'failed',
+            'refunded' => 'refunded',
+            default => null,
+        };
+
+        if ($parsedStatus && in_array($legacy->status, ['pending', 'active'], true)) {
+            $legacy->update(['status' => $parsedStatus]);
+            // Ensure payment_id is set
+            if (! $legacy->payment_id) {
+                $legacy->update(['payment_id' => $providerPaymentId]);
+            }
+        }
+
+        // Perform core transition
+        match ($rawStatus) {
+            'paid', 'succeeded' => $this->paymentSucceeded($providerPaymentId),
+            'failed', 'canceled' => $this->paymentFailed($providerPaymentId),
+            'refunded' => $this->paymentRefunded($providerPaymentId),
+            default => null,
+        };
+    }
+
     // ── Private helpers ──
 
     private function lockAttemptByProviderPaymentId(string $providerPaymentId): ?PaymentAttempt
@@ -230,6 +360,27 @@ class BillingCoreWriter
         return PaymentAttempt::lockForUpdate()
             ->where('provider_payment_id', $providerPaymentId)
             ->first();
+    }
+
+    /**
+     * Check if the workspace already has a granting entitlement in billing core.
+     */
+    private function workspaceHasGrantingEntitlement(string $workspaceId): bool
+    {
+        return BillingCycle::where('workspace_id', $workspaceId)
+            ->where('period_end', '>', now())
+            ->where(function ($q) {
+                $q->where(function ($q2) {
+                    $q2->whereIn('origin', [BillingCycleOrigin::LegacyGrant, BillingCycleOrigin::AdminGrant])
+                        ->where('status', BillingCycleStatus::Paid);
+                })->orWhere(function ($q2) {
+                    $q2->whereIn('origin', [BillingCycleOrigin::Payment, BillingCycleOrigin::Renewal])
+                        ->whereHas('paymentAttempts', function ($q3) {
+                            $q3->where('status', PaymentAttemptStatus::Succeeded);
+                        });
+                });
+            })
+            ->exists();
     }
 
     /**

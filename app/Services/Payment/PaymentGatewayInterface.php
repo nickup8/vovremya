@@ -6,7 +6,7 @@ use App\Models\Subscription;
 
 interface PaymentGatewayInterface
 {
-    public function createPayment(Subscription $subscription, int $amount): array;
+    public function createPayment(Subscription $subscription, int $amount, string $internalOrderId): array;
 
     public function verifyWebhook(array $payload, string $signature): bool;
 

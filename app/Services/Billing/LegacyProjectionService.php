@@ -195,7 +195,7 @@ class LegacyProjectionService
             $paymentRows = $periodRows->filter(fn ($s) => $s->payment_id !== null);
 
             foreach ($paymentRows as $row) {
-                $existingAttempt = PaymentAttempt::where('internal_order_id', $row->payment_id)->first();
+                $existingAttempt = $this->findExistingAttempt($row, $existingCycle);
                 if ($existingAttempt) {
                     $result['attempts_existing'] += 1;
                 } else {
@@ -365,7 +365,7 @@ class LegacyProjectionService
         foreach ($paymentRows as $row) {
             $attemptNumber++;
 
-            $existingAttempt = PaymentAttempt::where('internal_order_id', $row->payment_id)->first();
+            $existingAttempt = $this->findExistingAttempt($row, $billingCycle);
             if ($existingAttempt) {
                 $result['attempts_existing']++;
                 continue;
@@ -424,6 +424,56 @@ class LegacyProjectionService
     }
 
     // ── Helpers ──
+
+    /**
+     * Find existing PaymentAttempt for a legacy subscription row within a cycle.
+     *
+     * Matching order:
+     * 1. provider_payment_id = legacy.payment_id (primary)
+     * 2. internal_order_id = legacy.payment_id (backward compat A1.1)
+     * 3. metadata.legacy_subscription_id = legacy.id (mirrored after timeout)
+     */
+    private function findExistingAttempt($legacyRow, ?BillingCycle $cycle): ?PaymentAttempt
+    {
+        $paymentId = $legacyRow->payment_id;
+        $legacySubId = $legacyRow->id;
+
+        if (! $paymentId && ! $legacySubId) {
+            return null;
+        }
+
+        // 1. by provider_payment_id
+        if ($paymentId) {
+            $attempt = PaymentAttempt::where('provider_payment_id', $paymentId)
+                ->when($cycle, fn ($q) => $q->where('billing_cycle_id', $cycle->id))
+                ->first();
+            if ($attempt) {
+                return $attempt;
+            }
+        }
+
+        // 2. by internal_order_id
+        if ($paymentId) {
+            $attempt = PaymentAttempt::where('internal_order_id', $paymentId)
+                ->when($cycle, fn ($q) => $q->where('billing_cycle_id', $cycle->id))
+                ->first();
+            if ($attempt) {
+                return $attempt;
+            }
+        }
+
+        // 3. by metadata.legacy_subscription_id
+        if ($legacySubId) {
+            $attempt = PaymentAttempt::whereRaw("metadata->>'legacy_subscription_id' = ?", [$legacySubId])
+                ->when($cycle, fn ($q) => $q->where('billing_cycle_id', $cycle->id))
+                ->first();
+            if ($attempt) {
+                return $attempt;
+            }
+        }
+
+        return null;
+    }
 
     private function loadLegacySubscriptions(): Collection
     {

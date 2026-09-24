@@ -31,25 +31,35 @@ class PaymentWebhookController extends Controller
 
         $payload = $request->all();
         $paymentId = $payload['payment_id'] ?? $payload['transaction_id'] ?? null;
+        $orderId = $payload['order_id'] ?? null;
 
-        if (! $paymentId) {
+        $rawStatus = $this->paymentGateway->parseWebhookStatus($payload);
+
+        if (! $rawStatus) {
             return response()->json(['ok' => true]);
         }
 
-        $subscription = Subscription::where('payment_id', $paymentId)->first();
+        // ── Primary lookup: by payment_id (legacy happy path) ──
+        $subscription = $paymentId
+            ? Subscription::where('payment_id', $paymentId)->first()
+            : null;
+
+        // ── Fallback: by order_id → PaymentAttempt.internal_order_id ──
+        if (! $subscription && $orderId) {
+            $attempt = $this->coreWriter->findAttemptByInternalOrderId($orderId);
+
+            if ($attempt && in_array($attempt->status->value, ['unknown', 'created', 'processing'], true)) {
+                return $this->handleOrderRecovery($attempt, $paymentId, $rawStatus, $payload);
+            }
+        }
 
         if (! $subscription) {
             Log::warning('Payment webhook: rejected', [
                 'reason' => 'subscription_not_found',
                 'payment_id' => $paymentId,
+                'order_id' => $orderId,
             ]);
 
-            return response()->json(['ok' => true]);
-        }
-
-        $rawStatus = $this->paymentGateway->parseWebhookStatus($payload);
-
-        if (! $rawStatus) {
             return response()->json(['ok' => true]);
         }
 
@@ -122,6 +132,48 @@ class PaymentWebhookController extends Controller
                 };
             }
         });
+
+        return response()->json(['ok' => true]);
+    }
+
+    /**
+     * Handle webhook recovery via order_id fallback.
+     *
+     * For unknown/created/processing attempts:
+     * - attach provider_payment_id
+     * - resolve legacy subscription from metadata
+     * - perform success/failed transition
+     */
+    private function handleOrderRecovery(
+        \App\Models\PaymentAttempt $attempt,
+        ?string $paymentId,
+        string $rawStatus,
+        array $payload,
+    ): JsonResponse {
+        if (! $paymentId) {
+            Log::warning('Payment webhook: order_id recovery skipped', [
+                'reason' => 'no_payment_id',
+                'order_id' => $payload['order_id'] ?? null,
+            ]);
+
+            return response()->json(['ok' => true]);
+        }
+
+        DB::transaction(function () use ($attempt, $paymentId, $rawStatus, $payload) {
+            $this->coreWriter->recoverAttemptFromWebhook(
+                $attempt,
+                $paymentId,
+                $rawStatus,
+            );
+
+            $this->coreWriter->recordProviderEvent($paymentId, $rawStatus, $payload);
+        });
+
+        Log::info('Payment webhook: order_id recovery succeeded', [
+            'order_id' => $payload['order_id'] ?? null,
+            'payment_id' => $paymentId,
+            'status' => $rawStatus,
+        ]);
 
         return response()->json(['ok' => true]);
     }

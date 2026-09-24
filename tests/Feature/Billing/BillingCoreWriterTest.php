@@ -127,7 +127,7 @@ class BillingCoreWriterTest extends TestCase
 
         // Create a failing gateway
         $failingGateway = new class implements \App\Services\Payment\PaymentGatewayInterface {
-            public function createPayment(\App\Models\Subscription $subscription, int $amount): array
+            public function createPayment(\App\Models\Subscription $subscription, int $amount, string $internalOrderId): array
             {
                 throw new \RuntimeException('Network timeout');
             }
