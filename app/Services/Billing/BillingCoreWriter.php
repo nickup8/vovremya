@@ -61,10 +61,11 @@ class BillingCoreWriter
             );
         }
 
-        // Проверяем существующий cycle для того же периода
+        // Проверяем существующий cycle по ТОЧНЫМ period_start/period_end
+        // (UNIQUE constraint: billing_subscription_id + period_start + period_end)
         $existingCycle = BillingCycle::where('billing_subscription_id', $billingSub->id)
-            ->whereDate('period_start', $legacy->starts_at)
-            ->whereDate('period_end', $legacy->expires_at)
+            ->where('period_start', $legacy->starts_at)
+            ->where('period_end', $legacy->expires_at)
             ->first();
 
         if ($existingCycle) {
@@ -266,16 +267,18 @@ class BillingCoreWriter
     }
 
     /**
-     * Find an existing in-flight attempt for the same workspace + plan + period.
+     * Find an existing in-flight attempt for the same workspace + plan.
      *
      * In-flight = created, processing, or unknown.
-     * Returns the attempt if found, null otherwise.
+     * Searches by workspace + plan only (NOT by period) — a double-click
+     * may produce slightly different period timestamps but the previous
+     * payment must still block a new provider call.
+     *
+     * @see §3 — processing+checkout_url returns existing; otherwise 422
      */
     public function findExistingInFlightAttempt(
         string $workspaceId,
         string $planId,
-        string $periodStart,
-        string $periodEnd,
     ): ?PaymentAttempt {
         $inFlightStatuses = [
             PaymentAttemptStatus::Created,
@@ -283,11 +286,9 @@ class BillingCoreWriter
             PaymentAttemptStatus::Unknown,
         ];
 
-        return PaymentAttempt::whereHas('billingCycle', function ($q) use ($workspaceId, $planId, $periodStart, $periodEnd) {
+        return PaymentAttempt::whereHas('billingCycle', function ($q) use ($workspaceId, $planId) {
             $q->where('workspace_id', $workspaceId)
-                ->where('tariff_plan_id', $planId)
-                ->whereDate('period_start', $periodStart)
-                ->whereDate('period_end', $periodEnd);
+                ->where('tariff_plan_id', $planId);
         })
             ->whereIn('status', $inFlightStatuses)
             ->orderByDesc('attempt_number')

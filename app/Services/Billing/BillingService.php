@@ -9,6 +9,7 @@ use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Payment\PaymentGatewayInterface;
 use App\Services\WorkspaceService;
+use Illuminate\Contracts\Cache\LockTimeoutException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
@@ -56,94 +57,98 @@ class BillingService
         $price = $this->calculatePrice($plan, $periodMonths);
         $lockKey = "billing-checkout:{$master->workspace_id}:{$plan->id}";
 
-        // ── Atomic lock: весь checkout flow ──
-        return Cache::lock($lockKey, 60)->block(30, function () use ($master, $plan, $periodMonths, $price) {
-            $now = Carbon::now();
-            $currentSub = $master->workspace?->activeSubscription();
+        // ── Atomic lock: весь checkout flow (TTL 120s > HTTP timeout ~20s) ──
+        try {
+            return Cache::lock($lockKey, 120)->block(30, function () use ($master, $plan, $periodMonths, $price) {
+                // ── Check for in-flight attempt (workspace+plan, no period) ──
+                $inFlight = $this->coreWriter->findExistingInFlightAttempt(
+                    $master->workspace_id,
+                    $plan->id,
+                );
 
-            $isSamePlanExtension = $currentSub
-                && $currentSub->tariff_plan_id === $plan->id
-                && $currentSub->expires_at !== null
-                && $currentSub->expires_at->isFuture();
-
-            $startsAt = $isSamePlanExtension
-                ? $currentSub->expires_at->copy()
-                : $now->copy();
-
-            $expiresAt = $startsAt->copy()->addMonths($periodMonths);
-
-            // ── Check for in-flight attempt ──
-            $inFlight = $this->coreWriter->findExistingInFlightAttempt(
-                $master->workspace_id,
-                $plan->id,
-                $startsAt->format('Y-m-d H:i:s'),
-                $expiresAt->format('Y-m-d H:i:s'),
-            );
-
-            if ($inFlight) {
-                return $this->handleInFlightAttempt($inFlight, $master);
-            }
-
-            // ── Phase A: DB intent (legacy + Core) ──
-            $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $startsAt, $expiresAt) {
-                // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
-                if ($master->workspace_id) {
-                    Subscription::where('workspace_id', $master->workspace_id)
-                        ->where('status', 'pending')
-                        ->update(['status' => 'failed']);
+                if ($inFlight) {
+                    return $this->handleInFlightAttempt($inFlight, $master);
                 }
 
-                $subscription = Subscription::create([
-                    'workspace_id' => $master->workspace_id,
-                    'tariff_plan_id' => $plan->id,
-                    'period_months' => $periodMonths,
-                    'amount_paid' => $price['final'],
-                    'status' => 'pending',
-                    'starts_at' => $startsAt,
-                    'expires_at' => $expiresAt,
-                ]);
+                $now = Carbon::now();
+                $currentSub = $master->workspace?->activeSubscription();
 
-                $coreResult = $this->coreWriter->checkoutCreated($subscription, $plan, $price, $periodMonths);
+                $isSamePlanExtension = $currentSub
+                    && $currentSub->tariff_plan_id === $plan->id
+                    && $currentSub->expires_at !== null
+                    && $currentSub->expires_at->isFuture();
+
+                $startsAt = $isSamePlanExtension
+                    ? $currentSub->expires_at->copy()
+                    : $now->copy();
+
+                $expiresAt = $startsAt->copy()->addMonths($periodMonths);
+
+                // ── Phase A: DB intent (legacy + Core) ──
+                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $startsAt, $expiresAt) {
+                    // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
+                    if ($master->workspace_id) {
+                        Subscription::where('workspace_id', $master->workspace_id)
+                            ->where('status', 'pending')
+                            ->update(['status' => 'failed']);
+                    }
+
+                    $subscription = Subscription::create([
+                        'workspace_id' => $master->workspace_id,
+                        'tariff_plan_id' => $plan->id,
+                        'period_months' => $periodMonths,
+                        'amount_paid' => $price['final'],
+                        'status' => 'pending',
+                        'starts_at' => $startsAt,
+                        'expires_at' => $expiresAt,
+                    ]);
+
+                    $coreResult = $this->coreWriter->checkoutCreated($subscription, $plan, $price, $periodMonths);
+
+                    return [
+                        'subscription' => $subscription,
+                        'price' => $price,
+                        'coreResult' => $coreResult,
+                    ];
+                });
+
+                // ── Phase B: Gateway call (outside transaction) ──
+                try {
+                    $paymentResult = $this->gateway->createPayment(
+                        $intent['subscription'],
+                        $intent['price']['final'],
+                        $intent['coreResult']['internalOrderId'],
+                    );
+                } catch (\Throwable $e) {
+                    DB::transaction(fn () => $this->coreWriter->checkoutFailed($intent['coreResult']['internalOrderId']));
+
+                    throw $e;
+                }
+
+                // ── Phase C: Attach provider payment ID + checkout URL atomically ──
+                DB::transaction(function () use ($intent, $paymentResult) {
+                    Subscription::where('id', $intent['subscription']->id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    $this->coreWriter->paymentAttached(
+                        $intent['coreResult']['internalOrderId'],
+                        $paymentResult['payment_id'],
+                        $paymentResult['confirmation_url'] ?? $paymentResult['checkout_url'] ?? '',
+                        $intent['subscription'],
+                    );
+                });
 
                 return [
-                    'subscription' => $subscription,
-                    'price' => $price,
-                    'coreResult' => $coreResult,
+                    'subscription' => $intent['subscription']->refresh(),
+                    'confirmation_url' => $paymentResult['confirmation_url'],
                 ];
             });
-
-            // ── Phase B: Gateway call (outside transaction) ──
-            try {
-                $paymentResult = $this->gateway->createPayment(
-                    $intent['subscription'],
-                    $intent['price']['final'],
-                    $intent['coreResult']['internalOrderId'],
-                );
-            } catch (\Throwable $e) {
-                DB::transaction(fn () => $this->coreWriter->checkoutFailed($intent['coreResult']['internalOrderId']));
-
-                throw $e;
-            }
-
-            // ── Phase C: Attach provider payment ID + checkout URL atomically ──
-            DB::transaction(function () use ($intent, $paymentResult) {
-                Subscription::where('id', $intent['subscription']->id)
-                    ->lockForUpdate()
-                    ->first();
-
-                $this->coreWriter->paymentAttached(
-                    $intent['coreResult']['internalOrderId'],
-                    $paymentResult['payment_id'],
-                    $paymentResult['confirmation_url'] ?? $paymentResult['checkout_url'] ?? '',
-                    $intent['subscription'],
-                );
-            });
-
-            return [
-                'subscription' => $intent['subscription']->refresh(),
-                'confirmation_url' => $paymentResult['confirmation_url'],
-            ];
-        });
+        } catch (LockTimeoutException) {
+            throw ValidationException::withMessages([
+                'plan' => 'Платёж уже обрабатывается. Попробуйте через несколько секунд.',
+            ]);
+        }
     }
 
     /**
@@ -175,7 +180,13 @@ class BillingService
             ];
         }
 
-        // Processing без checkout_url, Created, Unknown — controlled 422
+        if ($inFlight->status === PaymentAttemptStatus::Processing) {
+            throw ValidationException::withMessages([
+                'plan' => 'Платёж уже обрабатывается. Попробуйте через несколько секунд.',
+            ]);
+        }
+
+        // Unknown — 422, НЕ supersede, НЕ retry
         throw ValidationException::withMessages([
             'plan' => 'Статус предыдущего платежа уточняется. Попробуйте позже.',
         ]);

@@ -25,7 +25,7 @@ class BillingCycle extends Model
         'currency',
         'price_snapshot',
         'origin',
-        'legacy_subscription_id',
+        'legacy_subscription_id', // historical pointer to the FIRST legacy row — do NOT overwrite on retry; attempt-level metadata holds the authoritative link
     ];
 
     protected function casts(): array
