@@ -393,7 +393,7 @@ return;
                 setNewAppointmentOpen(false);
                 setBreakWarningOpen(false);
                 newAppointmentForm.reset();
-                clearBookingMode();
+                exitBookingMode();
             },
         });
     }
@@ -423,7 +423,7 @@ return;
                 setNewAppointmentOpen(false);
                 setOutsideHoursOpen(false);
                 newAppointmentForm.reset();
-                clearBookingMode();
+                exitBookingMode();
             },
         });
     }
@@ -581,7 +581,7 @@ return;
             onSuccess: () => {
                 setNewAppointmentOpen(false);
                 newAppointmentForm.reset();
-                resetBookingState();
+                exitBookingMode();
             },
         });
     }

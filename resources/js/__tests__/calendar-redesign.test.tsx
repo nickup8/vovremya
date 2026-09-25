@@ -585,15 +585,39 @@ describe('Booking mode — exit lifecycle', () => {
         expect(clearBlock).toContain('resetBookingState()');
     });
 
-    it('submitNewAppointment onSuccess calls resetBookingState', () => {
+    it('submitNewAppointment onSuccess calls exitBookingMode', () => {
         const source = readSource('../hooks/useCalendarActions.ts');
-        // The main submit handler should reset local state without navigation
-        // (the POST redirect already clears prefilledClient)
-        // Find the specific submitNewAppointment(e) handler's onSuccess block
         const submitIdx = source.indexOf('function submitNewAppointment(e:');
         const nextFnIdx = source.indexOf('function ', submitIdx + 30);
         const submitBlock = source.slice(submitIdx, nextFnIdx);
-        expect(submitBlock).toContain('resetBookingState()');
+        expect(submitBlock).toContain('exitBookingMode()');
+    });
+
+    it('submitNewAppointmentIgnoreBreak onSuccess calls exitBookingMode', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        const fnIdx = source.indexOf('function submitNewAppointmentIgnoreBreak');
+        const nextFnIdx = source.indexOf('function ', fnIdx + 30);
+        const block = source.slice(fnIdx, nextFnIdx);
+        expect(block).toContain('exitBookingMode()');
+    });
+
+    it('submitNewAppointmentConfirmOutside onSuccess calls exitBookingMode', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        const fnIdx = source.indexOf('function submitNewAppointmentConfirmOutside');
+        const nextFnIdx = source.indexOf('function ', fnIdx + 30);
+        const block = source.slice(fnIdx, nextFnIdx);
+        expect(block).toContain('exitBookingMode()');
+    });
+
+    it('submitNewAppointment onError does NOT call exitBookingMode', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        const submitIdx = source.indexOf('function submitNewAppointment(e:');
+        // Get only the onError block (before onSuccess)
+        const onErrorIdx = source.indexOf('onError:', submitIdx);
+        const onSuccessIdx = source.indexOf('onSuccess:', onErrorIdx);
+        const onErrorBlock = source.slice(onErrorIdx, onSuccessIdx);
+        expect(onErrorBlock).not.toContain('exitBookingMode');
+        expect(onErrorBlock).not.toContain('resetBookingState');
     });
 
     it('submitRecurringSeries uses exitBookingMode (fetch-based, no redirect)', () => {
