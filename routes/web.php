@@ -212,6 +212,9 @@ Route::middleware(['auth'])->prefix('admin-root')->group(function () {
     Route::get('/audit', [SuperAdminController::class, 'audit'])->middleware('platform_permission:audit.view')->name('super_admin.audit');
 
     Route::post('/notifications', [SuperAdminController::class, 'sendNotification'])->middleware('platform_permission:notifications.send')->name('super_admin.notifications.send');
+    Route::get('/notifications', [SuperAdminController::class, 'notificationsIndex'])->middleware('platform_permission:notifications.view')->name('super_admin.notifications.index');
+    Route::put('/notifications/{message}', [SuperAdminController::class, 'notificationsUpdate'])->middleware('platform_permission:notifications.update')->name('super_admin.notifications.update');
+    Route::delete('/notifications/{message}', [SuperAdminController::class, 'notificationsDestroy'])->middleware('platform_permission:notifications.delete')->name('super_admin.notifications.destroy');
 
     Route::get('/admins', [PlatformAdminController::class, 'index'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins');
     Route::get('/admins/users/search', [PlatformAdminController::class, 'searchUsers'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.users.search');

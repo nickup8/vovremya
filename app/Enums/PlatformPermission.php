@@ -21,4 +21,7 @@ enum PlatformPermission: string
     case PlatformAdminsManage = 'platform_admins.manage';
 
     case NotificationsSend = 'notifications.send';
+    case NotificationsView = 'notifications.view';
+    case NotificationsUpdate = 'notifications.update';
+    case NotificationsDelete = 'notifications.delete';
 }

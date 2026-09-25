@@ -102,6 +102,11 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasOne(PlatformAdminAccess::class);
     }
 
+    public function notifications(): \Illuminate\Database\Eloquent\Relations\MorphMany
+    {
+        return $this->morphMany(Notification::class, 'notifiable')->latest();
+    }
+
     public function masterServices(): HasMany
     {
         return $this->hasMany(MasterService::class, 'master_id');

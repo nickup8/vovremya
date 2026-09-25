@@ -175,14 +175,16 @@ class HandleInertiaRequests extends Middleware
         }
 
         $notifications = $user->notifications()
+            ->with('systemMessage')
             ->orderByDesc('created_at')
             ->limit(10)
             ->get()
+            ->filter(fn ($n) => ! $n->system_message_id || $n->systemMessage)
             ->map(fn ($n) => [
                 'id' => $n->id,
                 'kind' => $n->data['kind'] ?? null,
-                'title' => $n->data['title'] ?? null,
-                'body' => $n->data['body'] ?? null,
+                'title' => $n->systemMessage?->title ?? $n->data['title'] ?? null,
+                'body' => $n->systemMessage?->body ?? $n->data['body'] ?? null,
                 'read_at' => $n->read_at?->toIso8601String(),
                 'created_at' => $n->created_at->toIso8601String(),
             ]);

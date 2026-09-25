@@ -8,6 +8,7 @@ use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Subscription;
 use App\Models\SuperAdminAuditLog;
+use App\Models\SystemNotificationMessage;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
@@ -506,6 +507,9 @@ class SuperAdminController extends Controller
             'platform_admin.permissions_changed',
             'platform_admin.activated',
             'platform_admin.deactivated',
+            'notification.sent',
+            'notification.updated',
+            'notification.deleted',
         ];
 
         $admins = User::query()
@@ -528,29 +532,46 @@ class SuperAdminController extends Controller
             'recipient_type' => 'required|in:all,user',
             'user_id' => 'required_if:recipient_type,user',
             'title' => 'required|string|max:255',
-            'body' => 'required|string|max:2000',
+            'body' => 'required|string',
         ]);
 
         $title = $validated['title'];
         $body = $validated['body'];
+        $admin = auth()->user();
 
         if ($validated['recipient_type'] === 'user') {
             $user = User::where('is_master', true)
                 ->where('is_blocked', false)
                 ->findOrFail($validated['user_id']);
 
-            $user->notify(new SystemNotification($title, $body));
-
-            app(SuperAdminAuditLogger::class)->log(
-                auth()->user(),
-                'notification.sent',
-                $user,
-                metadata: [
-                    'recipient_type' => 'user',
-                    'user_id' => $user->id,
+            DB::transaction(function () use ($admin, $user, $title, $body) {
+                $message = SystemNotificationMessage::create([
                     'title' => $title,
-                ],
-            );
+                    'body' => $body,
+                    'created_by' => $admin->id,
+                ]);
+
+                $user->notify(new SystemNotification($title, $body));
+
+                $user->notifications()
+                    ->whereNull('system_message_id')
+                    ->where('type', SystemNotification::class)
+                    ->latest()
+                    ->first()
+                    ?->update(['system_message_id' => $message->id]);
+
+                app(SuperAdminAuditLogger::class)->log(
+                    $admin,
+                    'notification.sent',
+                    $message,
+                    metadata: [
+                        'system_message_id' => $message->id,
+                        'recipient_type' => 'user',
+                        'recipients_count' => 1,
+                        'title' => $title,
+                    ],
+                );
+            });
 
             return back()->with('success', "Уведомление отправлено пользователю {$user->name}.");
         }
@@ -560,18 +581,110 @@ class SuperAdminController extends Controller
             ->where('is_blocked', false)
             ->get();
 
-        Notification::send($recipients, new SystemNotification($title, $body));
-
-        app(SuperAdminAuditLogger::class)->log(
-            auth()->user(),
-            'notification.sent',
-            metadata: [
-                'recipient_type' => 'all',
-                'recipients_count' => $recipients->count(),
+        DB::transaction(function () use ($admin, $recipients, $title, $body) {
+            $message = SystemNotificationMessage::create([
                 'title' => $title,
-            ],
-        );
+                'body' => $body,
+                'created_by' => $admin->id,
+            ]);
+
+            foreach ($recipients as $user) {
+                $user->notify(new SystemNotification($title, $body));
+
+                $user->notifications()
+                    ->whereNull('system_message_id')
+                    ->where('type', SystemNotification::class)
+                    ->latest()
+                    ->first()
+                    ?->update(['system_message_id' => $message->id]);
+            }
+
+            app(SuperAdminAuditLogger::class)->log(
+                $admin,
+                'notification.sent',
+                $message,
+                metadata: [
+                    'system_message_id' => $message->id,
+                    'recipient_type' => 'all',
+                    'recipients_count' => $recipients->count(),
+                    'title' => $title,
+                ],
+            );
+        });
 
         return back()->with('success', "Уведомление отправлено {$recipients->count()} мастерам.");
+    }
+
+    public function notificationsIndex(Request $request): Response
+    {
+        $query = SystemNotificationMessage::query()
+            ->withCount(['notifications', 'notifications as read_count' => function ($q) {
+                $q->whereNotNull('read_at');
+            }])
+            ->orderByDesc('created_at');
+
+        $messages = $query->paginate(15)->withQueryString();
+
+        return Inertia::render('SuperAdmin/Notifications', [
+            'messages' => $messages,
+        ]);
+    }
+
+    public function notificationsUpdate(Request $request, SystemNotificationMessage $message): RedirectResponse
+    {
+        $validated = $request->validate([
+            'title' => 'required|string|max:255',
+            'body' => 'required|string',
+        ]);
+
+        DB::transaction(function () use ($message, $validated) {
+            $fresh = SystemNotificationMessage::where('id', $message->id)->lockForUpdate()->first();
+
+            $before = ['title' => $fresh->title, 'body' => $fresh->body];
+
+            $fresh->update([
+                'title' => $validated['title'],
+                'body' => $validated['body'],
+            ]);
+
+            app(SuperAdminAuditLogger::class)->log(
+                auth()->user(),
+                'notification.updated',
+                $fresh,
+                $before,
+                ['title' => $validated['title'], 'body' => $validated['body']],
+                ['system_message_id' => $fresh->id],
+            );
+        });
+
+        return back()->with('success', 'Сообщение обновлено.');
+    }
+
+    public function notificationsDestroy(SystemNotificationMessage $message): RedirectResponse
+    {
+        DB::transaction(function () use ($message) {
+            $fresh = SystemNotificationMessage::where('id', $message->id)->lockForUpdate()->first();
+
+            $stats = [
+                'recipients_total' => $fresh->notifications()->count(),
+                'read_count' => $fresh->notifications()->whereNotNull('read_at')->count(),
+                'unread_count' => $fresh->notifications()->whereNull('read_at')->count(),
+            ];
+
+            $fresh->notifications()->forceDelete();
+            $fresh->delete();
+
+            app(SuperAdminAuditLogger::class)->log(
+                auth()->user(),
+                'notification.deleted',
+                $fresh,
+                metadata: array_merge([
+                    'system_message_id' => $fresh->id,
+                    'title' => $fresh->title,
+                ], $stats),
+            );
+        });
+
+        return back()->with('success', 'Сообщение удалено.');
     }
 }
