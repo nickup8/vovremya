@@ -1,6 +1,7 @@
 import { Head, router, usePage } from '@inertiajs/react';
 import { useState } from 'react';
 import SuperAdminNav from '@/components/super-admin/SuperAdminNav';
+import SystemNotificationSendDialog from '@/components/super-admin/SystemNotificationSendDialog';
 import { toast } from 'sonner';
 
 interface NotificationMessage {
@@ -13,6 +14,12 @@ interface NotificationMessage {
     read_count: number;
 }
 
+interface Recipient {
+    id: string;
+    name: string;
+    phone: string | null;
+}
+
 interface PaginatedMessages {
     data: NotificationMessage[];
     current_page: number;
@@ -23,6 +30,7 @@ interface PaginatedMessages {
 
 interface NotificationsProps {
     messages: PaginatedMessages;
+    recipients: Recipient[];
     flash?: { success?: string; error?: string };
 }
 
@@ -38,7 +46,11 @@ function formatDateTime(dateStr: string): string {
 }
 
 export default function Notifications() {
-    const { messages, flash } = usePage().props as NotificationsProps;
+    const { messages, recipients, flash, platformAdmin } = usePage().props as NotificationsProps & {
+        platformAdmin: { isRoot: boolean; permissions: string[] };
+    };
+
+    const canSend = platformAdmin.isRoot || platformAdmin.permissions.includes('notifications.send');
 
     const [detailMessage, setDetailMessage] = useState<NotificationMessage | null>(null);
 
@@ -50,6 +62,8 @@ export default function Notifications() {
 
     const [deleteMessage, setDeleteMessage] = useState<NotificationMessage | null>(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
+
+    const [sendOpen, setSendOpen] = useState(false);
 
     function handleEditSubmit() {
         if (!editMessage) return;
@@ -102,6 +116,14 @@ export default function Notifications() {
                                 Отправлено сообщений: {messages.total}
                             </p>
                         </div>
+                        {canSend && (
+                            <button
+                                onClick={() => setSendOpen(true)}
+                                className="rounded-xl bg-[#FF5A1F] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#E94D14]"
+                            >
+                                Отправить уведомление
+                            </button>
+                        )}
                     </div>
 
                     <SuperAdminNav current="notifications" />
@@ -121,8 +143,16 @@ export default function Notifications() {
                         <div className="mt-10 text-center">
                             <p className="text-sm font-semibold text-[#181818]">Нет отправленных сообщений</p>
                             <p className="mt-1 text-sm text-[#8E8A85]">
-                                Отправьте первое сервисное уведомление из раздела «Пользователи».
+                                Отправьте первое сервисное уведомление мастерам.
                             </p>
+                            {canSend && (
+                                <button
+                                    onClick={() => setSendOpen(true)}
+                                    className="mt-4 rounded-xl bg-[#FF5A1F] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#E94D14]"
+                                >
+                                    Отправить уведомление
+                                </button>
+                            )}
                         </div>
                     ) : (
                         <>
@@ -229,6 +259,13 @@ export default function Notifications() {
                     )}
                 </div>
             </div>
+
+            {/* Send Dialog */}
+            <SystemNotificationSendDialog
+                open={sendOpen}
+                onClose={() => setSendOpen(false)}
+                recipients={recipients}
+            />
 
             {/* Detail Modal */}
             {detailMessage && (

@@ -611,8 +611,16 @@ class SuperAdminController extends Controller
 
         $messages = $query->paginate(15)->withQueryString();
 
+        $recipients = User::query()
+            ->where('is_master', true)
+            ->where('is_blocked', false)
+            ->select('id', 'name', 'phone')
+            ->orderBy('name')
+            ->get();
+
         return Inertia::render('SuperAdmin/Notifications', [
             'messages' => $messages,
+            'recipients' => $recipients,
         ]);
     }
 
