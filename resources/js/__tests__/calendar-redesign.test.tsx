@@ -656,9 +656,24 @@ describe('Booking mode — exit lifecycle', () => {
         expect(source).not.toContain('border-red-500 bg-red-500/20');
     });
 
-    it('booking panel shows hint when no service selected', () => {
+    it('booking panel shows "Сначала выберите услугу" placeholder', () => {
         const source = readSource('../pages/admin/calendar.tsx');
-        expect(source).toContain('выберите услугу');
+        expect(source).toContain('Сначала выберите услугу');
+    });
+
+    it('booking panel shows step 1 when no service selected', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).toContain('1. Выберите услугу');
+    });
+
+    it('booking panel shows step 2 guidance when service is selected', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).toContain('2. Выберите время');
+    });
+
+    it('booking panel does not duplicate "выберите услугу, затем время"', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).not.toContain('выберите услугу, затем время');
     });
 
     it('booking cancel button is secondary style (not destructive red)', () => {
@@ -668,12 +683,10 @@ describe('Booking mode — exit lifecycle', () => {
         expect(cancelSection).toContain('border-[var(--color-line)]');
     });
 
-    it('lucide-react User icon removed from calendar page, heroicons used instead', () => {
+    it('lucide-react User icon removed from calendar page', () => {
         const source = readSource('../pages/admin/calendar.tsx');
-        // No lucide User import (but heroicons UserCircleIcon is fine, CalendarDays stays)
         expect(source).not.toContain('User } from');
-        expect(source).toContain('UserCircleIcon');
-        expect(source).toContain('@heroicons');
+        expect(source).not.toContain('UserCircleIcon');
     });
 });
 

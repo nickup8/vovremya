@@ -2,7 +2,6 @@ import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import { toast } from 'sonner';
 import { CalendarDays } from 'lucide-react';
-import { UserCircleIcon } from '@heroicons/react/24/outline';
 import { MONTHS_RU } from '@/lib/locale';
 import DateControlPanel from '@/components/calendar/DateControlPanel';
 import {
@@ -562,28 +561,36 @@ return [];
 
                             {/* ─── Booking Mode Banner ─── */}
                             {activeBookingClient && (
-                                <div className="mx-4 flex shrink-0 flex-col gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 transition-all lg:mx-6 lg:flex-row lg:items-center lg:justify-between">
-                                    <div className="flex items-center gap-3 min-w-0">
-                                        <UserCircleIcon className="size-6 shrink-0 text-[var(--color-graphite)]" />
-                                        <div className="min-w-0">
-                                            <p className="text-sm font-semibold text-[var(--color-ink)]">
-                                                Режим записи
-                                            </p>
-                                            <p className="truncate text-xs text-[var(--color-graphite)]">
-                                                {activeBookingClient.name}
-                                                {!bookingModeServiceId && (
-                                                    <span className="ml-1 text-[var(--color-orange)]">— выберите услугу, затем время</span>
-                                                )}
-                                                {bookingModeService && (
-                                                    <span className="ml-1">— {bookingModeService.title}</span>
-                                                )}
-                                            </p>
+                                <div className="mx-4 flex shrink-0 flex-col gap-2 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 transition-all lg:mx-6 lg:flex-row lg:items-center lg:gap-3">
+                                    {/* Left: client + steps */}
+                                    <div className="min-w-0 flex-1">
+                                        <div className="flex items-center gap-2">
+                                            <p className="text-sm font-semibold text-[var(--color-ink)]">Режим записи</p>
+                                            <span className="text-xs text-[var(--color-graphite)]">· {activeBookingClient.name}</span>
+                                        </div>
+                                        <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                                            {!bookingModeServiceId ? (
+                                                <>
+                                                    <span className="font-semibold text-[var(--color-orange)]">1. Выберите услугу</span>
+                                                    <span className="text-[var(--color-graphite)]">2. Выберите время</span>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <span className="text-[var(--color-graphite)]">✓ {bookingModeService?.title}</span>
+                                                    <span className="font-semibold text-[var(--color-orange)]">2. Выберите время</span>
+                                                </>
+                                            )}
                                         </div>
                                     </div>
+                                    {/* Right: select + cancel */}
                                     <div className="flex items-center gap-2">
                                         <Select value={bookingModeServiceId} onValueChange={setBookingModeServiceId}>
-                                            <SelectTrigger className="h-10 flex-1 border-[var(--color-line)] bg-white text-sm lg:w-[200px] lg:flex-none">
-                                                <SelectValue placeholder="Услуга" />
+                                            <SelectTrigger className={`h-10 flex-1 bg-white text-sm lg:w-[200px] lg:flex-none ${
+                                                !bookingModeServiceId
+                                                    ? 'border-[var(--color-orange)] ring-1 ring-[var(--color-orange)]/20'
+                                                    : 'border-[var(--color-line)]'
+                                            }`}>
+                                                <SelectValue placeholder="Сначала выберите услугу" />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {services.map((s) => (
