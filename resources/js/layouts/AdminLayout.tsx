@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback } from 'react';
 import { usePage, Link, router } from '@inertiajs/react';
 import {
-    Bars3Icon, BellIcon, PlusIcon,
+    Bars3Icon, BellIcon, ChevronLeftIcon, PlusIcon,
     SunIcon, MoonIcon,
 } from '@heroicons/react/24/outline';
 import { PanelLeftClose, PanelLeftOpen } from 'lucide-react';
@@ -71,11 +71,15 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
         try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
     });
     const [notificationsOpen, setNotificationsOpen] = useState(false);
+    const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
     const { appearance, updateAppearance } = useAppearance();
     const { notifications } = usePage().props as { notifications?: NotificationsProps };
 
     const unreadCount = notifications?.unread_count ?? 0;
     const items = notifications?.items ?? [];
+    const selectedNotification = selectedNotificationId
+        ? items.find((n) => n.id === selectedNotificationId) ?? null
+        : null;
 
     const isDark = appearance === 'dark';
     const isDesktop = useIsDesktop();
@@ -106,6 +110,19 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
         });
     }
 
+    function handleNotificationClick(notification: NotificationItem) {
+        setSelectedNotificationId(notification.id);
+        if (!notification.read_at) handleMarkRead(notification.id);
+    }
+
+    function formatFullDateTime(dateStr: string): string {
+        const date = new Date(dateStr);
+        return date.toLocaleDateString('ru-RU', {
+            day: 'numeric', month: 'long', year: 'numeric',
+            hour: '2-digit', minute: '2-digit',
+        });
+    }
+
     // Close mobile menu on resize
     useEffect(() => {
         const handler = () => { if (window.innerWidth > 1024) setMobileMenuOpen(false); };
@@ -121,6 +138,11 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
         return () => document.removeEventListener('keydown', handler);
     }, [notificationsOpen]);
 
+    // Reset selected notification when popover/drawer closes
+    useEffect(() => {
+        if (!notificationsOpen) setSelectedNotificationId(null);
+    }, [notificationsOpen]);
+
     // Close notifications on outside click
     useEffect(() => {
         if (!notificationsOpen) return;
@@ -129,7 +151,18 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
         return () => { clearTimeout(timer); document.removeEventListener('click', handler); };
     }, [notificationsOpen]);
 
-    const notificationsHeader = (
+    const notificationsHeader = selectedNotification ? (
+        <div className="flex items-center gap-3 border-b border-[var(--color-line-soft)] px-4 py-[14px]">
+            <button
+                onClick={() => setSelectedNotificationId(null)}
+                className="flex size-8 shrink-0 items-center justify-center rounded-[8px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                aria-label="Назад к списку"
+            >
+                <ChevronLeftIcon className="size-5" />
+            </button>
+            <div className="text-[15px] leading-5 font-bold tracking-[-0.015em] text-[var(--color-ink)]">Уведомления</div>
+        </div>
+    ) : (
         <div className="flex items-center justify-between gap-4 border-b border-[var(--color-line-soft)] px-4 py-[14px]">
             <div>
                 <div className="text-[15px] leading-5 font-bold tracking-[-0.015em] text-[var(--color-ink)]">Уведомления</div>
@@ -147,7 +180,19 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
         </div>
     );
 
-    const notificationsBody = items.length === 0 ? (
+    const notificationsBody = selectedNotification ? (
+        <div className="max-h-[70vh] overflow-y-auto px-4 py-4">
+            <h3 className="text-[15px] leading-6 font-bold text-[var(--color-ink)] break-words">
+                {selectedNotification.title}
+            </h3>
+            <p className="mt-3 text-[13px] leading-5 text-[var(--color-ink)] whitespace-pre-wrap break-words">
+                {selectedNotification.body}
+            </p>
+            <p className="mt-4 text-[11px] leading-4 text-[var(--color-graphite)]">
+                {formatFullDateTime(selectedNotification.created_at)}
+            </p>
+        </div>
+    ) : items.length === 0 ? (
         <div className="px-4 py-5 text-center text-[13px] text-[var(--color-graphite)]">
             Нет уведомлений
         </div>
@@ -156,7 +201,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
             {items.map((n) => (
                 <button
                     key={n.id}
-                    onClick={() => { if (!n.read_at) handleMarkRead(n.id); }}
+                    onClick={() => handleNotificationClick(n)}
                     className={`w-full border-b border-[var(--color-line-soft)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-line-soft)] last:border-b-0 ${!n.read_at ? 'bg-[var(--color-orange)]/[0.04]' : ''}`}
                 >
                     <div className="flex items-start justify-between gap-2">
@@ -330,21 +375,20 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                     <div className="fixed inset-0 z-[60]">
                         <div className="fixed inset-0 bg-black/30" onClick={() => setNotificationsOpen(false)} aria-hidden="true" />
                         <div className="fixed inset-y-0 right-0 z-10 flex w-full max-w-sm flex-col bg-white dark:bg-[var(--color-cal-surface)]">
-                            <div className="flex items-center justify-between border-b border-[var(--color-line)] px-4 py-4">
-                                <div>
-                                    <h2 className="text-[16px] font-bold text-[var(--color-ink)]">Уведомления</h2>
-                                    <p className="text-[11px] text-[var(--color-graphite)]">
-                                        {unreadCount > 0 ? `${unreadCount} непрочитанных` : 'Нет новых'}
+                            {notificationsHeader}
+                            {selectedNotification ? (
+                                <div className="flex-1 overflow-y-auto px-4 py-4">
+                                    <h3 className="text-[16px] leading-6 font-bold text-[var(--color-ink)] break-words">
+                                        {selectedNotification.title}
+                                    </h3>
+                                    <p className="mt-3 text-[14px] leading-6 text-[var(--color-ink)] whitespace-pre-wrap break-words">
+                                        {selectedNotification.body}
+                                    </p>
+                                    <p className="mt-4 text-[11px] leading-4 text-[var(--color-graphite)]">
+                                        {formatFullDateTime(selectedNotification.created_at)}
                                     </p>
                                 </div>
-                                <button
-                                    onClick={() => setNotificationsOpen(false)}
-                                    className="flex size-10 items-center justify-center rounded-[10px] text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
-                                >
-                                    <svg className="size-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6 6 18M6 6l12 12"/></svg>
-                                </button>
-                            </div>
-                            {items.length === 0 ? (
+                            ) : items.length === 0 ? (
                                 <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-graphite)]">
                                     Нет уведомлений
                                 </div>
@@ -362,7 +406,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                                     {items.map((n) => (
                                         <button
                                             key={n.id}
-                                            onClick={() => { if (!n.read_at) handleMarkRead(n.id); }}
+                                            onClick={() => handleNotificationClick(n)}
                                             className={`w-full border-b border-[var(--color-line-soft)] px-4 py-3 text-left transition-colors hover:bg-[var(--color-line-soft)] last:border-b-0 ${!n.read_at ? 'bg-[var(--color-orange)]/[0.04]' : ''}`}
                                         >
                                             <div className="flex items-start justify-between gap-2">
