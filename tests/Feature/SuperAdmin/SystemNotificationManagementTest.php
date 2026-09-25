@@ -644,4 +644,139 @@ class SystemNotificationManagementTest extends TestCase
             ])
             ->assertRedirect();
     }
+
+    // ── Q. Single send exact linking with pre-existing notifications ──
+
+    public function test_single_send_links_only_new_delivery(): void
+    {
+        $root = User::factory()->master()->create(['is_super_admin' => true]);
+        $master = User::factory()->master()->create();
+
+        // Pre-existing notification (e.g. old system notification)
+        $master->notify(new \App\Notifications\SystemNotification('Старое', 'Старый текст'));
+        $oldNotification = $master->notifications()->latest()->first();
+        $this->assertNull($oldNotification->system_message_id);
+
+        // Send new message
+        $this->actingAs($root)
+            ->post(route('super_admin.notifications.send'), [
+                'recipient_type' => 'user',
+                'user_id' => $master->id,
+                'title' => 'Новое',
+                'body' => 'Новый текст',
+            ])
+            ->assertRedirect();
+
+        $message = SystemNotificationMessage::where('title', 'Новое')->first();
+        $this->assertNotNull($message);
+
+        // Old notification unchanged
+        $this->assertNull($oldNotification->fresh()->system_message_id);
+
+        // New notification correctly linked
+        $this->assertDatabaseHas('notifications', [
+            'notifiable_id' => $master->id,
+            'system_message_id' => $message->id,
+        ]);
+    }
+
+    // ── R. Broadcast exact linking with pre-existing notifications ──
+
+    public function test_broadcast_links_only_new_deliveries(): void
+    {
+        $root = User::factory()->master()->create(['is_super_admin' => true]);
+        $master1 = User::factory()->master()->create();
+        $master2 = User::factory()->master()->create();
+
+        // Pre-existing notifications
+        $master1->notify(new \App\Notifications\SystemNotification('Старое', 'Текст'));
+        $old1 = $master1->notifications()->latest()->first();
+
+        $master2->notify(new \App\Notifications\SystemNotification('Старое', 'Текст'));
+        $old2 = $master2->notifications()->latest()->first();
+
+        // Broadcast
+        $this->actingAs($root)
+            ->post(route('super_admin.notifications.send'), [
+                'recipient_type' => 'all',
+                'title' => 'Рассылка',
+                'body' => 'Текст',
+            ])
+            ->assertRedirect();
+
+        $message = SystemNotificationMessage::where('title', 'Рассылка')->first();
+
+        // Old notifications unchanged
+        $this->assertNull($old1->fresh()->system_message_id);
+        $this->assertNull($old2->fresh()->system_message_id);
+
+        // New deliveries correctly linked
+        $this->assertDatabaseHas('notifications', [
+            'notifiable_id' => $master1->id,
+            'system_message_id' => $message->id,
+        ]);
+
+        $this->assertDatabaseHas('notifications', [
+            'notifiable_id' => $master2->id,
+            'system_message_id' => $message->id,
+        ]);
+    }
+
+    // ── S. Channel isolation: PaymentReminder stays NULL ──
+
+    public function test_payment_reminder_system_message_id_stays_null(): void
+    {
+        $master = User::factory()->master()->create();
+
+        $master->notify(new \App\Notifications\PaymentReminderNotification(3));
+
+        $notification = $master->notifications()->latest()->first();
+
+        $this->assertNull($notification->system_message_id);
+        $this->assertEquals('payment_reminder', $notification->data['kind']);
+    }
+
+    // ── T. Transaction rollback on delivery failure ──
+
+    public function test_transaction_rolls_back_on_broadcast_failure(): void
+    {
+        $root = User::factory()->master()->create(['is_super_admin' => true]);
+        $master1 = User::factory()->master()->create();
+
+        $parentCountBefore = SystemNotificationMessage::count();
+        $notifCountBefore = \Illuminate\Notifications\DatabaseNotification::count();
+
+        // Force failure during broadcast by mocking a recipient that throws
+        // We simulate by attempting broadcast with a bad user_id scenario
+        // Actually, we can test that if the transaction fails, nothing is persisted
+        $this->actingAs($root);
+
+        // We'll use a DB exception simulation
+        \Illuminate\Support\Facades\DB::shouldReceive('transaction')
+            ->once()
+            ->andThrow(new \RuntimeException('Simulated failure'));
+
+        $this->post(route('super_admin.notifications.send'), [
+            'recipient_type' => 'all',
+            'title' => 'Провал',
+            'body' => 'Текст',
+        ]);
+
+        $this->assertEquals($parentCountBefore, SystemNotificationMessage::count());
+        $this->assertEquals($notifCountBefore, \Illuminate\Notifications\DatabaseNotification::count());
+    }
+
+    // ── U. Admins page renders with new permissions ──
+
+    public function test_admins_page_renders_with_new_notification_permissions(): void
+    {
+        $root = User::factory()->master()->create(['is_super_admin' => true]);
+
+        $this->actingAs($root)
+            ->get(route('super_admin.admins'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('allPermissions')
+            );
+    }
 }

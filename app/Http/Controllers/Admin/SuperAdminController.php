@@ -551,14 +551,7 @@ class SuperAdminController extends Controller
                     'created_by' => $admin->id,
                 ]);
 
-                $user->notify(new SystemNotification($title, $body));
-
-                $user->notifications()
-                    ->whereNull('system_message_id')
-                    ->where('type', SystemNotification::class)
-                    ->latest()
-                    ->first()
-                    ?->update(['system_message_id' => $message->id]);
+                $user->notify(new SystemNotification($title, $body, $message->id));
 
                 app(SuperAdminAuditLogger::class)->log(
                     $admin,
@@ -589,14 +582,7 @@ class SuperAdminController extends Controller
             ]);
 
             foreach ($recipients as $user) {
-                $user->notify(new SystemNotification($title, $body));
-
-                $user->notifications()
-                    ->whereNull('system_message_id')
-                    ->where('type', SystemNotification::class)
-                    ->latest()
-                    ->first()
-                    ?->update(['system_message_id' => $message->id]);
+                $user->notify(new SystemNotification($title, $body, $message->id));
             }
 
             app(SuperAdminAuditLogger::class)->log(

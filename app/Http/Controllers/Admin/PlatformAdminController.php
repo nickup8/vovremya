@@ -182,6 +182,16 @@ class PlatformAdminController extends Controller
             $valid[] = 'plans.view';
         }
 
+        // Dependency: notifications.update / notifications.delete require notifications.view
+        if ((in_array('notifications.update', $valid) || in_array('notifications.delete', $valid)) && ! in_array('notifications.view', $valid)) {
+            $valid[] = 'notifications.view';
+        }
+
+        // Dependency: notifications.send implies notifications.view for sender history visibility
+        if (in_array('notifications.send', $valid) && ! in_array('notifications.view', $valid)) {
+            $valid[] = 'notifications.view';
+        }
+
         return array_values(array_unique($valid));
     }
 
@@ -198,6 +208,9 @@ class PlatformAdminController extends Controller
             PlatformPermission::AuditView => 'Журнал действий',
             PlatformPermission::PlatformAdminsManage => 'Управление администраторами',
             PlatformPermission::NotificationsSend => 'Отправка уведомлений',
+            PlatformPermission::NotificationsView => 'Просмотр уведомлений',
+            PlatformPermission::NotificationsUpdate => 'Редактирование уведомлений',
+            PlatformPermission::NotificationsDelete => 'Удаление уведомлений',
         };
     }
 }
