@@ -779,4 +779,101 @@ class SystemNotificationManagementTest extends TestCase
                 ->has('allPermissions')
             );
     }
+
+    // ── V. Send permission gates recipients payload ──
+
+    public function test_view_only_gets_empty_recipients(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => false]);
+        PlatformAdminAccess::create([
+            'user_id' => $admin->id,
+            'permissions' => [PlatformPermission::NotificationsView->value],
+            'is_active' => true,
+        ]);
+
+        User::factory()->master()->create();
+
+        $this->actingAs($admin)
+            ->get(route('super_admin.notifications.index'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->where('recipients', [])
+            );
+    }
+
+    public function test_send_permission_gets_eligible_recipients(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => false]);
+        PlatformAdminAccess::create([
+            'user_id' => $admin->id,
+            'permissions' => [PlatformPermission::NotificationsView->value, PlatformPermission::NotificationsSend->value],
+            'is_active' => true,
+        ]);
+
+        User::factory()->master()->create();
+
+        $response = $this->actingAs($admin)
+            ->get(route('super_admin.notifications.index'));
+
+        $response->assertOk();
+        $recipients = $response->viewData('page')['props']['recipients'];
+        $this->assertNotEmpty($recipients);
+    }
+
+    public function test_root_gets_eligible_recipients(): void
+    {
+        $root = User::factory()->master()->create(['is_super_admin' => true]);
+        User::factory()->master()->create();
+
+        $response = $this->actingAs($root)
+            ->get(route('super_admin.notifications.index'));
+
+        $response->assertOk();
+        $recipients = $response->viewData('page')['props']['recipients'];
+        $this->assertNotEmpty($recipients);
+    }
+
+    public function test_blocked_user_not_in_recipients(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => false]);
+        PlatformAdminAccess::create([
+            'user_id' => $admin->id,
+            'permissions' => [PlatformPermission::NotificationsView->value, PlatformPermission::NotificationsSend->value],
+            'is_active' => true,
+        ]);
+
+        User::factory()->master()->create(['name' => 'Активный']);
+        User::factory()->master()->create(['name' => 'Заблокирован', 'is_blocked' => true]);
+
+        $response = $this->actingAs($admin)
+            ->get(route('super_admin.notifications.index'));
+
+        $response->assertOk();
+        $recipients = $response->viewData('page')['props']['recipients'];
+        $names = collect($recipients)->pluck('name')->toArray();
+        $this->assertContains('Активный', $names);
+        $this->assertNotContains('Заблокирован', $names);
+    }
+
+    public function test_non_master_not_in_recipients(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => false]);
+        PlatformAdminAccess::create([
+            'user_id' => $admin->id,
+            'permissions' => [PlatformPermission::NotificationsView->value, PlatformPermission::NotificationsSend->value],
+            'is_active' => true,
+        ]);
+
+        User::factory()->master()->create(['name' => 'Мастер']);
+        User::factory()->create(['name' => 'Не мастер', 'is_master' => false]);
+
+        $response = $this->actingAs($admin)
+            ->get(route('super_admin.notifications.index'));
+
+        $response->assertOk();
+        $recipients = $response->viewData('page')['props']['recipients'];
+        $names = collect($recipients)->pluck('name')->toArray();
+        $this->assertContains('Мастер', $names);
+        $this->assertNotContains('Не мастер', $names);
+    }
 }

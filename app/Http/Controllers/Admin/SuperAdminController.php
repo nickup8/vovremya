@@ -611,12 +611,18 @@ class SuperAdminController extends Controller
 
         $messages = $query->paginate(15)->withQueryString();
 
-        $recipients = User::query()
-            ->where('is_master', true)
-            ->where('is_blocked', false)
-            ->select('id', 'name', 'phone')
-            ->orderBy('name')
-            ->get();
+        $admin = auth()->user();
+        $canSend = $admin->is_super_admin
+            || ($admin->platformAdminAccess && $admin->platformAdminAccess->hasPermission(PlatformPermission::NotificationsSend));
+
+        $recipients = $canSend
+            ? User::query()
+                ->where('is_master', true)
+                ->where('is_blocked', false)
+                ->select('id', 'name', 'phone')
+                ->orderBy('name')
+                ->get()
+            : collect();
 
         return Inertia::render('SuperAdmin/Notifications', [
             'messages' => $messages,

@@ -34,8 +34,12 @@ interface UsersProps {
 }
 
 export default function Users() {
-    const { users, filters, flash, auth } = usePage().props as UsersProps & { auth: { user?: { id: string } } };
+    const { users, filters, flash, auth, platformAdmin } = usePage().props as UsersProps & {
+        auth: { user?: { id: string } };
+        platformAdmin: { isRoot: boolean; permissions: string[] };
+    };
     const currentUserId = auth?.user?.id;
+    const canSend = platformAdmin.isRoot || platformAdmin.permissions.includes('notifications.send');
     const [search, setSearch] = useState(filters.search || '');
     const [tariffFilter, setTariffFilter] = useState(filters.tariff || '');
 
@@ -252,7 +256,7 @@ export default function Users() {
                                                         >
                                                             Войти как
                                                         </button>
-                                                        {!user.is_blocked && user.is_master && (
+                                                        {canSend && !user.is_blocked && user.is_master && (
                                                             <button
                                                                 onClick={() => {
                                                                     setFixedRecipient({ id: user.id, name: user.name, phone: user.phone });
