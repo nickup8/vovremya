@@ -173,18 +173,31 @@ continue;
     );
 
     // ═══════════════ Booking Mode ═══════════════
-    function cancelBookingMode() {
-        clearBookingMode();
-    }
-
-    function clearBookingMode() {
+    function exitBookingMode() {
         setPreselectedMasterId(null);
         setBookingModeServiceId('');
         setHoveredSlot(null);
 
-        if (prefillClientId) {
-            window.history.replaceState({}, '', '/admin/calendar');
-        }
+        router.get('/admin/calendar', {}, {
+            replace: true,
+            preserveState: true,
+            preserveScroll: true,
+            only: ['appointments', 'prefillClientId'],
+        });
+    }
+
+    function resetBookingState() {
+        setPreselectedMasterId(null);
+        setBookingModeServiceId('');
+        setHoveredSlot(null);
+    }
+
+    function cancelBookingMode() {
+        exitBookingMode();
+    }
+
+    function clearBookingMode() {
+        resetBookingState();
     }
 
     // ═══════════════ CRUD: Update / Delete ═══════════════
@@ -568,7 +581,7 @@ return;
             onSuccess: () => {
                 setNewAppointmentOpen(false);
                 newAppointmentForm.reset();
-                clearBookingMode();
+                resetBookingState();
             },
         });
     }
@@ -918,8 +931,7 @@ return;
             setNewAppointmentOpen(false);
             newAppointmentForm.reset();
             resetRecurrence();
-            clearBookingMode();
-            router.reload({ only: ['appointments'] });
+            exitBookingMode();
         } catch {
             toast.error('Ошибка сети');
         } finally {

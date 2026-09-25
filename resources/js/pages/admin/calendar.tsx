@@ -1,7 +1,8 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import { toast } from 'sonner';
-import { User, CalendarDays } from 'lucide-react';
+import { CalendarDays } from 'lucide-react';
+import { UserCircleIcon } from '@heroicons/react/24/outline';
 import { MONTHS_RU } from '@/lib/locale';
 import DateControlPanel from '@/components/calendar/DateControlPanel';
 import {
@@ -561,27 +562,28 @@ return [];
 
                             {/* ─── Booking Mode Banner ─── */}
                             {activeBookingClient && (
-                                <div className="mx-4 flex flex-col gap-3 rounded-xl border border-indigo-200 bg-indigo-50 px-4 py-3 shadow-xs transition-all dark:border-indigo-800 dark:bg-indigo-950/40 lg:mx-6 lg:flex-row lg:items-center lg:justify-between">
-                                    <div className="flex items-center gap-3">
-                                        <div className="flex size-8 shrink-0 items-center justify-center rounded-full bg-indigo-100 dark:bg-indigo-900/60">
-                                            <User className="size-4 text-indigo-600 dark:text-indigo-400" />
-                                        </div>
+                                <div className="mx-4 flex shrink-0 flex-col gap-3 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 transition-all lg:mx-6 lg:flex-row lg:items-center lg:justify-between">
+                                    <div className="flex items-center gap-3 min-w-0">
+                                        <UserCircleIcon className="size-6 shrink-0 text-[var(--color-graphite)]" />
                                         <div className="min-w-0">
-                                            <p className="text-sm font-semibold text-indigo-900 dark:text-indigo-200">
+                                            <p className="text-sm font-semibold text-[var(--color-ink)]">
                                                 Режим записи
                                             </p>
-                                            <p className="truncate text-xs text-indigo-600 dark:text-indigo-400">
-                                                Клиент: {activeBookingClient.name}
+                                            <p className="truncate text-xs text-[var(--color-graphite)]">
+                                                {activeBookingClient.name}
+                                                {!bookingModeServiceId && (
+                                                    <span className="ml-1 text-[var(--color-orange)]">— выберите услугу, затем время</span>
+                                                )}
                                                 {bookingModeService && (
-                                                    <> — {bookingModeService.title} ({bookingModeService.duration_minutes} мин)</>
+                                                    <span className="ml-1">— {bookingModeService.title}</span>
                                                 )}
                                             </p>
                                         </div>
                                     </div>
                                     <div className="flex items-center gap-2">
                                         <Select value={bookingModeServiceId} onValueChange={setBookingModeServiceId}>
-                                            <SelectTrigger className="h-8 flex-1 border-indigo-200 bg-white text-xs dark:border-indigo-700 dark:bg-indigo-900/40 lg:w-[200px] lg:flex-none">
-                                                <SelectValue placeholder="Выберите услугу" />
+                                            <SelectTrigger className="h-10 flex-1 border-[var(--color-line)] bg-white text-sm lg:w-[200px] lg:flex-none">
+                                                <SelectValue placeholder="Услуга" />
                                             </SelectTrigger>
                                             <SelectContent>
                                                 {services.map((s) => (
@@ -593,7 +595,7 @@ return [];
                                         </Select>
                                         <button
                                             onClick={cancelBookingMode}
-                                            className="shrink-0 rounded-lg px-3 py-1.5 text-xs font-medium text-indigo-600 transition-colors hover:bg-indigo-100 dark:text-indigo-400 dark:hover:bg-indigo-900/40"
+                                            className="shrink-0 rounded-lg border border-[var(--color-line)] bg-white px-3 py-2 text-sm font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-warm)]"
                                         >
                                             Отменить
                                         </button>

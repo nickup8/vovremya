@@ -555,6 +555,104 @@ describe('Booking mode — mobile responsive', () => {
     });
 });
 
+describe('Booking mode — exit lifecycle', () => {
+    it('useCalendarActions has no window.history.replaceState', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        expect(source).not.toContain('window.history.replaceState');
+    });
+
+    it('exitBookingMode uses Inertia router.get with replace:true', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        expect(source).toContain("router.get('/admin/calendar'");
+        expect(source).toContain('replace: true');
+        expect(source).toContain('only:');
+    });
+
+    it('prefillClientId is in the only array for exit', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        expect(source).toContain("'prefillClientId'");
+    });
+
+    it('cancelBookingMode delegates to exitBookingMode', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        expect(source).toContain('exitBookingMode()');
+    });
+
+    it('clearBookingMode calls resetBookingState (no navigation)', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        // clearBookingMode should call resetBookingState, not exitBookingMode
+        const clearBlock = source.split('function clearBookingMode')[1]?.split('function')[0] ?? '';
+        expect(clearBlock).toContain('resetBookingState()');
+    });
+
+    it('submitNewAppointment onSuccess calls resetBookingState', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        // The main submit handler should reset local state without navigation
+        // (the POST redirect already clears prefilledClient)
+        // Find the specific submitNewAppointment(e) handler's onSuccess block
+        const submitIdx = source.indexOf('function submitNewAppointment(e:');
+        const nextFnIdx = source.indexOf('function ', submitIdx + 30);
+        const submitBlock = source.slice(submitIdx, nextFnIdx);
+        expect(submitBlock).toContain('resetBookingState()');
+    });
+
+    it('submitRecurringSeries uses exitBookingMode (fetch-based, no redirect)', () => {
+        const source = readSource('../hooks/useCalendarActions.ts');
+        const recurringBlock = source.split('function submitRecurringSeries')[1]?.split('function')[0] ?? '';
+        expect(recurringBlock).toContain('exitBookingMode()');
+    });
+
+    it('booking banner uses admin design tokens, not indigo', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).not.toContain('indigo');
+        expect(source).toContain('var(--color-line)');
+        expect(source).toContain('var(--color-surface)');
+    });
+
+    it('booking ghost uses solid border, not border-dashed', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).not.toContain('border-dashed');
+    });
+
+    it('booking ghost uses brand colors, not blue-500', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        // The ghost appointment block should not use blue
+        const ghostIdx = source.indexOf('{/* Ghost Appointment */}');
+        const ghostBlock = source.slice(ghostIdx, ghostIdx + 600);
+        // Find end of ghost block (first occurrence of }) after the div
+        const endOfGhost = ghostBlock.indexOf(')}', 100);
+        const block = endOfGhost > 0 ? ghostBlock.slice(0, endOfGhost) : ghostBlock;
+        expect(block).not.toContain('blue-500');
+        expect(block).toContain('var(--color-warm)');
+    });
+
+    it('booking ghost collision uses red, not border-dashed', () => {
+        const source = readSource('../pages/admin/components/calendar/WeekView.tsx');
+        expect(source).toContain('border-red-400');
+        expect(source).not.toContain('border-red-500 bg-red-500/20');
+    });
+
+    it('booking panel shows hint when no service selected', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        expect(source).toContain('выберите услугу');
+    });
+
+    it('booking cancel button is secondary style (not destructive red)', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        // Cancel button should use border/white/surface, not red
+        const cancelSection = source.split('Отменить')[0]?.split('cancelBookingMode')[1] ?? '';
+        expect(cancelSection).toContain('border-[var(--color-line)]');
+    });
+
+    it('lucide-react User icon removed from calendar page, heroicons used instead', () => {
+        const source = readSource('../pages/admin/calendar.tsx');
+        // No lucide User import (but heroicons UserCircleIcon is fine, CalendarDays stays)
+        expect(source).not.toContain('User } from');
+        expect(source).toContain('UserCircleIcon');
+        expect(source).toContain('@heroicons');
+    });
+});
+
 describe('useCalendarData — Cancelled not filtered', () => {
     it('initial state includes Cancelled appointments', async () => {
         const { useCalendarData } = await import('@/hooks/useCalendarData');

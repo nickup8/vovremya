@@ -358,18 +358,18 @@ export function WeekView({
                                     {/* Ghost Appointment */}
                                     {isBookingDay && ghostHeight > 0 && (
                                         <div
-                                            className={`pointer-events-none absolute z-10 mx-1 rounded-md border-2 border-dashed transition-shadow ${
+                                            className={`pointer-events-none absolute z-10 mx-1 rounded-md border transition-shadow ${
                                                 ghostHasCollision
-                                                    ? 'border-red-500 bg-red-500/20'
-                                                    : 'border-blue-500 bg-blue-500/20'
+                                                    ? 'border-red-400 bg-red-100/80 dark:border-red-600 dark:bg-red-900/30'
+                                                    : 'border-[var(--color-orange)]/40 bg-[var(--color-warm)]'
                                             }`}
                                             style={{ top: ghostTop, height: Math.max(ghostHeight, 32) }}
                                         >
                                             <div className="px-2 py-1">
                                                 <p className={`text-[10px] font-semibold ${
                                                     ghostHasCollision
-                                                        ? 'text-red-700 dark:text-red-300'
-                                                        : 'text-blue-700 dark:text-blue-300'
+                                                        ? 'text-red-600 dark:text-red-300'
+                                                        : 'text-[var(--color-orange)]'
                                                 }`}>
                                                     {hoveredSlot?.time} — {bookingModeService?.title}
                                                     {ghostHasCollision && ' (занято)'}
