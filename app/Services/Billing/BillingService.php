@@ -3,7 +3,6 @@
 namespace App\Services\Billing;
 
 use App\Enums\PaymentAttemptStatus;
-use App\Models\DiscountRule;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
@@ -20,24 +19,30 @@ class BillingService
     public function __construct(
         private PaymentGatewayInterface $gateway,
         private BillingCoreWriter $coreWriter,
+        private PlanPriceResolver $priceResolver,
+        private BillingHorizon $horizon,
     ) {}
 
     public function calculatePrice(TariffPlan $plan, int $periodMonths): array
     {
-        $discountRule = DiscountRule::where('period_months', $periodMonths)
-            ->where('is_active', true)
-            ->first();
+        $price = $this->priceResolver->calculatePrice($plan, $periodMonths);
 
-        $discountPercent = $discountRule?->discount_percent ?? 0;
+        if (! $price) {
+            // Fallback: compute from tariff_plans.price_monthly if plan_prices not seeded
+            $base = $plan->price_monthly * $periodMonths;
 
-        $base = $plan->price_monthly * $periodMonths;
-        $final = (int) round($base * (1 - $discountPercent / 100));
+            return [
+                'plan_price_id' => null,
+                'base' => $base,
+                'discount_percent' => 0,
+                'final' => $base,
+                'currency' => 'RUB',
+                'version' => null,
+                'period_months' => $periodMonths,
+            ];
+        }
 
-        return [
-            'base' => $base,
-            'discount_percent' => $discountPercent,
-            'final' => $final,
-        ];
+        return $price;
     }
 
     public function subscribe(User $master, TariffPlan $plan, int $periodMonths): array
@@ -70,22 +75,15 @@ class BillingService
                     return $this->handleInFlightAttempt($inFlight, $master);
                 }
 
-                $now = Carbon::now();
-                $currentSub = $master->workspace?->activeSubscription();
-
-                $isSamePlanExtension = $currentSub
-                    && $currentSub->tariff_plan_id === $plan->id
-                    && $currentSub->expires_at !== null
-                    && $currentSub->expires_at->isFuture();
-
-                $startsAt = $isSamePlanExtension
-                    ? $currentSub->expires_at->copy()
-                    : $now->copy();
-
-                $expiresAt = $startsAt->copy()->addMonths($periodMonths);
+                // ── Core horizon for stacking (replaces legacy activeSubscription().expires_at) ──
+                $period = $this->horizon->computeNewPeriod(
+                    $master->workspace,
+                    $plan->code,
+                    $periodMonths,
+                );
 
                 // ── Phase A: DB intent (legacy + Core) ──
-                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $startsAt, $expiresAt) {
+                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period) {
                     // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
                     if ($master->workspace_id) {
                         Subscription::where('workspace_id', $master->workspace_id)
@@ -99,8 +97,8 @@ class BillingService
                         'period_months' => $periodMonths,
                         'amount_paid' => $price['final'],
                         'status' => 'pending',
-                        'starts_at' => $startsAt,
-                        'expires_at' => $expiresAt,
+                        'starts_at' => $period['period_start'],
+                        'expires_at' => $period['period_end'],
                     ]);
 
                     $coreResult = $this->coreWriter->checkoutCreated($subscription, $plan, $price, $periodMonths);
@@ -202,6 +200,7 @@ class BillingService
 
     /**
      * Проверка понижения лимита мест провайдеров.
+     * Core-first: uses EntitlementService for current plan detection.
      * Возвращает null если можно, или строку-причину если нельзя.
      */
     public function downgradeBlockReason(User $master, TariffPlan $plan): ?string
@@ -211,21 +210,19 @@ class BillingService
         }
 
         $ws = $master->workspace;
-        $currentSub = $ws?->activeSubscription();
 
-        if (! $currentSub || ! $currentSub->tariffPlan) {
+        // Core-first: read current plan from EntitlementService
+        $currentPlan = app(EntitlementService::class)->currentPlan($ws);
+
+        if (! $currentPlan) {
             return null; // нет активной подписки — не понижение
         }
 
-        $currentMax = $currentSub->tariffPlan->max_masters; // null = безлимит
-        $newMax = $plan->max_masters;                        // null = безлимит
+        $currentMax = $currentPlan->maxMasters; // PHP_INT_MAX = безлимит
+        $newMax = $plan->max_masters ?? PHP_INT_MAX;
 
         // Блокируем только если новый лимит строго строже текущего
-        if ($newMax === null) {
-            return null; // новый безлимит — не блок
-        }
-
-        if ($currentMax !== null && $newMax >= $currentMax) {
+        if ($newMax >= $currentMax) {
             return null; // новый лимит не строже — не понижение мест
         }
 

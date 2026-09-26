@@ -9,6 +9,7 @@ use App\Enums\PaymentAttemptStatus;
 use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
+use App\Models\PlanPrice;
 use App\Models\ProviderEvent;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
@@ -44,6 +45,21 @@ class BillingCheckoutHardeningTest extends TestCase
             'features' => ['unlimited_appointments'],
             'is_active' => true,
         ]);
+
+        // Create plan_prices for all period options
+        foreach ([1, 3, 6, 12] as $months) {
+            PlanPrice::create([
+                'tariff_plan_id' => $this->proPlan->id,
+                'period_months' => $months,
+                'base_amount' => 490 * $months,
+                'discount_percent' => 0,
+                'final_amount' => 490 * $months,
+                'currency' => 'RUB',
+                'version' => 1,
+                'valid_from' => now(),
+                'is_active' => true,
+            ]);
+        }
     }
 
     private function createMasterWithWorkspace(): array

@@ -2,10 +2,14 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\BillingCycleOrigin;
+use App\Enums\BillingCycleStatus;
+use App\Enums\PaymentAttemptStatus;
 use App\Enums\PlatformPermission;
 use App\Enums\SubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
+use App\Models\BillingCycle;
 use App\Models\Subscription;
 use App\Models\SuperAdminAuditLog;
 use App\Models\SystemNotificationMessage;
@@ -14,6 +18,8 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Notifications\SystemNotification;
 use App\Services\Billing\BillingCoreWriter;
+use App\Services\Billing\BillingHorizon;
+use App\Services\Billing\EntitlementService;
 use App\Services\SuperAdminAuditLogger;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -28,25 +34,39 @@ class SuperAdminController extends Controller
 {
     public function index(): Response
     {
-        // ── Current subscriptions (one per workspace, matching Workspace::activeSubscription) ──
+        // ── Core-first: MRR/ARR from payment cycles ──
 
-        $now = now()->toDateTimeString();
+        $entitlementService = app(EntitlementService::class);
 
-        $currentSubIds = DB::select("
-            SELECT DISTINCT ON (workspace_id) id
-            FROM subscriptions
-            WHERE status = ? AND expires_at > ?
-            ORDER BY workspace_id, expires_at DESC
-        ", [SubscriptionStatus::Active->value, $now]);
+        // Get all workspaces with current entitlement
+        $allWorkspaces = Workspace::with([])->get();
 
-        $currentSubIds = collect($currentSubIds)->pluck('id');
+        $activePlanDescriptors = [];
+        foreach ($allWorkspaces as $workspace) {
+            $plan = $entitlementService->currentPlan($workspace);
+            if ($plan) {
+                $activePlanDescriptors[$workspace->id] = $plan;
+            }
+        }
 
-        $currentSubs = Subscription::whereIn('id', $currentSubIds)->get();
+        // MRR from monetary payment cycles (exclude admin_grant)
+        $paymentCycles = BillingCycle::query()
+            ->where('status', BillingCycleStatus::Paid)
+            ->where('origin', '!=', BillingCycleOrigin::AdminGrant)
+            ->where('period_end', '>', now())
+            ->with('paymentAttempts')
+            ->get()
+            ->filter(fn (BillingCycle $cycle) => $cycle->paymentAttempts
+                ->contains(fn ($a) => $a->status === PaymentAttemptStatus::Succeeded));
 
-        $mrr = (float) $currentSubs->sum(fn (Subscription $s) => $s->period_months > 0
-            ? $s->amount_paid / $s->period_months
-            : 0);
-
+        $mrr = 0;
+        foreach ($paymentCycles as $cycle) {
+            $months = $cycle->price_snapshot['period_months'] ?? 1;
+            if ($months > 0) {
+                $mrr += $cycle->amount / $months;
+            }
+        }
+        $mrr = round($mrr, 2);
         $arr = $mrr * 12;
 
         // ── Masters / accounts ──
@@ -63,18 +83,22 @@ class SuperAdminController extends Controller
 
         $totalWorkspaces = Workspace::count();
 
-        // ── Tariffs (by workspace current subscription) ──
+        // ── Tariffs from Core entitlement ──
 
         $proPlanId = TariffPlan::where('code', 'pro')->value('id');
 
-        $proCount = $proPlanId
-            ? $currentSubs->filter(fn (Subscription $s) => $s->tariff_plan_id === $proPlanId)->count()
-            : 0;
+        $proCount = 0;
+        $activeCount = 0;
+
+        foreach ($activePlanDescriptors as $workspaceId => $planDescriptor) {
+            $activeCount++;
+            // Find the tariff_plan_id for this plan code
+            if ($planDescriptor->code === 'pro') {
+                $proCount++;
+            }
+        }
 
         $avgMrrPerPro = $proCount > 0 ? round($mrr / $proCount, 2) : 0;
-
-        $activeCount = $currentSubs->count();
-
         $startCount = $totalWorkspaces - $activeCount;
 
         // ── Appointment activity ──
@@ -92,31 +116,30 @@ class SuperAdminController extends Controller
         $maxLinked = (clone $mastersBase)->whereNotNull('max_id')->count();
         $vkLinked = (clone $mastersBase)->whereNotNull('vk_id')->count();
 
-        // ── Tariff distribution (users by current subscription) ──
+        // ── Tariff distribution from Core entitlement ──
 
-        $usersByTariff = User::query()
-            ->join('workspaces', 'users.workspace_id', '=', 'workspaces.id')
-            ->join('subscriptions', function ($join) use ($currentSubIds) {
-                $join->on('subscriptions.workspace_id', '=', 'workspaces.id')
-                    ->whereIn('subscriptions.id', $currentSubIds);
-            })
-            ->join('tariff_plans', 'subscriptions.tariff_plan_id', '=', 'tariff_plans.id')
-            ->where('subscriptions.status', SubscriptionStatus::Active)
-            ->select('tariff_plans.code as tariff', DB::raw('count(distinct users.id) as count'))
-            ->groupBy('tariff_plans.code')
-            ->pluck('count', 'tariff')
-            ->toArray();
+        $usersByTariff = [];
+        foreach ($activePlanDescriptors as $workspaceId => $planDescriptor) {
+            $code = $planDescriptor->code;
+            $usersByTariff[$code] = ($usersByTariff[$code] ?? 0) + 1;
+        }
 
-        $startUsers = User::whereDoesntHave('workspace', function ($q) use ($currentSubIds) {
-            $q->whereIn('id', function ($sub) use ($currentSubIds) {
-                $sub->select('workspace_id')
-                    ->from('subscriptions')
-                    ->whereIn('id', $currentSubIds);
-            });
+        // Count start users (workspace exists but no Core entitlement)
+        $startUsers = User::whereHas('workspace', function ($q) use ($activePlanDescriptors) {
+            $workspaceIds = array_keys($activePlanDescriptors);
+            if ($workspaceIds) {
+                $q->whereNotIn('id', $workspaceIds);
+            }
         })->count();
 
         if ($startUsers > 0) {
             $usersByTariff['start'] = ($usersByTariff['start'] ?? 0) + $startUsers;
+        }
+
+        // Users without workspace (pure start)
+        $noWsUsers = User::whereNull('workspace_id')->count();
+        if ($noWsUsers > 0) {
+            $usersByTariff['start'] = ($usersByTariff['start'] ?? 0) + $noWsUsers;
         }
 
         $totalUsers = User::count();
@@ -144,8 +167,7 @@ class SuperAdminController extends Controller
 
     public function users(Request $request): Response
     {
-        $query = User::query()
-            ->with(['workspace.subscriptions.tariffPlan']);
+        $query = User::query();
 
         if ($search = $request->query('search')) {
             $safe = '%'.addcslashes($search, '%_').'%';
@@ -157,12 +179,14 @@ class SuperAdminController extends Controller
         }
 
         if ($tariff = $request->query('tariff')) {
-            $query->whereHas('workspace.subscriptions', function ($q) use ($tariff) {
-                $q->where('status', SubscriptionStatus::Active)
-                    ->where('expires_at', '>', now())
-                    ->whereHas('tariffPlan', function ($q2) use ($tariff) {
-                        $q2->where('code', $tariff);
+            // Core-first: filter by entitlement plan code
+            $entitlementService = app(EntitlementService::class);
+            $query->whereHas('workspace', function ($q) use ($tariff, $entitlementService) {
+                $q->whereHas('billingSubscriptions', function ($q2) use ($tariff) {
+                    $q2->whereHas('tariffPlan', function ($q3) use ($tariff) {
+                        $q3->where('code', $tariff);
                     });
+                });
             });
         }
 
@@ -174,9 +198,11 @@ class SuperAdminController extends Controller
             ->paginate(15)
             ->withQueryString();
 
-        // Append virtual 'tariff' attribute for frontend compatibility
-        $users->getCollection()->transform(function ($user) {
-            $user->tariff = $user->workspace?->activeSubscription()?->tariffPlan?->code ?? 'start';
+        // Append virtual 'tariff' attribute from Core entitlement
+        $entitlementService = app(EntitlementService::class);
+        $users->getCollection()->transform(function ($user) use ($entitlementService) {
+            $plan = $entitlementService->currentPlan($user->workspace);
+            $user->tariff = $plan?->code ?? 'start';
 
             return $user;
         });
@@ -245,40 +271,47 @@ class SuperAdminController extends Controller
         }
 
         $coreWriter = app(BillingCoreWriter::class);
+        $horizon = app(BillingHorizon::class);
 
         // Весь legacy + core write — в одной транзакции
-        $result = DB::transaction(function () use ($workspace, $days, $coreWriter) {
+        $result = DB::transaction(function () use ($workspace, $days, $coreWriter, $horizon) {
             // Workspace lockForUpdate для сериализации конкурентных extend
             $lockedWorkspace = Workspace::where('id', $workspace->id)->lockForUpdate()->first();
 
-            // Заново читаем active subscription после lock (не stale)
-            $activeSubscription = $lockedWorkspace->activeSubscription();
+            // Core-first: read horizon from Billing Core (not legacy subscription)
+            $coreHorizonEnd = $horizon->anyGrantingEnd($lockedWorkspace);
 
-            $before = $activeSubscription
-                ? ['expires_at' => $activeSubscription->expires_at?->toDateTimeString()]
+            $before = $coreHorizonEnd
+                ? ['expires_at' => $coreHorizonEnd->toDateTimeString()]
                 : [];
 
             $proPlan = TariffPlan::where('code', 'pro')->first();
 
-            if ($activeSubscription && $activeSubscription->expires_at && $activeSubscription->expires_at->isFuture()) {
-                // ── Extend existing ──
-                $oldExpiry = $activeSubscription->expires_at->copy();
+            // Also read legacy for mirror projection
+            $activeSubscription = $lockedWorkspace->activeSubscription();
+
+            if ($coreHorizonEnd && $coreHorizonEnd->isFuture()) {
+                // ── Extend existing: old Core horizon → new Core horizon ──
+                $oldExpiry = $coreHorizonEnd->copy();
                 $newExpiry = $oldExpiry->addDays($days);
 
-                $activeSubscription->update(['expires_at' => $newExpiry]);
+                // Legacy mirror: update expires_at to match new horizon
+                if ($activeSubscription) {
+                    $activeSubscription->update(['expires_at' => $newExpiry]);
+                }
 
-                // Core mirror: delta cycle [oldExpiry, newExpiry]
+                // Core mirror: delta cycle [old horizon, new horizon]
                 if ($proPlan) {
                     $coreWriter->adminGrant(
                         $workspace->id,
                         $proPlan,
-                        $activeSubscription,
+                        $activeSubscription ?? $this->createGrantLegacy($lockedWorkspace, $proPlan),
                         $oldExpiry->toDateTimeString(),
                         $newExpiry->toDateTimeString(),
                     );
                 }
             } else {
-                // ── New grant ──
+                // ── New grant: [now, new horizon] ──
                 $newExpiry = now()->addDays($days);
 
                 if (! $activeSubscription && $proPlan) {
@@ -294,19 +327,19 @@ class SuperAdminController extends Controller
                     $activeSubscription->update(['expires_at' => $newExpiry]);
                 }
 
-                // Core mirror: full cycle [starts_at, expires_at]
+                // Core mirror: full cycle [now, new horizon]
                 if ($activeSubscription && $proPlan) {
                     $coreWriter->adminGrant(
                         $workspace->id,
                         $proPlan,
                         $activeSubscription,
-                        $activeSubscription->fresh()->starts_at->toDateTimeString(),
+                        now()->toDateTimeString(),
                         $newExpiry->toDateTimeString(),
                     );
                 }
             }
 
-            return ['before' => $before, 'newExpiry' => $newExpiry, 'activeSubscription' => $activeSubscription];
+            return ['before' => $before, 'newExpiry' => $newExpiry ?? now()->addDays($days), 'activeSubscription' => $activeSubscription];
         });
 
         $before = $result['before'];
@@ -686,5 +719,21 @@ class SuperAdminController extends Controller
         });
 
         return back()->with('success', 'Сообщение удалено.');
+    }
+
+    /**
+     * Create a minimal legacy subscription for admin grant Core mirror
+     * when no legacy subscription exists.
+     */
+    private function createGrantLegacy(Workspace $workspace, TariffPlan $plan): Subscription
+    {
+        return $workspace->subscriptions()->create([
+            'tariff_plan_id' => $plan->id,
+            'period_months' => 1,
+            'amount_paid' => 0,
+            'status' => SubscriptionStatus::Active->value,
+            'starts_at' => now(),
+            'expires_at' => now()->addDays(30),
+        ]);
     }
 }

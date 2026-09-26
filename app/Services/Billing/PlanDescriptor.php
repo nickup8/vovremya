@@ -4,7 +4,7 @@ namespace App\Services\Billing;
 
 use App\Models\TariffPlan;
 use Carbon\CarbonInterface;
-use Illuminate\Support\PlanDefaults;
+use App\Support\PlanDefaults;
 
 final readonly class PlanDescriptor
 {

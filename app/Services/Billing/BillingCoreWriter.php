@@ -19,7 +19,7 @@ use Illuminate\Support\Str;
  * Atomic Billing Core writer for the checkout + webhook chain.
  *
  * Each public method is designed to run INSIDE the caller's transaction.
- * Legacy remains the runtime entitlement authority.
+ * Core is the billing authority; legacy is a projection/mirror.
  */
 class BillingCoreWriter
 {
@@ -39,6 +39,8 @@ class BillingCoreWriter
     ): array {
         $workspaceId = $legacy->workspace_id;
 
+        $planPriceId = $price['plan_price_id'] ?? null;
+
         $existingSub = BillingSubscription::where('workspace_id', $workspaceId)
             ->where('tariff_plan_id', $plan->id)
             ->first();
@@ -47,16 +49,21 @@ class BillingCoreWriter
             // Обновляем status если sub не active и нет current granting entitlement
             if ($existingSub->status !== BillingSubscriptionStatus::Active
                 && ! $this->workspaceHasGrantingEntitlement($workspaceId)) {
-                $existingSub->update(['status' => BillingSubscriptionStatus::PendingInitial]);
+                $existingSub->update([
+                    'status' => BillingSubscriptionStatus::PendingInitial,
+                    'plan_price_id' => $existingSub->plan_price_id ?? $planPriceId,
+                ]);
             }
             $billingSub = $existingSub;
         } else {
             $hasGranting = $this->workspaceHasGrantingEntitlement($workspaceId);
             $billingSub = BillingSubscription::updateOrCreate(
                 ['workspace_id' => $workspaceId, 'tariff_plan_id' => $plan->id],
-                ['status' => $hasGranting
-                    ? BillingSubscriptionStatus::Active
-                    : BillingSubscriptionStatus::PendingInitial,
+                [
+                    'status' => $hasGranting
+                        ? BillingSubscriptionStatus::Active
+                        : BillingSubscriptionStatus::PendingInitial,
+                    'plan_price_id' => $planPriceId,
                 ],
             );
         }
@@ -80,14 +87,23 @@ class BillingCoreWriter
                 'billing_subscription_id' => $billingSub->id,
                 'workspace_id' => $workspaceId,
                 'tariff_plan_id' => $plan->id,
+                'plan_price_id' => $planPriceId,
                 'period_start' => $legacy->starts_at,
                 'period_end' => $legacy->expires_at,
                 'status' => BillingCycleStatus::Pending,
                 'amount' => $price['final'],
-                'currency' => 'RUB',
+                'currency' => $price['currency'] ?? 'RUB',
                 'origin' => BillingCycleOrigin::Payment,
                 'legacy_subscription_id' => $legacy->id,
-                'price_snapshot' => $price,
+                'price_snapshot' => [
+                    'plan_price_id' => $planPriceId,
+                    'base_amount' => $price['base'] ?? $price['final'],
+                    'discount_percent' => $price['discount_percent'] ?? 0,
+                    'final_amount' => $price['final'],
+                    'currency' => $price['currency'] ?? 'RUB',
+                    'version' => $price['version'] ?? 1,
+                    'period_months' => $price['period_months'] ?? $periodMonths,
+                ],
             ]);
         }
 
@@ -400,7 +416,15 @@ class BillingCoreWriter
                 'currency' => 'RUB',
                 'origin' => BillingCycleOrigin::AdminGrant,
                 'legacy_subscription_id' => $legacy->id,
-                'price_snapshot' => ['base' => 0, 'discount_percent' => 0, 'final' => 0],
+                'price_snapshot' => [
+                    'plan_price_id' => null,
+                    'base_amount' => 0,
+                    'discount_percent' => 0,
+                    'final_amount' => 0,
+                    'currency' => 'RUB',
+                    'version' => null,
+                    'period_months' => null,
+                ],
             ]);
         }
 

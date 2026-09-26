@@ -3,6 +3,7 @@
 namespace Tests\Feature;
 
 use App\Models\DiscountRule;
+use App\Models\PlanPrice;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Services\Billing\BillingService;
@@ -22,7 +23,9 @@ class BillingTest extends TestCase
     {
         parent::setUp();
 
-        $this->billingService = new BillingService(new MockPaymentGateway);
+        config(['billing.legacy_mock_webhook_secret' => 'test_secret_123']);
+
+        $this->billingService = app(BillingService::class);
 
         $this->proPlan = TariffPlan::create([
             'code' => 'pro',
@@ -31,14 +34,36 @@ class BillingTest extends TestCase
             'is_active' => true,
         ]);
 
-        DiscountRule::create(['period_months' => 1, 'discount_percent' => 0, 'is_active' => true]);
-        DiscountRule::create(['period_months' => 3, 'discount_percent' => 5, 'is_active' => true]);
-        DiscountRule::create(['period_months' => 6, 'discount_percent' => 10, 'is_active' => true]);
-        DiscountRule::create(['period_months' => 12, 'discount_percent' => 20, 'is_active' => true]);
+        // Create plan_prices (replaces discount_rules for pricing)
+        $periods = [1, 3, 6, 12];
+        $discounts = [
+            1 => 0,
+            3 => 5,
+            6 => 10,
+            12 => 20,
+        ];
+
+        foreach ($periods as $months) {
+            $baseAmount = 490 * $months;
+            $discountPercent = $discounts[$months];
+            $finalAmount = (int) round($baseAmount * (1 - $discountPercent / 100));
+
+            PlanPrice::create([
+                'tariff_plan_id' => $this->proPlan->id,
+                'period_months' => $months,
+                'base_amount' => $baseAmount,
+                'discount_percent' => $discountPercent,
+                'final_amount' => $finalAmount,
+                'currency' => 'RUB',
+                'version' => 1,
+                'valid_from' => now(),
+                'is_active' => true,
+            ]);
+        }
     }
 
     // ═══════════════════════════════════════════
-    // calculatePrice
+    // calculatePrice (via PlanPriceResolver)
     // ═══════════════════════════════════════════
 
     public function test_calculate_price_pro_12_months(): void
@@ -68,13 +93,45 @@ class BillingTest extends TestCase
         $this->assertEquals(1397, $result['final']);
     }
 
+    public function test_calculate_price_returns_plan_price_id(): void
+    {
+        $result = $this->billingService->calculatePrice($this->proPlan, 1);
+
+        $this->assertArrayHasKey('plan_price_id', $result);
+        $this->assertNotNull($result['plan_price_id']);
+    }
+
+    public function test_calculate_price_fallback_when_no_plan_price(): void
+    {
+        $unknownPlan = TariffPlan::create([
+            'code' => 'unknown',
+            'name' => 'Unknown',
+            'price_monthly' => 100,
+            'is_active' => true,
+        ]);
+
+        $result = $this->billingService->calculatePrice($unknownPlan, 1);
+
+        // Falls back to computing from tariff_plans.price_monthly
+        $this->assertEquals(100, $result['final']);
+        $this->assertNull($result['plan_price_id']);
+    }
+
     // ═══════════════════════════════════════════
     // subscribe
     // ═══════════════════════════════════════════
 
     public function test_subscribe_creates_pending_subscription(): void
     {
-        $this->markTestSkipped('Устаревший тест: модель Subscription переработана (workspace_id вместо user_id)');
+        $master = User::factory()->master()->create();
+
+        $result = $this->billingService->subscribe($master, $this->proPlan, 1);
+
+        $subscription = $result['subscription'];
+
+        $this->assertNotNull($subscription);
+        $this->assertEquals('pending', $subscription->status);
+        $this->assertNotNull($subscription->payment_id);
     }
 
     public function test_subscribe_sets_correct_expires_at(): void
@@ -98,7 +155,23 @@ class BillingTest extends TestCase
 
     public function test_webhook_payment_activates_subscription(): void
     {
-        $this->markTestSkipped('Устаревший тест: колонка tariff удалена из users');
+        $master = User::factory()->master()->create();
+
+        $result = $this->billingService->subscribe($master, $this->proPlan, 1);
+
+        $payload = [
+            'payment_id' => $result['subscription']->payment_id,
+            'status' => 'paid',
+        ];
+
+        $response = $this->postJson('/webhooks/payment', $payload, [
+            'X-Webhook-Signature' => 'test_secret_123',
+        ]);
+
+        $response->assertOk();
+
+        $result['subscription']->refresh();
+        $this->assertEquals('active', $result['subscription']->status);
     }
 
     public function test_webhook_payment_with_invalid_signature_is_rejected(): void

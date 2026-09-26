@@ -2,10 +2,14 @@
 
 namespace App\Console\Commands;
 
+use App\Enums\BillingCycleStatus;
 use App\Enums\SubscriptionStatus;
+use App\Models\BillingCycle;
 use App\Models\NotificationLog;
 use App\Models\Subscription;
+use App\Models\Workspace;
 use App\Notifications\PaymentReminderNotification;
+use App\Services\Billing\EntitlementService;
 use App\Services\Notification\MasterNotificationService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
@@ -25,7 +29,17 @@ class CheckSubscriptionExpirations extends Command
     public function handle(): int
     {
         $this->notifyUpcomingExpirations();
+        $this->expireLegacySubscriptions();
 
+        return self::SUCCESS;
+    }
+
+    /**
+     * Mark expired legacy subscriptions (mirror maintenance).
+     * This only updates the legacy mirror — it does NOT affect entitlement decisions.
+     */
+    private function expireLegacySubscriptions(): void
+    {
         $expiredSubscriptions = Subscription::where('status', SubscriptionStatus::Active)
             ->where('expires_at', '<', now())
             ->get();
@@ -45,25 +59,44 @@ class CheckSubscriptionExpirations extends Command
         }
 
         $this->info("Processed {$expiredSubscriptions->count()} expired subscriptions.");
-
-        return self::SUCCESS;
     }
 
+    /**
+     * Send reminders based on Core entitlement end date.
+     *
+     * Rules:
+     * - 5 day / 3 day reminders from Core entitlement end
+     * - No reminder if Core entitlement already ended or absent
+     */
     private function notifyUpcomingExpirations(): void
     {
+        $entitlementService = app(EntitlementService::class);
+
+        // Find workspaces with active Core entitlement (granting cycles with period_end > now)
+        $activeWorkspaceIds = BillingCycle::query()
+            ->where('period_end', '>', now())
+            ->where('status', BillingCycleStatus::Paid)
+            ->distinct()
+            ->pluck('workspace_id');
+
+        $workspaces = Workspace::whereIn('id', $activeWorkspaceIds)->get();
+
         $daysThresholds = [5, 3];
 
-        foreach ($daysThresholds as $days) {
-            $targetDate = now()->addDays($days)->startOfDay();
+        foreach ($workspaces as $workspace) {
+            try {
+                $plan = $entitlementService->currentPlan($workspace);
+                if (! $plan || ! $plan->expiresAt) {
+                    continue;
+                }
 
-            $subscriptions = Subscription::where('status', SubscriptionStatus::Active)
-                ->whereDate('expires_at', $targetDate->toDateString())
-                ->get();
+                $entitlementEnd = $plan->expiresAt;
 
-            foreach ($subscriptions as $subscription) {
-                try {
-                    $workspace = $subscription->workspace;
-                    if (! $workspace) {
+                foreach ($daysThresholds as $days) {
+                    $targetDate = now()->addDays($days)->startOfDay();
+
+                    // Check if entitlement end is exactly on the target date
+                    if (! $entitlementEnd->startOfDay()->eq($targetDate)) {
                         continue;
                     }
 
@@ -72,7 +105,7 @@ class CheckSubscriptionExpirations extends Command
                         continue;
                     }
 
-                    $expiresDate = $subscription->expires_at->format('Y-m-d');
+                    $expiresDate = $entitlementEnd->format('Y-m-d');
                     $periodKey = $expiresDate.'_'.$days;
 
                     if (NotificationLog::hasBeenSent($workspace->id, 'subscription_expiring', $periodKey)) {
@@ -96,7 +129,6 @@ class CheckSubscriptionExpirations extends Command
                                 NotificationLog::markSent($workspace->id, 'subscription_expiring_in_app', $inAppPeriodKey);
                             } catch (\Exception $e) {
                                 Log::error('In-app payment reminder failed', [
-                                    'subscription_id' => $subscription->id,
                                     'workspace_id' => $workspace->id,
                                     'error' => $e->getMessage(),
                                 ]);
@@ -105,13 +137,12 @@ class CheckSubscriptionExpirations extends Command
                     }
 
                     $this->info("Sent subscription_expiring_{$days} to workspace {$workspace->id}");
-                } catch (\Exception $e) {
-                    Log::error('Notify upcoming expiration failed', [
-                        'subscription_id' => $subscription->id,
-                        'workspace_id' => $subscription->workspace_id,
-                        'error' => $e->getMessage(),
-                    ]);
                 }
+            } catch (\Exception $e) {
+                Log::error('Notify upcoming expiration failed', [
+                    'workspace_id' => $workspace->id,
+                    'error' => $e->getMessage(),
+                ]);
             }
         }
     }

@@ -39,8 +39,10 @@ class AppointmentController extends Controller
             ->orderBy('start_time')
             ->get();
 
-        // Eager load workspace -> activeSubscription -> tariffPlan for isAutoFillEnabled()
-        $appointments->loadMissing('master.workspace.subscriptions.tariffPlan');
+        // Eager load for isAutoFillEnabled(): only needed when Core entitlement is OFF
+        if (! config('billing.core_entitlement')) {
+            $appointments->loadMissing('master.workspace.subscriptions.tariffPlan');
+        }
 
         return response()->json(
             AppointmentResource::collection($appointments)
