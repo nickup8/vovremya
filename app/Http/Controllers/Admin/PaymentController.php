@@ -6,8 +6,10 @@ use App\Http\Controllers\Controller;
 use App\Models\TariffPlan;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\EntitlementService;
+use App\Support\PlanDefaults;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class PaymentController extends Controller
@@ -20,7 +22,7 @@ class PaymentController extends Controller
     {
         abort_unless($request->user()->role->canManageBilling(), 403);
 
-        $plans = TariffPlan::whereIn('code', ['start', 'pro'])
+        $plans = TariffPlan::whereIn('code', PlanDefaults::BILLING_PAGE_CODES)
             ->where('is_active', true)
             ->orderBy('price_monthly')
             ->get()
@@ -80,6 +82,13 @@ class PaymentController extends Controller
         ]);
 
         $plan = TariffPlan::findOrFail($validated['tariff_plan_id']);
+
+        if (! in_array($plan->code, PlanDefaults::CHECKOUT_ALLOWED_CODES, true)) {
+            throw ValidationException::withMessages([
+                'tariff_plan_id' => 'Оформление подписки на тариф «{$plan->name}» недоступно. Выберите другой тариф.',
+            ]);
+        }
+
         $master = auth()->user();
 
         $result = $this->billingService->subscribe(

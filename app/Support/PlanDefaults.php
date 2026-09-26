@@ -25,4 +25,16 @@ final class PlanDefaults
      * На уровне PHP используется PHP_INT_MAX.
      */
     public const UNLIMITED = null;
+
+    /**
+     * Текущая продуктовая линейка — единственный source of truth
+     * для billing page и checkout allowlist.
+     *
+     * studio/salon deprecated: checkout для них закрыт,
+     * historical subscriptions/cycles/plans остаются в БД.
+     */
+    public const CHECKOUT_ALLOWED_CODES = ['pro'];
+
+    /** Все коды, отображаемые на customer billing page */
+    public const BILLING_PAGE_CODES = ['start', 'pro'];
 }
