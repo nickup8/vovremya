@@ -143,7 +143,8 @@ class BillingCoreWriterTest extends TestCase
 
         // Create a failing gateway
         $failingGateway = new class implements \App\Services\Payment\PaymentGatewayInterface {
-            public function createPayment(\App\Models\Subscription $subscription, int $amount, string $internalOrderId): array
+            public function name(): string { return 'mock'; }
+            public function createPayment(int $amount, string $currency, string $internalOrderId, array $context = []): \App\Services\Payment\DTOs\PaymentInitiation
             {
                 throw new \RuntimeException('Network timeout');
             }
@@ -153,7 +154,12 @@ class BillingCoreWriterTest extends TestCase
                 return true;
             }
 
-            public function parseWebhookStatus(array $payload): ?string
+            public function normalizeWebhook(array $payload): \App\Services\Payment\DTOs\ProviderStatusUpdate
+            {
+                throw new \RuntimeException('Not implemented');
+            }
+
+            public function getPaymentStatus(?string $providerPaymentId, string $internalOrderId): ?\App\Services\Payment\DTOs\ProviderStatusUpdate
             {
                 return null;
             }
@@ -310,9 +316,9 @@ class BillingCoreWriterTest extends TestCase
         );
     }
 
-    // ── 9. Pending webhook rejected (terminal state guard) ──
+    // ── 9. Late success: failed_terminal → succeeded IS allowed (A1.3 Core-first) ──
 
-    public function test_failed_then_success_webhook_is_rejected(): void
+    public function test_failed_then_success_webhook_late_success_allowed(): void
     {
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
@@ -325,10 +331,15 @@ class BillingCoreWriterTest extends TestCase
         $legacy->refresh();
         $this->assertSame('failed', $legacy->status);
 
-        // Then: success webhook → rejected (terminal state)
+        // Then: success webhook → allowed (late success scenario)
         $this->sendWebhook($legacy->payment_id, 'paid', $legacy->amount_paid);
+
+        $attempt = PaymentAttempt::where('provider_payment_id', $legacy->payment_id)->first();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+
+        // Subscription becomes active via mirror
         $legacy->refresh();
-        $this->assertSame('failed', $legacy->status);
+        $this->assertSame('active', $legacy->status);
     }
 
     // ── 10. ProviderEvent recorded ──
@@ -341,10 +352,10 @@ class BillingCoreWriterTest extends TestCase
         $result = $service->subscribe($master, $this->proPlan, 1);
         $this->sendWebhook($result['subscription']->payment_id, 'paid', $result['subscription']->amount_paid);
 
-        $event = ProviderEvent::where('dedup_key', $result['subscription']->payment_id . ':paid')->first();
+        $event = ProviderEvent::where('dedup_key', 'mock:' . $result['subscription']->payment_id . ':succeeded')->first();
         $this->assertNotNull($event);
         $this->assertSame('mock', $event->provider);
-        $this->assertSame('paid', $event->event_type);
+        $this->assertSame('succeeded', $event->event_type);
         $this->assertNotNull($event->received_at);
     }
 

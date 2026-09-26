@@ -199,7 +199,13 @@ Route::get('/max/diag/send-test-button', function (\Illuminate\Http\Request $req
     return response()->json(['sent' => $ok]);
 });
 
-Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])->middleware('throttle:60,1')->name('webhooks.payment');
+Route::post('/webhooks/payment/{provider}', [PaymentWebhookController::class, 'handleProvider'])
+    ->middleware('throttle:60,1')
+    ->name('webhooks.payment.provider');
+
+Route::post('/webhooks/payment', [PaymentWebhookController::class, 'handle'])
+    ->middleware('throttle:60,1')
+    ->name('webhooks.payment');
 
 Route::middleware(['auth'])->prefix('admin-root')->group(function () {
     Route::get('/', [SuperAdminController::class, 'index'])->middleware('platform_permission:dashboard.view')->name('super_admin.dashboard');

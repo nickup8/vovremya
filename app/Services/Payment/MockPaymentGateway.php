@@ -2,19 +2,29 @@
 
 namespace App\Services\Payment;
 
-use App\Models\Subscription;
+use App\Enums\PaymentAttemptStatus;
+use App\Services\Payment\DTOs\PaymentInitiation;
+use App\Services\Payment\DTOs\ProviderStatusUpdate;
 
 class MockPaymentGateway implements PaymentGatewayInterface
 {
-    public function createPayment(Subscription $subscription, int $amount, string $internalOrderId): array
+    public function name(): string
     {
+        return 'mock';
+    }
+
+    public function createPayment(
+        int $amount,
+        string $currency,
+        string $internalOrderId,
+        array $context = [],
+    ): PaymentInitiation {
         $paymentId = 'mock_'.bin2hex(random_bytes(16));
 
-        return [
-            'payment_id' => $paymentId,
-            'order_id' => $internalOrderId,
-            'confirmation_url' => config('app.url')."/admin/settings?payment={$paymentId}",
-        ];
+        return new PaymentInitiation(
+            providerPaymentId: $paymentId,
+            checkoutUrl: config('app.url')."/admin/settings?payment={$paymentId}",
+        );
     }
 
     public function verifyWebhook(array $payload, string $signature): bool
@@ -32,15 +42,38 @@ class MockPaymentGateway implements PaymentGatewayInterface
         return hash_equals($secret, $signature);
     }
 
-    public function parseWebhookStatus(array $payload): ?string
+    public function normalizeWebhook(array $payload): ProviderStatusUpdate
     {
         $status = $payload['status'] ?? null;
+        $paymentId = $payload['payment_id'] ?? $payload['transaction_id'] ?? null;
+        $orderId = $payload['order_id'] ?? null;
+        $amount = isset($payload['amount']) && is_numeric($payload['amount'])
+            ? (int) $payload['amount']
+            : null;
 
-        return match ($status) {
-            'succeeded', 'paid' => 'paid',
-            'failed', 'canceled' => 'failed',
-            'refunded' => 'refunded',
-            default => null,
+        $normalizedStatus = match ($status) {
+            'succeeded', 'paid' => PaymentAttemptStatus::Succeeded,
+            'failed', 'canceled' => PaymentAttemptStatus::FailedTerminal,
+            'refunded' => PaymentAttemptStatus::Refunded,
+            default => PaymentAttemptStatus::Unknown,
         };
+
+        return new ProviderStatusUpdate(
+            provider: $this->name(),
+            providerPaymentId: $paymentId,
+            internalOrderId: $orderId,
+            normalizedStatus: $normalizedStatus,
+            amount: $amount,
+            currency: 'RUB',
+            raw: $payload,
+        );
+    }
+
+    public function getPaymentStatus(
+        ?string $providerPaymentId,
+        string $internalOrderId,
+    ): ?ProviderStatusUpdate {
+        // Mock gateway has no external state to query
+        return null;
     }
 }

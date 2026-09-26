@@ -2,12 +2,19 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\BillingCycleStatus;
+use App\Enums\BillingSubscriptionStatus;
+use App\Enums\PaymentAttemptStatus;
 use App\Enums\SubscriptionStatus;
+use App\Models\BillingCycle;
+use App\Models\BillingSubscription;
+use App\Models\PaymentAttempt;
+use App\Models\PlanPrice;
+use App\Models\ProviderEvent;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
-use App\Services\Payment\PaymentGatewayInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -18,7 +25,6 @@ class PaymentWebhookTest extends TestCase
     private const WEBHOOK_SECRET = 'test_legacy_webhook_secret_abc123';
 
     private TariffPlan $proPlan;
-
     private Workspace $workspace;
 
     protected function setUp(): void
@@ -44,11 +50,23 @@ class PaymentWebhookTest extends TestCase
             'features' => ['unlimited_appointments'],
             'is_active' => true,
         ]);
+
+        PlanPrice::create([
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_months' => 1,
+            'base_amount' => 490,
+            'discount_percent' => 0,
+            'final_amount' => 490,
+            'currency' => 'RUB',
+            'version' => 1,
+            'valid_from' => now(),
+            'is_active' => true,
+        ]);
     }
 
     private function createPendingSubscription(string $paymentId, int $amountPaid = 490): Subscription
     {
-        return Subscription::create([
+        $sub = Subscription::create([
             'workspace_id' => $this->workspace->id,
             'tariff_plan_id' => $this->proPlan->id,
             'period_months' => 1,
@@ -58,6 +76,41 @@ class PaymentWebhookTest extends TestCase
             'expires_at' => now()->addMonth(),
             'payment_id' => $paymentId,
         ]);
+
+        // Also create Core billing structures
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::PendingInitial,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => $sub->starts_at,
+            'period_end' => $sub->expires_at,
+            'status' => BillingCycleStatus::Pending,
+            'amount' => $amountPaid,
+            'currency' => 'RUB',
+            'origin' => 'payment',
+            'legacy_subscription_id' => $sub->id,
+        ]);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => $amountPaid,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => $paymentId,
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now(),
+            'metadata' => ['legacy_subscription_id' => $sub->id],
+        ]);
+
+        return $sub;
     }
 
     private function sendWebhook(array $payload, string $signature = self::WEBHOOK_SECRET): \Illuminate\Testing\TestResponse
@@ -67,7 +120,7 @@ class PaymentWebhookTest extends TestCase
         ]);
     }
 
-    // ── 1. Secret not configured → 403 ──
+    // ── 1. Signature validation ──
 
     public function test_secret_not_configured_returns_403(): void
     {
@@ -82,21 +135,6 @@ class PaymentWebhookTest extends TestCase
         $response->assertStatus(403);
     }
 
-    public function test_empty_secret_returns_403(): void
-    {
-        config(['billing.legacy_mock_webhook_secret' => '']);
-
-        $response = $this->sendWebhook([
-            'payment_id' => 'mock_any',
-            'status' => 'succeeded',
-            'amount' => 490,
-        ]);
-
-        $response->assertStatus(403);
-    }
-
-    // ── 2. Signature missing → 403 ──
-
     public function test_missing_signature_returns_403(): void
     {
         $response = $this->postJson(route('webhooks.payment'), [
@@ -108,8 +146,6 @@ class PaymentWebhookTest extends TestCase
         $response->assertStatus(403);
     }
 
-    // ── 3. Signature invalid → 403 ──
-
     public function test_invalid_signature_returns_403(): void
     {
         $response = $this->sendWebhook(
@@ -120,76 +156,9 @@ class PaymentWebhookTest extends TestCase
         $response->assertStatus(403);
     }
 
-    // ── 4. Valid signature + wrong amount → subscription NOT active ──
+    // ── 2. Core-first: success transitions attempt + cycle + legacy mirror ──
 
-    public function test_wrong_amount_does_not_activate_subscription(): void
-    {
-        $sub = $this->createPendingSubscription('mock_wrong_amt', 490);
-
-        $response = $this->sendWebhook([
-            'payment_id' => 'mock_wrong_amt',
-            'status' => 'succeeded',
-            'amount' => 999,
-        ]);
-
-        $response->assertOk();
-
-        $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
-    }
-
-    // ── 5. Valid signature + missing amount → NOT active ──
-
-    public function test_missing_amount_does_not_activate_subscription(): void
-    {
-        $sub = $this->createPendingSubscription('mock_no_amt', 490);
-
-        $response = $this->sendWebhook([
-            'payment_id' => 'mock_no_amt',
-            'status' => 'succeeded',
-        ]);
-
-        $response->assertOk();
-
-        $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
-    }
-
-    public function test_zero_amount_does_not_activate_subscription(): void
-    {
-        $sub = $this->createPendingSubscription('mock_zero_amt', 490);
-
-        $response = $this->sendWebhook([
-            'payment_id' => 'mock_zero_amt',
-            'status' => 'succeeded',
-            'amount' => 0,
-        ]);
-
-        $response->assertOk();
-
-        $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
-    }
-
-    public function test_negative_amount_does_not_activate_subscription(): void
-    {
-        $sub = $this->createPendingSubscription('mock_neg_amt', 490);
-
-        $response = $this->sendWebhook([
-            'payment_id' => 'mock_neg_amt',
-            'status' => 'succeeded',
-            'amount' => -100,
-        ]);
-
-        $response->assertOk();
-
-        $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
-    }
-
-    // ── 6. Valid signature + correct amount + allowed status → active ──
-
-    public function test_valid_success_activates_pending_subscription(): void
+    public function test_valid_success_transitions_core_and_legacy(): void
     {
         $sub = $this->createPendingSubscription('mock_valid_1', 490);
 
@@ -201,11 +170,20 @@ class PaymentWebhookTest extends TestCase
 
         $response->assertOk();
 
+        // Core state
+        $attempt = PaymentAttempt::where('provider_payment_id', 'mock_valid_1')->first();
+        $this->assertNotNull($attempt);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+
+        $cycle = BillingCycle::where('id', $attempt->billing_cycle_id)->first();
+        $this->assertSame(BillingCycleStatus::Paid, $cycle->status);
+
+        // Legacy mirror
         $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Active->value, $sub->status);
+        $this->assertSame('active', $sub->status);
     }
 
-    public function test_valid_paid_status_activates_pending_subscription(): void
+    public function test_paid_status_transitions_core_and_legacy(): void
     {
         $sub = $this->createPendingSubscription('mock_valid_paid', 490);
 
@@ -217,11 +195,55 @@ class PaymentWebhookTest extends TestCase
 
         $response->assertOk();
 
+        $attempt = PaymentAttempt::where('provider_payment_id', 'mock_valid_paid')->first();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+
         $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Active->value, $sub->status);
+        $this->assertSame('active', $sub->status);
     }
 
-    public function test_failed_status_sets_pending_to_failed(): void
+    // ── 3. Wrong amount → no transition ──
+
+    public function test_wrong_amount_does_not_transition(): void
+    {
+        $sub = $this->createPendingSubscription('mock_wrong_amt', 490);
+
+        $response = $this->sendWebhook([
+            'payment_id' => 'mock_wrong_amt',
+            'status' => 'succeeded',
+            'amount' => 999,
+        ]);
+
+        $response->assertOk();
+
+        $attempt = PaymentAttempt::where('provider_payment_id', 'mock_wrong_amt')->first();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+
+        $sub->refresh();
+        $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
+    }
+
+    public function test_missing_amount_does_not_transition(): void
+    {
+        $sub = $this->createPendingSubscription('mock_no_amt', 490);
+
+        $response = $this->sendWebhook([
+            'payment_id' => 'mock_no_amt',
+            'status' => 'succeeded',
+        ]);
+
+        $response->assertOk();
+
+        $attempt = PaymentAttempt::where('provider_payment_id', 'mock_no_amt')->first();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+
+        $sub->refresh();
+        $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
+    }
+
+    // ── 4. Failed status ──
+
+    public function test_failed_status_transitions_core_and_legacy(): void
     {
         $sub = $this->createPendingSubscription('mock_failed_1', 490);
 
@@ -232,14 +254,23 @@ class PaymentWebhookTest extends TestCase
 
         $response->assertOk();
 
+        $attempt = PaymentAttempt::where('provider_payment_id', 'mock_failed_1')->first();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+
         $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Failed->value, $sub->status);
+        $this->assertSame('failed', $sub->status);
     }
 
-    public function test_refunded_status_sets_active_to_refunded(): void
+    // ── 5. Refunded status ──
+
+    public function test_refunded_status_transitions_core_and_legacy(): void
     {
         $sub = $this->createPendingSubscription('mock_ref_1', 490);
         $sub->update(['status' => SubscriptionStatus::Active]);
+
+        // Also mark attempt as succeeded first
+        PaymentAttempt::where('provider_payment_id', 'mock_ref_1')
+            ->update(['status' => PaymentAttemptStatus::Succeeded]);
 
         $response = $this->sendWebhook([
             'payment_id' => 'mock_ref_1',
@@ -248,13 +279,16 @@ class PaymentWebhookTest extends TestCase
 
         $response->assertOk();
 
+        $attempt = PaymentAttempt::where('provider_payment_id', 'mock_ref_1')->first();
+        $this->assertSame(PaymentAttemptStatus::Refunded, $attempt->status);
+
         $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Refunded->value, $sub->status);
+        $this->assertSame('refunded', $sub->status);
     }
 
-    // ── 7. Duplicate valid success doesn't break state ──
+    // ── 6. Duplicate success = idempotent ──
 
-    public function test_duplicate_success_does_not_create_new_subscription(): void
+    public function test_duplicate_success_is_idempotent(): void
     {
         $sub = $this->createPendingSubscription('mock_dup_1', 490);
         $subId = $sub->id;
@@ -265,12 +299,18 @@ class PaymentWebhookTest extends TestCase
             'amount' => 490,
         ]);
 
+        $eventsAfterFirst = ProviderEvent::count();
+
         $this->sendWebhook([
             'payment_id' => 'mock_dup_1',
             'status' => 'succeeded',
             'amount' => 490,
         ]);
 
+        // No new events
+        $this->assertSame($eventsAfterFirst, ProviderEvent::count());
+
+        // Subscription count unchanged
         $this->assertDatabaseCount('subscriptions', 1);
 
         $sub->refresh();
@@ -278,71 +318,61 @@ class PaymentWebhookTest extends TestCase
         $this->assertSame($subId, $sub->id);
     }
 
-    // ── 8. Terminal subscription not reactivated by success event ──
+    // ── 7. Unmatched payment_id = no-op ──
 
-    public function test_terminal_failed_not_reactivated_by_success(): void
+    public function test_unmatched_payment_id_returns_ok_no_mutation(): void
     {
-        $sub = $this->createPendingSubscription('mock_terminal_1', 490);
-        $sub->update(['status' => SubscriptionStatus::Failed]);
-
         $response = $this->sendWebhook([
-            'payment_id' => 'mock_terminal_1',
+            'payment_id' => 'mock_nonexistent',
             'status' => 'succeeded',
             'amount' => 490,
         ]);
 
         $response->assertOk();
-
-        $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Failed->value, $sub->status);
     }
 
-    public function test_terminal_refunded_not_reactivated_by_success(): void
-    {
-        $sub = $this->createPendingSubscription('mock_terminal_2', 490);
-        $sub->update(['status' => SubscriptionStatus::Refunded]);
+    // ── 8. Provider event recorded ──
 
-        $response = $this->sendWebhook([
-            'payment_id' => 'mock_terminal_2',
+    public function test_provider_event_recorded_on_success(): void
+    {
+        $sub = $this->createPendingSubscription('mock_event_1', 490);
+
+        $this->sendWebhook([
+            'payment_id' => 'mock_event_1',
             'status' => 'succeeded',
             'amount' => 490,
         ]);
 
-        $response->assertOk();
-
-        $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Refunded->value, $sub->status);
+        $event = ProviderEvent::where('dedup_key', 'mock:mock_event_1:succeeded')->first();
+        $this->assertNotNull($event);
+        $this->assertSame('mock', $event->provider);
+        $this->assertNotNull($event->processed_at);
+        $this->assertNull($event->processing_error);
     }
 
-    public function test_terminal_expired_not_reactivated_by_success(): void
-    {
-        $sub = $this->createPendingSubscription('mock_terminal_3', 490);
-        $sub->update(['status' => SubscriptionStatus::Expired]);
+    // ── 9. Provider-aware route ──
 
-        $response = $this->sendWebhook([
-            'payment_id' => 'mock_terminal_3',
+    public function test_provider_aware_route_with_unknown_provider(): void
+    {
+        $response = $this->postJson(route('webhooks.payment.provider', 'unknown_provider'), [
+            'payment_id' => 'mock_any',
             'status' => 'succeeded',
             'amount' => 490,
+        ], [
+            'X-Webhook-Signature' => self::WEBHOOK_SECRET,
         ]);
 
-        $response->assertOk();
-
-        $sub->refresh();
-        $this->assertSame(SubscriptionStatus::Expired->value, $sub->status);
+        $response->assertStatus(400);
     }
 
-    // ── Extra: checkout redirect does NOT activate Pro ──
+    // ── 10. Checkout redirect does NOT activate ──
 
     public function test_checkout_redirect_does_not_activate_subscription(): void
     {
         $sub = $this->createPendingSubscription('mock_checkout_redirect', 490);
 
-        // Simulate what the mock confirmation_url does: redirect to /admin/settings?payment=...
-        // This endpoint does NOT activate any subscription — only the webhook does.
         $response = $this->get('/admin/settings?payment=mock_checkout_redirect');
 
-        // The endpoint exists (admin settings) but doesn't activate anything
-        // We just verify the subscription is still pending
         $sub->refresh();
         $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
     }

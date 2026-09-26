@@ -128,7 +128,13 @@ class BillingService
                         'expires_at' => $period['period_end'],
                     ]);
 
-                    $coreResult = $this->coreWriter->checkoutCreated($subscription, $plan, $price, $periodMonths);
+                    $coreResult = $this->coreWriter->checkoutCreated(
+                        $subscription,
+                        $plan,
+                        $price,
+                        $periodMonths,
+                        $this->gateway->name(),
+                    );
 
                     return [
                         'subscription' => $subscription,
@@ -140,9 +146,10 @@ class BillingService
                 // ── Phase B: Gateway call (outside transaction) ──
                 try {
                     $paymentResult = $this->gateway->createPayment(
-                        $intent['subscription'],
-                        $intent['price']['final'],
-                        $intent['coreResult']['internalOrderId'],
+                        amount: $intent['price']['final'],
+                        currency: $intent['price']['currency'] ?? 'RUB',
+                        internalOrderId: $intent['coreResult']['internalOrderId'],
+                        context: ['workspace_id' => $master->workspace_id],
                     );
                 } catch (\Throwable $e) {
                     DB::transaction(fn () => $this->coreWriter->checkoutFailed($intent['coreResult']['internalOrderId']));
@@ -158,15 +165,15 @@ class BillingService
 
                     $this->coreWriter->paymentAttached(
                         $intent['coreResult']['internalOrderId'],
-                        $paymentResult['payment_id'],
-                        $paymentResult['confirmation_url'] ?? $paymentResult['checkout_url'] ?? '',
+                        $paymentResult->providerPaymentId,
+                        $paymentResult->checkoutUrl,
                         $intent['subscription'],
                     );
                 });
 
                 return [
                     'subscription' => $intent['subscription']->refresh(),
-                    'confirmation_url' => $paymentResult['confirmation_url'],
+                    'confirmation_url' => $paymentResult->checkoutUrl,
                 ];
             });
         } catch (LockTimeoutException) {

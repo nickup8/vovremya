@@ -164,18 +164,21 @@ class BillingCheckoutHardeningTest extends TestCase
 
             public function __construct(\stdClass $counter) { $this->counter = $counter; }
 
-            public function createPayment(\App\Models\Subscription $subscription, int $amount, string $internalOrderId): array
+            public function name(): string { return 'mock'; }
+
+            public function createPayment(int $amount, string $currency, string $internalOrderId, array $context = []): \App\Services\Payment\DTOs\PaymentInitiation
             {
                 $this->counter->count++;
 
-                return [
-                    'payment_id' => 'mock_'.uniqid(),
-                    'confirmation_url' => 'http://example.com/pay?'.uniqid(),
-                ];
+                return new \App\Services\Payment\DTOs\PaymentInitiation(
+                    providerPaymentId: 'mock_'.uniqid(),
+                    checkoutUrl: 'http://example.com/pay?'.uniqid(),
+                );
             }
 
             public function verifyWebhook(array $payload, string $signature): bool { return true; }
-            public function parseWebhookStatus(array $payload): ?string { return null; }
+            public function normalizeWebhook(array $payload): \App\Services\Payment\DTOs\ProviderStatusUpdate { throw new \RuntimeException('Not implemented'); }
+            public function getPaymentStatus(?string $providerPaymentId, string $internalOrderId): ?\App\Services\Payment\DTOs\ProviderStatusUpdate { return null; }
         };
 
         $this->app->instance(PaymentGatewayInterface::class, $gateway);
@@ -194,12 +197,14 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
 
         $failingGateway = new class implements PaymentGatewayInterface {
-            public function createPayment(\App\Models\Subscription $subscription, int $amount, string $internalOrderId): array
+            public function name(): string { return 'mock'; }
+            public function createPayment(int $amount, string $currency, string $internalOrderId, array $context = []): \App\Services\Payment\DTOs\PaymentInitiation
             {
                 throw new \RuntimeException('Network timeout');
             }
             public function verifyWebhook(array $payload, string $signature): bool { return true; }
-            public function parseWebhookStatus(array $payload): ?string { return null; }
+            public function normalizeWebhook(array $payload): \App\Services\Payment\DTOs\ProviderStatusUpdate { throw new \RuntimeException('Not implemented'); }
+            public function getPaymentStatus(?string $providerPaymentId, string $internalOrderId): ?\App\Services\Payment\DTOs\ProviderStatusUpdate { return null; }
         };
         $this->app->instance(PaymentGatewayInterface::class, $failingGateway);
 
@@ -234,12 +239,14 @@ class BillingCheckoutHardeningTest extends TestCase
         ]);
 
         $failingGateway = new class implements PaymentGatewayInterface {
-            public function createPayment(\App\Models\Subscription $subscription, int $amount, string $internalOrderId): array
+            public function name(): string { return 'mock'; }
+            public function createPayment(int $amount, string $currency, string $internalOrderId, array $context = []): \App\Services\Payment\DTOs\PaymentInitiation
             {
                 throw new \RuntimeException('Should not be called');
             }
             public function verifyWebhook(array $payload, string $signature): bool { return true; }
-            public function parseWebhookStatus(array $payload): ?string { return null; }
+            public function normalizeWebhook(array $payload): \App\Services\Payment\DTOs\ProviderStatusUpdate { throw new \RuntimeException('Not implemented'); }
+            public function getPaymentStatus(?string $providerPaymentId, string $internalOrderId): ?\App\Services\Payment\DTOs\ProviderStatusUpdate { return null; }
         };
         $this->app->instance(PaymentGatewayInterface::class, $failingGateway);
 
@@ -670,11 +677,11 @@ class BillingCheckoutHardeningTest extends TestCase
         $this->sendWebhook($paymentId, 'paid', $amount);
         $this->sendWebhook($paymentId, 'paid', $amount);
 
-        $this->assertSame(1, ProviderEvent::where('dedup_key', $paymentId.':paid')->count());
+        $this->assertSame(1, ProviderEvent::where('dedup_key', 'mock:'.$paymentId.':succeeded')->count());
 
         $this->sendWebhook($paymentId, 'refunded', $amount);
 
-        $this->assertSame(1, ProviderEvent::where('dedup_key', $paymentId.':refunded')->count());
+        $this->assertSame(1, ProviderEvent::where('dedup_key', 'mock:'.$paymentId.':refunded')->count());
         $this->assertSame(2, ProviderEvent::where('provider', 'mock')->count());
     }
 

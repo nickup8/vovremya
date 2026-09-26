@@ -23,8 +23,6 @@ use Illuminate\Support\Str;
  */
 class BillingCoreWriter
 {
-    private const PROVIDER = 'mock';
-
     /**
      * Checkout intent: create BillingSubscription + BillingCycle + PaymentAttempt.
      *
@@ -36,6 +34,7 @@ class BillingCoreWriter
         TariffPlan $plan,
         array $price,
         int $periodMonths,
+        string $provider = 'mock',
     ): array {
         $workspaceId = $legacy->workspace_id;
 
@@ -115,7 +114,7 @@ class BillingCoreWriter
 
         $attempt = PaymentAttempt::create([
             'billing_cycle_id' => $cycle->id,
-            'provider' => self::PROVIDER,
+            'provider' => $provider,
             'attempt_number' => $maxNumber + 1,
             'amount' => $price['final'],
             'currency' => 'RUB',
@@ -272,7 +271,7 @@ class BillingCoreWriter
         }
 
         ProviderEvent::create([
-            'provider' => self::PROVIDER,
+            'provider' => 'mock', // Legacy path - always mock
             'dedup_key' => $dedupKey,
             'event_type' => $status,
             'payload' => $payload,

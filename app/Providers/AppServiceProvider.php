@@ -19,6 +19,7 @@ use App\Observers\UserObserver;
 use App\Observers\WorkingHourObserver;
 use App\Services\Payment\MockPaymentGateway;
 use App\Services\Payment\PaymentGatewayInterface;
+use App\Services\Payment\PaymentGatewayManager;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -37,7 +38,13 @@ class AppServiceProvider extends ServiceProvider
      */
     public function register(): void
     {
-        $this->app->bind(PaymentGatewayInterface::class, fn () => new MockPaymentGateway);
+        $this->app->singleton(PaymentGatewayManager::class, function ($app) {
+            return new PaymentGatewayManager($app, config('billing.gateways', []));
+        });
+
+        $this->app->bind(PaymentGatewayInterface::class, function ($app) {
+            return $app->make(PaymentGatewayManager::class)->getDefault();
+        });
     }
 
     /**
