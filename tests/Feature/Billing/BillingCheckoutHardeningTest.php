@@ -677,11 +677,15 @@ class BillingCheckoutHardeningTest extends TestCase
         $this->sendWebhook($paymentId, 'paid', $amount);
         $this->sendWebhook($paymentId, 'paid', $amount);
 
-        $this->assertSame(1, ProviderEvent::where('dedup_key', 'mock:'.$paymentId.':succeeded')->count());
+        // Same payload → same fingerprint → dedup key identical → only 1 row
+        $this->assertSame(1, ProviderEvent::where('provider', 'mock')
+            ->where('event_type', 'succeeded')->count());
 
         $this->sendWebhook($paymentId, 'refunded', $amount);
 
-        $this->assertSame(1, ProviderEvent::where('dedup_key', 'mock:'.$paymentId.':refunded')->count());
+        // Different status → different fingerprint → different dedup key → 2nd row
+        $this->assertSame(1, ProviderEvent::where('provider', 'mock')
+            ->where('event_type', 'refunded')->count());
         $this->assertSame(2, ProviderEvent::where('provider', 'mock')->count());
     }
 

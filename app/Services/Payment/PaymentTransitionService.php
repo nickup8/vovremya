@@ -63,15 +63,19 @@ class PaymentTransitionService
         ?string $signatureMetadata = null,
     ): array {
         return DB::transaction(function () use ($update, $signatureMetadata) {
-            // 1. Provider event claim/dedup
+            // 1. Provider event claim/dedup (DB-safe atomic)
             $event = $this->claimProviderEvent($update, $signatureMetadata);
             if ($event === null) {
-                // Duplicate event - already processed
+                // Duplicate event — already processed
                 return ['success' => true];
             }
 
-            // 2. Locate + lock PaymentAttempt FOR UPDATE
+            // 2. Locate + lock PaymentAttempt (with identity conflict check)
             $attempt = $this->locateAttempt($update);
+            if (is_string($attempt)) {
+                // Identity conflict — $attempt holds the error string
+                return $this->handleUnmatchedEvent($event, $attempt);
+            }
             if ($attempt === null) {
                 return $this->handleUnmatchedEvent($event, 'attempt_not_found');
             }
@@ -120,7 +124,10 @@ class PaymentTransitionService
     }
 
     /**
-     * Claim provider event with idempotency.
+     * Claim provider event with DB-safe atomic insert.
+     *
+     * Uses INSERT ... ON CONFLICT DO NOTHING to avoid TOCTOU race conditions.
+     * After insert, fetches the existing or newly created event.
      */
     private function claimProviderEvent(
         ProviderStatusUpdate $update,
@@ -128,31 +135,51 @@ class PaymentTransitionService
     ): ?ProviderEvent {
         $dedupKey = $this->buildDedupKey($update);
 
-        // Check if event already exists (avoid unique violation in transaction)
-        $existing = ProviderEvent::where('dedup_key', $dedupKey)->first();
-        if ($existing !== null) {
-            Log::info('Duplicate provider event', [
-                'provider' => $update->provider,
-                'dedup_key' => $dedupKey,
-            ]);
+        $now = now();
 
-            return null;
-        }
-
-        // Create event
-        return ProviderEvent::create([
+        $rowData = [
+            'id' => (string) \Illuminate\Support\Str::uuid(),
             'provider' => $update->provider,
             'provider_event_id' => $update->providerEventId,
             'event_type' => $update->normalizedStatus->value,
             'dedup_key' => $dedupKey,
-            'payload' => $update->raw,
-            'signature_metadata' => $signatureMetadata ? ['signature' => $signatureMetadata] : null,
-            'received_at' => now(),
+            'payload' => json_encode($update->raw),
+            'signature_metadata' => $signatureMetadata ? json_encode(['signature' => $signatureMetadata]) : null,
+            'received_at' => $now,
+            'created_at' => $now,
+            'updated_at' => $now,
+        ];
+
+        // INSERT ... ON CONFLICT DO NOTHING (DB-safe, no TOCTOU)
+        $affected = DB::table('provider_events')->insertOrIgnore($rowData);
+
+        if ($affected === 1) {
+            // Newly inserted — return it
+            return ProviderEvent::where('dedup_key', $dedupKey)->first();
+        }
+
+        // Duplicate — find the existing event (try dedup_key first, then provider_event_id)
+        $existing = ProviderEvent::where('dedup_key', $dedupKey)->first();
+
+        if ($existing === null && $update->providerEventId !== null) {
+            $existing = ProviderEvent::where('provider', $update->provider)
+                ->where('provider_event_id', $update->providerEventId)
+                ->first();
+        }
+
+        Log::info('Duplicate provider event', [
+            'provider' => $update->provider,
+            'dedup_key' => $dedupKey,
         ]);
+
+        return $existing ?? null;
     }
 
     /**
      * Build dedup key for provider event.
+     *
+     * Primary: provider:provider_event_id (when available)
+     * Fallback: provider:identity:status:fingerprint (SHA-256 of sorted payload)
      */
     private function buildDedupKey(ProviderStatusUpdate $update): string
     {
@@ -161,57 +188,136 @@ class PaymentTransitionService
             return "{$update->provider}:{$update->providerEventId}";
         }
 
-        // Fallback: deterministic key with payment/order identity + status
+        // Fallback: deterministic key with payment/order identity + status + payload fingerprint
         $identity = $update->providerPaymentId ?? $update->internalOrderId ?? 'unknown';
+        $fingerprint = $this->buildPayloadFingerprint($update->raw);
 
-        return "{$update->provider}:{$identity}:{$update->normalizedStatus->value}";
+        return "{$update->provider}:{$identity}:{$update->normalizedStatus->value}:{$fingerprint}";
     }
 
     /**
-     * Locate PaymentAttempt by provider payment ID or internal order ID.
+     * Build SHA-256 fingerprint of payload with recursively sorted keys.
      */
-    private function locateAttempt(ProviderStatusUpdate $update): ?PaymentAttempt
+    private function buildPayloadFingerprint(array $payload): string
     {
-        // 1. Primary lookup: provider_payment_id (regardless of provider for now)
-        if ($update->providerPaymentId !== null) {
-            $attempt = PaymentAttempt::lockForUpdate()
-                ->where('provider_payment_id', $update->providerPaymentId)
-                ->first();
+        $canonical = $this->canonicalize($payload);
 
-            if ($attempt !== null) {
-                return $attempt;
-            }
-        }
+        return hash('sha256', $canonical);
+    }
 
-        // 2. Secondary lookup: internal_order_id
-        if ($update->internalOrderId !== null) {
-            $attempt = PaymentAttempt::lockForUpdate()
-                ->where('internal_order_id', $update->internalOrderId)
-                ->first();
+    /**
+     * Recursively sort associative array keys and encode as canonical JSON.
+     */
+    private function canonicalize(mixed $value): string
+    {
+        if (is_array($value)) {
+            // Check if associative (has string keys)
+            $isAssociative = array_keys($value) !== range(0, count($value) - 1);
 
-            if ($attempt !== null) {
-                // Attach provider_payment_id if missing
-                if ($attempt->provider_payment_id === null && $update->providerPaymentId !== null) {
-                    $attempt->update(['provider_payment_id' => $update->providerPaymentId]);
+            if ($isAssociative) {
+                ksort($value);
+                $pairs = [];
+                foreach ($value as $k => $v) {
+                    $pairs[] = json_encode($k) . ':' . $this->canonicalize($v);
                 }
 
-                return $attempt;
+                return '{' . implode(',', $pairs) . '}';
             }
+
+            $items = [];
+            foreach ($value as $v) {
+                $items[] = $this->canonicalize($v);
+            }
+
+            return '[' . implode(',', $items) . ']';
         }
 
-        // 3. Legacy lookup - only for mirror/history, not for transition authority
+        if (is_string($value)) {
+            return json_encode($value, JSON_UNESCAPED_UNICODE);
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        if ($value === true) {
+            return 'true';
+        }
+
+        if ($value === false) {
+            return 'false';
+        }
+
+        if ($value === null) {
+            return 'null';
+        }
+
+        return json_encode($value);
+    }
+
+    /**
+     * Locate PaymentAttempt with identity conflict detection.
+     *
+     * @return PaymentAttempt|string|null Attempt, error string for conflict, or null if not found
+     */
+    private function locateAttempt(ProviderStatusUpdate $update): PaymentAttempt|string|null
+    {
+        $attemptByPaymentId = null;
+        $attemptByOrderId = null;
+
+        // 1. Lookup by provider_payment_id
         if ($update->providerPaymentId !== null) {
-            $legacy = Subscription::where('payment_id', $update->providerPaymentId)->first();
-            if ($legacy !== null) {
-                Log::info('Legacy subscription found for provider payment ID', [
-                    'provider_payment_id' => $update->providerPaymentId,
-                    'legacy_subscription_id' => $legacy->id,
-                ]);
-                // Don't use legacy for transition authority - return null
-            }
+            $attemptByPaymentId = PaymentAttempt::lockForUpdate()
+                ->where('provider_payment_id', $update->providerPaymentId)
+                ->first();
         }
 
-        return null;
+        // 2. Lookup by internal_order_id
+        if ($update->internalOrderId !== null) {
+            $attemptByOrderId = PaymentAttempt::lockForUpdate()
+                ->where('internal_order_id', $update->internalOrderId)
+                ->first();
+        }
+
+        // 3. Identity conflict: both found but different attempts
+        if ($attemptByPaymentId !== null && $attemptByOrderId !== null
+            && $attemptByPaymentId->id !== $attemptByOrderId->id) {
+            Log::warning('Identity conflict in provider event', [
+                'provider_payment_id' => $update->providerPaymentId,
+                'internal_order_id' => $update->internalOrderId,
+                'attempt_by_payment_id' => $attemptByPaymentId->id,
+                'attempt_by_order_id' => $attemptByOrderId->id,
+            ]);
+
+            return 'identity_conflict';
+        }
+
+        // 4. Use the found attempt (prefer provider_payment_id lookup)
+        $attempt = $attemptByPaymentId ?? $attemptByOrderId;
+
+        if ($attempt === null) {
+            // 5. Legacy lookup — only for mirror/history, not transition authority
+            if ($update->providerPaymentId !== null) {
+                $legacy = Subscription::where('payment_id', $update->providerPaymentId)->first();
+                if ($legacy !== null) {
+                    Log::info('Legacy subscription found for provider payment ID', [
+                        'provider_payment_id' => $update->providerPaymentId,
+                        'legacy_subscription_id' => $legacy->id,
+                    ]);
+                }
+            }
+
+            return null;
+        }
+
+        // 6. Attach provider_payment_id if found by order_id and provider matches
+        if ($attempt->provider_payment_id === null
+            && $update->providerPaymentId !== null
+            && $attempt->provider === $update->provider) {
+            $attempt->update(['provider_payment_id' => $update->providerPaymentId]);
+        }
+
+        return $attempt;
     }
 
     /**
@@ -303,12 +409,15 @@ class PaymentTransitionService
             $cycle->update(['status' => $newCycleStatus]);
         }
 
-        // Mirror to legacy
+        // Mirror to legacy in isolated savepoint
         $this->mirrorToLegacy($attempt, $update);
     }
 
     /**
      * Mirror Core status to legacy subscription.
+     *
+     * Uses nested DB::transaction (savepoint) so that SQL failure in legacy mirror
+     * rolls back only the savepoint, NOT the outer Core transition.
      */
     private function mirrorToLegacy(
         PaymentAttempt $attempt,
@@ -326,34 +435,37 @@ class PaymentTransitionService
         }
 
         try {
-            $legacy = Subscription::find($legacySubscriptionId);
-            if ($legacy === null) {
-                Log::warning('Legacy subscription not found for mirror', [
-                    'legacy_subscription_id' => $legacySubscriptionId,
-                ]);
+            DB::transaction(function () use ($legacySubscriptionId, $update, $attempt) {
+                $legacy = Subscription::find($legacySubscriptionId);
+                if ($legacy === null) {
+                    Log::warning('Legacy subscription not found for mirror', [
+                        'legacy_subscription_id' => $legacySubscriptionId,
+                    ]);
 
-                return;
-            }
-
-            $newStatus = match ($update->normalizedStatus) {
-                PaymentAttemptStatus::Succeeded => 'active',
-                PaymentAttemptStatus::FailedTerminal => 'failed',
-                PaymentAttemptStatus::Refunded => 'refunded',
-                default => null,
-            };
-
-            if ($newStatus !== null && in_array($legacy->status, ['pending', 'active', 'failed'], true)) {
-                $updateData = ['status' => $newStatus];
-
-                // Update payment_id on success
-                if ($update->normalizedStatus === PaymentAttemptStatus::Succeeded && $update->providerPaymentId !== null) {
-                    $updateData['payment_id'] = $update->providerPaymentId;
+                    return;
                 }
 
-                $legacy->update($updateData);
-            }
+                $newStatus = match ($update->normalizedStatus) {
+                    PaymentAttemptStatus::Succeeded => 'active',
+                    PaymentAttemptStatus::FailedTerminal => 'failed',
+                    PaymentAttemptStatus::Refunded => 'refunded',
+                    default => null,
+                };
+
+                if ($newStatus !== null && in_array($legacy->status, ['pending', 'active', 'failed'], true)) {
+                    $updateData = ['status' => $newStatus];
+
+                    // Update payment_id on success
+                    if ($update->normalizedStatus === PaymentAttemptStatus::Succeeded && $update->providerPaymentId !== null) {
+                        $updateData['payment_id'] = $update->providerPaymentId;
+                    }
+
+                    $legacy->update($updateData);
+                }
+            });
         } catch (\Throwable $e) {
             // Mirror failure must NOT rollback Core transition
+            // (only the savepoint was rolled back)
             Log::error('Legacy mirror failed', [
                 'attempt_id' => $attempt->id,
                 'legacy_subscription_id' => $legacySubscriptionId,

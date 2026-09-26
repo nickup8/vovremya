@@ -354,10 +354,8 @@ class PaymentTransitionServiceTest extends TestCase
 
     public function test_mirror_failure_does_not_rollback_core(): void
     {
-        // Create legacy subscription that will fail to update (delete it to trigger failure)
         $legacy = $this->createLegacySubscription('pending');
         $legacyId = $legacy->id;
-        $legacy->delete(); // Delete to trigger mirror failure
 
         $attempt = $this->createAttemptWithLegacyById($legacyId, PaymentAttemptStatus::Processing, 490);
 
@@ -369,12 +367,39 @@ class PaymentTransitionServiceTest extends TestCase
             currency: 'RUB',
         );
 
-        // This should not throw even if mirror fails
+        // Register model event that throws a real QueryException during the mirror UPDATE.
+        // This simulates a genuine SQL failure (NOT NULL, connection error, etc.)
+        // inside the nested DB::transaction (savepoint).
+        $exception = new \Illuminate\Database\QueryException(
+            'pgsql',
+            'UPDATE subscriptions SET status = ? WHERE id = ?',
+            [],
+            new \PDOException('test mirror SQL failure'),
+        );
+
+        Subscription::updating(function ($model) use ($exception) {
+            if ($model->status === 'active') {
+                throw $exception;
+            }
+        });
+
+        // Core transition must succeed despite mirror SQL failure
         $result = $this->transitionService->transition($update);
 
         $this->assertTrue($result['success']);
         $attempt->refresh();
         $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+
+        // BillingCycle still committed as paid
+        $cycle = $attempt->billingCycle;
+        $this->assertNotNull($cycle);
+        $cycle->refresh();
+        $this->assertSame(BillingCycleStatus::Paid, $cycle->status);
+
+        // ProviderEvent linked and processed
+        $event = ProviderEvent::where('payment_attempt_id', $attempt->id)->first();
+        $this->assertNotNull($event);
+        $this->assertNull($event->processing_error);
     }
 
     // ── Multiple Attempts Tests ──
@@ -517,6 +542,234 @@ class PaymentTransitionServiceTest extends TestCase
             'provider' => 'mock',
             'processing_error' => 'attempt_not_found',
         ]);
+    }
+
+    // ── Identity Conflict Tests (§9) ──
+
+    public function test_conflicting_provider_payment_id_and_order_id_rejected(): void
+    {
+        // Two DIFFERENT attempts in SEPARATE workspaces to avoid billing_subscriptions unique
+        $attemptA = $this->createAttemptWithProviderPaymentId('mock_A', 490);
+
+        // Create attempt B in a different cycle (different workspace)
+        $master2 = User::factory()->master()->create();
+        $workspace2 = Workspace::create([
+            'name' => 'ws2-'.$master2->id,
+            'owner_id' => $master2->id,
+        ]);
+        $workspace2->ensureSlug();
+        $master2->update(['workspace_id' => $workspace2->id]);
+
+        $billingSub2 = BillingSubscription::create([
+            'workspace_id' => $workspace2->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::PendingInitial,
+        ]);
+        $cycle2 = BillingCycle::create([
+            'billing_subscription_id' => $billingSub2->id,
+            'workspace_id' => $workspace2->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now(),
+            'period_end' => now()->addMonth(),
+            'status' => BillingCycleStatus::Pending,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => 'payment',
+        ]);
+        $attemptB = PaymentAttempt::create([
+            'billing_cycle_id' => $cycle2->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_order_B',
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now(),
+        ]);
+
+        $update = new ProviderStatusUpdate(
+            provider: 'mock',
+            providerPaymentId: 'mock_A',
+            internalOrderId: 'core_order_B',
+            normalizedStatus: PaymentAttemptStatus::Succeeded,
+            amount: 490,
+            currency: 'RUB',
+        );
+
+        $result = $this->transitionService->transition($update);
+
+        $this->assertFalse($result['success']);
+        $this->assertSame('identity_conflict', $result['error']);
+
+        // Neither attempt mutated
+        $attemptA->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attemptA->status);
+        $attemptB->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attemptB->status);
+    }
+
+    public function test_matching_identities_same_attempt_succeeds(): void
+    {
+        // Both IDs point to the SAME attempt
+        $attempt = $this->createAttemptWithProviderPaymentId('mock_match', 490);
+        // Update the attempt to also have the internal_order_id
+        $attempt->update(['internal_order_id' => 'core_match_order']);
+
+        $update = new ProviderStatusUpdate(
+            provider: 'mock',
+            providerPaymentId: 'mock_match',
+            internalOrderId: 'core_match_order',
+            normalizedStatus: PaymentAttemptStatus::Succeeded,
+            amount: 490,
+            currency: 'RUB',
+        );
+
+        $result = $this->transitionService->transition($update);
+
+        $this->assertTrue($result['success']);
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+    }
+
+    public function test_attach_provider_id_when_found_by_order_id(): void
+    {
+        // Attempt with no provider_payment_id
+        $cycle = $this->createCycle();
+        $attempt = PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_attach_order',
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now(),
+        ]);
+
+        $this->assertNull($attempt->provider_payment_id);
+
+        $update = new ProviderStatusUpdate(
+            provider: 'mock',
+            providerPaymentId: 'mock_new_payment_id',
+            internalOrderId: 'core_attach_order',
+            normalizedStatus: PaymentAttemptStatus::Succeeded,
+            amount: 490,
+            currency: 'RUB',
+        );
+
+        $result = $this->transitionService->transition($update);
+
+        $this->assertTrue($result['success']);
+        $attempt->refresh();
+        $this->assertSame('mock_new_payment_id', $attempt->provider_payment_id);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+    }
+
+    // ── Event Concurrency Test (§10) ──
+
+    public function test_atomic_claim_duplicate_insert_ignored(): void
+    {
+        $attempt = $this->createAttemptWithProviderPaymentId('mock_atomic', 490);
+
+        $update = new ProviderStatusUpdate(
+            provider: 'mock',
+            providerEventId: 'concurrent_event_1',
+            providerPaymentId: 'mock_atomic',
+            normalizedStatus: PaymentAttemptStatus::Succeeded,
+            amount: 490,
+            currency: 'RUB',
+        );
+
+        // First claim — inserts
+        $event1 = $this->transitionService->transition($update);
+        $this->assertTrue($event1['success']);
+
+        // Second identical claim — insertOrIgnore returns 0, no exception
+        $event2 = $this->transitionService->transition($update);
+        $this->assertTrue($event2['success']);
+
+        // Only one event row
+        $this->assertDatabaseCount('provider_events', 1);
+
+        // Transaction was NOT aborted — we can still write a new attempt in the same cycle
+        $maxNumber = PaymentAttempt::where('billing_cycle_id', $attempt->billing_cycle_id)
+            ->max('attempt_number') ?? 0;
+        $attempt2 = PaymentAttempt::create([
+            'billing_cycle_id' => $attempt->billing_cycle_id,
+            'provider' => 'mock',
+            'attempt_number' => $maxNumber + 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_after_dedup',
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now(),
+        ]);
+
+        $this->assertNotNull($attempt2->id);
+    }
+
+    // ── Same Status / Different Payload Test (§11) ──
+
+    public function test_same_status_different_payload_creates_two_events(): void
+    {
+        $attempt = $this->createAttemptWithProviderPaymentId('mock_diff_payload', 490);
+
+        // Same payment, same status, no provider_event_id, different payload
+        $update1 = new ProviderStatusUpdate(
+            provider: 'mock',
+            providerPaymentId: 'mock_diff_payload',
+            normalizedStatus: PaymentAttemptStatus::Succeeded,
+            amount: 490,
+            currency: 'RUB',
+            raw: ['status' => 'succeeded', 'amount' => 490, 'extra' => 'first'],
+        );
+
+        $update2 = new ProviderStatusUpdate(
+            provider: 'mock',
+            providerPaymentId: 'mock_diff_payload',
+            normalizedStatus: PaymentAttemptStatus::Succeeded,
+            amount: 490,
+            currency: 'RUB',
+            raw: ['status' => 'succeeded', 'amount' => 490, 'extra' => 'second'],
+        );
+
+        $result1 = $this->transitionService->transition($update1);
+        $this->assertTrue($result1['success']);
+
+        $result2 = $this->transitionService->transition($update2);
+        $this->assertTrue($result2['success']);
+
+        // Two events because different payload → different fingerprint → different dedup_key
+        $this->assertDatabaseCount('provider_events', 2);
+
+        // But only one business state transition (idempotent)
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+    }
+
+    // ── Partial Unique Index Test (§12) ──
+
+    public function test_partial_unique_indexes_exist_with_predicate(): void
+    {
+        if (config('database.default') !== 'pgsql') {
+            $this->markTestSkipped('PostgreSQL index predicate test requires pgsql driver');
+        }
+
+        // Verify payment_attempts partial index
+        $paymentIndex = DB::select("
+            SELECT indexdef FROM pg_indexes
+            WHERE indexname = 'payment_attempts_provider_payment_id_unique'
+        ");
+        $this->assertNotEmpty($paymentIndex, 'payment_attempts partial index should exist');
+        $this->assertStringContainsString('provider_payment_id IS NOT NULL', $paymentIndex[0]->indexdef);
+
+        // Verify provider_events partial index
+        $eventIndex = DB::select("
+            SELECT indexdef FROM pg_indexes
+            WHERE indexname = 'provider_events_provider_event_id_unique'
+        ");
+        $this->assertNotEmpty($eventIndex, 'provider_events partial index should exist');
+        $this->assertStringContainsString('provider_event_id IS NOT NULL', $eventIndex[0]->indexdef);
     }
 
     // ── Helpers ──

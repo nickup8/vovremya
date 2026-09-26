@@ -343,11 +343,12 @@ class PaymentWebhookTest extends TestCase
             'amount' => 490,
         ]);
 
-        $event = ProviderEvent::where('dedup_key', 'mock:mock_event_1:succeeded')->first();
+        $event = ProviderEvent::where('provider', 'mock')
+            ->where('event_type', 'succeeded')
+            ->where('processing_error', null)
+            ->first();
         $this->assertNotNull($event);
-        $this->assertSame('mock', $event->provider);
         $this->assertNotNull($event->processed_at);
-        $this->assertNull($event->processing_error);
     }
 
     // ── 9. Provider-aware route ──

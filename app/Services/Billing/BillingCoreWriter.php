@@ -9,7 +9,6 @@ use App\Enums\PaymentAttemptStatus;
 use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
-use App\Models\ProviderEvent;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use Illuminate\Support\Facades\DB;
@@ -250,35 +249,6 @@ class BillingCoreWriter
         }
 
         $this->recalcBillingSubscriptionAfterRefund($cycle);
-    }
-
-    /**
-     * Write a ProviderEvent with dedup key to prevent duplicate processing.
-     *
-     * @return true if new event written, false if duplicate
-     */
-    public function recordProviderEvent(
-        string $paymentId,
-        string $status,
-        array $payload,
-    ): bool {
-        $dedupKey = $paymentId.':'.$status;
-
-        $exists = ProviderEvent::where('dedup_key', $dedupKey)->exists();
-
-        if ($exists) {
-            return false;
-        }
-
-        ProviderEvent::create([
-            'provider' => 'mock', // Legacy path - always mock
-            'dedup_key' => $dedupKey,
-            'event_type' => $status,
-            'payload' => $payload,
-            'received_at' => now(),
-        ]);
-
-        return true;
     }
 
     /**

@@ -352,10 +352,10 @@ class BillingCoreWriterTest extends TestCase
         $result = $service->subscribe($master, $this->proPlan, 1);
         $this->sendWebhook($result['subscription']->payment_id, 'paid', $result['subscription']->amount_paid);
 
-        $event = ProviderEvent::where('dedup_key', 'mock:' . $result['subscription']->payment_id . ':succeeded')->first();
+        $event = ProviderEvent::where('provider', 'mock')
+            ->where('event_type', 'succeeded')
+            ->first();
         $this->assertNotNull($event);
-        $this->assertSame('mock', $event->provider);
-        $this->assertSame('succeeded', $event->event_type);
         $this->assertNotNull($event->received_at);
     }
 
