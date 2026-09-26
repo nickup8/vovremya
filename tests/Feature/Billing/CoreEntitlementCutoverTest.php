@@ -14,6 +14,7 @@ use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Models\PlanPrice;
 use App\Services\Billing\TariffLimitService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
@@ -52,6 +53,21 @@ class CoreEntitlementCutoverTest extends TestCase
         ]);
 
         config(['billing.legacy_mock_webhook_secret' => 'test_secret_123']);
+
+        // Create PlanPrice records for pro plan (required for Core mode calculatePrice)
+        foreach ([1, 3, 6, 12] as $months) {
+            PlanPrice::create([
+                'tariff_plan_id' => $this->proPlan->id,
+                'period_months' => $months,
+                'base_amount' => 490 * $months,
+                'discount_percent' => 0,
+                'final_amount' => 490 * $months,
+                'currency' => 'RUB',
+                'version' => 1,
+                'valid_from' => now(),
+                'is_active' => true,
+            ]);
+        }
     }
 
     private function createMasterWithWorkspace(): array

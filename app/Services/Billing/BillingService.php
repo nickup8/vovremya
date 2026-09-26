@@ -3,6 +3,7 @@
 namespace App\Services\Billing;
 
 use App\Enums\PaymentAttemptStatus;
+use App\Models\DiscountRule;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
@@ -25,24 +26,52 @@ class BillingService
 
     public function calculatePrice(TariffPlan $plan, int $periodMonths): array
     {
+        if (config('billing.core_entitlement')) {
+            return $this->calculatePriceCore($plan, $periodMonths);
+        }
+
+        return $this->calculatePriceLegacy($plan, $periodMonths);
+    }
+
+    /**
+     * Core mode: pricing exclusively from plan_prices table.
+     * Fail closed — no fallback.
+     */
+    private function calculatePriceCore(TariffPlan $plan, int $periodMonths): array
+    {
         $price = $this->priceResolver->calculatePrice($plan, $periodMonths);
 
         if (! $price) {
-            // Fallback: compute from tariff_plans.price_monthly if plan_prices not seeded
-            $base = $plan->price_monthly * $periodMonths;
-
-            return [
-                'plan_price_id' => null,
-                'base' => $base,
-                'discount_percent' => 0,
-                'final' => $base,
-                'currency' => 'RUB',
-                'version' => null,
-                'period_months' => $periodMonths,
-            ];
+            throw ValidationException::withMessages([
+                'plan' => "Цена не найдена для плана {$plan->code} на {$periodMonths} мес. Обратитесь к администратору.",
+            ]);
         }
 
         return $price;
+    }
+
+    /**
+     * Legacy rollback mode: pricing from tariff_plans.price_monthly + discount_rules.
+     */
+    private function calculatePriceLegacy(TariffPlan $plan, int $periodMonths): array
+    {
+        $base = $plan->price_monthly * $periodMonths;
+
+        $discountPercent = DiscountRule::where('period_months', $periodMonths)
+            ->where('is_active', true)
+            ->value('discount_percent') ?? 0;
+
+        $discount = (int) round($base * $discountPercent / 100);
+
+        return [
+            'plan_price_id' => null,
+            'base' => $base,
+            'discount_percent' => $discountPercent,
+            'final' => $base - $discount,
+            'currency' => 'RUB',
+            'version' => null,
+            'period_months' => $periodMonths,
+        ];
     }
 
     public function subscribe(User $master, TariffPlan $plan, int $periodMonths): array
@@ -76,11 +105,9 @@ class BillingService
                 }
 
                 // ── Core horizon for stacking (replaces legacy activeSubscription().expires_at) ──
-                $period = $this->horizon->computeNewPeriod(
-                    $master->workspace,
-                    $plan->code,
-                    $periodMonths,
-                );
+                $period = config('billing.core_entitlement')
+                    ? $this->horizon->computeNewPeriod($master->workspace, $plan->code, $periodMonths)
+                    : $this->computeLegacyPeriod($master, $periodMonths);
 
                 // ── Phase A: DB intent (legacy + Core) ──
                 $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period) {
@@ -211,7 +238,15 @@ class BillingService
 
         $ws = $master->workspace;
 
-        // Core-first: read current plan from EntitlementService
+        if (config('billing.core_entitlement')) {
+            return $this->downgradeBlockReasonCore($ws, $plan);
+        }
+
+        return $this->downgradeBlockReasonLegacy($ws, $plan);
+    }
+
+    private function downgradeBlockReasonCore(\App\Models\Workspace $ws, TariffPlan $plan): ?string
+    {
         $currentPlan = app(EntitlementService::class)->currentPlan($ws);
 
         if (! $currentPlan) {
@@ -221,9 +256,8 @@ class BillingService
         $currentMax = $currentPlan->maxMasters; // PHP_INT_MAX = безлимит
         $newMax = $plan->max_masters ?? PHP_INT_MAX;
 
-        // Блокируем только если новый лимит строго строже текущего
         if ($newMax >= $currentMax) {
-            return null; // новый лимит не строже — не понижение мест
+            return null;
         }
 
         $providersCount = $ws->providersCount();
@@ -233,5 +267,48 @@ class BillingService
         }
 
         return null;
+    }
+
+    private function downgradeBlockReasonLegacy(\App\Models\Workspace $ws, TariffPlan $plan): ?string
+    {
+        $activeSub = $ws->activeSubscription();
+
+        if (! $activeSub || ! $activeSub->tariffPlan) {
+            return null;
+        }
+
+        $currentMax = $activeSub->tariffPlan->max_masters ?? PHP_INT_MAX;
+        $newMax = $plan->max_masters ?? PHP_INT_MAX;
+
+        if ($newMax >= $currentMax) {
+            return null;
+        }
+
+        $providersCount = $ws->providersCount();
+
+        if ($providersCount > $newMax) {
+            return "Невозможно понизить тариф: сейчас {$providersCount} провайдеров, а новый тариф даёт мест — {$newMax}. Отключите лишних участников (свитч «Принимаю клиентов»), затем повторите.";
+        }
+
+        return null;
+    }
+
+    /**
+     * Legacy stacking: use activeSubscription().expires_at as period_start.
+     */
+    private function computeLegacyPeriod(User $master, int $periodMonths): array
+    {
+        $activeSub = $master->workspace?->activeSubscription();
+
+        if ($activeSub && $activeSub->expires_at && $activeSub->expires_at->isFuture()) {
+            $periodStart = $activeSub->expires_at->copy();
+        } else {
+            $periodStart = Carbon::now();
+        }
+
+        return [
+            'period_start' => $periodStart,
+            'period_end' => $periodStart->copy()->addMonths($periodMonths),
+        ];
     }
 }

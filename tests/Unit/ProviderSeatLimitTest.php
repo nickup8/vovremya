@@ -21,6 +21,13 @@ class ProviderSeatLimitTest extends TestCase
 {
     use RefreshDatabase;
 
+    protected function setUp(): void
+    {
+        parent::setUp();
+
+        config(['billing.core_entitlement' => true]);
+    }
+
     // ═══════════════════════════════════════════
     // 1. downgradeBlockReason
     // ═══════════════════════════════════════════

@@ -256,6 +256,8 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
+        \Carbon\Carbon::setTestNow(now());
+
         $r1 = $service->subscribe($master, $this->proPlan, 1);
         $this->sendWebhook($r1['subscription']->payment_id, 'failed', $r1['subscription']->amount_paid);
 
@@ -267,8 +269,10 @@ class BillingCheckoutHardeningTest extends TestCase
 
         $totalBefore = PaymentAttempt::count();
 
-        // Retry — same second → exact period match → attempt #2 in same cycle
+        // Retry — frozen time → exact period match → attempt #2 in same cycle
         $r2 = $service->subscribe($master, $this->proPlan, 1);
+
+        \Carbon\Carbon::setTestNow();
 
         $this->assertNotNull($r2['subscription']);
         $this->assertSame('pending', $r2['subscription']->status);

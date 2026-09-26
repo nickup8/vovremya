@@ -24,6 +24,7 @@ class BillingTest extends TestCase
         parent::setUp();
 
         config(['billing.legacy_mock_webhook_secret' => 'test_secret_123']);
+        config(['billing.core_entitlement' => true]);
 
         $this->billingService = app(BillingService::class);
 
@@ -103,6 +104,8 @@ class BillingTest extends TestCase
 
     public function test_calculate_price_fallback_when_no_plan_price(): void
     {
+        config(['billing.core_entitlement' => false]);
+
         $unknownPlan = TariffPlan::create([
             'code' => 'unknown',
             'name' => 'Unknown',
@@ -162,6 +165,7 @@ class BillingTest extends TestCase
         $payload = [
             'payment_id' => $result['subscription']->payment_id,
             'status' => 'paid',
+            'amount' => $result['subscription']->amount_paid,
         ];
 
         $response = $this->postJson('/webhooks/payment', $payload, [

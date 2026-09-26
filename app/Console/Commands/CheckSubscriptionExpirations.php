@@ -62,17 +62,24 @@ class CheckSubscriptionExpirations extends Command
     }
 
     /**
-     * Send reminders based on Core entitlement end date.
+     * Send reminders based on flag-aware authority.
      *
-     * Rules:
-     * - 5 day / 3 day reminders from Core entitlement end
-     * - No reminder if Core entitlement already ended or absent
+     * Core mode: Core entitlement end date
+     * Legacy mode: subscriptions.expires_at
      */
     private function notifyUpcomingExpirations(): void
     {
+        if (config('billing.core_entitlement')) {
+            $this->notifyUpcomingExpirationsCore();
+        } else {
+            $this->notifyUpcomingExpirationsLegacy();
+        }
+    }
+
+    private function notifyUpcomingExpirationsCore(): void
+    {
         $entitlementService = app(EntitlementService::class);
 
-        // Find workspaces with active Core entitlement (granting cycles with period_end > now)
         $activeWorkspaceIds = BillingCycle::query()
             ->where('period_end', '>', now())
             ->where('status', BillingCycleStatus::Paid)
@@ -81,8 +88,6 @@ class CheckSubscriptionExpirations extends Command
 
         $workspaces = Workspace::whereIn('id', $activeWorkspaceIds)->get();
 
-        $daysThresholds = [5, 3];
-
         foreach ($workspaces as $workspace) {
             try {
                 $plan = $entitlementService->currentPlan($workspace);
@@ -90,60 +95,89 @@ class CheckSubscriptionExpirations extends Command
                     continue;
                 }
 
-                $entitlementEnd = $plan->expiresAt;
-
-                foreach ($daysThresholds as $days) {
-                    $targetDate = now()->addDays($days)->startOfDay();
-
-                    // Check if entitlement end is exactly on the target date
-                    if (! $entitlementEnd->startOfDay()->eq($targetDate)) {
-                        continue;
-                    }
-
-                    $owner = $workspace->owner;
-                    if (! $owner) {
-                        continue;
-                    }
-
-                    $expiresDate = $entitlementEnd->format('Y-m-d');
-                    $periodKey = $expiresDate.'_'.$days;
-
-                    if (NotificationLog::hasBeenSent($workspace->id, 'subscription_expiring', $periodKey)) {
-                        continue;
-                    }
-
-                    $dayText = $days === 3 ? '3 дня' : '5 дней';
-                    $text = __('bot.master.subscription_expiring', ['days' => $dayText]);
-
-                    $this->notificationService->sendToMaster($owner, $text);
-                    NotificationLog::markSent($workspace->id, 'subscription_expiring', $periodKey);
-
-                    // In-app notification (independent dedup)
-                    if ($owner->is_blocked) {
-                        $this->info("Skipping in-app notification for blocked master {$owner->id}");
-                    } else {
-                        $inAppPeriodKey = $expiresDate.'_'.$days;
-                        if (! NotificationLog::hasBeenSent($workspace->id, 'subscription_expiring_in_app', $inAppPeriodKey)) {
-                            try {
-                                $owner->notify(new PaymentReminderNotification($days));
-                                NotificationLog::markSent($workspace->id, 'subscription_expiring_in_app', $inAppPeriodKey);
-                            } catch (\Exception $e) {
-                                Log::error('In-app payment reminder failed', [
-                                    'workspace_id' => $workspace->id,
-                                    'error' => $e->getMessage(),
-                                ]);
-                            }
-                        }
-                    }
-
-                    $this->info("Sent subscription_expiring_{$days} to workspace {$workspace->id}");
-                }
+                $this->sendRemindersIfNeeded($workspace, $plan->expiresAt);
             } catch (\Exception $e) {
                 Log::error('Notify upcoming expiration failed', [
                     'workspace_id' => $workspace->id,
                     'error' => $e->getMessage(),
                 ]);
             }
+        }
+    }
+
+    private function notifyUpcomingExpirationsLegacy(): void
+    {
+        $subscriptions = Subscription::query()
+            ->where('status', SubscriptionStatus::Active)
+            ->where('expires_at', '>', now())
+            ->get();
+
+        foreach ($subscriptions as $subscription) {
+            try {
+                $workspace = $subscription->workspace;
+                if (! $workspace) {
+                    continue;
+                }
+
+                $this->sendRemindersIfNeeded($workspace, $subscription->expires_at);
+            } catch (\Exception $e) {
+                Log::error('Notify upcoming expiration failed', [
+                    'subscription_id' => $subscription->id,
+                    'workspace_id' => $subscription->workspace_id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+    }
+
+    private function sendRemindersIfNeeded(Workspace $workspace, \Carbon\CarbonInterface $expiresAt): void
+    {
+        $owner = $workspace->owner;
+        if (! $owner) {
+            return;
+        }
+
+        $daysThresholds = [5, 3];
+
+        foreach ($daysThresholds as $days) {
+            $targetDate = now()->addDays($days)->startOfDay();
+
+            if (! $expiresAt->startOfDay()->eq($targetDate)) {
+                continue;
+            }
+
+            $expiresDate = $expiresAt->format('Y-m-d');
+            $periodKey = $expiresDate.'_'.$days;
+
+            if (NotificationLog::hasBeenSent($workspace->id, 'subscription_expiring', $periodKey)) {
+                continue;
+            }
+
+            $dayText = $days === 3 ? '3 дня' : '5 дней';
+            $text = __('bot.master.subscription_expiring', ['days' => $dayText]);
+
+            $this->notificationService->sendToMaster($owner, $text);
+            NotificationLog::markSent($workspace->id, 'subscription_expiring', $periodKey);
+
+            // In-app notification (independent dedup)
+            if ($owner->is_blocked) {
+                $this->info("Skipping in-app notification for blocked master {$owner->id}");
+            } else {
+                $inAppPeriodKey = $expiresDate.'_'.$days;
+                if (! NotificationLog::hasBeenSent($workspace->id, 'subscription_expiring_in_app', $inAppPeriodKey)) {
+                    try {
+                        $owner->notify(new PaymentReminderNotification($days));
+                        NotificationLog::markSent($workspace->id, 'subscription_expiring_in_app', $inAppPeriodKey);
+                    } catch (\Exception $e) {
+                        Log::error('In-app payment reminder failed', [
+                            'workspace_id' => $workspace->id,
+                            'error' => $e->getMessage(),
+                        ]);
+                    }
+                }
+            }
+
+            $this->info("Sent subscription_expiring_{$days} to workspace {$workspace->id}");
         }
     }
 }

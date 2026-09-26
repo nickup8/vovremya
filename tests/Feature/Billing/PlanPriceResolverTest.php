@@ -5,9 +5,11 @@ namespace Tests\Feature\Billing;
 use App\Enums\BillingCycleOrigin;
 use App\Enums\BillingCycleStatus;
 use App\Enums\BillingSubscriptionStatus;
+use App\Enums\PaymentAttemptStatus;
 use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
 use App\Models\PlanPrice;
+use App\Models\PaymentAttempt;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
@@ -37,6 +39,9 @@ class PlanPriceResolverTest extends TestCase
             'features' => ['unlimited_appointments', 'client_management', 'channel_analytics', 'slot_autofill', 'recurring_blocked_times', 'recurring_appointments'],
             'is_active' => true,
         ]);
+
+        config(['billing.core_entitlement' => true]);
+        config(['billing.legacy_mock_webhook_secret' => 'test_secret_123']);
     }
 
     // ═══════════════════════════════════════════
@@ -588,5 +593,459 @@ class PlanPriceResolverTest extends TestCase
 
         // hasFeature falls back to legacy
         $this->assertTrue($workspace->hasFeature('unlimited_appointments'));
+    }
+
+    // ═══════════════════════════════════════════
+    // §14 BillingHorizon negative tests
+    // ═══════════════════════════════════════════
+
+    public function test_different_plan_does_not_extend_horizon(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $startPlan = TariffPlan::where('code', 'start')->firstOrCreate(
+            ['code' => 'start'],
+            ['name' => 'Старт', 'price_monthly' => 0, 'is_active' => true, 'max_appointments_per_month' => 30, 'features' => ['calendar']]
+        );
+
+        $proCycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addDays(10),
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $proCycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_diff1',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        // Start plan cycle with later end — should NOT extend Pro horizon
+        $startCycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $startPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addDays(30),
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 0,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $startCycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 0,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_diff2',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        $horizon = app(BillingHorizon::class);
+        $end = $horizon->anyGrantingEnd($workspace);
+
+        // anyGrantingEnd picks the LATEST end across all plans
+        $this->assertNotNull($end);
+        $this->assertTrue($end->startOfDay()->eq(now()->addDays(30)->startOfDay()));
+
+        // But currentGrantingEnd for pro picks ONLY pro's end
+        $proEnd = $horizon->currentGrantingEnd($workspace, 'pro');
+        $this->assertNotNull($proEnd);
+        $this->assertTrue($proEnd->startOfDay()->eq(now()->addDays(10)->startOfDay()));
+    }
+
+    public function test_failed_cycle_does_not_extend_horizon(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addDays(5),
+            'status' => BillingCycleStatus::Failed,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        $horizon = app(BillingHorizon::class);
+        $end = $horizon->anyGrantingEnd($workspace);
+
+        $this->assertNull($end);
+    }
+
+    public function test_refunded_cycle_does_not_extend_horizon(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addDays(5),
+            'status' => BillingCycleStatus::Refunded,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        $horizon = app(BillingHorizon::class);
+        $end = $horizon->anyGrantingEnd($workspace);
+
+        $this->assertNull($end);
+    }
+
+    public function test_succeeded_payment_cycle_extends_horizon(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addDays(15),
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_test1',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        $horizon = app(BillingHorizon::class);
+        $end = $horizon->anyGrantingEnd($workspace);
+
+        $this->assertNotNull($end);
+        $this->assertTrue($end->startOfDay()->eq(now()->addDays(15)->startOfDay()));
+    }
+
+    public function test_paid_admin_grant_extends_horizon(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addDays(20),
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 0,
+            'origin' => BillingCycleOrigin::AdminGrant,
+        ]);
+
+        $horizon = app(BillingHorizon::class);
+        $end = $horizon->anyGrantingEnd($workspace);
+
+        $this->assertNotNull($end);
+        $this->assertTrue($end->startOfDay()->eq(now()->addDays(20)->startOfDay()));
+    }
+
+    // ═══════════════════════════════════════════
+    // §15 Revenue tests
+    // ═══════════════════════════════════════════
+
+    public function test_revenue_succeeded_payment_cycle(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addMonth(),
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_rev1',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        // MRR should be 490 (amount / period_months where period_months=1)
+        $paymentCycles = BillingCycle::query()
+            ->where('status', BillingCycleStatus::Paid)
+            ->where('origin', '!=', BillingCycleOrigin::AdminGrant)
+            ->where('period_end', '>', now())
+            ->with('paymentAttempts')
+            ->get()
+            ->filter(fn (BillingCycle $c) => $c->paymentAttempts->contains(
+                fn ($a) => $a->status === PaymentAttemptStatus::Succeeded
+            ));
+
+        $mrr = 0;
+        foreach ($paymentCycles as $c) {
+            $months = $c->price_snapshot['period_months'] ?? 1;
+            if ($months > 0) {
+                $mrr += $c->amount / $months;
+            }
+        }
+
+        $this->assertEquals(490, $mrr);
+    }
+
+    public function test_revenue_admin_grant_is_zero(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addMonth(),
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 0,
+            'origin' => BillingCycleOrigin::AdminGrant,
+        ]);
+
+        $paymentCycles = BillingCycle::query()
+            ->where('status', BillingCycleStatus::Paid)
+            ->where('origin', '!=', BillingCycleOrigin::AdminGrant)
+            ->where('period_end', '>', now())
+            ->with('paymentAttempts')
+            ->get()
+            ->filter(fn (BillingCycle $c) => $c->paymentAttempts->contains(
+                fn ($a) => $a->status === PaymentAttemptStatus::Succeeded
+            ));
+
+        $mrr = 0;
+        foreach ($paymentCycles as $c) {
+            $months = $c->price_snapshot['period_months'] ?? 1;
+            if ($months > 0) {
+                $mrr += $c->amount / $months;
+            }
+        }
+
+        $this->assertEquals(0, $mrr);
+    }
+
+    public function test_revenue_failed_cycle_is_zero(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addMonth(),
+            'status' => BillingCycleStatus::Failed,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        $paymentCycles = BillingCycle::query()
+            ->where('status', BillingCycleStatus::Paid)
+            ->where('origin', '!=', BillingCycleOrigin::AdminGrant)
+            ->where('period_end', '>', now())
+            ->with('paymentAttempts')
+            ->get()
+            ->filter(fn (BillingCycle $c) => $c->paymentAttempts->contains(
+                fn ($a) => $a->status === PaymentAttemptStatus::Succeeded
+            ));
+
+        $this->assertTrue($paymentCycles->isEmpty());
+    }
+
+    public function test_revenue_refunded_cycle_is_zero(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addMonth(),
+            'status' => BillingCycleStatus::Refunded,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        $paymentCycles = BillingCycle::query()
+            ->where('status', BillingCycleStatus::Paid)
+            ->where('origin', '!=', BillingCycleOrigin::AdminGrant)
+            ->where('period_end', '>', now())
+            ->with('paymentAttempts')
+            ->get()
+            ->filter(fn (BillingCycle $c) => $c->paymentAttempts->contains(
+                fn ($a) => $a->status === PaymentAttemptStatus::Succeeded
+            ));
+
+        $this->assertTrue($paymentCycles->isEmpty());
+    }
+
+    public function test_revenue_multiple_attempts_counted_once(): void
+    {
+        $master = User::factory()->master()->create();
+        $workspace = Workspace::create(['name' => 'ws-'.$master->id, 'owner_id' => $master->id]);
+        $master->update(['workspace_id' => $workspace->id]);
+
+        $billingSub = BillingSubscription::create([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $billingSub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonth(),
+            'period_end' => now()->addMonth(),
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        // Attempt #1 failed
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_multi1',
+            'status' => PaymentAttemptStatus::FailedTerminal,
+            'initiated_at' => now(),
+        ]);
+
+        // Attempt #2 succeeded
+        PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'mock',
+            'attempt_number' => 2,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_multi2',
+            'status' => PaymentAttemptStatus::Succeeded,
+            'initiated_at' => now(),
+        ]);
+
+        $paymentCycles = BillingCycle::query()
+            ->where('status', BillingCycleStatus::Paid)
+            ->where('origin', '!=', BillingCycleOrigin::AdminGrant)
+            ->where('period_end', '>', now())
+            ->with('paymentAttempts')
+            ->get()
+            ->filter(fn (BillingCycle $c) => $c->paymentAttempts->contains(
+                fn ($a) => $a->status === PaymentAttemptStatus::Succeeded
+            ));
+
+        $mrr = 0;
+        foreach ($paymentCycles as $c) {
+            $months = $c->price_snapshot['period_months'] ?? 1;
+            if ($months > 0) {
+                $mrr += $c->amount / $months;
+            }
+        }
+
+        // Revenue counted once — cycle amount, not sum of attempts
+        $this->assertEquals(490, $mrr);
+        $this->assertEquals(1, $paymentCycles->count());
     }
 }

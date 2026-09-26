@@ -42,6 +42,8 @@ class AdminExtendMirrorTest extends TestCase
         ]);
 
         $this->admin = User::factory()->master()->create(['is_super_admin' => true]);
+
+        config(['billing.core_entitlement' => true]);
     }
 
     private function createMasterWithWorkspace(): array
