@@ -231,7 +231,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
 
     return (
         <Dialog open={open} onOpenChange={onOpenChange}>
-            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-lg max-h-[90vh] overflow-y-auto overflow-x-hidden p-4 sm:p-6">
                 <DialogHeader>
                     <DialogTitle>Свободные окна</DialogTitle>
                 </DialogHeader>
@@ -345,11 +345,11 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                             ) : (
                                 <div className="rounded-[10px] bg-[var(--color-warm)] px-4 py-3">
                                     {result.days.map(day => (
-                                        <div key={day.date} className="flex items-start justify-between py-2 border-b border-[var(--color-line-soft)] last:border-0">
-                                            <span className="text-[13px] font-semibold text-[var(--color-ink)]">
+                                        <div key={day.date} className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between py-2 border-b border-[var(--color-line-soft)] last:border-0">
+                                            <span className="text-[13px] font-semibold text-[var(--color-ink)] text-left">
                                                 {formatDayHeader(day.date)}
                                             </span>
-                                            <span className="text-[13px] text-[var(--color-graphite)] text-right">
+                                            <span className="text-[13px] text-[var(--color-graphite)] text-left sm:text-right">
                                                 {day.starts
                                                     ? day.starts.join(', ')
                                                     : day.ranges?.map(r => `${r.start}–${r.end}`).join(', ')
@@ -362,11 +362,11 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
 
                             {/* Actions */}
                             {result.days.length > 0 && (
-                                <div className="flex gap-2">
+                                <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row">
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyText}
-                                        className="flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
+                                        className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
                                         <Copy className="mr-1.5 size-3.5" />
                                         Скопировать текст
@@ -374,7 +374,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyLink}
-                                        className="flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
+                                        className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
                                         <ChevronRight className="mr-1.5 size-3.5" />
                                         Скопировать ссылку
@@ -383,7 +383,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                         <Button
                                             variant="outline"
                                             onClick={handleShare}
-                                            className="rounded-[10px] border-[var(--color-line)] px-3 text-[12px] font-semibold"
+                                            className="w-full sm:w-auto rounded-[10px] border-[var(--color-line)] px-3 text-[12px] font-semibold"
                                         >
                                             <Share2 className="size-3.5" />
                                         </Button>
