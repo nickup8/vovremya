@@ -18,14 +18,19 @@ use Illuminate\Support\Collection;
 
 class FreeWindowsService
 {
-    public function __construct(
-        private readonly RecurrenceService $recurrenceService = new RecurrenceService(),
-    ) {}
+    private BookingService $bookingService;
+    private RecurrenceService $recurrenceService;
+
+    public function __construct()
+    {
+        $this->bookingService = app(BookingService::class);
+        $this->recurrenceService = app(RecurrenceService::class);
+    }
 
     /**
      * Get free intervals for a master over a date range.
      *
-     * When serviceId is provided: returns discrete start times (service mode).
+     * When serviceId is provided: delegates to BookingService for exact parity with public booking.
      * When serviceId is null: returns continuous free intervals (all-services mode).
      *
      * @return array{mode: string, timezone: string, date_from: string, date_to: string, booking_url: string, days: array}
@@ -41,31 +46,23 @@ class FreeWindowsService
         $rangeStart = Carbon::parse($dateFrom, $tz)->startOfDay();
         $rangeEnd = Carbon::parse($dateTo, $tz)->endOfDay();
 
-        // Load common data
-        $workingHours = $this->loadWorkingHours($master);
-        $bookedByDate = $this->loadBookedPeriods($master, $rangeStart, $rangeEnd, $tz);
-        $blockedByDate = $this->loadBlockedPeriods($master, $rangeStart, $rangeEnd, $tz);
-
         $days = [];
         $current = $rangeStart->copy()->startOfDay();
 
-        while ($current->lte($rangeEnd)) {
-            $dateKey = $current->format('Y-m-d');
+        if ($serviceId) {
+            // ─── Service mode: delegate to BookingService ───
+            $masterService = MasterService::where('id', $serviceId)
+                ->where('master_id', $master->id)
+                ->where('is_active', true)
+                ->first();
 
-            if ($serviceId) {
-                // Service mode: get individual start times
-                $slotInterval = $master->slot_interval ?? 30;
-                $masterService = MasterService::where('id', $serviceId)
-                    ->where('master_id', $master->id)
-                    ->where('is_active', true)
-                    ->first();
-
-                if ($masterService) {
-                    $duration = (int) $masterService->effective_duration;
-                    $slots = $this->getAvailableStartsForDay(
-                        $master, $current, $duration, $workingHours,
-                        $bookedByDate[$dateKey] ?? [], $blockedByDate[$dateKey] ?? [],
-                        $slotInterval, $tz,
+            if ($masterService) {
+                while ($current->lte($rangeEnd)) {
+                    $dateKey = $current->format('Y-m-d');
+                    $slots = $this->bookingService->getAvailableSlots(
+                        $master,
+                        $masterService,
+                        $dateKey,
                     );
 
                     if (! empty($slots)) {
@@ -74,9 +71,18 @@ class FreeWindowsService
                             'starts' => $slots,
                         ];
                     }
+
+                    $current->addDay();
                 }
-            } else {
-                // All-services mode: get continuous free intervals
+            }
+        } else {
+            // ─── All-services mode: continuous free intervals ───
+            $workingHours = $this->loadWorkingHours($master);
+            $bookedByDate = $this->loadBookedPeriods($master, $rangeStart, $rangeEnd, $tz);
+            $blockedByDate = $this->loadBlockedPeriods($master, $rangeStart, $rangeEnd, $tz);
+
+            while ($current->lte($rangeEnd)) {
+                $dateKey = $current->format('Y-m-d');
                 $ranges = $this->getFreeIntervalsForDay(
                     $master, $current, $workingHours,
                     $bookedByDate[$dateKey] ?? [], $blockedByDate[$dateKey] ?? [],
@@ -89,9 +95,9 @@ class FreeWindowsService
                         'ranges' => $ranges,
                     ];
                 }
-            }
 
-            $current->addDay();
+                $current->addDay();
+            }
         }
 
         $bookingUrl = $this->buildBookingUrl($master, $serviceId);
@@ -107,70 +113,9 @@ class FreeWindowsService
     }
 
     /**
-     * Get available start times for a single day (service mode).
-     */
-    private function getAvailableStartsForDay(
-        User $master,
-        Carbon $date,
-        int $serviceDuration,
-        Collection $workingHours,
-        array $booked,
-        array $blocked,
-        int $slotInterval,
-        string $tz,
-    ): array {
-        $localDate = $date->copy()->timezone($tz)->startOfDay();
-        $dayOfWeek = $localDate->dayOfWeek;
-
-        $workingHour = $workingHours->get($dayOfWeek);
-        if (! $workingHour || ! $workingHour->is_working) {
-            return [];
-        }
-
-        $dayStart = $localDate->copy()->setTimeFromTimeString($workingHour->start_time);
-        $dayEnd = $localDate->copy()->setTimeFromTimeString($workingHour->end_time);
-
-        $breakPeriods = $this->getBreakPeriods($workingHour, $localDate);
-        $allUnavailable = $breakPeriods
-            ->concat(collect($booked))
-            ->concat(collect($blocked));
-
-        $slots = [];
-        $slotStart = $dayStart->copy();
-
-        while (true) {
-            $slotEnd = $slotStart->copy()->addMinutes($serviceDuration);
-            if ($slotEnd->gt($dayEnd)) {
-                break;
-            }
-
-            // Skip past slots for today
-            if ($localDate->isToday() && $slotStart->lt(Carbon::now($tz))) {
-                $slotStart->addMinutes($slotInterval);
-                continue;
-            }
-
-            $fits = true;
-            foreach ($allUnavailable as $period) {
-                if ($slotStart->lt($period['end']) && $slotEnd->gt($period['start'])) {
-                    $fits = false;
-                    break;
-                }
-            }
-
-            if ($fits) {
-                $slots[] = $slotStart->format('H:i');
-            }
-
-            $slotStart->addMinutes($slotInterval);
-        }
-
-        return $slots;
-    }
-
-    /**
-     * Get continuous free intervals for a single day (all-services mode).
-     * No duration constraint — just working hours minus busy periods.
+     * Continuous free intervals for a single day (all-services mode).
+     * Working hours − (breaks + booked + blocked + recurring blocked).
+     * For today, clips past time to the nearest future slot_interval boundary.
      */
     private function getFreeIntervalsForDay(
         User $master,
@@ -194,24 +139,41 @@ class FreeWindowsService
         // Collect all busy periods for this day
         $busyPeriods = [];
 
-        // Break periods
         $breakPeriods = $this->getBreakPeriods($workingHour, $localDate);
         foreach ($breakPeriods as $bp) {
             $busyPeriods[] = $bp;
         }
 
-        // Booked periods
         foreach ($booked as $b) {
             $busyPeriods[] = $b;
         }
 
-        // Blocked periods
         foreach ($blocked as $b) {
             $busyPeriods[] = $b;
         }
 
+        // Today: clip range start to the future, aligned to slot_interval
+        if ($localDate->isToday()) {
+            $now = Carbon::now($tz);
+            $slotInterval = $master->slot_interval ?? 30;
+
+            if ($now->gt($dayEnd)) {
+                // Entire working day is in the past
+                return [];
+            }
+
+            if ($now->gt($dayStart)) {
+                // Round up to the next slot_interval boundary
+                $minutesPastHour = $now->minute % $slotInterval;
+                if ($minutesPastHour > 0) {
+                    $dayStart = $now->copy()->addMinutes($slotInterval - $minutesPastHour)->startOfMinute();
+                } else {
+                    $dayStart = $now->copy()->startOfMinute();
+                }
+            }
+        }
+
         if (empty($busyPeriods)) {
-            // Entire working day is free
             return [
                 [
                     'start' => $dayStart->format('H:i'),
@@ -230,7 +192,6 @@ class FreeWindowsService
             $current = $busyPeriods[$i];
 
             if ($current['start']->lte($last['end'])) {
-                // Overlap: extend the end
                 $merged[count($merged) - 1] = [
                     'start' => $last['start'],
                     'end' => $last['end']->gt($current['end']) ? $last['end'] : $current['end'],
@@ -256,7 +217,6 @@ class FreeWindowsService
             }
         }
 
-        // Remaining time after last busy period
         if ($cursor->lt($dayEnd)) {
             $free[] = [
                 'start' => $cursor->format('H:i'),
@@ -264,13 +224,9 @@ class FreeWindowsService
             ];
         }
 
-        // Filter out zero-length or negative ranges
         return array_values(array_filter($free, fn ($r) => $r['start'] < $r['end']));
     }
 
-    /**
-     * Build booking URL for the master.
-     */
     private function buildBookingUrl(User $master, ?string $serviceId): string
     {
         $base = '/book/' . $master->master_slug;
@@ -341,7 +297,6 @@ class FreeWindowsService
         $utcStart = $rangeStart->copy()->startOfDay()->timezone('UTC');
         $utcEnd = $rangeEnd->copy()->endOfDay()->timezone('UTC');
 
-        // Regular blocked times
         $blockedTimes = BlockedTime::where('user_id', $master->id)
             ->where('start_datetime', '<=', $utcEnd)
             ->where('end_datetime', '>=', $utcStart)
@@ -365,7 +320,6 @@ class FreeWindowsService
             }
         }
 
-        // Recurring blocked time series
         $this->loadRecurringBlockedPeriods($master, $rangeStart, $rangeEnd, $tz, $grouped);
 
         return $grouped;

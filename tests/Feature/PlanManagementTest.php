@@ -166,7 +166,7 @@ class PlanManagementTest extends TestCase
         $response->assertSessionHasErrors('max_appointments_per_month');
     }
 
-    public function test_start_update_rejects_null(): void
+    public function test_start_allows_null_for_unlimited(): void
     {
         $admin = User::factory()->create(['is_super_admin' => true]);
 
@@ -174,7 +174,8 @@ class PlanManagementTest extends TestCase
             'max_appointments_per_month' => null,
         ]);
 
-        $response->assertSessionHasErrors('max_appointments_per_month');
+        $this->startPlan->refresh();
+        $this->assertNull($this->startPlan->max_appointments_per_month);
     }
 
     // ── Start cannot change price ──

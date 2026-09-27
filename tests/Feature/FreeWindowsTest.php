@@ -557,6 +557,254 @@ class FreeWindowsTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════════════
+    // §5: Service-mode parity with BookingService
+    // ═══════════════════════════════════════════════════════
+    public function test_service_mode_parity_with_booking_service(): void
+    {
+        $this->actingAs($this->master);
+
+        $date = $this->getNextWeekday();
+
+        // Complex fixture: break, one-off blocked, recurring blocked, appointment
+        WorkingHour::where('user_id', $this->master->id)
+            ->where('day_of_week', $date->dayOfWeek)
+            ->update([
+                'break_start_time' => '12:00',
+                'break_end_time' => '12:30',
+            ]);
+
+        BlockedTime::create([
+            'user_id' => $this->master->id,
+            'start_datetime' => $date->copy()->setTime(14, 0)->timezone('UTC'),
+            'end_datetime' => $date->copy()->setTime(14, 30)->timezone('UTC'),
+        ]);
+
+        RecurringBlockedTimeSeries::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->workspace->id,
+            'title' => 'Обед',
+            'start_date' => $date->copy()->subWeek()->format('Y-m-d'),
+            'start_time' => '16:00',
+            'end_time' => '16:30',
+            'recurrence_type' => RecurrenceType::Daily,
+            'interval' => 1,
+            'timezone' => 'Europe/Moscow',
+            'status' => RecurringSeriesStatus::Active,
+        ]);
+
+        $client = Client::factory()->for($this->master)->create();
+        Appointment::factory()
+            ->forMaster($this->master)
+            ->forClient($client)
+            ->withMasterService($this->masterService)
+            ->booked()
+            ->create([
+                'start_time' => $date->copy()->setTime(10, 0)->timezone('UTC'),
+                'duration' => 45,
+            ]);
+
+        // Set slot_interval = 20 for finer granularity
+        $this->master->update(['slot_interval' => 20]);
+
+        // Path 1: BookingService::getAvailableSlots (public booking path)
+        $bookingService = app(\App\Services\Booking\BookingService::class);
+        $bookingSlots = $bookingService->getAvailableSlots(
+            $this->master,
+            $this->masterService,
+            $date->format('Y-m-d'),
+        );
+
+        // Path 2: FreeWindows service mode (admin panel)
+        $response = $this->getJson("/admin/free-windows?date_from={$date->format('Y-m-d')}&date_to={$date->format('Y-m-d')}&service_id={$this->masterService->id}");
+        $response->assertOk();
+
+        $freeWindowsStarts = $response->json('days.0.starts');
+
+        // The two paths MUST produce identical results
+        $this->assertEquals($bookingSlots, $freeWindowsStarts, 'FreeWindows service mode must equal BookingService::getAvailableSlots');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // §4: Service mode excludes recurring blocked occurrence
+    // ═══════════════════════════════════════════════════════
+    public function test_service_mode_excludes_recurring_blocked_occurrence(): void
+    {
+        $this->actingAs($this->master);
+
+        $date = $this->getNextWeekday();
+
+        // Ensure 12:00 is within working hours
+        WorkingHour::where('user_id', $this->master->id)
+            ->where('day_of_week', $date->dayOfWeek)
+            ->update([
+                'start_time' => '09:00',
+                'end_time' => '18:00',
+                'break_start_time' => null,
+                'break_end_time' => null,
+            ]);
+
+        // Recurring blocked 12:00-12:30
+        RecurringBlockedTimeSeries::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->workspace->id,
+            'title' => 'Обед',
+            'start_date' => $date->copy()->subWeek()->format('Y-m-d'),
+            'start_time' => '12:00',
+            'end_time' => '12:30',
+            'recurrence_type' => RecurrenceType::Daily,
+            'interval' => 1,
+            'timezone' => 'Europe/Moscow',
+            'status' => RecurringSeriesStatus::Active,
+        ]);
+
+        $response = $this->getJson("/admin/free-windows?date_from={$date->format('Y-m-d')}&date_to={$date->format('Y-m-d')}&service_id={$this->masterService->id}");
+        $response->assertOk();
+
+        $starts = $response->json('days.0.starts');
+
+        // 12:00 conflicts: slot 12:00-13:00 overlaps blocked 12:00-12:30
+        $this->assertNotContains('12:00', $starts);
+        // 11:30 conflicts: slot 11:30-12:30 overlaps blocked 12:00-12:30
+        $this->assertNotContains('11:30', $starts);
+        // 12:30 is free (12:30-13:30 doesn't overlap 12:00-12:30)
+        $this->assertContains('12:30', $starts);
+        // 11:00 is free (11:00-12:00 ends exactly at block start — no overlap)
+        $this->assertContains('11:00', $starts);
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // §6: Cross-midnight parity
+    // ═══════════════════════════════════════════════════════
+    public function test_cross_midnight_parity_between_booking_and_free_windows(): void
+    {
+        $this->actingAs($this->master);
+
+        // Pick a Friday that's at least 3 days away
+        $date = $this->getNextWeekday();
+        while ($date->dayOfWeek !== Carbon::FRIDAY) {
+            $date->addDay();
+        }
+        $date->addDays(3); // Ensure it's in the future
+
+        $client = Client::factory()->for($this->master)->create();
+
+        // Create an appointment starting Friday 17:00, lasting 120 min → ends Saturday 19:00 (cross-midnight)
+        // Working hours: Mon-Fri 09:00-18:00, Sat-Sun off
+        // For Friday this appointment blocks 17:00-18:00 in the working window
+        Appointment::factory()
+            ->forMaster($this->master)
+            ->forClient($client)
+            ->withMasterService($this->masterService)
+            ->booked()
+            ->create([
+                'start_time' => $date->copy()->setTime(17, 0)->timezone('UTC'),
+                'duration' => 120,
+            ]);
+
+        // Set slot_interval = 20
+        $this->master->update(['slot_interval' => 20]);
+
+        // Path 1: BookingService
+        $bookingService = app(\App\Services\Booking\BookingService::class);
+        $bookingSlots = $bookingService->getAvailableSlots(
+            $this->master,
+            $this->masterService,
+            $date->format('Y-m-d'),
+        );
+
+        // Path 2: FreeWindows service mode
+        $response = $this->getJson("/admin/free-windows?date_from={$date->format('Y-m-d')}&date_to={$date->format('Y-m-d')}&service_id={$this->masterService->id}");
+        $response->assertOk();
+
+        $freeWindowsStarts = $response->json('days.0.starts');
+
+        $this->assertEquals($bookingSlots, $freeWindowsStarts, 'Cross-midnight appointment must produce identical exclusions in both paths');
+    }
+
+    // ═══════════════════════════════════════════════════════
+    // §8–9: All-services today past-time filtering
+    // ═══════════════════════════════════════════════════════
+    public function test_all_services_today_partial_past_filters_correctly(): void
+    {
+        $this->actingAs($this->master);
+
+        // Set "now" to 11:25 Europe/Moscow on a weekday
+        $nextWeekday = $this->getNextWeekday();
+        $testNow = $nextWeekday->copy()->setTime(11, 25, 0, 0);
+        Carbon::setTestNow($testNow);
+
+        // slot_interval = 30 → next boundary after 11:25 = 11:30
+        $this->master->update(['slot_interval' => 30]);
+
+        $from = $nextWeekday->format('Y-m-d');
+        $to = $from;
+
+        $response = $this->getJson("/admin/free-windows?date_from={$from}&date_to={$to}");
+        $response->assertOk();
+
+        $ranges = $response->json('days.0.ranges');
+        $this->assertNotEmpty($ranges);
+
+        // Range should start at 11:30 (next slot_interval boundary), NOT 09:00
+        $this->assertEquals('11:30', $ranges[0]['start']);
+        $this->assertEquals('18:00', $ranges[0]['end']);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_all_services_today_fully_past_returns_empty(): void
+    {
+        $this->actingAs($this->master);
+
+        $nextWeekday = $this->getNextWeekday();
+        // Set "now" to 19:00 — after end of working day (18:00)
+        $testNow = $nextWeekday->copy()->setTime(19, 0, 0, 0);
+        Carbon::setTestNow($testNow);
+
+        $from = $nextWeekday->format('Y-m-d');
+        $to = $from;
+
+        $response = $this->getJson("/admin/free-windows?date_from={$from}&date_to={$to}");
+        $response->assertOk();
+
+        $days = $response->json('days');
+        $this->assertEmpty($days);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_all_services_future_day_not_filtered(): void
+    {
+        $this->actingAs($this->master);
+
+        $nextWeekday = $this->getNextWeekday();
+        // Set "now" to 11:25 — partial past today
+        $testNow = $nextWeekday->copy()->setTime(11, 25, 0, 0);
+        Carbon::setTestNow($testNow);
+
+        // Request tomorrow (next working day)
+        $tomorrow = $nextWeekday->copy()->addDay();
+        while ($tomorrow->isWeekend()) {
+            $tomorrow->addDay();
+        }
+
+        $from = $tomorrow->format('Y-m-d');
+        $to = $from;
+
+        $response = $this->getJson("/admin/free-windows?date_from={$from}&date_to={$to}");
+        $response->assertOk();
+
+        $ranges = $response->json('days.0.ranges');
+        $this->assertNotEmpty($ranges);
+
+        // Future day: full working hours preserved, starts at 09:00
+        $this->assertEquals('09:00', $ranges[0]['start']);
+        $this->assertEquals('18:00', $ranges[0]['end']);
+
+        Carbon::setTestNow();
+    }
+
+    // ═══════════════════════════════════════════════════════
     // Helper
     // ═══════════════════════════════════════════════════════
     private function getNextWeekday(): Carbon
