@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { usePage } from '@inertiajs/react';
 import { toast } from 'sonner';
 import { CalendarDays, Copy, Share2, ChevronRight, Loader2 } from 'lucide-react';
@@ -51,22 +51,25 @@ const FULL_MONTHS_RU = [
     'июля', 'августа', 'сентября', 'октября', 'ноября', 'декабря',
 ];
 
+/* ═══════════════ Hidden state keys ═══════════════ */
+
+function dayKey(date: string): string {
+    return `day:${date}`;
+}
+
+function startItemKey(date: string, time: string): string {
+    return `item:${date}|${time}`;
+}
+
+function rangeItemKey(date: string, start: string, end: string): string {
+    return `item:${date}|${start}–${end}`;
+}
+
 /* ═══════════════ Helpers ═══════════════ */
 
 function formatDayHeader(dateStr: string): string {
     const [y, m, d] = dateStr.split('-').map(Number);
     return `${d} ${FULL_MONTHS_RU[m - 1]}`;
-}
-
-function getToday(): string {
-    const now = new Date();
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
-}
-
-function getTomorrow(): string {
-    const now = new Date();
-    now.setDate(now.getDate() + 1);
-    return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`;
 }
 
 function getDateRange(days: number, offset: number = 0): { date_from: string; date_to: string } {
@@ -77,6 +80,40 @@ function getDateRange(days: number, offset: number = 0): { date_from: string; da
 
     const fmt = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
     return { date_from: fmt(start), date_to: fmt(end) };
+}
+
+function hasVisibleItems(day: FreeWindowsDay, hiddenKeys: Set<string>, mode: 'service' | 'all'): boolean {
+    if (day.starts && mode === 'service') {
+        return day.starts.some(t => !hiddenKeys.has(startItemKey(day.date, t)));
+    }
+    if (day.ranges && mode === 'all') {
+        return day.ranges.some(r => !hiddenKeys.has(rangeItemKey(day.date, r.start, r.end)));
+    }
+    return false;
+}
+
+function deriveVisibleDays(days: FreeWindowsDay[], hiddenKeys: Set<string>, mode: 'service' | 'all'): FreeWindowsDay[] {
+    const result: FreeWindowsDay[] = [];
+
+    for (const day of days) {
+        if (hiddenKeys.has(dayKey(day.date))) {
+            continue;
+        }
+
+        if (mode === 'service' && day.starts) {
+            const visibleStarts = day.starts.filter(t => !hiddenKeys.has(startItemKey(day.date, t)));
+            if (visibleStarts.length > 0) {
+                result.push({ ...day, starts: visibleStarts });
+            }
+        } else if (mode === 'all' && day.ranges) {
+            const visibleRanges = day.ranges.filter(r => !hiddenKeys.has(rangeItemKey(day.date, r.start, r.end)));
+            if (visibleRanges.length > 0) {
+                result.push({ ...day, ranges: visibleRanges });
+            }
+        }
+    }
+
+    return result;
 }
 
 /* ═══════════════ Component ═══════════════ */
@@ -93,14 +130,30 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
     const [result, setResult] = useState<FreeWindowsResponse | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
+    const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
 
     // Reset on close
     useEffect(() => {
         if (!open) {
             setResult(null);
             setError(null);
+            setHiddenKeys(new Set());
         }
     }, [open]);
+
+    // Derive visible days
+    const visibleDays = useMemo(() => {
+        if (!result) return [];
+        return deriveVisibleDays(result.days, hiddenKeys, result.mode);
+    }, [result, hiddenKeys]);
+
+    const hasAnyBackendDays = result !== null && result.days.length > 0;
+    const visibleCount = visibleDays.reduce((sum, d) => {
+        if (result?.mode === 'service' && d.starts) return sum + d.starts.length;
+        if (result?.mode === 'all' && d.ranges) return sum + d.ranges.length;
+        return sum;
+    }, 0);
+    const allHidden = hasAnyBackendDays && visibleCount === 0;
 
     // Compute date range
     function getDateParams(): { date_from: string; date_to: string } {
@@ -119,6 +172,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
         setLoading(true);
         setError(null);
         setResult(null);
+        setHiddenKeys(new Set());
 
         const params = getDateParams();
         const queryParams = new URLSearchParams(params);
@@ -154,17 +208,49 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
         }
     }
 
-    // Copy text
-    function handleCopyText() {
-        if (!result) return;
+    // Toggle day hide/restore
+    function toggleDay(date: string) {
+        setHiddenKeys(prev => {
+            const next = new Set(prev);
+            const key = dayKey(date);
+            if (next.has(key)) {
+                next.delete(key);
+            } else {
+                next.add(key);
+            }
+            return next;
+        });
+    }
 
-        let text: string;
+    // Toggle item (start or range)
+    function toggleItem(key: string) {
+        setHiddenKeys(prev => {
+            const next = new Set(prev);
+            if (next.has(key)) {
+                next.delete(key);
+            } else {
+                next.add(key);
+            }
+            return next;
+        });
+    }
+
+    // Build text for copy/share using visibleDays
+    function buildPublicationText(): string | null {
+        if (!result) return null;
+        if (visibleDays.length === 0) return null;
+
         if (result.mode === 'service') {
             const serviceTitle = services.find(s => s.id === selectedServiceId)?.title ?? '';
-            text = buildFreeWindowsTextService(serviceTitle, result.days, result.booking_url);
-        } else {
-            text = buildFreeWindowsTextAll(result.days, result.booking_url);
+            return buildFreeWindowsTextService(serviceTitle, visibleDays, result.booking_url);
         }
+        return buildFreeWindowsTextAll(visibleDays, result.booking_url);
+    }
+
+    // Copy text
+    function handleCopyText() {
+        const text = buildPublicationText();
+        if (!text) return;
 
         navigator.clipboard.writeText(text).then(
             () => toast.success('Текст скопирован'),
@@ -184,15 +270,8 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
 
     // Share
     function handleShare() {
-        if (!result || !navigator.share) return;
-
-        let text: string;
-        if (result.mode === 'service') {
-            const serviceTitle = services.find(s => s.id === selectedServiceId)?.title ?? '';
-            text = buildFreeWindowsTextService(serviceTitle, result.days, result.booking_url);
-        } else {
-            text = buildFreeWindowsTextAll(result.days, result.booking_url);
-        }
+        const text = buildPublicationText();
+        if (!text || !navigator.share) return;
 
         navigator.share({ text }).catch(() => {});
     }
@@ -342,30 +421,103 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                         На выбранный период свободного времени нет
                                     </p>
                                 </div>
+                            ) : allHidden ? (
+                                <div className="rounded-[10px] bg-[var(--color-warm)] px-4 py-6 text-center">
+                                    <p className="text-[13px] font-medium text-[var(--color-ink)]">
+                                        Вы скрыли всё свободное время
+                                    </p>
+                                    <p className="mt-1 text-[12px] text-[var(--color-graphite)]">
+                                        Верните хотя бы одно время или день, чтобы поделиться публикацией.
+                                    </p>
+                                </div>
                             ) : (
                                 <div className="rounded-[10px] bg-[var(--color-warm)] px-4 py-3">
-                                    {result.days.map(day => (
-                                        <div key={day.date} className="flex flex-col gap-1 sm:flex-row sm:items-start sm:justify-between py-2 border-b border-[var(--color-line-soft)] last:border-0">
-                                            <span className="text-[13px] font-semibold text-[var(--color-ink)] text-left">
-                                                {formatDayHeader(day.date)}
-                                            </span>
-                                            <span className="text-[13px] text-[var(--color-graphite)] text-left sm:text-right">
-                                                {day.starts
-                                                    ? day.starts.join(', ')
-                                                    : day.ranges?.map(r => `${r.start}–${r.end}`).join(', ')
-                                                }
-                                            </span>
-                                        </div>
-                                    ))}
+                                    {result.days.map(day => {
+                                        const isDayHidden = hiddenKeys.has(dayKey(day.date));
+
+                                        return (
+                                            <div key={day.date} className="py-2 border-b border-[var(--color-line-soft)] last:border-0">
+                                                {/* Day header */}
+                                                <div className="flex items-center justify-between gap-2">
+                                                    <span className={`text-[13px] font-semibold text-left ${isDayHidden ? 'text-[var(--color-graphite)]' : 'text-[var(--color-ink)]'}`}>
+                                                        {formatDayHeader(day.date)}
+                                                    </span>
+                                                    <button
+                                                        type="button"
+                                                        onClick={() => toggleDay(day.date)}
+                                                        className="shrink-0 text-[12px] text-[var(--color-graphite)] hover:text-[var(--color-ink)] transition-colors"
+                                                        aria-label={isDayHidden ? `Вернуть день ${formatDayHeader(day.date)}` : `Скрыть день ${formatDayHeader(day.date)}`}
+                                                    >
+                                                        {isDayHidden ? 'Вернуть день' : 'Скрыть день'}
+                                                    </button>
+                                                </div>
+
+                                                {isDayHidden ? (
+                                                    <p className="mt-1 text-[11px] text-[var(--color-graphite)] italic">
+                                                        День скрыт из публикации
+                                                    </p>
+                                                ) : (
+                                                    /* Chips */
+                                                    <div className="mt-1.5 flex flex-wrap gap-2" data-testid="chips-container">
+                                                        {result.mode === 'service' && day.starts?.map(time => {
+                                                            const key = startItemKey(day.date, time);
+                                                            const isHidden = hiddenKeys.has(key);
+                                                            return (
+                                                                <button
+                                                                    key={time}
+                                                                    type="button"
+                                                                    onClick={() => toggleItem(key)}
+                                                                    disabled={isDayHidden}
+                                                                    aria-pressed={!isHidden}
+                                                                    aria-label={isHidden ? `Вернуть время ${time}` : `Скрыть время ${time}`}
+                                                                    className={`rounded-[8px] border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                                                                        isHidden
+                                                                            ? 'border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-graphite)] line-through opacity-60'
+                                                                            : 'border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]'
+                                                                    }`}
+                                                                >
+                                                                    {time}
+                                                                </button>
+                                                            );
+                                                        })}
+
+                                                        {result.mode === 'all' && day.ranges?.map(range => {
+                                                            const key = rangeItemKey(day.date, range.start, range.end);
+                                                            const isHidden = hiddenKeys.has(key);
+                                                            const label = `${range.start}–${range.end}`;
+                                                            return (
+                                                                <button
+                                                                    key={label}
+                                                                    type="button"
+                                                                    onClick={() => toggleItem(key)}
+                                                                    disabled={isDayHidden}
+                                                                    aria-pressed={!isHidden}
+                                                                    aria-label={isHidden ? `Вернуть диапазон ${label}` : `Скрыть диапазон ${label}`}
+                                                                    className={`rounded-[8px] border px-3 py-1.5 text-[12px] font-medium transition-colors ${
+                                                                        isHidden
+                                                                            ? 'border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-graphite)] line-through opacity-60'
+                                                                            : 'border-[var(--color-line)] bg-[var(--color-surface)] text-[var(--color-ink)] hover:bg-[var(--color-surface-hover)]'
+                                                                    }`}
+                                                                >
+                                                                    {label}
+                                                                </button>
+                                                            );
+                                                        })}
+                                                    </div>
+                                                )}
+                                            </div>
+                                        );
+                                    })}
                                 </div>
                             )}
 
                             {/* Actions */}
-                            {result.days.length > 0 && (
+                            {hasAnyBackendDays && (
                                 <div className="grid grid-cols-1 gap-2 sm:flex sm:flex-row">
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyText}
+                                        disabled={allHidden}
                                         className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
                                         <Copy className="mr-1.5 size-3.5" />
@@ -374,6 +526,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyLink}
+                                        disabled={allHidden}
                                         className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
                                         <ChevronRight className="mr-1.5 size-3.5" />
@@ -383,6 +536,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                         <Button
                                             variant="outline"
                                             onClick={handleShare}
+                                            disabled={allHidden}
                                             className="w-full sm:w-auto rounded-[10px] border-[var(--color-line)] px-3 text-[12px] font-semibold"
                                         >
                                             <Share2 className="size-3.5" />
