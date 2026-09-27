@@ -25,6 +25,8 @@ class FreeWindowsTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $testAppUrl = 'https://irsi.test';
+
     private User $master;
     private Workspace $workspace;
     private ServiceCatalog $catalog;
@@ -33,6 +35,10 @@ class FreeWindowsTest extends TestCase
     protected function setUp(): void
     {
         parent::setUp();
+
+        config(['app.url' => $this->testAppUrl]);
+        $this->app['url']->forceRootUrl($this->testAppUrl);
+        $this->app['url']->forceScheme('https');
 
         $proPlan = TariffPlan::create([
             'code' => 'pro',
@@ -484,7 +490,8 @@ class FreeWindowsTest extends TestCase
         $response->assertOk();
 
         $url = $response->json('booking_url');
-        $this->assertStringStartsWith('/book/', $url);
+        $this->assertStringStartsWith('http', $url);
+        $this->assertStringStartsWith($this->testAppUrl . '/book/' . $this->master->master_slug, $url);
         $this->assertStringNotContainsString('service_id', $url);
     }
 
@@ -499,8 +506,8 @@ class FreeWindowsTest extends TestCase
         $response->assertOk();
 
         $url = $response->json('booking_url');
-        $this->assertStringStartsWith('/book/', $url);
-        $this->assertStringContainsString('service_id=' . $this->masterService->id, $url);
+        $expected = $this->testAppUrl . '/book/' . $this->master->master_slug . '?service_id=' . $this->masterService->id;
+        $this->assertEquals($expected, $url);
     }
 
     // ═══════════════════════════════════════════════════════

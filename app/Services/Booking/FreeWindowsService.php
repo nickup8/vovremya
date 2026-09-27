@@ -15,6 +15,7 @@ use App\Services\Recurrence\RecurrenceService;
 use Carbon\Carbon;
 use Carbon\CarbonInterface;
 use Illuminate\Support\Collection;
+use Illuminate\Support\Facades\URL;
 
 class FreeWindowsService
 {
@@ -229,16 +230,19 @@ class FreeWindowsService
 
     private function buildBookingUrl(User $master, ?string $serviceId): string
     {
-        $base = '/book/' . $master->master_slug;
+        $params = [];
 
         if ($serviceId) {
             $masterService = MasterService::find($serviceId);
             if ($masterService) {
-                return $base . '?service_id=' . $masterService->id;
+                $params['service_id'] = $masterService->id;
             }
         }
 
-        return $base;
+        return URL::route('booking.widget', array_merge(
+            ['master' => $master->master_slug],
+            $params,
+        ));
     }
 
     private function loadWorkingHours(User $master): Collection
