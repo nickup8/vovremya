@@ -1,7 +1,7 @@
 import { useState, useMemo, useEffect, useCallback } from 'react';
 import { Head, usePage, router } from '@inertiajs/react';
 import { toast } from 'sonner';
-import { CalendarDays } from 'lucide-react';
+import { CalendarDays, CalendarClock } from 'lucide-react';
 import { MONTHS_RU } from '@/lib/locale';
 import DateControlPanel from '@/components/calendar/DateControlPanel';
 import {
@@ -9,6 +9,7 @@ import {
 } from '@/components/ui/select';
 import AdminLayout from '@/layouts/AdminLayout';
 import TimezoneConfirmBanner from '@/components/admin/TimezoneConfirmBanner';
+import FreeWindowsDrawer from '@/components/admin/FreeWindowsDrawer';
 
 import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
@@ -35,6 +36,9 @@ import type { RecurrenceConfig, PreviewResult } from './components/calendar/Recu
 export default function CalendarPage() {
     const { appointments: initialAppointments = [], initialBlockedTimes: initialBlockedTimes = [], clients = [], services = [], slotInterval = 30, workingHours = [], timezoneConfirmed = false, timezone = 'Europe/Moscow', prefillClientId, auth, masters = [], dateRange: loadedRange } = usePage<PageProps>().props;
     const isPro = auth?.user?.tariff_code === 'pro';
+
+    // ═══════════════ Free Windows ═══════════════
+    const [freeWindowsOpen, setFreeWindowsOpen] = useState(false);
 
     // ═══════════════ Recurrence from Existing ═══════════════
     const [repeatDialogOpen, setRepeatDialogOpen] = useState(false);
@@ -559,6 +563,23 @@ return [];
                                 onSetView={setViewMode}
                             />
 
+                            {/* ─── Quick Actions ─── */}
+                            <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-4 py-2 lg:px-7">
+                                <button
+                                    type="button"
+                                    onClick={() => setFreeWindowsOpen(true)}
+                                    className="flex h-8 items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 text-[12px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
+                                >
+                                    <CalendarClock className="size-3.5" />
+                                    Свободные окна
+                                    {!isPro && (
+                                        <span className="ml-0.5 rounded-full bg-[var(--color-orange)]/10 px-1.5 py-0.5 text-[10px] font-bold text-[var(--color-orange)]">
+                                            Профи
+                                        </span>
+                                    )}
+                                </button>
+                            </div>
+
                             {/* ─── Booking Mode Banner ─── */}
                             {activeBookingClient && (
                                 <div className="mx-4 flex shrink-0 flex-col gap-2 rounded-xl border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 transition-all lg:mx-6 lg:flex-row lg:items-center lg:gap-3">
@@ -788,6 +809,14 @@ return [];
                 isProcessing={seriesEditProcessing}
                 onPreview={handleSeriesPreview}
                 onSubmit={handleSeriesSubmit}
+            />
+
+            {/* ─── Free Windows Drawer ─── */}
+            <FreeWindowsDrawer
+                open={freeWindowsOpen}
+                onOpenChange={setFreeWindowsOpen}
+                isPro={isPro}
+                services={services}
             />
         </>
     );

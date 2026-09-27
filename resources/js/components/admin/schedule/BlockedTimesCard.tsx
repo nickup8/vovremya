@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { router, usePage } from '@inertiajs/react';
-import { Plus, Trash2, Repeat, Pause, Play, Lock } from 'lucide-react';
+import { Plus, Trash2, Repeat, Pause, Play } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Select, SelectTrigger, SelectValue, SelectContent, SelectItem } from '@/components/ui/select';
@@ -108,10 +108,9 @@ type DisplayRecurrence = 'daily' | 'weekly' | 'n_weekly';
 // ── Component ──
 
 export default function BlockedTimesCard({ masterId, timezone }: { masterId?: string; timezone: string }) {
-    const { blockedTimes: rawBlocked, recurringSeries: rawRecurring, hasRecurringFeature } = usePage<{
+    const { blockedTimes: rawBlocked, recurringSeries: rawRecurring } = usePage<{
         blockedTimes: BlockedTime[];
         recurringSeries: RecurringSeries[];
-        hasRecurringFeature: boolean;
     }>().props;
 
     const blockedTimes = rawBlocked || [];
@@ -513,32 +512,25 @@ export default function BlockedTimesCard({ masterId, timezone }: { masterId?: st
                                 <Repeat className="size-4" />
                                 Повторять
                             </label>
-                            {hasRecurringFeature ? (
-                                <button
-                                    type="button"
-                                    role="switch"
-                                    aria-checked={repeat}
-                                    onClick={() => {
-                                        setRepeat(!repeat);
-                                        if (!repeat) {
-                                            // Switching to recurring: set sensible defaults
-                                            setTitle(title || reason || '');
-                                        }
-                                    }}
-                                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
-                                        repeat ? 'bg-[var(--color-orange)]' : 'bg-[var(--color-line)]'
-                                    }`}
-                                >
-                                    <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
-                                        repeat ? 'translate-x-6' : 'translate-x-1'
-                                    }`} />
-                                </button>
-                            ) : (
-                                <span className="flex items-center gap-1 text-[12px] text-[var(--color-graphite)]">
-                                    <Lock className="size-3" />
-                                    Профи
-                                </span>
-                            )}
+                            <button
+                                type="button"
+                                role="switch"
+                                aria-checked={repeat}
+                                onClick={() => {
+                                    setRepeat(!repeat);
+                                    if (!repeat) {
+                                        // Switching to recurring: set sensible defaults
+                                        setTitle(title || reason || '');
+                                    }
+                                }}
+                                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${
+                                    repeat ? 'bg-[var(--color-orange)]' : 'bg-[var(--color-line)]'
+                                }`}
+                            >
+                                <span className={`inline-block h-4 w-4 rounded-full bg-white transition-transform ${
+                                    repeat ? 'translate-x-6' : 'translate-x-1'
+                                }`} />
+                            </button>
                         </div>
                     </div>
 

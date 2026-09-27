@@ -52,9 +52,10 @@ const FEATURE_LABELS: Record<string, string> = {
     client_management: 'Полная база клиентов',
     channel_analytics: 'Аналитика каналов записи',
     slot_autofill: 'Автозаполнение свободных окон',
+    free_windows: 'Свободные окна',
 };
 
-const BENEFIT_FEATURES = ['unlimited_appointments', 'client_management', 'channel_analytics', 'slot_autofill'];
+const BENEFIT_FEATURES = ['unlimited_appointments', 'client_management', 'channel_analytics', 'slot_autofill', 'free_windows'];
 
 const MONTHS_RU: Record<number, string> = {
     1: 'месяц',
@@ -170,7 +171,7 @@ export default function BillingPage() {
                                     {isPaid && current.days_left !== undefined
                                         ? `Записи без ограничений · осталось ${current.days_left} дн.`
                                         : current.tariff === 'start'
-                                            ? `До ${tariffLimits?.total ?? '—'} записей в месяц`
+                                            ? 'Без ограничения количества записей'
                                             : ''}
                                 </div>
                             </div>

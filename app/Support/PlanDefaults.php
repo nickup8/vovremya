@@ -10,8 +10,11 @@ namespace App\Support;
  */
 final class PlanDefaults
 {
-    /** Максимум записей в месяц для тарифа Старт */
-    public const START_MAX_APPOINTMENTS = 30;
+    /**
+     * Максимум записей в месяц для тарифа Старт.
+     * null = безлимит (PHP_INT_MAX на уровне логики).
+     */
+    public const START_MAX_APPOINTMENTS = null;
 
     /** Максимум мастеров для тарифа Старт */
     public const START_MAX_MASTERS = 1;

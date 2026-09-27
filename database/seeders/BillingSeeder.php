@@ -15,7 +15,7 @@ class BillingSeeder extends Seeder
             [
                 'name' => 'Старт',
                 'price_monthly' => 0,
-                'max_appointments_per_month' => 30,
+                'max_appointments_per_month' => null,
                 'max_masters' => 1,
                 'features' => ['calendar', 'basic_client_management'],
                 'is_active' => true,
@@ -29,7 +29,7 @@ class BillingSeeder extends Seeder
                 'price_monthly' => 490,
                 'max_appointments_per_month' => null,
                 'max_masters' => 1,
-                'features' => ['unlimited_appointments', 'client_management', 'channel_analytics', 'slot_autofill', 'recurring_blocked_times', 'recurring_appointments'],
+                'features' => ['unlimited_appointments', 'client_management', 'channel_analytics', 'slot_autofill', 'recurring_appointments', 'free_windows'],
                 'is_active' => true,
             ],
         );

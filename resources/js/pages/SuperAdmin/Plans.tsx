@@ -59,6 +59,7 @@ export default function Plans() {
 
 function StartCard({ plan }: { plan: Plan }) {
     const [value, setValue] = useState(plan.max_appointments_per_month?.toString() ?? '');
+    const [unlimited, setUnlimited] = useState(plan.max_appointments_per_month === null);
     const [saving, setSaving] = useState(false);
     const [errors, setErrors] = useState<Record<string, string>>({});
 
@@ -67,7 +68,7 @@ function StartCard({ plan }: { plan: Plan }) {
         setErrors({});
 
         router.put(`/admin-root/plans/${plan.id}`, {
-            max_appointments_per_month: parseInt(value, 10),
+            max_appointments_per_month: unlimited ? null : parseInt(value, 10),
         }, {
             preserveScroll: true,
             onSuccess: () => setErrors({}),
@@ -91,13 +92,28 @@ function StartCard({ plan }: { plan: Plan }) {
                         Лимит записей в месяц
                     </label>
                     <div className="mt-1.5 flex items-center gap-3">
-                        <input
-                            type="number"
-                            min="1"
-                            value={value}
-                            onChange={(e) => setValue(e.target.value)}
-                            className="w-28 rounded-xl border border-[#E7E4DF] bg-white px-3.5 py-2.5 text-sm text-[#181818] outline-none transition-colors focus:border-[#FF5A1F] focus:ring-1 focus:ring-[#FF5A1F]"
-                        />
+                        <label className="flex items-center gap-2 text-sm text-[#181818]">
+                            <input
+                                type="checkbox"
+                                checked={unlimited}
+                                onChange={(e) => setUnlimited(e.target.checked)}
+                                className="accent-[#FF5A1F]"
+                            />
+                            Без ограничений
+                        </label>
+                    </div>
+                    {!unlimited && (
+                        <div className="mt-2 flex items-center gap-3">
+                            <input
+                                type="number"
+                                min="1"
+                                value={value}
+                                onChange={(e) => setValue(e.target.value)}
+                                className="w-28 rounded-xl border border-[#E7E4DF] bg-white px-3.5 py-2.5 text-sm text-[#181818] outline-none transition-colors focus:border-[#FF5A1F] focus:ring-1 focus:ring-[#FF5A1F]"
+                            />
+                        </div>
+                    )}
+                    <div className="mt-3">
                         <button
                             type="button"
                             onClick={handleSave}

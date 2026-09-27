@@ -160,15 +160,13 @@ Route::middleware(['auth'])->group(function () {
     Route::post('/admin/blocked-times', [SettingsController::class, 'storeBlockedTime'])->name('admin.blocked-times.store');
     Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
 
-    // Recurring blocked times — только ПРОФИ (feature gate)
-    Route::middleware('feature:recurring_blocked_times')->group(function () {
-        Route::post('/admin/recurring-blocked-times/preview', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'preview'])->name('admin.recurring-blocked-times.preview');
-        Route::post('/admin/recurring-blocked-times', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'store'])->name('admin.recurring-blocked-times.store');
-        Route::patch('/admin/recurring-blocked-times/{series}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'update'])->name('admin.recurring-blocked-times.update');
-        Route::delete('/admin/recurring-blocked-times/{series}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'destroy'])->name('admin.recurring-blocked-times.destroy');
-        Route::patch('/admin/recurring-blocked-times/{series}/occurrences/{date}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'updateOccurrence'])->name('admin.recurring-blocked-times.occurrence.update');
-        Route::delete('/admin/recurring-blocked-times/{series}/occurrences/{date}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'destroyOccurrence'])->name('admin.recurring-blocked-times.occurrence.destroy');
-    });
+    // Recurring blocked times — доступны всем авторизованным пользователям
+    Route::post('/admin/recurring-blocked-times/preview', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'preview'])->name('admin.recurring-blocked-times.preview');
+    Route::post('/admin/recurring-blocked-times', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'store'])->name('admin.recurring-blocked-times.store');
+    Route::patch('/admin/recurring-blocked-times/{series}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'update'])->name('admin.recurring-blocked-times.update');
+    Route::delete('/admin/recurring-blocked-times/{series}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'destroy'])->name('admin.recurring-blocked-times.destroy');
+    Route::patch('/admin/recurring-blocked-times/{series}/occurrences/{date}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'updateOccurrence'])->name('admin.recurring-blocked-times.occurrence.update');
+    Route::delete('/admin/recurring-blocked-times/{series}/occurrences/{date}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'destroyOccurrence'])->name('admin.recurring-blocked-times.occurrence.destroy');
 
     // Recurring appointments — только ПРОФИ (feature gate)
     Route::middleware('feature:recurring_appointments')->group(function () {
@@ -185,6 +183,11 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
+
+    // Free windows — только Профи (feature gate)
+    Route::middleware('feature:free_windows')->group(function () {
+        Route::get('/admin/free-windows', [\App\Http\Controllers\Admin\FreeWindowsController::class, 'index'])->name('admin.free-windows');
+    });
 
     Route::post('/admin/notifications/{notification}/read', [\App\Http\Controllers\Admin\NotificationController::class, 'markRead'])->name('admin.notifications.read');
     Route::post('/admin/notifications/read-all', [\App\Http\Controllers\Admin\NotificationController::class, 'markAllRead'])->name('admin.notifications.readAll');

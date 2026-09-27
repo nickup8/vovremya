@@ -62,12 +62,12 @@ class TariffLimitTest extends TestCase
         ]);
     }
 
-    public function test_free_tariff_allows_up_to_30_appointments(): void
+    public function test_start_tariff_allows_unlimited_appointments(): void
     {
-        // No Core entitlement = start plan with 30 limit
+        // No Core entitlement = start plan with unlimited (null) limit
         $client = Client::factory()->for($this->master)->create();
 
-        for ($i = 0; $i < 30; $i++) {
+        for ($i = 0; $i < 35; $i++) {
             \App\Models\Appointment::factory()
                 ->forMaster($this->master)
                 ->forClient($client)
@@ -78,11 +78,11 @@ class TariffLimitTest extends TestCase
                 ]);
         }
 
-        $this->assertDatabaseCount('appointments', 30);
+        $this->assertDatabaseCount('appointments', 35);
 
-        // 31st appointment should be blocked by tariff limit
+        // Start plan should now allow unlimited appointments
         $canCreate = app(TariffLimitService::class)->canCreateAppointment($this->master->workspace);
-        $this->assertFalse($canCreate, 'Should not allow 31st appointment on free tariff');
+        $this->assertTrue($canCreate, 'Start plan should allow unlimited appointments');
     }
 
     public function test_pro_tariff_allows_unlimited_appointments(): void

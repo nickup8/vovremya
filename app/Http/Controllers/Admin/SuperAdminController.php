@@ -584,7 +584,7 @@ class SuperAdminController extends Controller
     {
         if ($plan->code === 'start') {
             $validated = $request->validate([
-                'max_appointments_per_month' => 'required|integer|min:1',
+                'max_appointments_per_month' => 'nullable|integer|min:1',
             ]);
         } elseif ($plan->code === 'pro') {
             $validated = $request->validate([

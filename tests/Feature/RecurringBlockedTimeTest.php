@@ -122,9 +122,9 @@ class RecurringBlockedTimeTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════════════
-    // P0-2: Start cannot create recurring blocked time
+    // P0-2: Start CAN create recurring blocked time (now base feature)
     // ═══════════════════════════════════════════════════════
-    public function test_start_cannot_create_recurring_blocked_time(): void
+    public function test_start_can_create_recurring_blocked_time(): void
     {
         $this->actingAs($this->startMaster);
 
@@ -135,10 +135,15 @@ class RecurringBlockedTimeTest extends TestCase
             'end_time' => '13:00',
             'recurrence_type' => 'weekly',
             'interval' => 1,
+            'weekdays' => [1, 2, 3, 4, 5],
         ]);
 
-        $response->assertStatus(403);
-        $this->assertDatabaseCount('recurring_blocked_time_series', 0);
+        $response->assertRedirect();
+        $this->assertDatabaseHas('recurring_blocked_time_series', [
+            'user_id' => $this->startMaster->id,
+            'title' => 'Личные дела',
+            'status' => 'active',
+        ]);
     }
 
     // ═══════════════════════════════════════════════════════
@@ -741,9 +746,9 @@ class RecurringBlockedTimeTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════════════
-    // P0-24: Feature gate backend works
+    // P0-24: Feature gate removed — Start CAN access all endpoints
     // ═══════════════════════════════════════════════════════
-    public function test_feature_gate_blocks_start_tariff_api_access(): void
+    public function test_start_can_access_recurring_blocked_times_endpoint(): void
     {
         $this->actingAs($this->startMaster);
 
@@ -756,15 +761,16 @@ class RecurringBlockedTimeTest extends TestCase
             'interval' => 1,
         ]);
 
-        $response->assertStatus(403);
+        // No longer blocked — recurring blocked times are a base feature
+        $response->assertRedirect();
     }
 
-    public function test_feature_gate_blocks_start_tariff_update(): void
+    public function test_start_can_update_recurring_series(): void
     {
-        // Create a series as Pro user first
+        // Create a series as Start user
         $series = RecurringBlockedTimeSeries::create([
-            'workspace_id' => $this->proWorkspace->id,
-            'user_id' => $this->proMaster->id,
+            'workspace_id' => $this->startWorkspace->id,
+            'user_id' => $this->startMaster->id,
             'title' => 'Block',
             'start_date' => '2026-10-01',
             'start_time' => '16:00',
@@ -775,22 +781,25 @@ class RecurringBlockedTimeTest extends TestCase
             'status' => RecurringSeriesStatus::Active,
         ]);
 
-        // Try to update as Start user
         $this->actingAs($this->startMaster);
 
         $response = $this->patchJson("/admin/recurring-blocked-times/{$series->id}", [
-            'title' => 'Test',
+            'title' => 'Updated',
         ]);
 
-        $response->assertStatus(403);
+        $response->assertRedirect();
+        $this->assertDatabaseHas('recurring_blocked_time_series', [
+            'id' => $series->id,
+            'title' => 'Updated',
+        ]);
     }
 
-    public function test_feature_gate_blocks_start_tariff_delete(): void
+    public function test_start_can_delete_recurring_series(): void
     {
-        // Create a series as Pro user first
+        // Create a series as Start user
         $series = RecurringBlockedTimeSeries::create([
-            'workspace_id' => $this->proWorkspace->id,
-            'user_id' => $this->proMaster->id,
+            'workspace_id' => $this->startWorkspace->id,
+            'user_id' => $this->startMaster->id,
             'title' => 'Block',
             'start_date' => '2026-10-01',
             'start_time' => '16:00',
@@ -801,12 +810,13 @@ class RecurringBlockedTimeTest extends TestCase
             'status' => RecurringSeriesStatus::Active,
         ]);
 
-        // Try to delete as Start user
         $this->actingAs($this->startMaster);
 
         $response = $this->deleteJson("/admin/recurring-blocked-times/{$series->id}");
 
-        $response->assertStatus(403);
+        $response->assertRedirect();
+        $series->refresh();
+        $this->assertEquals(RecurringSeriesStatus::Cancelled, $series->status);
     }
 
     // ═══════════════════════════════════════════════════════

@@ -30,7 +30,6 @@ class ScheduleController extends Controller
             'recurringSeries' => $targetMaster->recurringBlockedTimeSeries()
                 ->with('exceptions')
                 ->get(),
-            'hasRecurringFeature' => $user->hasFeature('recurring_blocked_times'),
             'profile' => [
                 'id' => $targetMaster->id,
                 'timezone' => $targetMaster->getTimezone(),

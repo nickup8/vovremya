@@ -61,7 +61,7 @@ class TariffLimitService
         $startPlan = TariffPlan::where('code', 'start')->first();
 
         if (! $startPlan) {
-            return PlanDefaults::START_MAX_APPOINTMENTS;
+            return PlanDefaults::START_MAX_APPOINTMENTS ?? PHP_INT_MAX;
         }
 
         return $startPlan->max_appointments_per_month ?? PHP_INT_MAX;
