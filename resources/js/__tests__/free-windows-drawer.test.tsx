@@ -44,6 +44,35 @@ function mockFetchSuccess(data: unknown) {
     }) as never;
 }
 
+/** Returns a deferred mock where resolve() lets you control when the promise settles. */
+function mockFetchDeferred() {
+    const resolvers: Array<(data: unknown) => void> = [];
+    let callCount = 0;
+
+    globalThis.fetch = vi.fn().mockImplementation(() => {
+        return new Promise((resolve) => {
+            resolvers.push((data: unknown) => {
+                resolve({
+                    ok: true,
+                    json: () => Promise.resolve(data),
+                });
+            });
+        });
+    }) as never;
+
+    return {
+        resolve(data: unknown) {
+            if (resolvers.length > callCount) {
+                resolvers[callCount]!(data);
+                callCount++;
+            }
+        },
+        get calls() {
+            return callCount;
+        },
+    };
+}
+
 /* ═══════════════ Sample responses ═══════════════ */
 
 const SERVICE_RESULT = {
@@ -133,6 +162,11 @@ describe('FreeWindowsDrawer', () => {
 
         it('share button uses w-full sm:w-auto', () => {
             expect(source).toContain('w-full sm:w-auto');
+        });
+
+        it('uses action-specific loading state instead of shared publicationLoading', () => {
+            expect(source).toContain('loadingAction');
+            expect(source).not.toContain('publicationLoading');
         });
 
         it('DialogContent has overflow-x-hidden', () => {
@@ -352,7 +386,10 @@ describe('FreeWindowsDrawer', () => {
 
             fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 09:00' }));
 
-            fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+                await vi.waitFor(() => {});
+            });
 
             const writeTextMock = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
             expect(writeTextMock).toHaveBeenCalledTimes(1);
@@ -367,7 +404,10 @@ describe('FreeWindowsDrawer', () => {
 
             fireEvent.click(screen.getByRole('button', { name: 'Скрыть диапазон 10:00–13:00' }));
 
-            fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+                await vi.waitFor(() => {});
+            });
 
             const writeTextMock = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
             expect(writeTextMock).toHaveBeenCalledTimes(1);
@@ -381,7 +421,10 @@ describe('FreeWindowsDrawer', () => {
 
             fireEvent.click(screen.getByRole('button', { name: 'Скрыть день 28 сентября' }));
 
-            fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+                await vi.waitFor(() => {});
+            });
 
             const writeTextMock = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
             expect(writeTextMock).toHaveBeenCalledTimes(1);
@@ -400,7 +443,11 @@ describe('FreeWindowsDrawer', () => {
             // Find share button by its class pattern (w-full sm:w-auto button with Share2 icon)
             const shareBtn = document.querySelector('button.w-full.sm\\:w-auto');
             expect(shareBtn).toBeTruthy();
-            fireEvent.click(shareBtn!);
+
+            await act(async () => {
+                fireEvent.click(shareBtn!);
+                await vi.waitFor(() => {});
+            });
 
             const shareMock = navigator.share as ReturnType<typeof vi.fn>;
             expect(shareMock).toHaveBeenCalledTimes(1);
@@ -558,6 +605,232 @@ describe('FreeWindowsDrawer', () => {
 
             const chip = screen.getByRole('button', { name: 'Скрыть диапазон 10:00–13:00' });
             expect(chip.hasAttribute('aria-label')).toBe(true);
+        });
+    });
+
+    describe('per-button loading spinners', () => {
+        it('click Скопировать текст → spinner only on that button, others disabled without spinner', async () => {
+            // First render + generate to get results
+            const deferred = mockFetchDeferred();
+            const result = render(
+                <FreeWindowsDrawer open onOpenChange={vi.fn()} isPro services={SERVICES} />,
+            );
+
+            // Mock first fetch for generation (free-windows endpoint)
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(SERVICE_RESULT),
+            });
+
+            const showBtn = screen.getByRole('button', { name: 'Показать' });
+            await act(async () => {
+                fireEvent.click(showBtn);
+                await vi.waitFor(() => {});
+            });
+
+            // Now set up deferred fetch for publications endpoint
+            deferred.resolve({ token: 'tok1', url: 'https://example.com/pub/1', mode: 'service', expires_at: '2025-10-01' });
+
+            // Mock the second fetch call (publications) with deferred
+            let resolvePublication: (data: unknown) => void;
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+                return new Promise((resolve) => {
+                    resolvePublication = (data: unknown) => {
+                        resolve({ ok: true, json: () => Promise.resolve(data) });
+                    };
+                });
+            });
+
+            const copyTextBtn = screen.getByRole('button', { name: /Скопировать текст/ });
+            const copyLinkBtn = screen.getByRole('button', { name: /Скопировать ссылку/ });
+            const shareBtn = document.querySelector('button.w-full.sm\\:w-auto') as HTMLButtonElement;
+
+            await act(async () => {
+                fireEvent.click(copyTextBtn);
+                // Wait a microtick for state to update
+                await new Promise(r => setTimeout(r, 0));
+            });
+
+            // copy text button should be disabled
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(true);
+            // other buttons should be disabled too
+            expect(copyLinkBtn.hasAttribute('disabled')).toBe(true);
+            if (shareBtn) expect(shareBtn.hasAttribute('disabled')).toBe(true);
+
+            // Resolve publication to finish
+            await act(async () => {
+                resolvePublication!({ token: 'tok1', url: 'https://example.com/pub/1', mode: 'service', expires_at: '2025-10-01' });
+                await vi.waitFor(() => {});
+            });
+
+            // All buttons should be enabled again
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(false);
+            expect(copyLinkBtn.hasAttribute('disabled')).toBe(false);
+            if (shareBtn) expect(shareBtn.hasAttribute('disabled')).toBe(false);
+
+            result.unmount();
+        });
+
+        it('click Скопировать ссылку → spinner only on that button', async () => {
+            const result = render(
+                <FreeWindowsDrawer open onOpenChange={vi.fn()} isPro services={SERVICES} />,
+            );
+
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(SERVICE_RESULT),
+            });
+
+            const showBtn = screen.getByRole('button', { name: 'Показать' });
+            await act(async () => {
+                fireEvent.click(showBtn);
+                await vi.waitFor(() => {});
+            });
+
+            let resolvePublication: (data: unknown) => void;
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+                return new Promise((resolve) => {
+                    resolvePublication = (data: unknown) => {
+                        resolve({ ok: true, json: () => Promise.resolve(data) });
+                    };
+                });
+            });
+
+            const copyTextBtn = screen.getByRole('button', { name: /Скопировать текст/ });
+            const copyLinkBtn = screen.getByRole('button', { name: /Скопировать ссылку/ });
+
+            await act(async () => {
+                fireEvent.click(copyLinkBtn);
+                await new Promise(r => setTimeout(r, 0));
+            });
+
+            expect(copyLinkBtn.hasAttribute('disabled')).toBe(true);
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(true);
+
+            await act(async () => {
+                resolvePublication!({ token: 'tok1', url: 'https://example.com/pub/1', mode: 'service', expires_at: '2025-10-01' });
+                await vi.waitFor(() => {});
+            });
+
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(false);
+            expect(copyLinkBtn.hasAttribute('disabled')).toBe(false);
+
+            result.unmount();
+        });
+
+        it('click Поделиться → spinner only on that button', async () => {
+            const result = render(
+                <FreeWindowsDrawer open onOpenChange={vi.fn()} isPro services={SERVICES} />,
+            );
+
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(SERVICE_RESULT),
+            });
+
+            const showBtn = screen.getByRole('button', { name: 'Показать' });
+            await act(async () => {
+                fireEvent.click(showBtn);
+                await vi.waitFor(() => {});
+            });
+
+            let resolvePublication: (data: unknown) => void;
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+                return new Promise((resolve) => {
+                    resolvePublication = (data: unknown) => {
+                        resolve({ ok: true, json: () => Promise.resolve(data) });
+                    };
+                });
+            });
+
+            const copyTextBtn = screen.getByRole('button', { name: /Скопировать текст/ });
+            const shareBtn = document.querySelector('button.w-full.sm\\:w-auto') as HTMLButtonElement;
+
+            await act(async () => {
+                fireEvent.click(shareBtn);
+                await new Promise(r => setTimeout(r, 0));
+            });
+
+            expect(shareBtn.hasAttribute('disabled')).toBe(true);
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(true);
+
+            await act(async () => {
+                resolvePublication!({ token: 'tok1', url: 'https://example.com/pub/1', mode: 'service', expires_at: '2025-10-01' });
+                await vi.waitFor(() => {});
+            });
+
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(false);
+            expect(shareBtn.hasAttribute('disabled')).toBe(false);
+
+            result.unmount();
+        });
+
+        it('all buttons re-enabled after operation completes', async () => {
+            const result = render(
+                <FreeWindowsDrawer open onOpenChange={vi.fn()} isPro services={SERVICES} />,
+            );
+
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(SERVICE_RESULT),
+            });
+
+            const showBtn = screen.getByRole('button', { name: 'Показать' });
+            await act(async () => {
+                fireEvent.click(showBtn);
+                await vi.waitFor(() => {});
+            });
+
+            let resolvePublication: (data: unknown) => void;
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockImplementationOnce(() => {
+                return new Promise((resolve) => {
+                    resolvePublication = (data: unknown) => {
+                        resolve({ ok: true, json: () => Promise.resolve(data) });
+                    };
+                });
+            });
+
+            const copyTextBtn = screen.getByRole('button', { name: /Скопировать текст/ });
+            const copyLinkBtn = screen.getByRole('button', { name: /Скопировать ссылку/ });
+            const shareBtn = document.querySelector('button.w-full.sm\\:w-auto') as HTMLButtonElement;
+
+            // Click and complete
+            await act(async () => {
+                fireEvent.click(copyTextBtn);
+                await new Promise(r => setTimeout(r, 0));
+            });
+
+            await act(async () => {
+                resolvePublication!({ token: 'tok1', url: 'https://example.com/pub/1', mode: 'service', expires_at: '2025-10-01' });
+                await vi.waitFor(() => {});
+            });
+
+            // All enabled
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(false);
+            expect(copyLinkBtn.hasAttribute('disabled')).toBe(false);
+            if (shareBtn) expect(shareBtn.hasAttribute('disabled')).toBe(false);
+
+            result.unmount();
+        });
+
+        it('buttons disabled when all items hidden', async () => {
+            await renderWithGenerate(SERVICE_RESULT);
+
+            // Hide all items
+            fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 09:00' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 09:15' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 09:30' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 10:00' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 11:00' }));
+            fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 15:30' }));
+
+            const copyTextBtn = screen.getByRole('button', { name: /Скопировать текст/ });
+            const copyLinkBtn = screen.getByRole('button', { name: /Скопировать ссылку/ });
+            const shareBtn = document.querySelector('button.w-full.sm\\:w-auto') as HTMLButtonElement;
+
+            expect(copyTextBtn.hasAttribute('disabled')).toBe(true);
+            expect(copyLinkBtn.hasAttribute('disabled')).toBe(true);
+            if (shareBtn) expect(shareBtn.hasAttribute('disabled')).toBe(true);
         });
     });
 });

@@ -141,7 +141,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
 
     // Publication state
     const [publicationUrl, setPublicationUrl] = useState<string | null>(null);
-    const [publicationLoading, setPublicationLoading] = useState(false);
+    const [loadingAction, setLoadingAction] = useState<'text' | 'link' | 'share' | null>(null);
     const [publicationSignature, setPublicationSignature] = useState<string>('');
     const pubInFlight = useRef<Promise<PublicationResponse> | null>(null);
 
@@ -280,7 +280,6 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
         }
 
         const promise = (async (): Promise<PublicationResponse> => {
-            setPublicationLoading(true);
             try {
                 const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
 
@@ -315,7 +314,6 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                 const pubData: PublicationResponse = await res.json();
                 return pubData;
             } finally {
-                setPublicationLoading(false);
                 pubInFlight.current = null;
             }
         })();
@@ -347,38 +345,53 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
 
     // Copy text
     async function handleCopyText() {
-        const url = await ensurePublication();
-        if (!url) return;
+        setLoadingAction('text');
+        try {
+            const url = await ensurePublication();
+            if (!url) return;
 
-        const text = buildPublicationText(url);
-        if (!text) return;
+            const text = buildPublicationText(url);
+            if (!text) return;
 
-        navigator.clipboard.writeText(text).then(
-            () => toast.success('Текст скопирован'),
-            () => toast.error('Не удалось скопировать'),
-        );
+            navigator.clipboard.writeText(text).then(
+                () => toast.success('Текст скопирован'),
+                () => toast.error('Не удалось скопировать'),
+            );
+        } finally {
+            setLoadingAction(null);
+        }
     }
 
     // Copy link
     async function handleCopyLink() {
-        const url = await ensurePublication();
-        if (!url) return;
+        setLoadingAction('link');
+        try {
+            const url = await ensurePublication();
+            if (!url) return;
 
-        navigator.clipboard.writeText(url).then(
-            () => toast.success('Ссылка скопирована'),
-            () => toast.error('Не удалось скопировать'),
-        );
+            navigator.clipboard.writeText(url).then(
+                () => toast.success('Ссылка скопирована'),
+                () => toast.error('Не удалось скопировать'),
+            );
+        } finally {
+            setLoadingAction(null);
+        }
     }
 
     // Share
     async function handleShare() {
-        const url = await ensurePublication();
-        if (!url || !navigator.share) return;
+        setLoadingAction('share');
+        try {
+            const url = await ensurePublication();
+            if (!url || !navigator.share) return;
 
-        const text = buildPublicationText(url);
-        if (!text) return;
+            const text = buildPublicationText(url);
+            if (!text) return;
 
-        navigator.share({ text, url }).catch(() => {});
+            navigator.share({ text, url }).catch(() => {});
+        } finally {
+            setLoadingAction(null);
+        }
     }
 
     if (!isPro) {
@@ -622,10 +635,10 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyText}
-                                        disabled={allHidden || publicationLoading}
+                                        disabled={allHidden || loadingAction !== null}
                                         className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
-                                        {publicationLoading ? (
+                                        {loadingAction === 'text' ? (
                                             <Loader2 className="mr-1.5 size-3.5 animate-spin" />
                                         ) : (
                                             <Copy className="mr-1.5 size-3.5" />
@@ -635,10 +648,10 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyLink}
-                                        disabled={allHidden || publicationLoading}
+                                        disabled={allHidden || loadingAction !== null}
                                         className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
-                                        {publicationLoading ? (
+                                        {loadingAction === 'link' ? (
                                             <Loader2 className="mr-1.5 size-3.5 animate-spin" />
                                         ) : (
                                             <ChevronRight className="mr-1.5 size-3.5" />
@@ -649,10 +662,10 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                         <Button
                                             variant="outline"
                                             onClick={handleShare}
-                                            disabled={allHidden || publicationLoading}
+                                            disabled={allHidden || loadingAction !== null}
                                             className="w-full sm:w-auto rounded-[10px] border-[var(--color-line)] px-3 text-[12px] font-semibold"
                                         >
-                                            {publicationLoading ? (
+                                            {loadingAction === 'share' ? (
                                                 <Loader2 className="size-3.5 animate-spin" />
                                             ) : (
                                                 <Share2 className="size-3.5" />
