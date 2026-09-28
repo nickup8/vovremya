@@ -80,7 +80,7 @@ class BookingWidgetController extends Controller
         $availableSlots = $rawSlots;
 
         if ($publicationContext && ! $publicationContext['expired'] && isset($pub) && $rawSlots) {
-            $availableSlots = $this->publicationService->filterSlots($pub, $selectedDate, $rawSlots);
+            $availableSlots = $this->publicationService->filterSlots($pub, $selectedDate, $rawSlots, $service->effective_duration);
         }
 
         return Inertia::render('booking/widget', [
@@ -167,7 +167,20 @@ class BookingWidgetController extends Controller
 
         // Apply publication filter if present
         if ($fwToken && isset($pub)) {
-            $realDates = $this->publicationService->filterAvailableDates($pub, $realDates);
+            $payloadDays = $pub->payload['days'] ?? [];
+            $snapshotDates = array_column($payloadDays, 'date');
+            $candidateDates = array_values(array_intersect($realDates, $snapshotDates));
+
+            // For each candidate date, verify at least one bookable slot exists
+            // within publication constraints. Max 14 days, so this is acceptable.
+            $realDates = [];
+            foreach ($candidateDates as $candidateDate) {
+                $realSlots = $this->bookingService->getAvailableSlots($master, $service, $candidateDate);
+                $pubSlots = $this->publicationService->filterSlots($pub, $candidateDate, $realSlots, $service->effective_duration);
+                if (! empty($pubSlots)) {
+                    $realDates[] = $candidateDate;
+                }
+            }
         }
 
         return response()->json([

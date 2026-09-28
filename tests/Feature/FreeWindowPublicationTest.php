@@ -803,6 +803,187 @@ class FreeWindowPublicationTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════════════
+    // §33: Publication date filtering by bookable slots
+    // ═══════════════════════════════════════════════════════
+
+    /**
+     * §9 — All mode: date excluded from available-dates when range is too short
+     * for selected service duration, even though real day has availability elsewhere.
+     */
+    public function test_all_mode_date_excluded_from_dates_when_range_too_short(): void
+    {
+        $date = $this->getNextWeekday();
+
+        // Publication range 10:00–10:30 (30 min), but service duration = 60 min.
+        // No slot can fit [slot, slot+60) inside a 30-min range.
+        $pub = $this->createPublication('all', $date, [
+            ['date' => $date->format('Y-m-d'), 'ranges' => [['start' => '10:00', 'end' => '10:30']]],
+        ]);
+
+        $response = $this->getJson("/book/{$this->master->master_slug}/available-dates?service_id={$this->masterService->id}&year={$date->year}&month={$date->month}&fw={$pub->token}");
+
+        $response->assertOk();
+        $dates = $response->json('dates');
+        $this->assertNotContains($date->format('Y-m-d'), $dates);
+    }
+
+    /**
+     * §10 — All mode: date included from available-dates when range can fit service,
+     * and slot reload returns correct starts.
+     */
+    public function test_all_mode_date_included_from_dates_when_range_fits(): void
+    {
+        $date = $this->getNextWeekday();
+
+        // Range 10:00–13:00 (180 min), service duration = 60 min, interval = 15.
+        // Expected slots: 10:00, 10:15, 10:30, 10:45, 11:00, 11:15, 11:30, 11:45, 12:00
+        $pub = $this->createPublication('all', $date, [
+            ['date' => $date->format('Y-m-d'), 'ranges' => [['start' => '10:00', 'end' => '13:00']]],
+        ]);
+
+        $response = $this->getJson("/book/{$this->master->master_slug}/available-dates?service_id={$this->masterService->id}&year={$date->year}&month={$date->month}&fw={$pub->token}");
+
+        $response->assertOk();
+        $dates = $response->json('dates');
+        $this->assertContains($date->format('Y-m-d'), $dates);
+
+        // Now verify slot reload (slot_interval=30, duration=60, range 10:00–13:00)
+        $slotResponse = $this->get("/book/{$this->master->master_slug}?service_id={$this->masterService->id}&date={$date->format('Y-m-d')}&fw={$pub->token}");
+        $slotResponse->assertOk();
+
+        $slotResponse->assertInertia(fn (Assert $page) => $page
+            ->component('booking/widget')
+            ->reloadOnly('availableSlots', function (Assert $reload) {
+                $slots = $reload->toArray()['props']['availableSlots'];
+                $this->assertContains('10:00', $slots);
+                $this->assertContains('10:30', $slots);
+                $this->assertContains('11:00', $slots);
+                $this->assertContains('11:30', $slots);
+                $this->assertContains('12:00', $slots);
+                // 12:30 + 60 = 13:30 > 13:00, must NOT fit
+                $this->assertNotContains('12:30', $slots);
+            })
+        );
+    }
+
+    /**
+     * §11 — Service stale date: published start is booked/blocked, no other published
+     * start is free. Date should NOT be selectable even though real day has availability.
+     */
+    public function test_service_stale_date_excluded_when_all_published_starts_blocked(): void
+    {
+        $date = $this->getNextWeekday();
+
+        $pub = $this->createPublication('service', $date, [
+            ['date' => $date->format('Y-m-d'), 'starts' => ['10:00']],
+        ]);
+
+        // Block 10:00 — the only published start
+        BlockedTime::create([
+            'user_id' => $this->master->id,
+            'start_datetime' => $date->copy()->setTime(10, 0)->timezone('UTC'),
+            'end_datetime' => $date->copy()->setTime(11, 0)->timezone('UTC'),
+        ]);
+
+        $response = $this->getJson("/book/{$this->master->master_slug}/available-dates?service_id={$this->masterService->id}&year={$date->year}&month={$date->month}&fw={$pub->token}");
+
+        $response->assertOk();
+        $dates = $response->json('dates');
+        $this->assertNotContains($date->format('Y-m-d'), $dates);
+    }
+
+    /**
+     * §12 — Normal booking without fw: available-dates behaves as before (no publication filtering).
+     */
+    public function test_normal_available_dates_unaffected_without_fw(): void
+    {
+        $date = $this->getNextWeekday();
+
+        $response = $this->getJson("/book/{$this->master->master_slug}/available-dates?service_id={$this->masterService->id}&year={$date->year}&month={$date->month}");
+
+        $response->assertOk();
+        $dates = $response->json('dates');
+        // Normal weekday should have availability
+        $this->assertContains($date->format('Y-m-d'), $dates);
+    }
+
+    /**
+     * §13 — All mode slot filter: duration comes from selected service, not pub.masterService.
+     * With master_service_id = null (all mode), slots should still be correctly filtered.
+     */
+    public function test_all_mode_slot_filter_uses_selected_service_duration_not_pub_master_service(): void
+    {
+        $date = $this->getNextWeekday();
+
+        // Create a second service with different duration
+        $catalog2 = ServiceCatalog::create([
+            'workspace_id' => $this->workspace->id,
+            'title' => 'Короткая услуга',
+            'base_duration' => 30,
+            'base_price' => 1000,
+            'is_active' => true,
+        ]);
+        $shortService = MasterService::create([
+            'master_id' => $this->master->id,
+            'catalog_id' => $catalog2->id,
+            'effective_duration' => 30,
+            'is_active' => true,
+        ]);
+
+        // Publication: all mode, range 10:00–11:00, no master_service_id (null)
+        $pub = $this->createPublication('all', $date, [
+            ['date' => $date->format('Y-m-d'), 'ranges' => [['start' => '10:00', 'end' => '11:00']]],
+        ]);
+
+        // Use the short service (30 min, slot_interval=30). Slots fitting in 10:00–11:00:
+        // 10:00, 10:30 (10:30+30=11:00 fits exactly)
+        $response = $this->get("/book/{$this->master->master_slug}?service_id={$shortService->id}&date={$date->format('Y-m-d')}&fw={$pub->token}");
+        $response->assertOk();
+
+        $response->assertInertia(fn (Assert $page) => $page
+            ->component('booking/widget')
+            ->reloadOnly('availableSlots', function (Assert $reload) {
+                $slots = $reload->toArray()['props']['availableSlots'];
+                $this->assertContains('10:00', $slots);
+                $this->assertContains('10:30', $slots);
+                // 11:00 + 30 = 11:30 > 11:00, must NOT fit
+                $this->assertNotContains('11:00', $slots);
+            })
+        );
+    }
+
+    /**
+     * §33-extra — Service mode: date excluded when published start is the only one
+     * but it's booked (stale case via available-dates endpoint).
+     */
+    public function test_service_stale_date_excluded_when_published_start_booked(): void
+    {
+        $date = $this->getNextWeekday();
+
+        $pub = $this->createPublication('service', $date, [
+            ['date' => $date->format('Y-m-d'), 'starts' => ['10:00']],
+        ]);
+
+        // Book 10:00
+        $client = Client::factory()->for($this->master)->create();
+        Appointment::factory()
+            ->forMaster($this->master)
+            ->forClient($client)
+            ->withMasterService($this->masterService)
+            ->booked()
+            ->create([
+                'start_time' => $date->copy()->setTime(10, 0)->timezone('UTC'),
+                'duration' => 60,
+            ]);
+
+        $response = $this->getJson("/book/{$this->master->master_slug}/available-dates?service_id={$this->masterService->id}&year={$date->year}&month={$date->month}&fw={$pub->token}");
+
+        $response->assertOk();
+        $dates = $response->json('dates');
+        $this->assertNotContains($date->format('Y-m-d'), $dates);
+    }
+
+    // ═══════════════════════════════════════════════════════
     // Helpers
     // ═══════════════════════════════════════════════════════
     private function getNextWeekday(): Carbon

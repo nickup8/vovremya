@@ -105,32 +105,16 @@ class FreeWindowPublicationService
     }
 
     /**
-     * Filter available dates by publication context.
-     */
-    public function filterAvailableDates(
-        FreeWindowPublication $pub,
-        array $realDates,
-    ): array {
-        $payloadDays = $pub->payload['days'] ?? [];
-        $snapshotDates = array_column($payloadDays, 'date');
-
-        if ($pub->mode === 'service') {
-            // Service mode: date is selectable if it exists in snapshot AND in real dates
-            return array_values(array_intersect($realDates, $snapshotDates));
-        }
-
-        // All mode: date is selectable if it's in snapshot, and real availability exists.
-        // Further range containment is checked at slot level.
-        return array_values(array_intersect($realDates, $snapshotDates));
-    }
-
-    /**
-     * Filter slots for service mode: intersect real slots with snapshot starts.
+     * Filter real slots through publication constraints.
+     *
+     * Service mode: intersect real slots with snapshot starts.
+     * All mode: keep slots whose [start, start+duration) fits inside a publication range.
      */
     public function filterSlots(
         FreeWindowPublication $pub,
         string $date,
         array $realSlots,
+        int $effectiveDuration,
     ): array {
         $payloadDays = $pub->payload['days'] ?? [];
         $dayData = collect($payloadDays)->firstWhere('date', $date);
@@ -144,24 +128,16 @@ class FreeWindowPublicationService
             return array_values(array_intersect($realSlots, $snapshotStarts));
         }
 
-        // All mode: filter by range containment
+        // All mode: filter by range containment using explicit duration
         $ranges = $dayData['ranges'] ?? [];
         if (empty($ranges)) {
             return [];
         }
 
-        // Get selected service duration from the publication's service
-        $masterService = $pub->masterService;
-        if (! $masterService) {
-            return [];
-        }
-        $duration = $masterService->effective_duration;
-
-        // For each real slot, check if [slotStart, slotEnd) fits inside any range
         $filtered = [];
         foreach ($realSlots as $slotStart) {
             $startMinutes = $this->timeToMinutes($slotStart);
-            $endMinutes = $startMinutes + $duration;
+            $endMinutes = $startMinutes + $effectiveDuration;
 
             foreach ($ranges as $range) {
                 $rangeStart = $this->timeToMinutes($range['start']);
