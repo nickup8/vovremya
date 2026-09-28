@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { usePage } from '@inertiajs/react';
 import { toast } from 'sonner';
 import { CalendarDays, Copy, Share2, ChevronRight, Loader2 } from 'lucide-react';
@@ -28,6 +28,13 @@ interface FreeWindowsResponse {
     date_to: string;
     booking_url: string;
     days: FreeWindowsDay[];
+}
+
+interface PublicationResponse {
+    token: string;
+    url: string;
+    mode: string;
+    expires_at: string;
 }
 
 interface FreeWindowsDrawerProps {
@@ -132,12 +139,20 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
     const [error, setError] = useState<string | null>(null);
     const [hiddenKeys, setHiddenKeys] = useState<Set<string>>(new Set());
 
+    // Publication state
+    const [publicationUrl, setPublicationUrl] = useState<string | null>(null);
+    const [publicationLoading, setPublicationLoading] = useState(false);
+    const [publicationSignature, setPublicationSignature] = useState<string>('');
+    const pubInFlight = useRef<Promise<PublicationResponse> | null>(null);
+
     // Reset on close
     useEffect(() => {
         if (!open) {
             setResult(null);
             setError(null);
             setHiddenKeys(new Set());
+            setPublicationUrl(null);
+            setPublicationSignature('');
         }
     }, [open]);
 
@@ -154,6 +169,18 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
         return sum;
     }, 0);
     const allHidden = hasAnyBackendDays && visibleCount === 0;
+
+    // Compute content signature for cache invalidation
+    const contentSignature = useMemo(() => {
+        return JSON.stringify(visibleDays);
+    }, [visibleDays]);
+
+    // Invalidate publication when content changes
+    useEffect(() => {
+        if (contentSignature !== publicationSignature) {
+            setPublicationUrl(null);
+        }
+    }, [contentSignature, publicationSignature]);
 
     // Compute date range
     function getDateParams(): { date_from: string; date_to: string } {
@@ -173,6 +200,8 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
         setError(null);
         setResult(null);
         setHiddenKeys(new Set());
+        setPublicationUrl(null);
+        setPublicationSignature('');
 
         const params = getDateParams();
         const queryParams = new URLSearchParams(params);
@@ -235,21 +264,93 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
         });
     }
 
+    // Ensure publication exists and return its URL
+    const ensurePublication = useCallback(async (): Promise<string | null> => {
+        if (!result || visibleDays.length === 0 || allHidden) return null;
+
+        // Return cached URL if content hasn't changed
+        if (publicationUrl && contentSignature === publicationSignature) {
+            return publicationUrl;
+        }
+
+        // Deduplicate concurrent calls
+        if (pubInFlight.current) {
+            const res = await pubInFlight.current;
+            return res.url;
+        }
+
+        const promise = (async (): Promise<PublicationResponse> => {
+            setPublicationLoading(true);
+            try {
+                const csrfToken = document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '';
+
+                const mode = result.mode;
+                const serviceId = mode === 'service' ? selectedServiceId : null;
+
+                const dateRange = getDateParams();
+
+                const res = await fetch('/admin/free-windows/publications', {
+                    method: 'POST',
+                    credentials: 'same-origin',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Requested-With': 'XMLHttpRequest',
+                        'X-CSRF-TOKEN': csrfToken,
+                        'Accept': 'application/json',
+                    },
+                    body: JSON.stringify({
+                        mode,
+                        service_id: serviceId,
+                        date_from: dateRange.date_from,
+                        date_to: dateRange.date_to,
+                        days: visibleDays,
+                    }),
+                });
+
+                if (!res.ok) {
+                    const err = await res.json().catch(() => null);
+                    throw new Error(err?.message ?? 'Не удалось создать публикацию');
+                }
+
+                const pubData: PublicationResponse = await res.json();
+                return pubData;
+            } finally {
+                setPublicationLoading(false);
+                pubInFlight.current = null;
+            }
+        })();
+
+        pubInFlight.current = promise;
+
+        try {
+            const pubData = await promise;
+            setPublicationUrl(pubData.url);
+            setPublicationSignature(contentSignature);
+            return pubData.url;
+        } catch {
+            toast.error('Не удалось создать ссылку публикации');
+            return null;
+        }
+    }, [result, visibleDays, allHidden, publicationUrl, contentSignature, publicationSignature, selectedServiceId]);
+
     // Build text for copy/share using visibleDays
-    function buildPublicationText(): string | null {
+    function buildPublicationText(url: string): string | null {
         if (!result) return null;
         if (visibleDays.length === 0) return null;
 
         if (result.mode === 'service') {
             const serviceTitle = services.find(s => s.id === selectedServiceId)?.title ?? '';
-            return buildFreeWindowsTextService(serviceTitle, visibleDays, result.booking_url);
+            return buildFreeWindowsTextService(serviceTitle, visibleDays, url);
         }
-        return buildFreeWindowsTextAll(visibleDays, result.booking_url);
+        return buildFreeWindowsTextAll(visibleDays, url);
     }
 
     // Copy text
-    function handleCopyText() {
-        const text = buildPublicationText();
+    async function handleCopyText() {
+        const url = await ensurePublication();
+        if (!url) return;
+
+        const text = buildPublicationText(url);
         if (!text) return;
 
         navigator.clipboard.writeText(text).then(
@@ -259,21 +360,25 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
     }
 
     // Copy link
-    function handleCopyLink() {
-        if (!result) return;
+    async function handleCopyLink() {
+        const url = await ensurePublication();
+        if (!url) return;
 
-        navigator.clipboard.writeText(result.booking_url).then(
+        navigator.clipboard.writeText(url).then(
             () => toast.success('Ссылка скопирована'),
             () => toast.error('Не удалось скопировать'),
         );
     }
 
     // Share
-    function handleShare() {
-        const text = buildPublicationText();
-        if (!text || !navigator.share) return;
+    async function handleShare() {
+        const url = await ensurePublication();
+        if (!url || !navigator.share) return;
 
-        navigator.share({ text }).catch(() => {});
+        const text = buildPublicationText(url);
+        if (!text) return;
+
+        navigator.share({ text, url }).catch(() => {});
     }
 
     if (!isPro) {
@@ -517,29 +622,41 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyText}
-                                        disabled={allHidden}
+                                        disabled={allHidden || publicationLoading}
                                         className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
-                                        <Copy className="mr-1.5 size-3.5" />
+                                        {publicationLoading ? (
+                                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                                        ) : (
+                                            <Copy className="mr-1.5 size-3.5" />
+                                        )}
                                         Скопировать текст
                                     </Button>
                                     <Button
                                         variant="outline"
                                         onClick={handleCopyLink}
-                                        disabled={allHidden}
+                                        disabled={allHidden || publicationLoading}
                                         className="w-full sm:flex-1 rounded-[10px] border-[var(--color-line)] text-[12px] font-semibold"
                                     >
-                                        <ChevronRight className="mr-1.5 size-3.5" />
+                                        {publicationLoading ? (
+                                            <Loader2 className="mr-1.5 size-3.5 animate-spin" />
+                                        ) : (
+                                            <ChevronRight className="mr-1.5 size-3.5" />
+                                        )}
                                         Скопировать ссылку
                                     </Button>
                                     {typeof navigator !== 'undefined' && 'share' in navigator && (
                                         <Button
                                             variant="outline"
                                             onClick={handleShare}
-                                            disabled={allHidden}
+                                            disabled={allHidden || publicationLoading}
                                             className="w-full sm:w-auto rounded-[10px] border-[var(--color-line)] px-3 text-[12px] font-semibold"
                                         >
-                                            <Share2 className="size-3.5" />
+                                            {publicationLoading ? (
+                                                <Loader2 className="size-3.5 animate-spin" />
+                                            ) : (
+                                                <Share2 className="size-3.5" />
+                                            )}
                                         </Button>
                                     )}
                                 </div>

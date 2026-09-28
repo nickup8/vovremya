@@ -187,6 +187,7 @@ Route::middleware(['auth'])->group(function () {
     // Free windows — только Профи (feature gate)
     Route::middleware('feature:free_windows')->group(function () {
         Route::get('/admin/free-windows', [\App\Http\Controllers\Admin\FreeWindowsController::class, 'index'])->name('admin.free-windows');
+        Route::post('/admin/free-windows/publications', [\App\Http\Controllers\Admin\FreeWindowsController::class, 'storePublication'])->name('admin.free-windows.publications.store');
     });
 
     Route::post('/admin/notifications/{notification}/read', [\App\Http\Controllers\Admin\NotificationController::class, 'markRead'])->name('admin.notifications.read');

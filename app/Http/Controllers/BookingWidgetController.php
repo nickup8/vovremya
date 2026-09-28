@@ -8,6 +8,7 @@ use App\Models\User;
 use App\Services\Booking\AttributionService;
 use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
+use App\Services\Booking\FreeWindowPublicationService;
 use App\Services\VkLinkTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -21,6 +22,7 @@ class BookingWidgetController extends Controller
         private BookingService $bookingService,
         private AvailabilityService $availabilityService,
         private AttributionService $attributionService,
+        private FreeWindowPublicationService $publicationService,
     ) {}
 
     public function show(string $slug, Request $request)
@@ -40,6 +42,47 @@ class BookingWidgetController extends Controller
             ? $master->masterServices->firstWhere('id', $selectedServiceId)
             : null;
 
+        // Resolve publication context
+        $publicationContext = null;
+        $fwToken = $request->query('fw');
+
+        if ($fwToken) {
+            $pub = $this->publicationService->resolveForMaster($fwToken, $master);
+
+            if (! $pub) {
+                // Token not found or expired — show expired state, not fallback
+                $publicationContext = [
+                    'active' => true,
+                    'expired' => true,
+                    'token' => $fwToken,
+                ];
+            } else {
+                $publicationContext = [
+                    'active' => true,
+                    'expired' => false,
+                    'token' => $pub->token,
+                    'mode' => $pub->mode,
+                ];
+
+                // In service mode, force service selection to the published service
+                if ($pub->mode === 'service' && $pub->master_service_id) {
+                    $selectedServiceId = $pub->master_service_id;
+                    $service = $master->masterServices->firstWhere('id', $selectedServiceId);
+                }
+            }
+        }
+
+        // Filter available slots through publication
+        $rawSlots = ($service && $selectedDate)
+            ? $this->bookingService->getAvailableSlots($master, $service, $selectedDate)
+            : [];
+
+        $availableSlots = $rawSlots;
+
+        if ($publicationContext && ! $publicationContext['expired'] && isset($pub) && $rawSlots) {
+            $availableSlots = $this->publicationService->filterSlots($pub, $selectedDate, $rawSlots);
+        }
+
         return Inertia::render('booking/widget', [
             'master' => [
                 'name' => $master->name,
@@ -54,14 +97,11 @@ class BookingWidgetController extends Controller
                 'price' => (float) $s->effective_price,
                 'duration_minutes' => $s->effective_duration,
             ]),
-            'availableSlots' => Inertia::optional(fn () => $this->bookingService->getAvailableSlots(
-                $master,
-                $service,
-                $selectedDate
-            )),
+            'availableSlots' => Inertia::optional(fn () => $availableSlots),
             'selectedDate' => $selectedDate,
             'selectedServiceId' => $service ? $selectedServiceId : null,
             'maxBotName' => config('services.max.bot_name'),
+            'publicationContext' => $publicationContext,
         ]);
     }
 
@@ -97,6 +137,7 @@ class BookingWidgetController extends Controller
             'service_id' => 'required|string',
             'year' => 'required|integer|min:2020|max:2030',
             'month' => 'required|integer|min:1|max:12',
+            'fw' => 'nullable|string',
         ]);
 
         $service = $master->masterServices()
@@ -105,17 +146,34 @@ class BookingWidgetController extends Controller
             ->find($validated['service_id']);
 
         if (! $service) {
-            return response()->json(['dates' => []]);
+            return response()->json(['dates' => [], 'publicationExpired' => false]);
         }
 
-        $dates = $this->availabilityService->getAvailableDates(
+        // Check publication expiration early
+        $fwToken = $validated['fw'] ?? null;
+        if ($fwToken) {
+            $pub = $this->publicationService->resolveForMaster($fwToken, $master);
+            if (! $pub) {
+                return response()->json(['dates' => [], 'publicationExpired' => true]);
+            }
+        }
+
+        $realDates = $this->availabilityService->getAvailableDates(
             $master,
             $validated['year'],
             $validated['month'],
             $service->effective_duration,
         );
 
-        return response()->json(['dates' => $dates]);
+        // Apply publication filter if present
+        if ($fwToken && isset($pub)) {
+            $realDates = $this->publicationService->filterAvailableDates($pub, $realDates);
+        }
+
+        return response()->json([
+            'dates' => $realDates,
+            'publicationExpired' => false,
+        ]);
     }
 
     public function store(Request $request, string $slug): JsonResponse
@@ -129,6 +187,7 @@ class BookingWidgetController extends Controller
             'date' => 'required|date_format:Y-m-d',
             'time' => 'required|date_format:H:i',
             'provider' => 'required|in:telegram,max,admin,vk',
+            'fw' => 'nullable|string',
         ]);
 
         $service = $master->masterServices()
@@ -143,6 +202,44 @@ class BookingWidgetController extends Controller
             ], 422);
         }
 
+        // Publication enforcement
+        $fwToken = $validated['fw'] ?? null;
+        if ($fwToken) {
+            $pub = $this->publicationService->resolveForMaster($fwToken, $master);
+
+            if (! $pub) {
+                return response()->json([
+                    'message' => 'Срок публикации истёк.',
+                    'errors' => ['time' => 'Срок публикации истёк.'],
+                ], 422);
+            }
+
+            // Service mode: selected service must match publication service
+            if ($pub->mode === 'service' && $pub->master_service_id !== $validated['service_id']) {
+                return response()->json([
+                    'message' => 'Услуга не соответствует публикации.',
+                    'errors' => ['service_id' => 'Услуга не соответствует публикации.'],
+                ], 422);
+            }
+
+            // Verify date is in publication
+            if ($validated['date'] < $pub->date_from->format('Y-m-d') || $validated['date'] > $pub->date_to->format('Y-m-d')) {
+                return response()->json([
+                    'message' => 'Дата не входит в публикацию.',
+                    'errors' => ['date' => 'Дата не входит в публикацию.'],
+                ], 422);
+            }
+
+            // Verify time is in publication
+            if (! $this->publicationService->assertBookable($pub, $validated['date'], $validated['time'], $service->effective_duration)) {
+                return response()->json([
+                    'message' => 'Время не входит в опубликованное расписание.',
+                    'errors' => ['time' => 'Время не входит в опубликованное расписание.'],
+                ], 422);
+            }
+        }
+
+        // Standard real availability check
         $isAvailable = $this->bookingService->validateSlot(
             $master,
             $service,

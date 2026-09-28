@@ -2,7 +2,7 @@ import { useState, useMemo, useCallback, useEffect } from 'react';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import {
     ArrowLeft, Clock, Search,
-    CheckCircle2, MessageCircle,
+    CheckCircle2, MessageCircle, CalendarDays,
     ChevronLeft, ChevronRight, MapPin, Loader2, Check,
 } from 'lucide-react';
 import { getInitials } from '@/lib/utils';
@@ -39,6 +39,13 @@ interface Service {
     price: number;
 }
 
+interface PublicationContext {
+    active: boolean;
+    expired: boolean;
+    token: string;
+    mode?: string;
+}
+
 interface PageProps {
     master: Master;
     services: Service[];
@@ -47,6 +54,7 @@ interface PageProps {
     selectedServiceId: string | null;
     maxBotName: string | null;
     preselectedServiceId?: string | null;
+    publicationContext?: PublicationContext | null;
     [key: string]: unknown;
 }
 
@@ -353,11 +361,13 @@ function StepDate({
     serviceId,
     selectedDate,
     onSelectDate,
+    fwToken,
 }: {
     masterSlug: string;
     serviceId: string;
     selectedDate: Date | null;
     onSelectDate: (d: Date) => void;
+    fwToken?: string;
 }) {
     const today = new Date();
     const [viewMonth, setViewMonth] = useState(today.getMonth());
@@ -372,7 +382,8 @@ function StepDate({
         const controller = new AbortController();
 
         setLoadingDates(true);
-        fetch(`/book/${masterSlug}/available-dates?service_id=${serviceId}&year=${viewYear}&month=${viewMonth + 1}`, {
+        const fwParam = fwToken ? `&fw=${encodeURIComponent(fwToken)}` : '';
+        fetch(`/book/${masterSlug}/available-dates?service_id=${serviceId}&year=${viewYear}&month=${viewMonth + 1}${fwParam}`, {
             signal: controller.signal,
         })
             .then((res) => res.json())
@@ -390,7 +401,7 @@ function StepDate({
             });
 
         return () => { cancelled = true; controller.abort(); };
-    }, [masterSlug, serviceId, viewYear, viewMonth]);
+    }, [masterSlug, serviceId, viewYear, viewMonth, fwToken]);
 
     const isPast = (d: Date) => d < new Date(today.getFullYear(), today.getMonth(), today.getDate());
     const isAvailable = (d: Date) => availableDates.has(formatDateKey(d));
@@ -797,9 +808,19 @@ type Step = 1 | 2 | 3 | 4 | 5;
 const TOTAL_STEPS = 4;
 
 export default function Widget() {
-    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, preselectedServiceId } = usePage<PageProps>().props;
+    const { master, services, availableSlots, selectedDate: initialDate, selectedServiceId: initialServiceId, maxBotName, preselectedServiceId, publicationContext } = usePage<PageProps>().props;
     const pageProps = usePage<{ errors: Record<string, string> }>().props;
     const serverErrors = (pageProps as Record<string, unknown>).errors as Record<string, string> | undefined;
+
+    // Derive fw token from URL
+    const fwToken = useMemo(() => {
+        if (typeof window === 'undefined') return null;
+        const params = new URLSearchParams(window.location.search);
+        return params.get('fw');
+    }, []);
+
+    const isPublicationExpired = publicationContext?.active && publicationContext?.expired;
+    const isPublicationActive = publicationContext?.active && !publicationContext?.expired;
 
     const effectiveServiceId = preselectedServiceId ?? initialServiceId;
     const hasPreselectedService = effectiveServiceId !== null && effectiveServiceId !== undefined;
@@ -830,6 +851,7 @@ export default function Widget() {
 
     function buildUrlWithParams(extraParams: Record<string, string>): string {
         const params = new URLSearchParams(extraParams);
+        if (fwToken) params.set('fw', fwToken);
         return `/book/${master.master_slug}?${params.toString()}`;
     }
 
@@ -852,7 +874,7 @@ export default function Widget() {
                 onFinish: () => setLoadingSlots(false),
             });
         }
-    }, [step, selectedDate, selectedService, master.master_slug]);
+    }, [step, selectedDate, selectedService, master.master_slug, fwToken]);
 
     function handleSelectService(service: Service) {
         setSelectedService(service);
@@ -894,6 +916,7 @@ export default function Widget() {
                     date: formatDateKey(selectedDate),
                     time: selectedTime,
                     provider,
+                    ...(fwToken ? { fw: fwToken } : {}),
                 }),
             });
 
@@ -944,51 +967,69 @@ export default function Widget() {
                 )}
 
                 <div className="flex flex-col flex-1" style={{ padding: '0 20px' }}>
-                    {step === 1 && (
-                        <StepServices
-                            services={services}
-                            selected={selectedService}
-                            onSelect={handleSelectService}
-                        />
-                    )}
-                    {step === 2 && selectedService && (
-                        <StepDate
-                            masterSlug={master.master_slug}
-                            serviceId={selectedService.id}
-                            selectedDate={selectedDate}
-                            onSelectDate={handleSelectDate}
-                        />
-                    )}
-                    {step === 3 && (
-                        <StepTime
-                            selectedDate={selectedDate}
-                            selectedTime={selectedTime}
-                            availableSlots={slots}
-                            loadingSlots={loadingSlots}
-                            onSelectTime={setSelectedTime}
-                        />
-                    )}
-                    {step === 4 && (
-                        <StepProvider
-                            errors={errors}
-                            onSubmit={handleSubmit}
-                            loadingProvider={loadingProvider}
-                            maxBotName={maxBotName}
-                            selectedService={selectedService}
-                            selectedDate={selectedDate}
-                            selectedTime={selectedTime}
-                        />
-                    )}
-                    {step === 5 && selectedService && selectedDate && selectedTime && (
-                        <StepConfirmation
-                            service={selectedService}
-                            date={selectedDate}
-                            time={selectedTime}
-                        />
+                    {/* Expired publication state */}
+                    {isPublicationExpired ? (
+                        <div className="flex flex-col items-center justify-center px-5 py-16 text-center">
+                            <div className="flex size-16 items-center justify-center rounded-full" style={{ background: '#FFF0E8' }}>
+                                <CalendarDays className="size-8" style={{ color: C.orange }} />
+                            </div>
+                            <h2 className="mt-5 text-xl font-bold tracking-tight" style={{ color: C.ink }}>
+                                Срок публикации истёк
+                            </h2>
+                            <p className="mt-3 text-sm leading-relaxed" style={{ color: C.muted, maxWidth: '320px' }}>
+                                Свяжитесь с мастером, чтобы уточнить свободное время.
+                            </p>
+                        </div>
+                    ) : (
+                        <>
+                            {step === 1 && (
+                                <StepServices
+                                    services={services}
+                                    selected={selectedService}
+                                    onSelect={handleSelectService}
+                                />
+                            )}
+                            {step === 2 && selectedService && (
+                                <StepDate
+                                    masterSlug={master.master_slug}
+                                    serviceId={selectedService.id}
+                                    selectedDate={selectedDate}
+                                    onSelectDate={handleSelectDate}
+                                    fwToken={fwToken ?? undefined}
+                                />
+                            )}
+                            {step === 3 && (
+                                <StepTime
+                                    selectedDate={selectedDate}
+                                    selectedTime={selectedTime}
+                                    availableSlots={slots}
+                                    loadingSlots={loadingSlots}
+                                    onSelectTime={setSelectedTime}
+                                />
+                            )}
+                            {step === 4 && (
+                                <StepProvider
+                                    errors={errors}
+                                    onSubmit={handleSubmit}
+                                    loadingProvider={loadingProvider}
+                                    maxBotName={maxBotName}
+                                    selectedService={selectedService}
+                                    selectedDate={selectedDate}
+                                    selectedTime={selectedTime}
+                                />
+                            )}
+                            {step === 5 && selectedService && selectedDate && selectedTime && (
+                                <StepConfirmation
+                                    service={selectedService}
+                                    date={selectedDate}
+                                    time={selectedTime}
+                                />
+                            )}
+                        </>
                     )}
                 </div>
 
-                {step >= 1 && step <= 3 && (
+                {!isPublicationExpired && step >= 1 && step <= 3 && (
                     <ActionDock step={step} canNext={canNext} onAction={handleNext} />
                 )}
 
