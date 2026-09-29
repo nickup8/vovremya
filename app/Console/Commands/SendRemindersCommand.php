@@ -7,6 +7,8 @@ use App\Jobs\SendAppointmentReminderJob;
 use App\Models\Appointment;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 
 class SendRemindersCommand extends Command
 {
@@ -29,6 +31,8 @@ class SendRemindersCommand extends Command
         $appointments = Appointment::with(['master', 'client'])
             ->where('status', AppointmentStatus::Booked)
             ->whereNull('reminder_24h_sent_at')
+            ->whereNull('reminder_24h_dispatched_at')
+            ->whereNull('reminder_24h_failed_at')
             ->whereBetween('start_time', [
                 $now->copy()->addHours(23),
                 $now->copy()->addHours(25),
@@ -48,8 +52,34 @@ class SendRemindersCommand extends Command
                 continue;
             }
 
-            SendAppointmentReminderJob::dispatch($appointment, '24h');
-            $dispatched++;
+            $claimed = DB::table('appointments')
+                ->where('id', $appointment->id)
+                ->whereNull('reminder_24h_sent_at')
+                ->whereNull('reminder_24h_dispatched_at')
+                ->whereNull('reminder_24h_failed_at')
+                ->update(['reminder_24h_dispatched_at' => now()]);
+
+            if ($claimed !== 1) {
+                continue;
+            }
+
+            try {
+                SendAppointmentReminderJob::dispatch($appointment, '24h');
+                $dispatched++;
+            } catch (\Throwable $e) {
+                DB::table('appointments')
+                    ->where('id', $appointment->id)
+                    ->whereNull('reminder_24h_sent_at')
+                    ->whereNull('reminder_24h_failed_at')
+                    ->update(['reminder_24h_dispatched_at' => null]);
+
+                Log::warning('Failed to dispatch 24h reminder', [
+                    'appointment_id' => $appointment->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                throw $e;
+            }
         }
 
         $this->info("Dispatched {$dispatched} 24h reminders.");
@@ -62,6 +92,9 @@ class SendRemindersCommand extends Command
         $appointments = Appointment::with(['master', 'client'])
             ->where('status', AppointmentStatus::Booked)
             ->whereNull('reminder_final_sent_at')
+            ->whereNull('reminder_final_dispatched_at')
+            ->whereNull('reminder_final_failed_at')
+            ->where('start_time', '>', $now->copy())
             ->where('start_time', '<=', $now->copy()->addHours(12))
             ->get();
 
@@ -90,8 +123,34 @@ class SendRemindersCommand extends Command
                 continue;
             }
 
-            SendAppointmentReminderJob::dispatch($appointment, 'final');
-            $dispatched++;
+            $claimed = DB::table('appointments')
+                ->where('id', $appointment->id)
+                ->whereNull('reminder_final_sent_at')
+                ->whereNull('reminder_final_dispatched_at')
+                ->whereNull('reminder_final_failed_at')
+                ->update(['reminder_final_dispatched_at' => now()]);
+
+            if ($claimed !== 1) {
+                continue;
+            }
+
+            try {
+                SendAppointmentReminderJob::dispatch($appointment, 'final');
+                $dispatched++;
+            } catch (\Throwable $e) {
+                DB::table('appointments')
+                    ->where('id', $appointment->id)
+                    ->whereNull('reminder_final_sent_at')
+                    ->whereNull('reminder_final_failed_at')
+                    ->update(['reminder_final_dispatched_at' => null]);
+
+                Log::warning('Failed to dispatch final reminder', [
+                    'appointment_id' => $appointment->id,
+                    'error' => $e->getMessage(),
+                ]);
+
+                throw $e;
+            }
         }
 
         $this->info("Dispatched {$dispatched} final reminders.");

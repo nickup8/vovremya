@@ -17,6 +17,7 @@ use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Throwable;
 
 class SendAppointmentReminderJob implements ShouldQueue
 {
@@ -95,7 +96,11 @@ class SendAppointmentReminderJob implements ShouldQueue
 
         if ($sent) {
             $this->markAsSent($appointment);
+
+            return;
         }
+
+        $this->markTerminalFailed($appointment, 'No routable channel for reminder');
     }
 
     private function sendTelegram(Appointment $appointment, Client $client): void
@@ -230,7 +235,43 @@ class SendAppointmentReminderJob implements ShouldQueue
     private function markAsSent(Appointment $appointment): void
     {
         $field = $this->type === '24h' ? 'reminder_24h_sent_at' : 'reminder_final_sent_at';
+        $failedField = $this->type === '24h' ? 'reminder_24h_failed_at' : 'reminder_final_failed_at';
 
-        $appointment->update([$field => now()]);
+        $appointment->update([$field => now(), $failedField => null]);
+    }
+
+    private function markTerminalFailed(Appointment $appointment, string $reason): void
+    {
+        $failedField = $this->type === '24h' ? 'reminder_24h_failed_at' : 'reminder_final_failed_at';
+        $sentField = $this->type === '24h' ? 'reminder_24h_sent_at' : 'reminder_final_sent_at';
+
+        $update = [$failedField => now()];
+        $appointment->update($update);
+
+        Log::warning($reason, [
+            'appointment_id' => $appointment->id,
+            'reminder_type' => $this->type,
+            'source' => $appointment->source?->value,
+        ]);
+    }
+
+    public function failed(Throwable $exception): void
+    {
+        $appointment = $this->appointment->fresh();
+
+        $sentField = $this->type === '24h' ? 'reminder_24h_sent_at' : 'reminder_final_sent_at';
+        $failedField = $this->type === '24h' ? 'reminder_24h_failed_at' : 'reminder_final_failed_at';
+
+        if ($appointment->{$sentField} !== null) {
+            return;
+        }
+
+        $appointment->update([$failedField => now()]);
+
+        Log::warning('Reminder job terminal failure', [
+            'appointment_id' => $appointment->id,
+            'reminder_type' => $this->type,
+            'error' => $exception->getMessage(),
+        ]);
     }
 }

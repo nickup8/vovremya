@@ -13,6 +13,7 @@ use App\Services\VkApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -53,7 +54,11 @@ class SendAppointmentReminderJobTest extends TestCase
                 'status' => AppointmentStatus::Booked->value,
                 'start_time' => Carbon::tomorrow()->setTime(10, 0),
                 'reminder_24h_sent_at' => null,
+                'reminder_24h_dispatched_at' => null,
+                'reminder_24h_failed_at' => null,
                 'reminder_final_sent_at' => null,
+                'reminder_final_dispatched_at' => null,
+                'reminder_final_failed_at' => null,
             ], $aptAttrs));
 
         return [$appointment, $client];
@@ -240,9 +245,9 @@ class SendAppointmentReminderJobTest extends TestCase
         $this->assertNotNull($appointment->reminder_final_sent_at);
     }
 
-    // ── 8. source=admin + vk_id → no VK send, no sent_at ──
+    // ── 8. source=admin + vk_id → no channel → terminal failed ──
 
-    public function test_admin_source_with_vk_id_does_not_send_vk(): void
+    public function test_admin_source_with_vk_id_marks_terminal_failed(): void
     {
         [$appointment, $client] = $this->createAppointment(
             ['vk_id' => '888'],
@@ -257,6 +262,7 @@ class SendAppointmentReminderJobTest extends TestCase
 
         $appointment->refresh();
         $this->assertNull($appointment->reminder_24h_sent_at);
+        $this->assertNotNull($appointment->reminder_24h_failed_at);
     }
 
     // ── 9. Lock already exists → no send, no markAsSent ──
@@ -280,9 +286,9 @@ class SendAppointmentReminderJobTest extends TestCase
         $this->assertNull($appointment->reminder_24h_sent_at);
     }
 
-    // ── 10. Command dispatches Job for VK-only client ──
+    // ── 10. Command dispatches Job + sets dispatched_at ──
 
-    public function test_command_dispatches_job_for_vk_only_client(): void
+    public function test_command_dispatches_job_and_sets_dispatched_at(): void
     {
         [$appointment, $client] = $this->createAppointment(
             ['vk_id' => '111', 'telegram_id' => null, 'max_id' => null],
@@ -305,11 +311,15 @@ class SendAppointmentReminderJobTest extends TestCase
 
             return $refAppt->id === $appointment->id && $type === '24h';
         });
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->reminder_24h_dispatched_at);
+        $this->assertNull($appointment->reminder_24h_sent_at);
     }
 
-    // ── 11. Command does NOT set sent_at before dispatching Job ──
+    // ── 11. Command sets dispatched_at but NOT sent_at ──
 
-    public function test_command_does_not_set_sent_at_before_dispatch(): void
+    public function test_command_sets_dispatched_at_not_sent_at(): void
     {
         [$appointment, $client] = $this->createAppointment(
             ['vk_id' => '222', 'telegram_id' => null, 'max_id' => null],
@@ -319,21 +329,13 @@ class SendAppointmentReminderJobTest extends TestCase
             ]
         );
 
-        // Mock VkApiClient so the sync-dispatched job doesn't throw
-        $vkMock = $this->mock(VkApiClient::class);
-        $vkMock->shouldReceive('sendMessageWithKeyboard')->andReturn('msg_ok');
+        Queue::fake();
 
         $this->artisan('appointments:reminders');
 
         $appointment->refresh();
-        // sent_at is set by the JOB after successful send, not by the command.
-        // Verify structurally: the command file has no update() calls for sent_at.
-        $commandSource = file_get_contents(
-            app_path('Console/Commands/SendRemindersCommand.php')
-        );
-        $this->assertStringNotContainsString("update(['reminder_24h_sent_at'", $commandSource);
-        $this->assertStringNotContainsString("update(['reminder_final_sent_at'", $commandSource);
-        $this->assertStringNotContainsString('update([', $commandSource);
+        $this->assertNotNull($appointment->reminder_24h_dispatched_at);
+        $this->assertNull($appointment->reminder_24h_sent_at);
     }
 
     // ── 12. Existing TG reminder still works ──
@@ -408,9 +410,9 @@ class SendAppointmentReminderJobTest extends TestCase
         $this->assertNull($appointment->reminder_24h_sent_at);
     }
 
-    // ── 15. VK source=null + vk_id → no VK routing ──
+    // ── 15. VK source=null + vk_id → no routing → terminal failed ──
 
-    public function test_null_source_with_vk_id_does_not_route_to_vk(): void
+    public function test_null_source_with_vk_id_marks_terminal_failed(): void
     {
         [$appointment, $client] = $this->createAppointment(
             ['vk_id' => '555', 'telegram_id' => null, 'max_id' => null],
@@ -425,5 +427,268 @@ class SendAppointmentReminderJobTest extends TestCase
 
         $appointment->refresh();
         $this->assertNull($appointment->reminder_24h_sent_at);
+        $this->assertNotNull($appointment->reminder_24h_failed_at);
+    }
+
+    // ══════════════════════════════════════════════════════════
+    // NEW TESTS — dispatch loop prevention
+    // ══════════════════════════════════════════════════════════
+
+    // ── 16. First scheduler run dispatches 1, second dispatches 0 ──
+
+    public function test_second_scheduler_tick_dispatches_zero_additional_jobs(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '111', 'telegram_id' => null, 'max_id' => null],
+            [
+                'source' => AppointmentSource::Vk,
+                'start_time' => Carbon::now()->addHours(24),
+            ]
+        );
+
+        Queue::fake();
+
+        // First tick: should dispatch exactly 1
+        $this->artisan('appointments:reminders');
+        Queue::assertPushed(SendAppointmentReminderJob::class, 1);
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->reminder_24h_dispatched_at);
+
+        // Second tick: should dispatch 0
+        Queue::fake();
+        $this->artisan('appointments:reminders');
+        Queue::assertNothingPushed();
+    }
+
+    // ── 17. Failed send → failed_at set, no redispatch ──
+
+    public function test_failed_send_sets_failed_at_and_not_eligible(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '500'],
+            ['source' => AppointmentSource::Vk]
+        );
+
+        $vkMock = $this->mock(VkApiClient::class);
+        $vkMock->shouldReceive('sendMessage')
+            ->once()
+            ->andReturn(null);
+
+        try {
+            (new SendAppointmentReminderJob($appointment, 'final'))->handle();
+        } catch (\Exception $e) {
+            // Expected: VK API failed
+        }
+
+        // Simulate what failed() does after retries exhausted
+        $job = new SendAppointmentReminderJob($appointment, 'final');
+        $job->failed(new \Exception('exhausted'));
+
+        $appointment->refresh();
+        $this->assertNull($appointment->reminder_final_sent_at);
+        $this->assertNotNull($appointment->reminder_final_failed_at);
+
+        // Command should NOT dispatch for this appointment
+        $this->assertDatabaseHas('appointments', [
+            'id' => $appointment->id,
+            'reminder_final_failed_at' => $appointment->reminder_final_failed_at,
+            'reminder_final_sent_at' => null,
+            'reminder_final_dispatched_at' => null,
+        ]);
+
+        Queue::fake();
+        $this->artisan('appointments:reminders');
+        Queue::assertNothingPushed();
+    }
+
+    // ── 18. Success → sent_at set, no redispatch ──
+
+    public function test_success_sets_sent_at_and_not_eligible(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '500'],
+            ['source' => AppointmentSource::Vk]
+        );
+
+        $vkMock = $this->mock(VkApiClient::class);
+        $vkMock->shouldReceive('sendMessage')
+            ->once()
+            ->andReturn('msg_ok');
+
+        (new SendAppointmentReminderJob($appointment, 'final'))->handle();
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->reminder_final_sent_at);
+        $this->assertNull($appointment->reminder_final_failed_at);
+
+        Queue::fake();
+        $this->artisan('appointments:reminders');
+        Queue::assertNothingPushed();
+    }
+
+    // ── 19. No channel → terminal failed, no redispatch ──
+
+    public function test_no_channel_marks_terminal_failed_no_redispatch(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['telegram_id' => null, 'max_id' => null, 'vk_id' => null],
+            ['source' => null]
+        );
+
+        (new SendAppointmentReminderJob($appointment, '24h'))->handle();
+
+        $appointment->refresh();
+        $this->assertNull($appointment->reminder_24h_sent_at);
+        $this->assertNotNull($appointment->reminder_24h_failed_at);
+
+        Queue::fake();
+        $this->artisan('appointments:reminders');
+        Queue::assertNothingPushed();
+    }
+
+    // ── 20. Past final appointment → not dispatched ──
+
+    public function test_past_final_appointment_not_dispatched(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '111', 'telegram_id' => null, 'max_id' => null],
+            [
+                'source' => AppointmentSource::Vk,
+                'start_time' => Carbon::now()->subHours(1),
+            ]
+        );
+
+        Queue::fake();
+        $this->artisan('appointments:reminders');
+        Queue::assertNothingPushed();
+    }
+
+    // ── 21. Atomic claim: second claim affected rows = 0 ──
+
+    public function test_atomic_claim_second_attempt_returns_zero_affected_rows(): void
+    {
+        $now = Carbon::now();
+
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '111', 'telegram_id' => null, 'max_id' => null],
+            [
+                'source' => AppointmentSource::Vk,
+                'start_time' => $now->copy()->addHours(24),
+            ]
+        );
+
+        // First claim
+        $claimed1 = DB::table('appointments')
+            ->where('id', $appointment->id)
+            ->whereNull('reminder_24h_sent_at')
+            ->whereNull('reminder_24h_dispatched_at')
+            ->whereNull('reminder_24h_failed_at')
+            ->update(['reminder_24h_dispatched_at' => now()]);
+
+        $this->assertSame(1, $claimed1);
+
+        // Second claim — should fail
+        $claimed2 = DB::table('appointments')
+            ->where('id', $appointment->id)
+            ->whereNull('reminder_24h_sent_at')
+            ->whereNull('reminder_24h_dispatched_at')
+            ->whereNull('reminder_24h_failed_at')
+            ->update(['reminder_24h_dispatched_at' => now()]);
+
+        $this->assertSame(0, $claimed2);
+    }
+
+    // ── 22. Manual retry after terminal failure → sent_at, failed_at cleared ──
+
+    public function test_manual_retry_after_failure_succeeds_clears_failed_at(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '500'],
+            ['source' => AppointmentSource::Vk]
+        );
+
+        // Simulate terminal failed state
+        $appointment->update([
+            'reminder_final_dispatched_at' => now(),
+            'reminder_final_failed_at' => now(),
+        ]);
+
+        // Admin runs queue:retry → new job executes successfully
+        $vkMock = $this->mock(VkApiClient::class);
+        $vkMock->shouldReceive('sendMessage')
+            ->once()
+            ->andReturn('msg_retry');
+
+        (new SendAppointmentReminderJob($appointment, 'final'))->handle();
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->reminder_final_sent_at);
+        $this->assertNull($appointment->reminder_final_failed_at);
+    }
+
+    // ── 24. failed() does not overwrite sent_at ──
+
+    public function test_failed_does_not_overwrite_sent_at(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '500'],
+            ['source' => AppointmentSource::Vk]
+        );
+
+        // Simulate: send succeeded, then failed() is called (shouldn't happen, but defensive)
+        $appointment->update([
+            'reminder_final_sent_at' => now(),
+        ]);
+
+        $job = new SendAppointmentReminderJob($appointment, 'final');
+        $job->failed(new \Exception('late failure'));
+
+        $appointment->refresh();
+        $this->assertNotNull($appointment->reminder_final_sent_at);
+        $this->assertNull($appointment->reminder_final_failed_at);
+    }
+
+    // ── 25. Existing dispatched_at from old serialized job ──
+
+    public function test_failed_works_without_dispatched_at_from_old_job(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '500'],
+            ['source' => AppointmentSource::Vk]
+        );
+
+        // Old serialized job has no dispatched_at set
+        $this->assertNull($appointment->reminder_final_dispatched_at);
+
+        $job = new SendAppointmentReminderJob($appointment, 'final');
+        $job->failed(new \Exception('old job failure'));
+
+        $appointment->refresh();
+        $this->assertNull($appointment->reminder_final_sent_at);
+        $this->assertNotNull($appointment->reminder_final_failed_at);
+    }
+
+    // ── 26. Final query excludes past appointments ──
+
+    public function test_command_excludes_past_final_appointments(): void
+    {
+        [$appointment, $client] = $this->createAppointment(
+            ['vk_id' => '111', 'telegram_id' => null, 'max_id' => null],
+            [
+                'source' => AppointmentSource::Vk,
+                'start_time' => Carbon::now()->subHours(5),
+            ]
+        );
+
+        // Appointment is past but still within the old query window (no lower bound)
+        Queue::fake();
+        $this->artisan('appointments:reminders');
+
+        // Should NOT be dispatched because start_time is in the past
+        Queue::assertNothingPushed();
+
+        $appointment->refresh();
+        $this->assertNull($appointment->reminder_final_dispatched_at);
     }
 }
