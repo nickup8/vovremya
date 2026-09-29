@@ -129,6 +129,10 @@ class VkLinkController extends Controller
 
         $appointment->refresh();
 
+        if (config('services.vk.group_id') !== null && $client->vk_messages_allowed === null) {
+            $client->update(['vk_messages_allowed' => false]);
+        }
+
         broadcast(new AppointmentCreated($appointment->load(['client'])));
 
         $master = $appointment->master;

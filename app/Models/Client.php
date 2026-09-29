@@ -25,6 +25,7 @@ class Client extends Authenticatable
         'max_chat_id',
         'vk_id',
         'vk_chat_id',
+        'vk_messages_allowed',
         'name',
         'avatar_url',
         'auth_token',
@@ -45,8 +46,14 @@ class Client extends Authenticatable
         return [
             'is_personal' => 'boolean',
             'is_blocked' => 'boolean',
+            'vk_messages_allowed' => 'boolean',
             'pdn_consent_at' => 'datetime',
         ];
+    }
+
+    public function canReceiveVkMessages(): bool
+    {
+        return $this->vk_messages_allowed !== false;
     }
 
     public function master(): BelongsTo

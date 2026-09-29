@@ -96,6 +96,7 @@ class VkConsentController extends Controller
         return response()->json([
             'consent_required' => ! $hasGlobalConsent,
             'phone_required' => $sameMasterClient === null,
+            'appointment_id' => $appointment->id,
             'appointment' => [
                 'service' => $appointment->display_name,
                 'date' => $date,

@@ -43,6 +43,7 @@ class Appointment extends Model
         'client_confirmed_at',
         'recurring_series_id',
         'recurring_occurrence_date',
+        'vk_confirmation_sent_at',
     ];
 
     protected function casts(): array
@@ -64,6 +65,7 @@ class Appointment extends Model
             'cancelled_at' => 'datetime',
             'completed_at' => 'datetime',
             'client_confirmed_at' => 'datetime',
+            'vk_confirmation_sent_at' => 'datetime',
         ];
     }
 

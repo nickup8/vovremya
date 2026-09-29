@@ -95,6 +95,18 @@ class ClientNotificationService
 
     private function sendVk(string $peerId, string $text): void
     {
-        app(VkApiClient::class)->sendMessage($peerId, $text);
+        $client = \App\Models\Client::where('vk_id', $peerId)->first();
+
+        if ($client && $client->vk_messages_allowed === false) {
+            return;
+        }
+
+        try {
+            app(VkApiClient::class)->sendMessage($peerId, $text);
+        } catch (\App\Exceptions\VkMessagesNotAllowedException) {
+            if ($client) {
+                $client->update(['vk_messages_allowed' => false]);
+            }
+        }
     }
 }

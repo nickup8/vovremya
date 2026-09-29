@@ -6,6 +6,7 @@ use App\Http\Controllers\Api\MiniApp\VkCancelController;
 use App\Http\Controllers\Api\MiniApp\VkConfirmController;
 use App\Http\Controllers\Api\MiniApp\VkConsentController;
 use App\Http\Controllers\Api\MiniApp\VkLinkController;
+use App\Http\Controllers\Api\MiniApp\VkPermissionController;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Route;
 
@@ -35,6 +36,9 @@ Route::prefix('miniapp')->middleware(['throttle:60,1'])->group(function () {
         ->middleware(['vk.launch', 'throttle:10,1']);
 
     Route::post('/vk-cancel', VkCancelController::class)
+        ->middleware(['vk.launch', 'throttle:10,1']);
+
+    Route::post('/vk-permission', VkPermissionController::class)
         ->middleware(['vk.launch', 'throttle:10,1']);
 
     // Platform-neutral: MAX or VK

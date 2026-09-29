@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\VkMessagesNotAllowedException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
@@ -54,16 +55,26 @@ class VkApiClient
             $body = $response->json();
 
             if (isset($body['error'])) {
+                $errorCode = $body['error']['error_code'] ?? null;
+
                 Log::error('[VK] messages.send failed', [
-                    'error_code' => $body['error']['error_code'] ?? null,
+                    'error_code' => $errorCode,
                     'error_msg' => $body['error']['error_msg'] ?? null,
                     'peer_id' => $peerId,
                 ]);
+
+                if ($errorCode === 901) {
+                    throw new VkMessagesNotAllowedException(
+                        'VK error 901: user denied messages from community',
+                    );
+                }
 
                 return null;
             }
 
             return isset($body['response']) ? (string) $body['response'] : null;
+        } catch (VkMessagesNotAllowedException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('[VK] messages.send exception', [
                 'peer_id' => $peerId,
@@ -105,16 +116,26 @@ class VkApiClient
             $body = $response->json();
 
             if (isset($body['error'])) {
+                $errorCode = $body['error']['error_code'] ?? null;
+
                 Log::error('[VK] messages.send (keyboard) failed', [
-                    'error_code' => $body['error']['error_code'] ?? null,
+                    'error_code' => $errorCode,
                     'error_msg' => $body['error']['error_msg'] ?? null,
                     'peer_id' => $peerId,
                 ]);
+
+                if ($errorCode === 901) {
+                    throw new VkMessagesNotAllowedException(
+                        'VK error 901: user denied messages from community',
+                    );
+                }
 
                 return null;
             }
 
             return isset($body['response']) ? (string) $body['response'] : null;
+        } catch (VkMessagesNotAllowedException $e) {
+            throw $e;
         } catch (\Throwable $e) {
             Log::error('[VK] messages.send (keyboard) exception', [
                 'peer_id' => $peerId,

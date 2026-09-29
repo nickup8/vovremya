@@ -57,6 +57,7 @@ function statusOk(overrides: Record<string, unknown> = {}) {
     return {
         consent_required: true,
         phone_required: true,
+        appointment_id: 'test-appointment-id',
         appointment: defaultAppointment,
         ...overrides,
     };
@@ -476,11 +477,10 @@ describe('App routing', () => {
         vi.unstubAllGlobals();
     });
 
-    it('permission "Разрешить" calls VKWebAppAllowMessagesFromGroup and proceeds', async () => {
+    it('permission "Разрешить" calls VKWebAppAllowMessagesFromGroup and postVkPermission', async () => {
         (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
         setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
         setHash('#link_vk_test_token');
-        const replaceSpy = vi.spyOn(window.history, 'replaceState');
 
         mockSend
             .mockResolvedValueOnce({
@@ -505,6 +505,11 @@ describe('App routing', () => {
             .mockResolvedValueOnce({
                 ok: true,
                 json: () => Promise.resolve({ ok: true }),
+            })
+            // Permission endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
             });
         vi.stubGlobal('fetch', mockFetch);
 
@@ -526,23 +531,27 @@ describe('App routing', () => {
             expect(mockSend).toHaveBeenCalledWith('VKWebAppAllowMessagesFromGroup', { group_id: 241438764 });
         });
 
+        // Shows result phase with postVkPermission call
         await waitFor(() => {
-            expect(replaceSpy).toHaveBeenCalled();
+            expect(screen.getByText('Запись подтверждена')).toBeInTheDocument();
         });
 
-        await waitFor(() => {
-            expect(screen.getByText('Записи')).toBeInTheDocument();
-        });
+        expect(screen.getByText('Напоминания в VK включены')).toBeInTheDocument();
+
+        // Permission endpoint was called
+        const permCall = mockFetch.mock.calls.find(
+            ([url]: [string]) => typeof url === 'string' && url.includes('/vk-permission'),
+        );
+        expect(permCall).toBeTruthy();
 
         delete (window as Record<string, unknown>).__VK_GROUP_ID__;
         vi.unstubAllGlobals();
     });
 
-    it('permission rejection still proceeds to AppShell', async () => {
+    it('permission rejection still proceeds with denied result', async () => {
         (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
         setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
         setHash('#link_vk_test_token');
-        const replaceSpy = vi.spyOn(window.history, 'replaceState');
 
         mockSend
             .mockResolvedValueOnce({
@@ -550,6 +559,7 @@ describe('App routing', () => {
                 sign: 'phone_sign',
                 is_verified: true,
             })
+            .mockResolvedValueOnce({ id: 456, first_name: 'Тест', last_name: 'Тестов' })
             .mockRejectedValueOnce(new Error('user denied'));
 
         const mockFetch = vi.fn()
@@ -564,6 +574,11 @@ describe('App routing', () => {
                 json: () => Promise.resolve({ ok: true }),
             })
             // Link endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            // Permission endpoint
             .mockResolvedValueOnce({
                 ok: true,
                 json: () => Promise.resolve({ ok: true }),
@@ -584,24 +599,22 @@ describe('App routing', () => {
 
         fireEvent.click(screen.getByText('Разрешить уведомления'));
 
+        // Shows denied result phase
         await waitFor(() => {
-            expect(replaceSpy).toHaveBeenCalled();
+            expect(screen.getByText('Запись подтверждена')).toBeInTheDocument();
         });
 
-        await waitFor(() => {
-            expect(screen.getByText('Записи')).toBeInTheDocument();
-        });
+        expect(screen.getByText('Напоминания в VK не включены')).toBeInTheDocument();
 
         delete (window as Record<string, unknown>).__VK_GROUP_ID__;
         vi.unstubAllGlobals();
     });
 
-    it('permission "Позже" skips bridge call and proceeds', async () => {
+    it('permission "Позже" skips bridge call and calls postVkPermission with granted=false', async () => {
         mockSend.mockClear();
         (window as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
         setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
         setHash('#link_vk_test_token');
-        const replaceSpy = vi.spyOn(window.history, 'replaceState');
 
         mockSend.mockResolvedValueOnce({
             phone_number: '79001234567',
@@ -621,6 +634,11 @@ describe('App routing', () => {
                 json: () => Promise.resolve({ ok: true }),
             })
             // Link endpoint
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            })
+            // Permission endpoint (granted=false)
             .mockResolvedValueOnce({
                 ok: true,
                 json: () => Promise.resolve({ ok: true }),
@@ -647,19 +665,26 @@ describe('App routing', () => {
 
         fireEvent.click(screen.getByText('Позже'));
 
+        // Shows denied result phase
         await waitFor(() => {
-            expect(replaceSpy).toHaveBeenCalled();
+            expect(screen.getByText('Запись подтверждена')).toBeInTheDocument();
         });
 
-        await waitFor(() => {
-            expect(screen.getByText('Записи')).toBeInTheDocument();
-        });
+        expect(screen.getByText('Напоминания в VK не включены')).toBeInTheDocument();
 
-        // Still no permission call
+        // Still no AllowMessagesFromGroup call
         const callsAfterLater = mockSend.mock.calls.filter(
             ([method]: [string]) => method === 'VKWebAppAllowMessagesFromGroup',
         );
         expect(callsAfterLater).toHaveLength(0);
+
+        // Permission endpoint was called with granted=false
+        const permCall = mockFetch.mock.calls.find(
+            ([url, opts]: [string, RequestInit]) => typeof url === 'string' && url.includes('/vk-permission'),
+        );
+        expect(permCall).toBeTruthy();
+        const permBody = JSON.parse(permCall![1].body as string);
+        expect(permBody.granted).toBe(false);
 
         delete (window as Record<string, unknown>).__VK_GROUP_ID__;
         vi.unstubAllGlobals();

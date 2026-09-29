@@ -1,8 +1,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber, requestVkUserInfo } from './lib/vkBridge';
-import { cancelVkBooking, confirmVkBooking, getVkConsentStatus, linkVkClient, submitVkConsent, VkConsentStatus } from './lib/api';
+import { cancelVkBooking, confirmVkBooking, getVkConsentStatus, linkVkClient, postVkPermission, submitVkConsent, VkConsentStatus } from './lib/api';
 
-type Phase = 'consent-not-checked' | 'consent-required' | 'phone-confirm' | 'confirmation' | 'loading' | 'status-error' | 'error' | 'allow-messages' | 'cancelled';
+type Phase = 'consent-not-checked' | 'consent-required' | 'phone-confirm' | 'confirmation' | 'loading' | 'status-error' | 'error' | 'allow-messages' | 'cancelled' | 'permission-granted' | 'permission-denied';
 
 function FlowLayout({ children }: { children: React.ReactNode }) {
     return (
@@ -68,9 +68,12 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
 
     const handleAllowMessages = useCallback(async (groupId: number) => {
         setPermissionLoading(true);
-        await requestVkMessagePermission(groupId);
-        onLinked();
-    }, [onLinked]);
+        const granted = await requestVkMessagePermission(groupId);
+        if (statusData?.appointment_id) {
+            await postVkPermission(statusData.appointment_id, granted);
+        }
+        setPhase(granted ? 'permission-granted' : 'permission-denied');
+    }, [statusData]);
 
     const finishLink = useCallback(async (token: string) => {
         const phone = await requestVkPhoneNumber();
@@ -281,6 +284,50 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
         );
     }
 
+    // ── Permission granted ──
+
+    if (phase === 'permission-granted') {
+        return (
+            <FlowLayout>
+                <FlowIcon variant="orange">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                        <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                </FlowIcon>
+                <div className="vk-flow-title">Запись подтверждена</div>
+                <div className="vk-flow-copy">Напоминания в VK включены</div>
+                <div className="vk-flow-actions">
+                    <button type="button" className="vk-primary-btn" onClick={onLinked}>
+                        Готово
+                    </button>
+                </div>
+            </FlowLayout>
+        );
+    }
+
+    // ── Permission denied ──
+
+    if (phase === 'permission-denied') {
+        return (
+            <FlowLayout>
+                <FlowIcon variant="neutral">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+                        <path d="M22 11.08V12a10 10 0 1 1-5.93-9.14" />
+                        <polyline points="22 4 12 14.01 9 11.01" />
+                    </svg>
+                </FlowIcon>
+                <div className="vk-flow-title">Запись подтверждена</div>
+                <div className="vk-flow-copy">Напоминания в VK не включены</div>
+                <div className="vk-flow-actions">
+                    <button type="button" className="vk-primary-btn" onClick={onLinked}>
+                        Готово
+                    </button>
+                </div>
+            </FlowLayout>
+        );
+    }
+
     // ── Allow messages ──
 
     if (phase === 'allow-messages') {
@@ -307,7 +354,12 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                     <button
                         type="button"
                         className="vk-secondary-btn"
-                        onClick={onLinked}
+                        onClick={async () => {
+                            if (statusData?.appointment_id) {
+                                await postVkPermission(statusData.appointment_id, false);
+                            }
+                            setPhase('permission-denied');
+                        }}
                     >
                         Позже
                     </button>

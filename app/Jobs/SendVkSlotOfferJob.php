@@ -5,6 +5,7 @@ namespace App\Jobs;
 use App\Enums\SlotInvalidationReason;
 use App\Enums\SlotOfferStatus;
 use App\Enums\SlotRequestDeliveryChannel;
+use App\Exceptions\VkMessagesNotAllowedException;
 use App\Models\SlotOffer;
 use App\Services\SlotOfferService;
 use App\Services\VkApiClient;
@@ -101,6 +102,15 @@ class SendVkSlotOfferJob implements ShouldQueue
             return;
         }
 
+        if ($client->vk_messages_allowed === false) {
+            Log::info('[AutoFill] SendVkSlotOfferJob: vk_messages_allowed=false, skipping send', [
+                'offer_id' => $offer->id,
+                'client_id' => $client->id,
+            ]);
+            $this->invalidateAndRematch($offerService, $offer, SlotInvalidationReason::MissingVkIdentity);
+            return;
+        }
+
         $master = $request->master ?? $opportunity->master;
         $tz = $master?->getTimezone() ?? 'UTC';
 
@@ -149,7 +159,19 @@ class SendVkSlotOfferJob implements ShouldQueue
             ],
         ];
 
-        $mid = $vkApi->sendMessageWithKeyboard((string) $client->vk_id, $text, $keyboard);
+        $mid = null;
+        try {
+            $mid = $vkApi->sendMessageWithKeyboard((string) $client->vk_id, $text, $keyboard);
+        } catch (VkMessagesNotAllowedException) {
+            $client->update(['vk_messages_allowed' => false]);
+            Log::info('[AutoFill] SendVkSlotOfferJob: 901 permission denied', [
+                'offer_id' => $offer->id,
+                'client_id' => $client->id,
+            ]);
+            $this->invalidateAndRematch($offerService, $offer, SlotInvalidationReason::DeliveryFailed);
+
+            return;
+        }
 
         if ($mid === null) {
             Log::warning('[AutoFill] SendVkSlotOfferJob: VK API send failed, will retry', [

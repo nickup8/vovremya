@@ -5,6 +5,7 @@ namespace App\Listeners;
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Events\AppointmentCreated;
+use App\Exceptions\VkMessagesNotAllowedException;
 use App\Services\VkApiClient;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Log;
@@ -33,6 +34,14 @@ class SendVkBookingConfirmation implements \Illuminate\Contracts\Queue\ShouldQue
         $master = $appointment->master;
 
         if ($client === null || empty($client->vk_id)) {
+            return;
+        }
+
+        if ($client->vk_messages_allowed === false) {
+            return;
+        }
+
+        if ($appointment->vk_confirmation_sent_at !== null) {
             return;
         }
 
@@ -76,15 +85,32 @@ class SendVkBookingConfirmation implements \Illuminate\Contracts\Queue\ShouldQue
             ]]],
         ];
 
-        $mid = app(VkApiClient::class)->sendMessageWithKeyboard(
-            (string) $client->vk_id,
-            $text,
-            $keyboard,
-        );
+        try {
+            $mid = app(VkApiClient::class)->sendMessageWithKeyboard(
+                (string) $client->vk_id,
+                $text,
+                $keyboard,
+            );
+        } catch (VkMessagesNotAllowedException) {
+            $client->update(['vk_messages_allowed' => false]);
+
+            Log::info('[VK] booking confirmation blocked: 901', [
+                'appointment_id' => $appointment->id,
+                'client_id' => $client->id,
+            ]);
+
+            return;
+        }
 
         if ($mid === null) {
             Cache::forget($lockKey);
             throw new \RuntimeException('VK API failed to send booking confirmation');
+        }
+
+        $appointment->update(['vk_confirmation_sent_at' => now()]);
+
+        if ($client->vk_messages_allowed === null) {
+            $client->update(['vk_messages_allowed' => true]);
         }
 
         Log::info('[VK] booking confirmation sent', [

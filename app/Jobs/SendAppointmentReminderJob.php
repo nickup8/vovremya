@@ -4,6 +4,7 @@ namespace App\Jobs;
 
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Exceptions\VkMessagesNotAllowedException;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\MaxApiClient;
@@ -82,11 +83,22 @@ class SendAppointmentReminderJob implements ShouldQueue
         }
 
         if ($client->vk_id && $sourceValue === 'vk') {
+            if ($client->vk_messages_allowed === false) {
+                $this->markTerminalFailed($appointment, 'VK messages not allowed for client');
+
+                return;
+            }
+
             $lockVk = "reminder_{$this->type}_vk_{$appointment->id}";
             if (Cache::add($lockVk, true, now()->addHours(12))) {
                 try {
                     $this->sendVk($appointment, $client);
                     $sent = true;
+                } catch (VkMessagesNotAllowedException) {
+                    $client->update(['vk_messages_allowed' => false]);
+                    $this->markTerminalFailed($appointment, 'VK messages not allowed (901)');
+
+                    return;
                 } catch (\Throwable $e) {
                     Cache::forget($lockVk);
                     throw $e;

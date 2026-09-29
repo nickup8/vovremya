@@ -57,6 +57,7 @@ export async function submitVkConsent(token: string): Promise<{ ok: true }> {
 export interface VkConsentStatus {
     consent_required: boolean;
     phone_required: boolean;
+    appointment_id: string;
     appointment: {
         service: string;
         date: string;
@@ -116,6 +117,24 @@ export async function cancelVkBooking(token: string): Promise<{ ok: true }> {
     if (!res.ok) {
         const body = await res.json().catch(() => ({}));
         throw new Error(body.error ?? 'cancel_failed');
+    }
+
+    return res.json();
+}
+
+export async function postVkPermission(appointmentId: string, granted: boolean): Promise<{ ok: true }> {
+    const headers = authHeaders();
+    if (!headers) throw new Error('no_vk_auth');
+
+    const res = await fetch('/api/miniapp/vk-permission', {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify({ appointment_id: appointmentId, granted }),
+    });
+
+    if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error ?? 'permission_failed');
     }
 
     return res.json();
