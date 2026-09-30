@@ -1,0 +1,605 @@
+/* IRSI landing v2 — ported from docs/landing/irsi-landing-2026-09-30-v3.html.
+   Scope: header, navigation, hero, hero calendar visual.
+   All rules are scoped under .irsi-v2 so they never leak into Tailwind pages. */
+
+@font-face {
+    font-family: Onest;
+    font-weight: 400;
+    font-display: swap;
+    src: url('/fonts/onest-400.ttf') format('truetype');
+}
+@font-face {
+    font-family: Onest;
+    font-weight: 500;
+    font-display: swap;
+    src: url('/fonts/onest-500.ttf') format('truetype');
+}
+@font-face {
+    font-family: Onest;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/onest-600.ttf') format('truetype');
+}
+
+/* Smooth anchor scrolling, applied only while landing v2 is mounted. */
+html:has(.irsi-v2) {
+    scroll-behavior: smooth;
+    scroll-padding-top: 30px;
+}
+
+/* ── Base (was :root / body) ─────────────────────────────── */
+.irsi-v2 {
+    --milk: #f7f5f1;
+    --ink: #181818;
+    --orange: #ff5a1f;
+    --line: #dedad2;
+    --muted: #66635e;
+
+    min-height: 100vh;
+    margin: 0;
+    background: var(--milk);
+    color: var(--ink);
+    font: 16px/1.5 Onest, Arial, sans-serif;
+    -webkit-font-smoothing: antialiased;
+}
+.irsi-v2 *,
+.irsi-v2 *::before,
+.irsi-v2 *::after {
+    box-sizing: border-box;
+}
+.irsi-v2 h1,
+.irsi-v2 h2,
+.irsi-v2 h3,
+.irsi-v2 p,
+.irsi-v2 figure {
+    margin: 0;
+}
+.irsi-v2 h1,
+.irsi-v2 h2,
+.irsi-v2 h3 {
+    text-wrap: balance;
+}
+.irsi-v2 h1,
+.irsi-v2 h2 {
+    font-weight: 500;
+    letter-spacing: -0.055em;
+    line-height: 1.06;
+}
+.irsi-v2 h1 {
+    font-size: clamp(48px, 5.8vw, 84px);
+}
+.irsi-v2 h3 {
+    font-size: 25px;
+    line-height: 1.2;
+    letter-spacing: -0.025em;
+    font-weight: 500;
+}
+.irsi-v2 p {
+    color: var(--muted);
+}
+.irsi-v2 a {
+    color: inherit;
+    text-underline-offset: 5px;
+}
+.irsi-v2 button {
+    font: inherit;
+    cursor: pointer;
+    color: inherit;
+}
+.irsi-v2 button,
+.irsi-v2 a {
+    touch-action: manipulation;
+}
+.irsi-v2 a:focus-visible,
+.irsi-v2 button:focus-visible {
+    outline: 3px solid #95300c;
+    outline-offset: 5px;
+}
+.irsi-v2 img {
+    max-width: 100%;
+    height: auto;
+    display: block;
+}
+
+/* ── Shared blocks ───────────────────────────────────────── */
+.irsi-v2 .wrap {
+    max-width: 1360px;
+    margin: auto;
+    padding: 0 48px;
+}
+.irsi-v2 .grid > * {
+    min-width: 0;
+}
+.irsi-v2 .grid {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 24px;
+}
+.irsi-v2 .eyebrow {
+    font-size: 11px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    display: flex;
+    gap: 16px;
+    color: var(--muted);
+}
+.irsi-v2 .eyebrow > span {
+    color: var(--orange);
+}
+.irsi-v2 .btn {
+    display: inline-flex;
+    justify-content: center;
+    align-items: center;
+    min-height: 54px;
+    background: var(--orange);
+    color: #fff;
+    border: 1px solid transparent;
+    border-radius: 8px;
+    text-decoration: none;
+    padding: 14px 26px;
+    font-size: 15px;
+    font-weight: 600;
+    transition: background 0.16s;
+}
+.irsi-v2 .btn:hover {
+    background: #ed4b12;
+}
+.irsi-v2 .btn:active {
+    transform: translateY(1px);
+}
+.irsi-v2 .caption {
+    font-size: 12px;
+    color: var(--muted);
+}
+.irsi-v2 .logo {
+    width: 132px;
+    height: auto;
+}
+
+/* ── Header + navigation ─────────────────────────────────── */
+.irsi-v2 .header {
+    border-bottom: 1px solid var(--line);
+}
+.irsi-v2 .header-inner {
+    min-height: 86px;
+    display: flex;
+    align-items: center;
+    gap: 35px;
+}
+.irsi-v2 .brand {
+    padding: 14px 0;
+}
+.irsi-v2 .nav {
+    margin-left: auto;
+    display: flex;
+    gap: 30px;
+    align-items: center;
+}
+.irsi-v2 .nav a,
+.irsi-v2 .login {
+    font-size: 13px;
+    text-decoration: none;
+    display: flex;
+    align-items: center;
+    min-height: 44px;
+}
+.irsi-v2 .nav a:hover,
+.irsi-v2 .login:hover {
+    text-decoration: underline;
+}
+.irsi-v2 .header-cta {
+    padding: 10px 17px;
+    min-height: 44px;
+    background: var(--orange);
+    border-color: transparent;
+    font-size: 13px;
+}
+.irsi-v2 .header-actions {
+    display: flex;
+    align-items: center;
+    gap: 24px;
+}
+.irsi-v2 .menu {
+    display: none;
+    border: 1px solid var(--line);
+    background: none;
+    border-radius: 6px;
+    min-height: 44px;
+    padding: 8px 12px;
+}
+.irsi-v2 .skip {
+    position: fixed;
+    top: -80px;
+    left: 20px;
+    background: white;
+    padding: 10px;
+    z-index: 100;
+}
+.irsi-v2 .skip:focus {
+    top: 12px;
+}
+
+/* ── Hero + calendar visual ──────────────────────────────── */
+.irsi-v2 .hero {
+    padding-top: 44px;
+}
+.irsi-v2 .hero-head .eyebrow {
+    grid-column: 1/13;
+    margin-bottom: 8px;
+}
+.irsi-v2 .hero h1 {
+    grid-column: 1/10;
+}
+.irsi-v2 .hero-aside {
+    grid-column: 10/13;
+    align-self: end;
+    padding-bottom: 6px;
+}
+.irsi-v2 .hero-aside p {
+    font-size: 14px;
+    border-left: 1px solid #bdb6a9;
+    padding-left: 20px;
+}
+.irsi-v2 .hero-under {
+    grid-column: 1/8;
+    font-size: 16px;
+    max-width: 705px;
+    margin-top: 6px;
+}
+.irsi-v2 .hero-action {
+    grid-column: 1/8;
+    justify-self: start;
+    align-self: start;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    align-items: flex-start;
+}
+.irsi-v2 .hero-action .caption {
+    font-size: 12px;
+}
+.irsi-v2 .hero-stage {
+    margin-top: 38px;
+    border: 1px solid #d4cec2;
+    border-radius: 12px;
+    overflow: hidden;
+    background: #eeeae1;
+    display: grid;
+    grid-template-columns: 3fr 1fr;
+}
+.irsi-v2 .calendar-stage {
+    padding: 20px 0 0 20px;
+    overflow: hidden;
+}
+.irsi-v2 .stage-label {
+    font-size: 12px;
+    display: flex;
+    justify-content: space-between;
+    margin: 0 20px 16px 0;
+}
+.irsi-v2 .calendar-crop {
+    height: 375px;
+    overflow: hidden;
+    border-radius: 7px 0 0 0;
+    background: white;
+    border: 1px solid #e0dbd1;
+    border-bottom: 0;
+}
+.irsi-v2 .calendar-crop img {
+    width: 116%;
+    max-width: none;
+}
+.irsi-v2 .mobile-cal {
+    display: none;
+}
+.irsi-v2 .hero-message {
+    padding: 26px 22px;
+    background: #e7e2d7;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 20px;
+    border-left: 1px solid #d4cec2;
+}
+.irsi-v2 .hero-message > span {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+}
+.irsi-v2 .hero-message h3 {
+    font-size: 25px;
+}
+.irsi-v2 .hero-message img {
+    border-radius: 10px;
+}
+.irsi-v2 .hero-message p {
+    font-size: 13px;
+}
+.irsi-v2 .hero-foot {
+    display: flex;
+    justify-content: space-between;
+    gap: 20px;
+    padding: 19px 0;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+}
+.irsi-v2 .hero-foot span {
+    color: var(--muted);
+}
+
+/* ── Responsive (breakpoints and values as in the source) ── */
+@media (max-width: 1100px) {
+    .irsi-v2 .wrap {
+        padding-inline: 32px;
+    }
+    .irsi-v2 .header-inner {
+        gap: 24px;
+    }
+    .irsi-v2 .nav {
+        gap: 20px;
+    }
+    .irsi-v2 .header-cta {
+        display: none;
+    }
+    .irsi-v2 .hero h1 {
+        grid-column: 1/11;
+    }
+    .irsi-v2 .hero-aside {
+        display: none;
+    }
+    .irsi-v2 .hero-under {
+        grid-column: 1/9;
+    }
+    .irsi-v2 .hero-action {
+        grid-column: 1/9;
+    }
+    .irsi-v2 .hero-stage {
+        grid-template-columns: 2.6fr 1fr;
+    }
+    .irsi-v2 .hero-message {
+        padding: 20px;
+    }
+    .irsi-v2 .hero-message h3 {
+        font-size: 22px;
+    }
+    .irsi-v2 .calendar-crop {
+        height: 320px;
+    }
+}
+
+@media (max-width: 800px) {
+    .irsi-v2 .wrap {
+        padding-inline: 24px;
+    }
+    .irsi-v2 .hero h1 {
+        font-size: 57px;
+        grid-column: 1/13;
+    }
+    .irsi-v2 .hero-under {
+        font-size: 15px;
+    }
+    .irsi-v2 .hero-action .btn {
+        padding-inline: 16px;
+    }
+    .irsi-v2 .hero-stage {
+        grid-template-columns: 2fr 1fr;
+    }
+    .irsi-v2 .calendar-crop {
+        height: 310px;
+    }
+    .irsi-v2 .calendar-crop img {
+        width: 170%;
+    }
+    .irsi-v2 .hero-message > p {
+        font-size: 12px;
+    }
+    .irsi-v2 .hero-message h3 {
+        font-size: 21px;
+    }
+    .irsi-v2 .hero-foot {
+        font-size: 11px;
+    }
+}
+
+@media (max-width: 900px) {
+    .irsi-v2 .header {
+        position: relative;
+        z-index: 20;
+    }
+    .irsi-v2 .header-inner {
+        min-height: 74px;
+        gap: 16px;
+    }
+    .irsi-v2 .header-actions {
+        margin-left: auto;
+    }
+    .irsi-v2 .header-actions .login {
+        display: none;
+    }
+    .irsi-v2 .menu {
+        display: block;
+        min-width: 76px;
+    }
+    .irsi-v2 .nav {
+        display: none;
+        position: absolute;
+        top: 100%;
+        left: 0;
+        right: 0;
+        margin: 0;
+        background: var(--milk);
+        border-bottom: 1px solid var(--line);
+        padding: 12px 24px 20px;
+        z-index: 20;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 4px;
+        box-shadow: 0 14px 20px #1818180a;
+    }
+    .irsi-v2 .nav.open {
+        display: flex;
+    }
+    .irsi-v2 .nav a {
+        font-size: 16px;
+        min-height: 48px;
+        padding: 8px 0;
+    }
+}
+
+@media (max-width: 650px) {
+    .irsi-v2 .wrap {
+        padding-inline: 20px;
+    }
+    .irsi-v2 .grid {
+        gap: 20px;
+    }
+    .irsi-v2 .logo {
+        width: 120px;
+    }
+    .irsi-v2 .header-inner {
+        justify-content: space-between;
+    }
+    .irsi-v2 .nav {
+        padding-inline: 20px;
+    }
+    .irsi-v2 .btn {
+        min-height: 52px;
+        font-size: 16px;
+        padding: 14px 20px;
+    }
+    .irsi-v2 .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.06em;
+        gap: 12px;
+    }
+    .irsi-v2 .eyebrow > span:empty {
+        display: none;
+    }
+    .irsi-v2 .caption {
+        font-size: 13px;
+    }
+    .irsi-v2 .hero {
+        padding-top: 28px;
+    }
+    .irsi-v2 .hero-head {
+        display: block;
+    }
+    .irsi-v2 .hero-head .eyebrow {
+        font-size: 11px;
+        letter-spacing: 0.04em;
+        margin-bottom: 22px;
+    }
+    .irsi-v2 .hero h1 {
+        font-size: clamp(34px, 9.5vw, 58px);
+        line-height: 1.08;
+        letter-spacing: -0.05em;
+    }
+    .irsi-v2 .hero-under {
+        margin-top: 22px;
+        font-size: 16px;
+        line-height: 1.55;
+        max-width: none;
+    }
+    .irsi-v2 .hero-action {
+        margin-top: 24px;
+        align-items: stretch;
+        text-align: center;
+        gap: 10px;
+    }
+    .irsi-v2 .hero-action .btn {
+        width: 100%;
+    }
+    .irsi-v2 .hero-action .caption {
+        font-size: 13px;
+    }
+    .irsi-v2 .hero-stage {
+        grid-template-columns: minmax(0, 1fr);
+        margin-top: 28px;
+    }
+    .irsi-v2 .calendar-stage {
+        padding: 14px 14px 0;
+    }
+    .irsi-v2 .stage-label {
+        margin: 0 0 12px;
+        font-size: 12px;
+        gap: 10px;
+    }
+    .irsi-v2 .calendar-crop {
+        display: none;
+    }
+    .irsi-v2 .mobile-cal {
+        display: block;
+        max-height: none;
+        overflow: hidden;
+        border: 1px solid #ddd6c9;
+        border-radius: 6px 6px 0 0;
+        background: white;
+    }
+    .irsi-v2 .mobile-cal img {
+        width: 100%;
+    }
+    .irsi-v2 .hero-message {
+        border-left: 0;
+        border-top: 1px solid #d4cec2;
+        padding: 22px;
+        display: flex;
+        gap: 14px;
+    }
+    .irsi-v2 .hero-message > span {
+        font-size: 11px;
+    }
+    .irsi-v2 .hero-message h3 {
+        font-size: 26px;
+    }
+    .irsi-v2 .hero-message h3 br {
+        display: none;
+    }
+    .irsi-v2 .hero-message img {
+        width: 100%;
+        max-width: 460px;
+    }
+    .irsi-v2 .hero-message p {
+        font-size: 14px;
+    }
+    .irsi-v2 .hero-foot {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 8px 20px;
+        padding-block: 18px;
+        font-size: 13px;
+    }
+    .irsi-v2 .hero-foot span:first-child {
+        flex-basis: 100%;
+    }
+    .irsi-v2 .hero-foot span:last-child {
+        display: inline;
+    }
+}
+
+@media (max-width: 359px) {
+    .irsi-v2 .wrap {
+        padding-inline: 16px;
+    }
+    .irsi-v2 .hero-head .eyebrow {
+        font-size: 10px;
+    }
+    .irsi-v2 .hero h1 {
+        font-size: 32px;
+    }
+    .irsi-v2 .hero-message {
+        padding: 18px;
+    }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    html:has(.irsi-v2) {
+        scroll-behavior: auto;
+    }
+    .irsi-v2 *,
+    .irsi-v2 *::before,
+    .irsi-v2 *::after {
+        transition: none !important;
+        animation: none !important;
+    }
+}
