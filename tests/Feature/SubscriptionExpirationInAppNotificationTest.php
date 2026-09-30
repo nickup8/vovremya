@@ -8,7 +8,11 @@ use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Notifications\PaymentReminderNotification;
+use App\Notifications\SubscriptionExpiredNotification;
+use App\Services\Notification\MasterNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Tests\TestCase;
 
 class SubscriptionExpirationInAppNotificationTest extends TestCase
@@ -67,7 +71,7 @@ class SubscriptionExpirationInAppNotificationTest extends TestCase
 
         $this->assertDatabaseHas('notifications', [
             'notifiable_id' => $master->id,
-            'type' => \App\Notifications\PaymentReminderNotification::class,
+            'type' => PaymentReminderNotification::class,
         ]);
 
         $notification = $master->notifications()->first();
@@ -87,7 +91,7 @@ class SubscriptionExpirationInAppNotificationTest extends TestCase
 
         $this->assertDatabaseHas('notifications', [
             'notifiable_id' => $master->id,
-            'type' => \App\Notifications\PaymentReminderNotification::class,
+            'type' => PaymentReminderNotification::class,
         ]);
 
         $notification = $master->notifications()->first();
@@ -193,5 +197,98 @@ class SubscriptionExpirationInAppNotificationTest extends TestCase
         // Verify the subscription was still processed (expired check runs after)
         // The subscription expiring in 5 days is NOT expired yet
         $this->assertSame('active', Subscription::first()->fresh()->status);
+    }
+
+    // ── 9. Expired subscription → Expired status + notification log ──
+
+    public function test_expired_subscription_marks_expired_and_writes_notification_log(): void
+    {
+        [$master, $workspace] = $this->createMasterWithWorkspace();
+        $sub = $this->createExpiringSubscription($workspace, -1);
+
+        $mock = $this->mock(MasterNotificationService::class);
+        $mock->shouldReceive('sendSubscriptionExpired')->once()
+            ->with(\Mockery::on(fn (User $owner) => $owner->id === $master->id));
+
+        $this->artisan('subscriptions:check-expirations')->assertExitCode(0);
+
+        $this->assertSame('expired', $sub->fresh()->status);
+
+        $this->assertDatabaseHas('notification_logs', [
+            'workspace_id' => $workspace->id,
+            'type' => 'subscription_expired',
+            'period_key' => $sub->fresh()->expires_at->format('Y-m-d'),
+        ]);
+
+        $this->assertDatabaseHas('notifications', [
+            'notifiable_id' => $master->id,
+            'type' => SubscriptionExpiredNotification::class,
+        ]);
+    }
+
+    // ── 10. Second run → no duplicate notification or log ──
+
+    public function test_second_run_does_not_send_duplicate_notification(): void
+    {
+        [$master, $workspace] = $this->createMasterWithWorkspace();
+        $this->createExpiringSubscription($workspace, -1);
+
+        // once() across both runs: primary dedup is the Active-status query —
+        // after the first run the subscription no longer matches it.
+        $mock = $this->mock(MasterNotificationService::class);
+        $mock->shouldReceive('sendSubscriptionExpired')->once();
+
+        $this->artisan('subscriptions:check-expirations')->assertExitCode(0);
+        $this->artisan('subscriptions:check-expirations')->assertExitCode(0);
+
+        $this->assertSame(1, NotificationLog::where('workspace_id', $workspace->id)
+            ->where('type', 'subscription_expired')->count());
+
+        $this->assertSame(1, $master->notifications()
+            ->where('type', SubscriptionExpiredNotification::class)->count());
+    }
+
+    // ── 11. Notification failure must not roll back expiry ──
+
+    public function test_notification_failure_does_not_rollback_expiry(): void
+    {
+        [$master, $workspace] = $this->createMasterWithWorkspace();
+        $sub = $this->createExpiringSubscription($workspace, -1);
+
+        $mock = $this->mock(MasterNotificationService::class);
+        $mock->shouldReceive('sendSubscriptionExpired')->once()
+            ->andThrow(new \RuntimeException('gateway down'));
+
+        $this->artisan('subscriptions:check-expirations')->assertExitCode(0);
+
+        $this->assertSame('expired', $sub->fresh()->status);
+
+        // markSent() is never reached after a failed send
+        $this->assertSame(0, NotificationLog::where('workspace_id', $workspace->id)
+            ->where('type', 'subscription_expired')->count());
+    }
+
+    // ── 12. Missing owner must not break expiration ──
+
+    public function test_expiration_succeeds_without_owner(): void
+    {
+        [$master, $workspace] = $this->createMasterWithWorkspace();
+        $sub = $this->createExpiringSubscription($workspace, -1);
+
+        // workspace.owner_id is NOT NULL with cascadeOnDelete — drop FK triggers
+        // to remove the owner while keeping the workspace (dangling owner_id).
+        DB::statement('SET session_replication_role = replica');
+        try {
+            DB::table('users')->where('id', $master->id)->delete();
+        } finally {
+            DB::statement('SET session_replication_role = origin');
+        }
+
+        $this->artisan('subscriptions:check-expirations')->assertExitCode(0);
+
+        // Status is updated even though owner is missing; notification is skipped.
+        $this->assertSame('expired', $sub->fresh()->status);
+        $this->assertSame(0, NotificationLog::where('workspace_id', $workspace->id)
+            ->where('type', 'subscription_expired')->count());
     }
 }

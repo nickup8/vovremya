@@ -42,6 +42,9 @@ class Workspace extends Model
         'settings',
     ];
 
+    /**
+     * @return BelongsTo<User, $this>
+     */
     public function owner(): BelongsTo
     {
         return $this->belongsTo(User::class, 'owner_id');

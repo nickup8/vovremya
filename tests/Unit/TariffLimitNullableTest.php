@@ -8,6 +8,7 @@ use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Billing\TariffLimitService;
+use App\Support\PlanDefaults;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -117,7 +118,7 @@ class TariffLimitNullableTest extends TestCase
         $this->assertSame(1, $workspace->maxMasters());
     }
 
-    public function test_fallback_without_subscription(): void
+    public function test_fallback_without_subscription_is_unlimited(): void
     {
         $workspace = Workspace::create([
             'name' => 'No Subscription',
@@ -126,7 +127,10 @@ class TariffLimitNullableTest extends TestCase
 
         $service = app(TariffLimitService::class);
 
-        $this->assertSame(30, $service->getMonthlyLimit($workspace));
+        $this->assertSame(
+            PlanDefaults::START_MAX_APPOINTMENTS ?? PHP_INT_MAX,
+            $service->getMonthlyLimit($workspace)
+        );
         $this->assertSame(true, $workspace->hasFeature('calendar'));
         $this->assertSame(true, $workspace->hasFeature('basic_client_management'));
         $this->assertSame(1, $workspace->maxMasters());

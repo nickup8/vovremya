@@ -9,8 +9,11 @@ use App\Models\NotificationLog;
 use App\Models\Subscription;
 use App\Models\Workspace;
 use App\Notifications\PaymentReminderNotification;
+use App\Notifications\SubscriptionExpiredNotification;
 use App\Services\Billing\EntitlementService;
 use App\Services\Notification\MasterNotificationService;
+use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Log;
 
@@ -49,6 +52,8 @@ class CheckSubscriptionExpirations extends Command
                 $subscription->update(['status' => SubscriptionStatus::Expired]);
 
                 $this->info("Expired subscription {$subscription->id} (workspace: {$subscription->workspace_id}).");
+
+                $this->sendExpiredNotification($subscription);
             } catch (\Exception $e) {
                 Log::error('Sub expiration failed', [
                     'subscription_id' => $subscription->id,
@@ -59,6 +64,44 @@ class CheckSubscriptionExpirations extends Command
         }
 
         $this->info("Processed {$expiredSubscriptions->count()} expired subscriptions.");
+    }
+
+    private function sendExpiredNotification(Subscription $subscription): void
+    {
+        $workspace = $subscription->workspace;
+
+        if (! $workspace) {
+            return;
+        }
+
+        $owner = $workspace->owner;
+
+        if (! $owner) {
+            return;
+        }
+
+        $periodKey = Carbon::parse($subscription->expires_at)->format('Y-m-d');
+
+        if (NotificationLog::hasBeenSent($workspace->id, 'subscription_expired', $periodKey)) {
+            return;
+        }
+
+        try {
+            $this->notificationService->sendSubscriptionExpired($owner);
+
+            if (! $owner->is_blocked) {
+                $owner->notify(new SubscriptionExpiredNotification);
+            }
+
+            NotificationLog::markSent($workspace->id, 'subscription_expired', $periodKey);
+            $this->info("Sent subscription_expired notification to workspace {$workspace->id}");
+        } catch (\Exception $e) {
+            Log::error('Subscription expired notification failed', [
+                'workspace_id' => $workspace->id,
+                'owner_id' => $owner->id,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -130,7 +173,7 @@ class CheckSubscriptionExpirations extends Command
         }
     }
 
-    private function sendRemindersIfNeeded(Workspace $workspace, \Carbon\CarbonInterface $expiresAt): void
+    private function sendRemindersIfNeeded(Workspace $workspace, CarbonInterface $expiresAt): void
     {
         $owner = $workspace->owner;
         if (! $owner) {

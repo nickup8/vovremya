@@ -81,11 +81,12 @@ class PaymentController extends Controller
             'period_months' => 'required|integer|in:1,3,6,12',
         ]);
 
+        /** @var TariffPlan $plan */
         $plan = TariffPlan::findOrFail($validated['tariff_plan_id']);
 
         if (! in_array($plan->code, PlanDefaults::CHECKOUT_ALLOWED_CODES, true)) {
             throw ValidationException::withMessages([
-                'tariff_plan_id' => 'Оформление подписки на тариф «{$plan->name}» недоступно. Выберите другой тариф.',
+                'tariff_plan_id' => "Оформление подписки на тариф «{$plan->name}» недоступно. Выберите другой тариф.",
             ]);
         }
 
