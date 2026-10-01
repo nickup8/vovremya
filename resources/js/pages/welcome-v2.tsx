@@ -617,7 +617,81 @@ export default function WelcomeV2() {
                         </div>
                         <p className="price-note">Для регистрации данные карты не нужны. Перейти на «Профи» можно позже.</p>
                     </section>
+
+                    <section className="section wrap start">
+                        <div className="section-heading grid">
+                            <div className="eyebrow">
+                                <span>09</span>Как начать
+                            </div>
+                            <h2>
+                                Ваши услуги.
+                                <br /> Ваш график. Ваша ссылка.
+                            </h2>
+                        </div>
+                        <div className="start-steps">
+                            <article className="start-step">
+                                <span>01</span>
+                                <h3>
+                                    Войдите через
+                                    <br /> VK или MAX.
+                                </h3>
+                                <p>Выберите удобный способ регистрации мастера.</p>
+                            </article>
+                            <article className="start-step">
+                                <span>02</span>
+                                <h3>
+                                    Настройте услуги
+                                    <br /> и рабочее время.
+                                </h3>
+                                <p>Добавьте цены, длительность и свой график.</p>
+                            </article>
+                            <article className="start-step">
+                                <span>03</span>
+                                <h3>
+                                    Поделитесь
+                                    <br /> личной ссылкой.
+                                </h3>
+                                <p>Клиент сможет выбрать услугу и доступное время.</p>
+                            </article>
+                        </div>
+                    </section>
+
+                    <section className="final">
+                        <div className="wrap grid">
+                            <div className="eyebrow">
+                                <span></span>Следующая запись начинается здесь
+                            </div>
+                            <h2>
+                                Ваше дело.
+                                <br /> В Вашем ритме.
+                            </h2>
+                            <div className="final-action">
+                                <a className="btn" href="/auth/login" data-event="cta_final_click">
+                                    Начать бесплатно
+                                </a>
+                                <span className="caption">0 ₽ · без лимита записей · без данных карты</span>
+                            </div>
+                        </div>
+                    </section>
                 </main>
+
+                <footer className="footer wrap">
+                    <div className="footer-top">
+                        <a href="#" aria-label="ИРСИ — в начало">
+                            <img className="logo" src="/images/landing/logo-irsi.svg" alt="ИРСИ" width="132" height="35" />
+                        </a>
+                        <div className="footer-links">
+                            <a href="/auth/login">Вход для мастеров</a>
+                            <a href="/offer">Оферта</a>
+                            <a href="/privacy">Политика и согласия</a>
+                        </div>
+                    </div>
+                    <div className="footer-bottom">
+                        <span>© ИРСИ, 2026</span>
+                        <span>Ритм. Время. Система.</span>
+                        <a href="#main">Наверх</a>
+                    </div>
+                </footer>
             </div>
         </>
     );
