@@ -1564,3 +1564,215 @@ html:has(.irsi-v2) {
         grid-template-columns: repeat(3, 1fr);
     }
 }
+
+/* ── 03 Между записью и визитом (lifecycle) ───────────────── */
+.irsi-v2 .lifecycle {
+    background: #ece8df;
+}
+.irsi-v2 .life-intro {
+    margin-bottom: 48px;
+    align-items: end;
+}
+.irsi-v2 .life-intro h2 {
+    grid-column: 1/8;
+    margin-top: 20px;
+    font-size: clamp(50px, 6.3vw, 90px);
+}
+.irsi-v2 .life-intro > .eyebrow {
+    grid-column: 1/13;
+}
+.irsi-v2 .life-intro > p {
+    grid-column: 9/13;
+    font-size: 17px;
+}
+.irsi-v2 .message-panels {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 1px;
+    border: 1px solid #d2cabd;
+    background: #d2cabd;
+    border-radius: 12px;
+    overflow: hidden;
+}
+.irsi-v2 .message-panel {
+    background: #f9f7f2;
+    padding: 28px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+}
+.irsi-v2 .message-panel:nth-child(2) {
+    background: white;
+}
+.irsi-v2 .message-role {
+    font-size: 11px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    color: var(--muted);
+    margin-bottom: 24px;
+}
+.irsi-v2 .message-panel h3 {
+    font-size: 25px;
+    margin-bottom: 14px;
+}
+.irsi-v2 .message-panel > p {
+    font-size: 14px;
+    min-height: 63px;
+}
+.irsi-v2 .message-image {
+    margin-top: 24px;
+    min-height: 165px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+}
+.irsi-v2 .message-image img {
+    border-radius: 8px;
+    border: 1px solid #e3ded4;
+    width: 100%;
+}
+.irsi-v2 .life-finish {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 24px;
+    border-top: 1px solid #c9c0b3;
+    padding-top: 28px;
+    margin-top: 35px;
+    align-items: center;
+}
+.irsi-v2 .life-finish p {
+    font-size: 15px;
+    max-width: 550px;
+}
+.irsi-v2 .life-finish .btn {
+    justify-self: end;
+}
+
+@media (max-width: 1100px) {
+    .irsi-v2 .message-panel {
+        padding: 23px;
+    }
+    .irsi-v2 .message-panel h3 {
+        font-size: 22px;
+    }
+}
+
+@media (max-width: 800px) {
+    .irsi-v2 .life-intro h2 {
+        grid-column: 1/9;
+    }
+    .irsi-v2 .life-intro > p {
+        grid-column: 9/13;
+        font-size: 15px;
+    }
+    .irsi-v2 .message-panels {
+        grid-template-columns: 1fr;
+    }
+    .irsi-v2 .message-panel {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        column-gap: 30px;
+        padding: 28px;
+    }
+    .irsi-v2 .message-role {
+        grid-column: 1;
+        margin-bottom: 12px;
+    }
+    .irsi-v2 .message-panel h3 {
+        grid-column: 1;
+        margin-bottom: 12px;
+        font-size: 25px;
+    }
+    .irsi-v2 .message-panel > p {
+        grid-column: 1;
+        min-height: 0;
+        font-size: 15px;
+    }
+    .irsi-v2 .message-image {
+        grid-column: 2;
+        grid-row: 1/4;
+        margin: 0;
+        min-height: 0;
+    }
+}
+
+@media (max-width: 1000px) {
+    .irsi-v2 .message-panels {
+        grid-template-columns: 1fr;
+    }
+    .irsi-v2 .message-panel {
+        display: grid;
+        grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+        column-gap: 28px;
+    }
+    .irsi-v2 .message-role,
+    .irsi-v2 .message-panel h3,
+    .irsi-v2 .message-panel > p {
+        grid-column: 1;
+    }
+    .irsi-v2 .message-image {
+        grid-column: 2;
+        grid-row: 1/4;
+        margin: 0;
+        min-height: 0;
+    }
+    .irsi-v2 .message-panel > p {
+        min-height: 0;
+    }
+}
+
+@media (max-width: 650px) {
+    .irsi-v2 .life-intro {
+        display: block;
+        margin-bottom: 28px;
+    }
+    .irsi-v2 .life-intro h2 {
+        font-size: clamp(42px, 11vw, 60px);
+        margin-top: 22px;
+    }
+    .irsi-v2 .life-intro > p {
+        font-size: 16px;
+        margin-top: 22px;
+        max-width: none;
+    }
+    .irsi-v2 .message-panel {
+        display: flex;
+        padding: 22px;
+    }
+    .irsi-v2 .message-role {
+        font-size: 12px;
+        margin-bottom: 16px;
+    }
+    .irsi-v2 .message-panel h3 {
+        font-size: 26px;
+        margin-bottom: 12px;
+    }
+    .irsi-v2 .message-panel > p {
+        font-size: 16px;
+    }
+    .irsi-v2 .message-image {
+        margin-top: 22px;
+        max-width: none;
+    }
+    .irsi-v2 .message-image img {
+        width: 100%;
+    }
+    .irsi-v2 .life-finish {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 22px;
+        margin-top: 26px;
+    }
+    .irsi-v2 .life-finish p {
+        font-size: 16px;
+    }
+    .irsi-v2 .life-finish .btn {
+        justify-self: stretch;
+    }
+}
+
+@media (max-width: 359px) {
+    .irsi-v2 .message-panel {
+        padding: 18px;
+    }
+}

@@ -5,6 +5,7 @@ import '../../css/welcome-v2.css';
 
 /* IRSI landing v2 — step 1: header, navigation, hero, hero calendar visual.
    Step 3: section 02 (interactive booking demo).
+   Step 4: section 03 (lifecycle — между записью и визитом).
    Ported from docs/landing/irsi-landing-2026-09-30-v3.html. */
 
 export default function WelcomeV2() {
@@ -203,6 +204,79 @@ export default function WelcomeV2() {
                             </div>
                             <div className="booking-gallery booking-demo">
                                 <DemoBookingWidget />
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="section lifecycle" id="after">
+                        <div className="wrap">
+                            <div className="grid life-intro">
+                                <div className="eyebrow">
+                                    <span>03</span>Между записью и визитом
+                                </div>
+                                <h2>
+                                    Запись —<br /> только начало.
+                                </h2>
+                                <p>У записи есть продолжение. ИРСИ напоминает клиенту о встрече и сообщает мастеру о подтверждении.</p>
+                            </div>
+                            <div className="message-panels">
+                                <article className="message-panel">
+                                    <span className="message-role">01 / Мастеру</span>
+                                    <h3>
+                                        Новая запись.<br /> Уведомление Вам.
+                                    </h3>
+                                    <p>Кто записался, на какую услугу и когда — в одном сообщении.</p>
+                                    <div className="message-image">
+                                        <img
+                                            src="/images/landing/notification-new.svg"
+                                            width="692"
+                                            height="368"
+                                            alt="Сообщение мастеру: у Вас новая запись"
+                                            loading="lazy"
+                                        />
+                                    </div>
+                                </article>
+                                <article className="message-panel">
+                                    <span className="message-role">02 / Клиенту</span>
+                                    <h3>
+                                        Встреча скоро.<br /> ИРСИ напомнит.
+                                    </h3>
+                                    <p>Клиент получает напоминание с услугой, временем и адресом.</p>
+                                    <div className="message-image">
+                                        <img
+                                            src="/images/landing/notification-reminder.svg"
+                                            width="748"
+                                            height="529"
+                                            alt="Напоминание клиенту о предстоящем визите"
+                                            loading="lazy"
+                                        />
+                                    </div>
+                                </article>
+                                <article className="message-panel">
+                                    <span className="message-role">03 / Снова мастеру</span>
+                                    <h3>
+                                        Визит подтверждён.<br /> Вы в курсе.
+                                    </h3>
+                                    <p>После подтверждения клиента мастер получает уведомление.</p>
+                                    <div className="message-image">
+                                        <img
+                                            src="/images/landing/notification-confirmed.svg"
+                                            width="606"
+                                            height="260"
+                                            alt="Сообщение мастеру: клиент подтвердил визит"
+                                            loading="lazy"
+                                        />
+                                    </div>
+                                </article>
+                            </div>
+                            <div className="life-finish">
+                                <p>
+                                    Если планы изменились — запись можно перенести или отменить по правилам сервиса. Изменения отражаются в календаре.
+                                    <br /> <br /> Напоминания и подтверждение визита входят в тариф «Старт».
+                                </p>
+                                <a className="btn" href="/auth/login" data-event="cta_mid_click">
+                                    Начать бесплатно
+                                </a>
                             </div>
                         </div>
                     </section>
