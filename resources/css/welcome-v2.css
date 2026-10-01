@@ -559,6 +559,19 @@ html:has(.irsi-v2) {
     background: var(--orange);
 }
 
+/* Wide desktop: narrow intro column, full-width booking carousel. */
+@media (min-width: 1100px) {
+    .irsi-v2 .booking-intro {
+        grid-column: 1/4;
+    }
+    .irsi-v2 .booking-gallery {
+        grid-column: 4/13;
+    }
+    .irsi-v2 #how .booking-gallery {
+        max-width: 100%;
+    }
+}
+
 /* ── Responsive (breakpoints and values as in the source) ── */
 @media (max-width: 1100px) {
     .irsi-v2 .wrap {
