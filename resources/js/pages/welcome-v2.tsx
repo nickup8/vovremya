@@ -1,12 +1,29 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Head } from '@inertiajs/react';
 import '../../css/welcome-v2.css';
 
 /* IRSI landing v2 — step 1: header, navigation, hero, hero calendar visual.
+   Step 3: section 02 (booking flow carousel).
    Ported from docs/landing/irsi-landing-2026-09-30-v3.html. */
+
+const bookingSlides = [
+    { src: '/images/landing/booking-service.webp', alt: 'Выбор услуги', caption: '01 / Выбор услуги', width: 443, height: 485 },
+    { src: '/images/landing/booking-date.webp', alt: 'Выбор даты', caption: '02 / Выбор даты', width: 442, height: 473 },
+    { src: '/images/landing/booking-time.webp', alt: 'Выбор времени', caption: '03 / Выбор времени', width: 442, height: 473 },
+    {
+        src: '/images/landing/booking-confirmation.webp',
+        alt: 'Подтверждение записи',
+        caption: '04 / Подтверждение записи',
+        width: 444,
+        height: 368,
+    },
+];
 
 export default function WelcomeV2() {
     const [menuOpen, setMenuOpen] = useState(false);
+    const [slideIndex, setSlideIndex] = useState(0);
+    const galleryRef = useRef<HTMLDivElement>(null);
+    const trackRef = useRef<HTMLDivElement>(null);
 
     useEffect(() => {
         const onKey = (event: KeyboardEvent) => {
@@ -23,6 +40,117 @@ export default function WelcomeV2() {
         return () => {
             document.removeEventListener('keydown', onKey);
             desktop.removeEventListener('change', onDesktop);
+        };
+    }, []);
+
+    useEffect(() => {
+        const root = galleryRef.current;
+        const track = trackRef.current;
+        if (!root || !track) return;
+
+        const slides = Array.from(track.querySelectorAll<HTMLElement>('.slide'));
+        const prev = root.querySelector<HTMLButtonElement>('[data-slide="prev"]');
+        const next = root.querySelector<HTMLButtonElement>('[data-slide="next"]');
+        const reduced = matchMedia('(prefers-reduced-motion: reduce)');
+
+        let current = 0;
+        let target = 0;
+        let frame = 0;
+        let settle = 0;
+        let lastWidth = 0;
+        let drag: { id: number; x: number; left: number } | null = null;
+
+        const position = (index: number) => slides[index].offsetLeft - slides[0].offsetLeft;
+        const show = (index: number) => {
+            current = index;
+            setSlideIndex(index);
+        };
+        const nearest = () =>
+            slides.reduce(
+                (best, slide, index) =>
+                    Math.abs(position(index) - track.scrollLeft) < Math.abs(position(best) - track.scrollLeft) ? index : best,
+                0,
+            );
+        const go = (index: number, smooth = true) => {
+            target = Math.max(0, Math.min(slides.length - 1, index));
+            show(target);
+            track.scrollTo({ left: position(target), behavior: smooth && !reduced.matches ? 'smooth' : 'auto' });
+        };
+
+        const onPrev = () => go(target - 1);
+        const onNext = () => go(target + 1);
+        const onKeydown = (event: KeyboardEvent) => {
+            const actions: Record<string, number> = {
+                ArrowLeft: target - 1,
+                ArrowRight: target + 1,
+                Home: 0,
+                End: slides.length - 1,
+            };
+            if (Object.hasOwn(actions, event.key)) {
+                event.preventDefault();
+                go(actions[event.key]);
+            }
+        };
+        const onScroll = () => {
+            cancelAnimationFrame(frame);
+            frame = requestAnimationFrame(() => {
+                if (drag) show(nearest());
+            });
+            clearTimeout(settle);
+            settle = window.setTimeout(() => {
+                target = nearest();
+                show(target);
+            }, 160);
+        };
+        const onPointerDown = (event: PointerEvent) => {
+            if (event.pointerType !== 'mouse' || event.button !== 0) return;
+            clearTimeout(settle);
+            drag = { id: event.pointerId, x: event.clientX, left: track.scrollLeft };
+            track.classList.add('is-dragging');
+            track.setPointerCapture(event.pointerId);
+        };
+        const onPointerMove = (event: PointerEvent) => {
+            if (!drag || drag.id !== event.pointerId) return;
+            track.scrollLeft = drag.left + drag.x - event.clientX;
+        };
+        const finish = (event: PointerEvent) => {
+            if (!drag || drag.id !== event.pointerId) return;
+            drag = null;
+            track.classList.remove('is-dragging');
+            if (track.hasPointerCapture(event.pointerId)) track.releasePointerCapture(event.pointerId);
+            go(nearest());
+        };
+        const onResize = () => {
+            const width = track.clientWidth;
+            if (!width || Math.abs(width - lastWidth) < 1) return;
+            lastWidth = width;
+            go(current, false);
+        };
+
+        prev?.addEventListener('click', onPrev);
+        next?.addEventListener('click', onNext);
+        track.addEventListener('keydown', onKeydown);
+        track.addEventListener('scroll', onScroll, { passive: true });
+        track.addEventListener('pointerdown', onPointerDown);
+        track.addEventListener('pointermove', onPointerMove);
+        track.addEventListener('pointerup', finish);
+        track.addEventListener('pointercancel', finish);
+        const observer = new ResizeObserver(onResize);
+        observer.observe(track);
+        show(0);
+
+        return () => {
+            cancelAnimationFrame(frame);
+            clearTimeout(settle);
+            prev?.removeEventListener('click', onPrev);
+            next?.removeEventListener('click', onNext);
+            track.removeEventListener('keydown', onKeydown);
+            track.removeEventListener('scroll', onScroll);
+            track.removeEventListener('pointerdown', onPointerDown);
+            track.removeEventListener('pointermove', onPointerMove);
+            track.removeEventListener('pointerup', finish);
+            track.removeEventListener('pointercancel', finish);
+            observer.disconnect();
         };
     }, []);
 
@@ -175,6 +303,93 @@ export default function WelcomeV2() {
                                         <b>«Давайте перенесём»</b>
                                         <p>Изменить запись и обновить расписание.</p>
                                     </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="section wrap" id="how">
+                        <div className="section-heading grid">
+                            <div className="eyebrow">
+                                <span>02</span>Как появляется запись
+                            </div>
+                            <h2>
+                                Клиент выбирает.
+                                <br /> Запись появляется у Вас.
+                            </h2>
+                        </div>
+                        <div className="booking-layout">
+                            <div className="booking-intro">
+                                <p>Поделитесь ссылкой. Клиент сам выберет услугу, дату и свободное время в Вашем графике.</p>
+                                <div className="channels">
+                                    <span>Ссылка</span>
+                                    <span>VK</span>
+                                    <span>MAX</span>
+                                </div>
+                            </div>
+                            <div
+                                className="carousel booking-gallery"
+                                role="region"
+                                aria-roledescription="карусель"
+                                aria-label="Как клиент записывается"
+                                ref={galleryRef}
+                            >
+                                <div className="booking-slider-top">
+                                    <div>
+                                        <span className="booking-step">
+                                            Шаг{' '}
+                                            <span className="carousel-count" aria-live="polite" aria-atomic="true">
+                                                {slideIndex + 1} из {bookingSlides.length}
+                                            </span>
+                                        </span>
+                                        <h3 className="booking-slide-title">{bookingSlides[slideIndex].alt}</h3>
+                                    </div>
+                                    <div className="carousel-controls">
+                                        <button
+                                            type="button"
+                                            aria-controls="booking-slides"
+                                            data-slide="prev"
+                                            aria-label="Предыдущий шаг"
+                                            disabled={slideIndex === 0}
+                                        >
+                                            ‹
+                                        </button>
+                                        <button
+                                            type="button"
+                                            aria-controls="booking-slides"
+                                            data-slide="next"
+                                            aria-label="Следующий шаг"
+                                            disabled={slideIndex === bookingSlides.length - 1}
+                                        >
+                                            ›
+                                        </button>
+                                    </div>
+                                </div>
+                                <div
+                                    className="carousel-track"
+                                    tabIndex={0}
+                                    id="booking-slides"
+                                    ref={trackRef}
+                                    aria-label="Как клиент записывается. Используйте свайп или клавиши влево и вправо"
+                                >
+                                    {bookingSlides.map((slide) => (
+                                        <figure className="slide" key={slide.src}>
+                                            <figcaption>{slide.caption}</figcaption>
+                                            <img
+                                                src={slide.src}
+                                                width={slide.width}
+                                                height={slide.height}
+                                                alt={slide.alt}
+                                                loading="lazy"
+                                                draggable={false}
+                                            />
+                                        </figure>
+                                    ))}
+                                </div>
+                                <div className="booking-progress" aria-hidden="true">
+                                    {bookingSlides.map((slide, index) => (
+                                        <span key={slide.src} className={index === slideIndex ? 'is-active' : undefined} />
+                                    ))}
                                 </div>
                             </div>
                         </div>

@@ -364,6 +364,201 @@ html:has(.irsi-v2) {
     margin-top: 10px;
 }
 
+/* ── 02 How a booking appears ─────────────────────────────── */
+.irsi-v2 .section {
+    padding-block: 110px;
+}
+.irsi-v2 .section-heading {
+    margin-bottom: 48px;
+}
+.irsi-v2 .section-heading .eyebrow {
+    grid-column: 1/5;
+    padding-top: 8px;
+}
+.irsi-v2 .section-heading h2 {
+    grid-column: 5/13;
+}
+.irsi-v2 .booking-layout {
+    display: grid;
+    grid-template-columns: repeat(12, minmax(0, 1fr));
+    gap: 24px;
+    align-items: start;
+}
+.irsi-v2 .booking-intro {
+    grid-column: 1/5;
+}
+.irsi-v2 .booking-gallery {
+    grid-column: 5/13;
+}
+.irsi-v2 .booking-intro p {
+    font-size: 18px;
+    max-width: 300px;
+    margin-top: 22px;
+}
+.irsi-v2 .channels {
+    display: flex;
+    gap: 8px;
+    margin-top: 24px;
+}
+.irsi-v2 .channels span {
+    padding: 5px 10px;
+    border: 1px solid #d0c9bd;
+    border-radius: 5px;
+    font-size: 12px;
+}
+.irsi-v2 .carousel {
+    min-width: 0;
+}
+.irsi-v2 .booking-gallery.carousel {
+    display: block;
+    width: 100%;
+    max-width: 460px;
+    margin-inline: auto;
+}
+.irsi-v2 .carousel-count {
+    font-size: 14px;
+    font-variant-numeric: tabular-nums;
+    min-width: 36px;
+}
+.irsi-v2 .carousel-controls {
+    margin-left: auto;
+    display: flex;
+    gap: 8px;
+}
+.irsi-v2 .carousel-controls button {
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid #c7c0b4;
+    border-radius: 50%;
+    background: transparent;
+    font: 28px/1 Arial, sans-serif;
+    color: var(--ink);
+}
+.irsi-v2 .carousel-controls button:disabled {
+    opacity: 0.3;
+    cursor: default;
+}
+.irsi-v2 .carousel-track {
+    display: flex;
+    gap: 16px;
+    overflow-x: auto;
+    scroll-snap-type: x mandatory;
+    scrollbar-width: none;
+    overscroll-behavior-x: contain;
+    position: relative;
+    border-radius: 10px;
+}
+.irsi-v2 .carousel-track::-webkit-scrollbar {
+    display: none;
+}
+.irsi-v2 .slide {
+    flex: 0 0 100%;
+    min-width: 0;
+    align-self: flex-start;
+    scroll-snap-align: start;
+    scroll-snap-stop: always;
+    border: 1px solid var(--line);
+    background: white;
+    border-radius: 10px;
+    padding: 18px;
+    overflow: hidden;
+}
+.irsi-v2 .slide figcaption {
+    font-size: 14px;
+    color: var(--muted);
+    margin-bottom: 18px;
+}
+.irsi-v2 .slide img {
+    width: 100%;
+    height: auto;
+}
+.irsi-v2 #how .booking-gallery {
+    max-width: 520px;
+    justify-self: center;
+    align-self: start;
+}
+.irsi-v2 .booking-slider-top {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 20px;
+    margin-bottom: 20px;
+}
+.irsi-v2 .booking-step {
+    display: block;
+    color: var(--muted);
+    font-size: 13px;
+    margin-bottom: 7px;
+}
+.irsi-v2 .booking-slide-title {
+    font-size: 24px;
+    letter-spacing: -0.025em;
+}
+.irsi-v2 .booking-slider-top .carousel-controls {
+    flex-shrink: 0;
+}
+.irsi-v2 .booking-slider-top button:not(:disabled):hover {
+    background: #ece8df;
+}
+.irsi-v2 .booking-slider-top button:focus-visible {
+    outline: 3px solid var(--orange);
+    outline-offset: 3px;
+}
+.irsi-v2 #how .carousel-track {
+    border: 1px solid var(--line);
+    border-radius: 14px;
+    background: #fff;
+    gap: 0;
+    align-items: stretch;
+    cursor: grab;
+    scroll-padding: 0;
+    overflow-anchor: none;
+}
+.irsi-v2 #how .carousel-track.is-dragging {
+    scroll-snap-type: none;
+    cursor: grabbing;
+    user-select: none;
+}
+.irsi-v2 #how .slide {
+    border: 0;
+    border-radius: 0;
+    padding: 0;
+    flex: 0 0 100%;
+    aspect-ratio: 443 / 485;
+    background: #fff;
+    align-self: stretch;
+}
+.irsi-v2 #how .slide figcaption {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+.irsi-v2 #how .slide img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+    object-position: center top;
+    user-select: none;
+}
+.irsi-v2 .booking-progress {
+    display: flex;
+    gap: 7px;
+    margin-top: 16px;
+}
+.irsi-v2 .booking-progress span {
+    height: 3px;
+    flex: 1;
+    border-radius: 4px;
+    background: var(--line);
+}
+.irsi-v2 .booking-progress .is-active {
+    background: var(--orange);
+}
+
 /* ── Responsive (breakpoints and values as in the source) ── */
 @media (max-width: 1100px) {
     .irsi-v2 .wrap {
@@ -401,6 +596,12 @@ html:has(.irsi-v2) {
     }
     .irsi-v2 .calendar-crop {
         height: 320px;
+    }
+    .irsi-v2 .section {
+        padding-block: 88px;
+    }
+    .irsi-v2 .booking-layout {
+        gap: 24px;
     }
 }
 
@@ -451,6 +652,38 @@ html:has(.irsi-v2) {
     }
     .irsi-v2 .questions p {
         margin-top: 5px;
+    }
+    .irsi-v2 .section-heading .eyebrow {
+        grid-column: 1/4;
+    }
+    .irsi-v2 .section-heading h2 {
+        grid-column: 4/13;
+    }
+    .irsi-v2 .booking-layout {
+        grid-template-columns: 1fr;
+        gap: 28px;
+    }
+    .irsi-v2 .booking-intro,
+    .irsi-v2 .booking-gallery {
+        grid-column: 1/-1;
+    }
+    .irsi-v2 .booking-intro {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        gap: 30px;
+    }
+    .irsi-v2 .booking-intro p {
+        margin: 0;
+        max-width: 480px;
+    }
+    .irsi-v2 .channels {
+        margin: 0;
+    }
+    .irsi-v2 .booking-gallery {
+        max-width: 600px;
+        margin: auto;
+        width: 100%;
     }
 }
 
@@ -653,6 +886,72 @@ html:has(.irsi-v2) {
     .irsi-v2 .questions p {
         font-size: 16px;
         margin-top: 8px;
+    }
+    .irsi-v2 .section {
+        padding-block: 60px;
+    }
+    .irsi-v2 .section-heading {
+        display: block;
+        margin-bottom: 28px;
+    }
+    .irsi-v2 .section-heading h2 {
+        margin-top: 22px;
+        font-size: clamp(32px, 8.5vw, 44px);
+    }
+    .irsi-v2 .booking-layout {
+        gap: 26px;
+    }
+    .irsi-v2 .booking-intro {
+        display: block;
+    }
+    .irsi-v2 .booking-intro p {
+        font-size: 16px;
+        max-width: none;
+    }
+    .irsi-v2 .channels {
+        margin-top: 18px;
+    }
+    .irsi-v2 .channels span {
+        font-size: 13px;
+    }
+    .irsi-v2 .booking-gallery {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 18px;
+        max-width: 440px;
+    }
+    .irsi-v2 .booking-gallery.carousel {
+        max-width: 440px;
+        margin-inline: auto;
+    }
+    .irsi-v2 .carousel-track {
+        border-radius: 10px;
+    }
+    .irsi-v2 .slide {
+        padding: 12px;
+    }
+    .irsi-v2 .slide figcaption {
+        font-size: 13px;
+        margin-bottom: 14px;
+    }
+    .irsi-v2 #how .booking-gallery {
+        width: 100%;
+        max-width: 440px;
+    }
+    .irsi-v2 .booking-slider-top {
+        margin-bottom: 16px;
+        gap: 12px;
+    }
+    .irsi-v2 .booking-slide-title {
+        font-size: 22px;
+    }
+    .irsi-v2 .booking-slider-top .carousel-controls {
+        gap: 6px;
+    }
+    .irsi-v2 #how .carousel-track {
+        border-radius: 10px;
+    }
+    .irsi-v2 .booking-progress {
+        margin-top: 12px;
     }
 }
 
