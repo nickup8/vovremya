@@ -1909,3 +1909,141 @@ html:has(.irsi-v2) {
         padding: 18px;
     }
 }
+
+/* ── 05 Клиенты и услуги ──────────────────────────────────── */
+.irsi-v2 .clients {
+    padding-top: 0;
+}
+.irsi-v2 .client-heading {
+    grid-column: 1/5;
+}
+.irsi-v2 .client-heading h2 {
+    margin-top: 22px;
+    font-size: 50px;
+}
+.irsi-v2 .client-heading p {
+    margin-top: 24px;
+}
+.irsi-v2 .client-papers {
+    grid-column: 5/13;
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 20px;
+}
+.irsi-v2 .client-papers figure {
+    background: #fff;
+    border: 1px solid var(--line);
+    border-radius: 10px;
+    overflow: hidden;
+    align-self: start;
+}
+.irsi-v2 .client-papers figure:nth-child(2) {
+    margin-top: 68px;
+}
+.irsi-v2 .client-papers figcaption {
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--line);
+    font-size: 13px;
+}
+.irsi-v2 .client-papers img {
+    width: 100%;
+}
+.irsi-v2 .carousel-head {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 16px;
+}
+.irsi-v2 .carousel-hint {
+    font-size: 13px;
+    color: var(--muted);
+}
+.irsi-v2 .client-mobile {
+    display: none;
+}
+
+@media (max-width: 1100px) {
+    .irsi-v2 .clients {
+        padding-top: 0;
+    }
+}
+
+@media (max-width: 800px) {
+    .irsi-v2 .client-heading {
+        grid-column: 1/4;
+    }
+    .irsi-v2 .client-papers {
+        grid-column: 4/13;
+    }
+    .irsi-v2 .client-heading h2 {
+        font-size: 37px;
+    }
+    .irsi-v2 .client-papers {
+        gap: 12px;
+    }
+    .irsi-v2 .client-papers figcaption {
+        padding: 12px;
+        font-size: 12px;
+    }
+}
+
+@media (max-width: 1000px) {
+    .irsi-v2 .client-heading h2 {
+        font-size: clamp(32px, 4vw, 44px);
+    }
+}
+
+@media (max-width: 900px) {
+    .irsi-v2 .client-heading {
+        grid-column: 1/5;
+    }
+    .irsi-v2 .client-papers {
+        grid-column: 5/13;
+    }
+}
+
+@media (max-width: 650px) {
+    .irsi-v2 .clients {
+        padding-top: 0;
+    }
+    .irsi-v2 .clients > .grid {
+        display: block;
+    }
+    .irsi-v2 .client-heading h2 {
+        font-size: clamp(32px, 8.5vw, 44px);
+    }
+    .irsi-v2 .client-heading p {
+        margin-top: 20px;
+        font-size: 16px;
+    }
+    .irsi-v2 .client-papers {
+        margin-top: 28px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 18px;
+    }
+    .irsi-v2 .client-papers figure:nth-child(2) {
+        margin-top: 0;
+    }
+    .irsi-v2 .client-papers figcaption {
+        padding: 16px;
+        font-size: 14px;
+    }
+    .irsi-v2 .carousel-head {
+        margin-bottom: 12px;
+    }
+    .irsi-v2 .clients .client-papers {
+        display: none;
+    }
+    .irsi-v2 .client-mobile {
+        display: block;
+        margin-top: 28px;
+    }
+    .irsi-v2 .client-mobile .slide {
+        padding: 0;
+    }
+    .irsi-v2 .client-mobile .slide figcaption {
+        padding: 16px;
+        margin: 0;
+        border-bottom: 1px solid var(--line);
+    }
+}

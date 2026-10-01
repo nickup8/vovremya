@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Head } from '@inertiajs/react';
 import DemoBookingWidget from '../components/landing/DemoBookingWidget';
 import '../../css/welcome-v2.css';
@@ -26,6 +26,79 @@ export default function WelcomeV2() {
         return () => {
             document.removeEventListener('keydown', onKey);
             desktop.removeEventListener('change', onDesktop);
+        };
+    }, []);
+
+    /* 05: mobile screens carousel — one card per swipe, buttons and counter
+       as in the source landing. */
+    const clientCarouselRef = useRef<HTMLDivElement>(null);
+
+    useEffect(() => {
+        const root = clientCarouselRef.current;
+        if (!root) return;
+        const track = root.querySelector<HTMLElement>('.carousel-track');
+        const prev = root.querySelector<HTMLButtonElement>('[data-slide="prev"]');
+        const next = root.querySelector<HTMLButtonElement>('[data-slide="next"]');
+        const count = root.querySelector<HTMLElement>('.carousel-count');
+        if (!track || !prev || !next || !count) return;
+        const slides = Array.from(track.querySelectorAll<HTMLElement>('.slide'));
+        if (slides.length === 0) return;
+
+        const reduced = window.matchMedia('(prefers-reduced-motion: reduce)');
+        let current = 0;
+        let pending = false;
+
+        const left = (index: number) => slides[index].offsetLeft - slides[0].offsetLeft;
+
+        const update = () => {
+            current = slides.reduce(
+                (best, _slide, index) =>
+                    Math.abs(left(index) - track.scrollLeft) < Math.abs(left(best) - track.scrollLeft) ? index : best,
+                0,
+            );
+            count.textContent = `${current + 1} / ${slides.length}`;
+            prev.disabled = current === 0;
+            next.disabled = current === slides.length - 1;
+            pending = false;
+        };
+
+        const go = (step: number) => {
+            const index = Math.max(0, Math.min(slides.length - 1, current + step));
+            track.scrollTo({ left: left(index), behavior: reduced.matches ? 'auto' : 'smooth' });
+        };
+
+        const onPrev = () => go(-1);
+        const onNext = () => go(1);
+        const onScroll = () => {
+            if (!pending) {
+                pending = true;
+                requestAnimationFrame(update);
+            }
+        };
+        const onKeydown = (event: KeyboardEvent) => {
+            if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                event.preventDefault();
+                go(event.key === 'ArrowRight' ? 1 : -1);
+            }
+        };
+        const observer = new ResizeObserver(() => {
+            track.scrollTo({ left: left(current), behavior: 'auto' });
+            update();
+        });
+
+        prev.addEventListener('click', onPrev);
+        next.addEventListener('click', onNext);
+        track.addEventListener('scroll', onScroll, { passive: true });
+        track.addEventListener('keydown', onKeydown);
+        observer.observe(track);
+        update();
+
+        return () => {
+            prev.removeEventListener('click', onPrev);
+            next.removeEventListener('click', onNext);
+            track.removeEventListener('scroll', onScroll);
+            track.removeEventListener('keydown', onKeydown);
+            observer.disconnect();
         };
     }, []);
 
@@ -321,6 +394,105 @@ export default function WelcomeV2() {
                                         Закройте время для личных планов или регулярного перерыва. Всё это доступно в тарифе «Старт».
                                     </p>
                                 </article>
+                            </div>
+                        </div>
+                    </section>
+
+                    <section className="section wrap clients">
+                        <div className="grid">
+                            <div className="client-heading">
+                                <div className="eyebrow">
+                                    <span>05</span>Клиенты и услуги
+                                </div>
+                                <h2>
+                                    Детали, которые
+                                    <br /> не нужно держать
+                                    <br /> в голове.
+                                </h2>
+                                <p>Карточки клиентов, история визитов и заметки. Услуги, цены и длительность — рядом с Вашим расписанием.</p>
+                            </div>
+                            <div className="client-papers">
+                                <figure>
+                                    <figcaption>Клиент / история работы</figcaption>
+                                    <img
+                                        src="/images/landing/client-desktop.svg"
+                                        width="420"
+                                        height="318"
+                                        alt="Карточка клиента с визитами и заметкой"
+                                        loading="lazy"
+                                    />
+                                </figure>
+                                <figure>
+                                    <figcaption>Услуга / цена и длительность</figcaption>
+                                    <img
+                                        src="/images/landing/service-editor-desktop.webp"
+                                        width="458"
+                                        height="315"
+                                        alt="Редактор услуги ИРСИ"
+                                        loading="lazy"
+                                    />
+                                </figure>
+                            </div>
+                            <div
+                                className="carousel client-mobile"
+                                role="region"
+                                aria-roledescription="карусель"
+                                aria-label="Клиенты и услуги на телефоне"
+                                ref={clientCarouselRef}
+                            >
+                                <div className="carousel-head">
+                                    <span className="carousel-count" aria-live="polite" aria-atomic="true">
+                                        1 / 3
+                                    </span>
+                                    <span className="carousel-hint">Листайте экраны</span>
+                                    <div className="carousel-controls">
+                                        <button type="button" data-slide="prev" aria-label="Предыдущий экран" disabled>
+                                            ‹
+                                        </button>
+                                        <button type="button" data-slide="next" aria-label="Следующий экран">
+                                            ›
+                                        </button>
+                                    </div>
+                                </div>
+                                <div
+                                    className="carousel-track"
+                                    tabIndex={0}
+                                    aria-label="Клиенты и услуги на телефоне. Используйте свайп или клавиши влево и вправо"
+                                >
+                                    <figure className="slide">
+                                        <figcaption>01 / Ваши услуги</figcaption>
+                                        <img
+                                            src="/images/landing/services-mobile.webp"
+                                            width="780"
+                                            height="927"
+                                            alt="Ваши услуги"
+                                            loading="lazy"
+                                            draggable={false}
+                                        />
+                                    </figure>
+                                    <figure className="slide">
+                                        <figcaption>02 / Цена и длительность</figcaption>
+                                        <img
+                                            src="/images/landing/service-editor-mobile.webp"
+                                            width="780"
+                                            height="925"
+                                            alt="Цена и длительность"
+                                            loading="lazy"
+                                            draggable={false}
+                                        />
+                                    </figure>
+                                    <figure className="slide">
+                                        <figcaption>03 / Карточка клиента</figcaption>
+                                        <img
+                                            src="/images/landing/client-mobile.webp"
+                                            width="780"
+                                            height="1301"
+                                            alt="Карточка клиента"
+                                            loading="lazy"
+                                            draggable={false}
+                                        />
+                                    </figure>
+                                </div>
                             </div>
                         </div>
                     </section>
