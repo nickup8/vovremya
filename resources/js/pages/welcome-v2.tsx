@@ -496,6 +496,19 @@ export default function WelcomeV2() {
                             </div>
                         </div>
                     </section>
+
+                    <section className="solo">
+                        <div className="wrap grid">
+                            <div className="eyebrow">
+                                <span>06</span>Для одного мастера
+                            </div>
+                            <h2>
+                                Работать на себя.
+                                <br /> <span>Не делать всё вручную.</span>
+                            </h2>
+                            <p>ИРСИ сосредоточен на Вашем личном расписании. Без салонных ролей, склада и лишних управленческих настроек.</p>
+                        </div>
+                    </section>
                 </main>
             </div>
         </>
