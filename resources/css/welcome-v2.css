@@ -524,7 +524,7 @@ html:has(.irsi-v2) {
     border: 0;
     border-radius: 0;
     padding: 0;
-    flex: 0 0 100%;
+    flex: 0 0 50%;
     aspect-ratio: 443 / 485;
     background: #fff;
     align-self: stretch;
@@ -928,6 +928,9 @@ html:has(.irsi-v2) {
     }
     .irsi-v2 .slide {
         padding: 12px;
+    }
+    .irsi-v2 #how .slide {
+        flex: 0 0 100%;
     }
     .irsi-v2 .slide figcaption {
         font-size: 13px;
