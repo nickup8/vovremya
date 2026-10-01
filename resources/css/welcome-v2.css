@@ -2120,3 +2120,110 @@ html:has(.irsi-v2) {
         margin-top: 22px;
     }
 }
+
+/* ── 07 Профи / следующий уровень ─────────────────────────── */
+.irsi-v2 .pro-grid {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 24px;
+}
+.irsi-v2 .pro-copy h2 {
+    margin-top: 22px;
+}
+.irsi-v2 .pro-copy > p {
+    margin-top: 24px;
+    max-width: 430px;
+}
+.irsi-v2 .pro-item {
+    border-top: 1px solid var(--line);
+    padding: 22px 0;
+    display: grid;
+    grid-template-columns: 25px 1fr;
+    gap: 18px;
+}
+.irsi-v2 .pro-item > span {
+    font-size: 12px;
+    color: var(--muted);
+    padding-top: 4px;
+}
+.irsi-v2 .pro-item h3 {
+    font-size: 24px;
+}
+.irsi-v2 .pro-item p {
+    font-size: 15px;
+    margin-top: 12px;
+}
+.irsi-v2 .analytics {
+    margin-top: 40px;
+    background: white;
+    padding: 24px;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+}
+.irsi-v2 .analytics img {
+    width: 100%;
+    max-height: 440px;
+    object-fit: cover;
+    object-position: top;
+}
+.irsi-v2 .analytics figcaption {
+    font-size: 12px;
+    color: var(--muted);
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    margin-top: 18px;
+}
+
+@media (max-width: 1100px) {
+    .irsi-v2 .pro-grid {
+        gap: 24px;
+    }
+}
+
+@media (max-width: 900px) {
+    .irsi-v2 .pro-grid {
+        grid-template-columns: 1fr;
+        gap: 28px;
+    }
+    .irsi-v2 .pro-copy > p {
+        max-width: 620px;
+    }
+}
+
+@media (max-width: 650px) {
+    .irsi-v2 .pro-grid {
+        grid-template-columns: minmax(0, 1fr);
+        gap: 28px;
+    }
+    .irsi-v2 .pro-copy h2 {
+        font-size: clamp(32px, 8.5vw, 44px);
+    }
+    .irsi-v2 .pro-copy > p {
+        font-size: 16px;
+    }
+    .irsi-v2 .pro-item {
+        grid-template-columns: 24px minmax(0, 1fr);
+        gap: 12px;
+    }
+    .irsi-v2 .pro-item h3 {
+        font-size: 24px;
+    }
+    .irsi-v2 .pro-item p {
+        font-size: 16px;
+    }
+    .irsi-v2 .analytics {
+        padding: 14px;
+        margin-top: 26px;
+    }
+    .irsi-v2 .analytics img {
+        min-height: 0;
+        max-height: none;
+        width: 100%;
+        height: auto;
+        object-fit: contain;
+    }
+    .irsi-v2 .analytics figcaption {
+        font-size: 13px;
+        line-height: 1.5;
+    }
+}

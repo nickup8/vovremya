@@ -509,6 +509,60 @@ export default function WelcomeV2() {
                             <p>ИРСИ сосредоточен на Вашем личном расписании. Без салонных ролей, склада и лишних управленческих настроек.</p>
                         </div>
                     </section>
+
+                    <section className="section wrap" id="pro">
+                        <div className="pro-grid">
+                            <div className="pro-copy">
+                                <div className="eyebrow">
+                                    <span>07</span>Профи / следующий уровень
+                                </div>
+                                <h2>
+                                    Больше возможностей.
+                                    <br /> Когда они нужны.
+                                </h2>
+                                <p>Старт закрывает базовую работу. Профи добавляет сценарии для повторных визитов и использования расписания.</p>
+                            </div>
+                            <div>
+                                <article className="pro-item">
+                                    <span>01</span>
+                                    <div>
+                                        <h3>«Хочу раньше» + AutoFill</h3>
+                                        <p>
+                                            Если уже записанный клиент выбрал «Хочу раньше», ИРСИ может предложить освободившееся подходящее
+                                            время. Без гарантии заполнения каждого окна.
+                                        </p>
+                                    </div>
+                                </article>
+                                <article className="pro-item">
+                                    <span>02</span>
+                                    <div>
+                                        <h3>Серии записей клиентов</h3>
+                                        <p>Для повторяющихся визитов клиента.</p>
+                                    </div>
+                                </article>
+                                <article className="pro-item">
+                                    <span>03</span>
+                                    <div>
+                                        <h3>Аналитика каналов</h3>
+                                        <p>Чтобы видеть, из каких каналов приходят записи.</p>
+                                    </div>
+                                </article>
+                            </div>
+                        </div>
+                        <figure className="analytics">
+                            <img
+                                src="/images/landing/analytics.webp"
+                                width="1333"
+                                height="817"
+                                alt="Реальный интерфейс аналитики ИРСИ"
+                                loading="lazy"
+                            />
+                            <figcaption>
+                                Базовая аналитика — в тарифе «Старт», аналитика каналов — в «Профи». Числа на скриншоте показывают интерфейс и
+                                не являются обещанием результата.
+                            </figcaption>
+                        </figure>
+                    </section>
                 </main>
             </div>
         </>
