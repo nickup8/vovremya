@@ -1776,3 +1776,136 @@ html:has(.irsi-v2) {
         padding: 18px;
     }
 }
+
+/* ── 04 Календарь и график ────────────────────────────────── */
+.irsi-v2 .calendar-heading {
+    align-items: end;
+    margin-bottom: 40px;
+}
+.irsi-v2 .calendar-heading > div {
+    grid-column: 1/8;
+}
+.irsi-v2 .calendar-heading h2 {
+    margin-top: 22px;
+}
+.irsi-v2 .calendar-heading > p {
+    grid-column: 9/13;
+}
+.irsi-v2 .schedule-grid {
+    display: grid;
+    grid-template-columns: 1.7fr 1fr;
+    border: 1px solid var(--line);
+    border-radius: 12px;
+    overflow: hidden;
+    background: white;
+}
+.irsi-v2 .schedule-grid figure {
+    padding: 26px;
+    background: white;
+    display: flex;
+    align-items: center;
+}
+.irsi-v2 .schedule-grid figure img {
+    width: 100%;
+}
+.irsi-v2 .schedule-text {
+    background: #efebe3;
+    padding: 36px;
+    display: flex;
+    flex-direction: column;
+    gap: 26px;
+}
+.irsi-v2 .schedule-text article {
+    border-bottom: 1px solid #d4ccbf;
+    padding-bottom: 24px;
+}
+.irsi-v2 .schedule-text article:last-child {
+    border: 0;
+    padding-bottom: 0;
+}
+.irsi-v2 .schedule-text h3 {
+    font-size: 23px;
+}
+.irsi-v2 .schedule-text p {
+    font-size: 14px;
+    margin-top: 10px;
+}
+
+@media (max-width: 1100px) {
+    .irsi-v2 .schedule-text {
+        padding: 26px;
+    }
+}
+
+@media (max-width: 800px) {
+    .irsi-v2 .calendar-heading > div {
+        grid-column: 1/9;
+    }
+    .irsi-v2 .calendar-heading > p {
+        grid-column: 9/13;
+        font-size: 14px;
+    }
+    .irsi-v2 .schedule-grid {
+        grid-template-columns: 1fr;
+    }
+    .irsi-v2 .schedule-text {
+        display: grid;
+        grid-template-columns: 1fr 1fr;
+        gap: 24px;
+    }
+    .irsi-v2 .schedule-text article {
+        border: 0;
+        padding: 0;
+    }
+}
+
+@media (max-width: 650px) {
+    .irsi-v2 .calendar-heading {
+        display: block;
+        margin-bottom: 28px;
+    }
+    .irsi-v2 .calendar-heading h2 {
+        font-size: clamp(32px, 8.5vw, 44px);
+    }
+    .irsi-v2 .calendar-heading > p {
+        font-size: 16px;
+        margin-top: 22px;
+    }
+    .irsi-v2 .schedule-grid {
+        grid-template-columns: minmax(0, 1fr);
+    }
+    .irsi-v2 .schedule-grid figure {
+        padding: 14px;
+        display: block;
+        overflow: visible;
+    }
+    .irsi-v2 .schedule-grid figure img {
+        width: 100%;
+        max-width: 100%;
+        height: auto;
+    }
+    .irsi-v2 .schedule-text {
+        padding: 22px;
+        grid-template-columns: minmax(0, 1fr);
+        gap: 26px;
+    }
+    .irsi-v2 .schedule-text article {
+        border-top: 1px solid #d2c9b9;
+        padding-top: 18px;
+    }
+    .irsi-v2 .schedule-text article:last-child {
+        padding-top: 18px;
+    }
+    .irsi-v2 .schedule-text h3 {
+        font-size: 24px;
+    }
+    .irsi-v2 .schedule-text p {
+        font-size: 16px;
+    }
+}
+
+@media (max-width: 359px) {
+    .irsi-v2 .schedule-text {
+        padding: 18px;
+    }
+}

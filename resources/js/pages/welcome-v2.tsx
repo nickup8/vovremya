@@ -280,6 +280,50 @@ export default function WelcomeV2() {
                             </div>
                         </div>
                     </section>
+
+                    <section className="section wrap" id="features">
+                        <div className="grid calendar-heading">
+                            <div>
+                                <div className="eyebrow">
+                                    <span>04</span>Календарь и график
+                                </div>
+                                <h2>
+                                    Время для клиентов.
+                                    <br /> И время для себя.
+                                </h2>
+                            </div>
+                            <p>Ваш график определяет, когда можно записаться. ИРСИ учитывает рабочие часы, периоды и перерывы.</p>
+                        </div>
+                        <div className="schedule-grid">
+                            <figure>
+                                <picture>
+                                    <source media="(max-width:650px)" srcSet="/images/landing/schedule-mobile.webp" />
+                                    <img
+                                        src="/images/landing/schedule-desktop.webp"
+                                        width="1295"
+                                        height="788"
+                                        alt="Настройка рабочих часов, перерывов и повторяющихся блокировок"
+                                        loading="lazy"
+                                    />
+                                </picture>
+                            </figure>
+                            <div className="schedule-text">
+                                <article>
+                                    <h3>
+                                        Рабочие часы
+                                        <br /> и периоды
+                                    </h3>
+                                    <p>Настройте дни и время, в которые принимаете клиентов.</p>
+                                </article>
+                                <article>
+                                    <h3>Разовые и повторяющиеся блокировки</h3>
+                                    <p>
+                                        Закройте время для личных планов или регулярного перерыва. Всё это доступно в тарифе «Старт».
+                                    </p>
+                                </article>
+                            </div>
+                        </div>
+                    </section>
                 </main>
             </div>
         </>
