@@ -236,11 +236,20 @@ export default function DemoBookingWidget() {
                         {finished ? 'Демо завершено' : `Шаг ${step} из ${TOTAL_STEPS}`}
                     </span>
                     <div className="demo-mark">
-                        <img src="/images/logo-mark.svg" alt="ИРСИ" width="20" height="20" />
+                        <img src="/images/logo-mark.svg" alt="ИРСИ" width="22" height="22" />
                     </div>
                 </div>
                 <div className="demo-progress" aria-hidden="true">
                     <i style={{ width: `${finished ? 100 : step * 25}%` }} />
+                </div>
+                <div className="demo-master">
+                    <div className="demo-master-avatar" aria-hidden="true">
+                        АК
+                    </div>
+                    <div className="demo-master-info">
+                        <p className="demo-master-name">Анна Крылова</p>
+                        <p className="demo-master-role">Мастер маникюра</p>
+                    </div>
                 </div>
             </div>
 
