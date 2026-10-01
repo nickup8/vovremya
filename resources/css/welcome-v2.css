@@ -68,6 +68,9 @@ html:has(.irsi-v2) {
 .irsi-v2 h1 {
     font-size: clamp(48px, 5.8vw, 84px);
 }
+.irsi-v2 h2 {
+    font-size: clamp(38px, 4.4vw, 64px);
+}
 .irsi-v2 h3 {
     font-size: 25px;
     line-height: 1.2;
@@ -328,6 +331,39 @@ html:has(.irsi-v2) {
     color: var(--muted);
 }
 
+/* ── 01 Situation ─────────────────────────────────────────── */
+.irsi-v2 .situation {
+    padding-block: 78px;
+    border-bottom: 1px solid var(--line);
+}
+.irsi-v2 .situation .eyebrow {
+    grid-column: 1/5;
+}
+.irsi-v2 .situation-content {
+    grid-column: 5/13;
+}
+.irsi-v2 .situation-content h2 {
+    font-size: 43px;
+}
+.irsi-v2 .questions {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 24px;
+    margin-top: 35px;
+}
+.irsi-v2 .questions div {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+}
+.irsi-v2 .questions b {
+    font-size: 18px;
+    font-weight: 500;
+}
+.irsi-v2 .questions p {
+    font-size: 14px;
+    margin-top: 10px;
+}
+
 /* ── Responsive (breakpoints and values as in the source) ── */
 @media (max-width: 1100px) {
     .irsi-v2 .wrap {
@@ -399,6 +435,22 @@ html:has(.irsi-v2) {
     }
     .irsi-v2 .hero-foot {
         font-size: 11px;
+    }
+    .irsi-v2 .situation .eyebrow {
+        grid-column: 1/4;
+    }
+    .irsi-v2 .situation-content {
+        grid-column: 4/13;
+    }
+    .irsi-v2 .situation-content h2 {
+        font-size: 35px;
+    }
+    .irsi-v2 .questions {
+        grid-template-columns: 1fr;
+        gap: 14px;
+    }
+    .irsi-v2 .questions p {
+        margin-top: 5px;
     }
 }
 
@@ -574,6 +626,33 @@ html:has(.irsi-v2) {
     }
     .irsi-v2 .hero-foot span:last-child {
         display: inline;
+    }
+    .irsi-v2 h2 br {
+        display: none;
+    }
+    .irsi-v2 h2 br:after {
+        content: ' ';
+    }
+    .irsi-v2 .situation {
+        padding-block: 52px;
+    }
+    .irsi-v2 .situation .grid {
+        display: block;
+    }
+    .irsi-v2 .situation-content h2 {
+        font-size: clamp(30px, 8.5vw, 42px);
+        margin-top: 22px;
+    }
+    .irsi-v2 .questions {
+        margin-top: 26px;
+        gap: 20px;
+    }
+    .irsi-v2 .questions b {
+        font-size: 20px;
+    }
+    .irsi-v2 .questions p {
+        font-size: 16px;
+        margin-top: 8px;
     }
 }
 

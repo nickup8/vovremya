@@ -149,6 +149,34 @@ export default function WelcomeV2() {
                             <span>VK / MAX</span>
                         </div>
                     </section>
+
+                    <section className="situation">
+                        <div className="wrap grid">
+                            <div className="eyebrow">
+                                <span>01</span>Знакомая ситуация
+                            </div>
+                            <div className="situation-content">
+                                <h2>
+                                    Работа с клиентом.
+                                    <br /> И всё, что вокруг неё.
+                                </h2>
+                                <div className="questions">
+                                    <div>
+                                        <b>«Когда можно?»</b>
+                                        <p>Проверить график и согласовать время.</p>
+                                    </div>
+                                    <div>
+                                        <b>«Мы завтра в силе?»</b>
+                                        <p>Напомнить о встрече и получить ответ.</p>
+                                    </div>
+                                    <div>
+                                        <b>«Давайте перенесём»</b>
+                                        <p>Изменить запись и обновить расписание.</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    </section>
                 </main>
             </div>
         </>
