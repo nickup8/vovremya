@@ -563,6 +563,60 @@ export default function WelcomeV2() {
                             </figcaption>
                         </figure>
                     </section>
+
+                    <section className="section wrap pricing" id="pricing">
+                        <div className="pricing-top">
+                            <div className="eyebrow">
+                                <span>08</span>Прозрачные тарифы
+                            </div>
+                            <h2>
+                                Начните бесплатно.
+                                <br /> Без данных карты.
+                            </h2>
+                            <p>Старт — для ежедневной работы. Профи — для дополнительных сценариев.</p>
+                        </div>
+                        <div className="prices">
+                            <article className="price">
+                                <div className="price-head">
+                                    <h3>Старт</h3>
+                                    <span>Без пробного периода</span>
+                                </div>
+                                <div className="amount">0 ₽ <span>/ бесплатно</span></div>
+                                <p>Полноценная основа для онлайн-записи и Вашего расписания.</p>
+                                <ul>
+                                    <li>Онлайн-запись без лимита записей</li>
+                                    <li>Запись через ссылку, VK и MAX</li>
+                                    <li>Календарь и ручные записи</li>
+                                    <li>Клиенты, услуги, категории и цены</li>
+                                    <li>Рабочие часы, периоды и перерывы</li>
+                                    <li>Разовые и повторяющиеся блокировки</li>
+                                    <li>Напоминания и подтверждение визита</li>
+                                    <li>Базовая аналитика</li>
+                                </ul>
+                                <a className="btn" href="/auth/login" data-event="pricing_start_click">
+                                    Начать бесплатно
+                                </a>
+                            </article>
+                            <article className="price pro">
+                                <div className="price-head">
+                                    <h3>Профи</h3>
+                                    <span>Больше возможностей</span>
+                                </div>
+                                <div className="amount">490 ₽ <span>/ месяц</span></div>
+                                <p>Дополнительные возможности для работы с расписанием.</p>
+                                <ul>
+                                    <li>Всё из тарифа «Старт»</li>
+                                    <li>«Хочу раньше» и AutoFill</li>
+                                    <li>Серии записей клиентов</li>
+                                    <li>Аналитика каналов</li>
+                                </ul>
+                                <a className="btn secondary" href="#pro" data-event="pricing_pro_click">
+                                    Подробнее о «Профи»
+                                </a>
+                            </article>
+                        </div>
+                        <p className="price-note">Для регистрации данные карты не нужны. Перейти на «Профи» можно позже.</p>
+                    </section>
                 </main>
             </div>
         </>
