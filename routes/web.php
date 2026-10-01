@@ -39,6 +39,8 @@ Route::get('/', function () {
     return Inertia::render('welcome');
 })->name('home');
 
+Route::get('/landing-v2', fn () => Inertia::render('welcome-v2'))->name('landing.v2.preview');
+
 Route::get('/login', fn () => redirect()->route('auth.choose'))->name('login');
 Route::get('/auth/login', [TelegramAuthController::class, 'showChoose'])->name('auth.choose');
 Route::post('/auth/telegram/token', [TelegramAuthController::class, 'generateLoginToken'])->name('auth.telegram.token');

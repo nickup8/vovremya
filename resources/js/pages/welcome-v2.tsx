@@ -28,7 +28,9 @@ export default function WelcomeV2() {
 
     return (
         <>
-            <Head title="ИРСИ — онлайн-запись для частных мастеров" />
+            <Head title="ИРСИ — онлайн-запись для частных мастеров">
+                <meta name="robots" content="noindex,nofollow" />
+            </Head>
 
             <div className="irsi-v2">
                 <a className="skip" href="#main">
