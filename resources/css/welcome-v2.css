@@ -506,10 +506,10 @@ html:has(.irsi-v2) {
     outline-offset: 3px;
 }
 .irsi-v2 #how .carousel-track {
-    border: 1px solid var(--line);
+    border: 0;
     border-radius: 14px;
-    background: #fff;
-    gap: 0;
+    background: transparent;
+    gap: 16px;
     align-items: stretch;
     cursor: grab;
     scroll-padding: 0;
@@ -521,10 +521,10 @@ html:has(.irsi-v2) {
     user-select: none;
 }
 .irsi-v2 #how .slide {
-    border: 0;
-    border-radius: 0;
+    border: 1px solid var(--line);
+    border-radius: 14px;
     padding: 0;
-    flex: 0 0 50%;
+    flex: 0 0 calc((100% - 16px) / 2);
     aspect-ratio: 443 / 485;
     background: #fff;
     align-self: stretch;
@@ -931,6 +931,8 @@ html:has(.irsi-v2) {
     }
     .irsi-v2 #how .slide {
         flex: 0 0 100%;
+        border: 0;
+        border-radius: 0;
     }
     .irsi-v2 .slide figcaption {
         font-size: 13px;
@@ -951,7 +953,10 @@ html:has(.irsi-v2) {
         gap: 6px;
     }
     .irsi-v2 #how .carousel-track {
+        border: 1px solid var(--line);
         border-radius: 10px;
+        background: #fff;
+        gap: 0;
     }
     .irsi-v2 .booking-progress {
         margin-top: 12px;
