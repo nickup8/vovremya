@@ -5,6 +5,7 @@ namespace App\Services\Payment;
 use App\Enums\PaymentAttemptStatus;
 use App\Services\Payment\DTOs\PaymentInitiation;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
+use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Support\Facades\Http;
 use RuntimeException;
 
@@ -68,6 +69,60 @@ class TBankPaymentGateway implements PaymentGatewayInterface
     }
 
     /**
+     * Recurring card Init for a renewal (no user redirect).
+     *
+     * Deliberately WITHOUT Recurrent/CustomerKey/SuccessURL/FailURL —
+     * the card on file is charged later via chargeRecurringPayment().
+     * Returns the provider PaymentId; PaymentURL is not required.
+     */
+    public function initRecurringPayment(
+        int $amount,
+        string $currency,
+        string $internalOrderId,
+    ): string {
+        $payload = [
+            'TerminalKey' => $this->terminalKey,
+            'Amount' => $amount * 100,
+            'OrderId' => $internalOrderId,
+            'Description' => 'Продление подписки ИРСИ',
+            'PayType' => 'O',
+            'DATA' => ['OperationInitiatorType' => 'R'],
+            'NotificationURL' => config('app.url').'/webhooks/payment/tbank',
+        ];
+        $payload['Token'] = $this->computeToken($payload);
+
+        $data = $this->post($this->url('/v2/Init'), $payload, 'Init');
+
+        if (empty($data['PaymentId'])) {
+            throw new RuntimeException('T-Bank recurring Init response missing PaymentId');
+        }
+
+        return (string) $data['PaymentId'];
+    }
+
+    /**
+     * Charge the saved card (RebillId) for a recurring payment.
+     *
+     * Response is normalized through the shared webhook path — no separate
+     * status mapping or amount conversion here.
+     */
+    public function chargeRecurringPayment(
+        string $providerPaymentId,
+        string $rebillId,
+    ): ProviderStatusUpdate {
+        $payload = [
+            'TerminalKey' => $this->terminalKey,
+            'PaymentId' => $providerPaymentId,
+            'RebillId' => $rebillId,
+        ];
+        $payload['Token'] = $this->computeToken($payload);
+
+        $data = $this->post($this->url('/v2/Charge'), $payload, 'Charge');
+
+        return $this->normalizeWebhook($data);
+    }
+
+    /**
      * T-Bank signs webhooks with its own Token field, not X-Webhook-Signature.
      */
     public function verifyWebhook(array $payload, string $signature): bool
@@ -116,6 +171,30 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         }
 
         return $this->normalizeWebhook($data);
+    }
+
+    /**
+     * POST with shared failure handling for the recurring endpoints:
+     * transport / non-2xx / invalid body / Success=false → RuntimeException.
+     * Messages never include payload contents (no secrets leaked).
+     *
+     * @return array<string, mixed>
+     */
+    private function post(string $url, array $payload, string $operation): array
+    {
+        try {
+            $response = Http::post($url, $payload);
+        } catch (HttpClientException $e) {
+            throw new RuntimeException("T-Bank {$operation} request failed", 0, $e);
+        }
+
+        $data = $response->successful() ? $response->json() : null;
+
+        if (! is_array($data) || empty($data['Success'])) {
+            throw new RuntimeException("T-Bank {$operation} request failed");
+        }
+
+        return $data;
     }
 
     /**

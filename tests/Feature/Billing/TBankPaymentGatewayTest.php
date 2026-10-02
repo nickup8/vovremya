@@ -72,6 +72,19 @@ class TBankPaymentGatewayTest extends TestCase
         ]);
     }
 
+    private function fakeChargeResponse(string $status): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+                'OrderId' => 'renew_order_1',
+                'Status' => $status,
+                'Amount' => 49000,
+            ], 200),
+        ]);
+    }
+
     public function test_manager_registers_tbank_driver(): void
     {
         $manager = new PaymentGatewayManager(app());
@@ -205,6 +218,137 @@ class TBankPaymentGatewayTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         $this->gateway()->createPayment(490, 'RUB', 'order-1');
+    }
+
+    // ── Recurring Init (renewal card) ──
+
+    public function test_recurring_init_sends_expected_payload(): void
+    {
+        $this->fakeInitSuccess();
+
+        $this->gateway()->initRecurringPayment(490, 'RUB', 'renew_order_1');
+
+        Http::assertSent(function ($request) {
+            if ($request->url() !== 'https://securepay.tinkoff.ru/v2/Init') {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return $data['Amount'] === 49000
+                && $data['TerminalKey'] === self::TERMINAL_KEY
+                && $data['OrderId'] === 'renew_order_1'
+                && $data['Description'] === 'Продление подписки ИРСИ'
+                && $data['PayType'] === 'O'
+                && $data['DATA'] === ['OperationInitiatorType' => 'R']
+                && $data['NotificationURL'] === config('app.url').'/webhooks/payment/tbank'
+                && ! array_key_exists('Recurrent', $data)
+                && ! array_key_exists('CustomerKey', $data)
+                && ! array_key_exists('SuccessURL', $data)
+                && ! array_key_exists('FailURL', $data)
+                && isset($data['Token'])
+                && hash_equals($this->tokenFor($data), $data['Token']);
+        });
+    }
+
+    public function test_recurring_init_returns_payment_id(): void
+    {
+        $this->fakeInitSuccess();
+
+        $paymentId = $this->gateway()->initRecurringPayment(490, 'RUB', 'renew_order_2');
+
+        $this->assertSame('700123456', $paymentId);
+    }
+
+    public function test_recurring_init_does_not_require_payment_url(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+            ], 200),
+        ]);
+
+        $paymentId = $this->gateway()->initRecurringPayment(490, 'RUB', 'renew_order_3');
+
+        $this->assertSame('700123456', $paymentId);
+    }
+
+    public function test_unsuccessful_recurring_init_throws_exception(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '9999',
+                'ErrorMessage' => 'card not found',
+            ], 200),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->initRecurringPayment(490, 'RUB', 'renew_order_4');
+    }
+
+    // ── Charge (recurring card) ──
+
+    public function test_charge_sends_expected_payload(): void
+    {
+        $this->fakeChargeResponse('CONFIRMED');
+
+        $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+
+        Http::assertSent(function ($request) {
+            if ($request->url() !== 'https://securepay.tinkoff.ru/v2/Charge') {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return $data['TerminalKey'] === self::TERMINAL_KEY
+                && $data['PaymentId'] === '700123456'
+                && $data['RebillId'] === 'rebill_123'
+                && ! array_key_exists('Amount', $data)
+                && isset($data['Token'])
+                && hash_equals($this->tokenFor($data), $data['Token']);
+        });
+    }
+
+    public function test_charge_confirmed_returns_succeeded_update(): void
+    {
+        $this->fakeChargeResponse('CONFIRMED');
+
+        $update = $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+
+        $this->assertSame('tbank', $update->provider);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $update->normalizedStatus);
+        $this->assertSame('700123456', $update->providerPaymentId);
+        $this->assertSame(490, $update->amount);
+        $this->assertSame('RUB', $update->currency);
+    }
+
+    public function test_charge_authorized_returns_processing_update(): void
+    {
+        $this->fakeChargeResponse('AUTHORIZED');
+
+        $update = $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+
+        $this->assertSame(PaymentAttemptStatus::Processing, $update->normalizedStatus);
+        $this->assertSame('700123456', $update->providerPaymentId);
+    }
+
+    public function test_unsuccessful_charge_throws_exception(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '5106',
+                'ErrorMessage' => 'card blocked',
+            ], 200),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
     }
 
     public function test_webhook_valid_token_accepted(): void
