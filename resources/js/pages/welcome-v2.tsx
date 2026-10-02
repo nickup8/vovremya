@@ -186,9 +186,9 @@ export default function WelcomeV2() {
                                 </div>
                                 <div className="calendar-crop">
                                     <img
-                                        src="/images/landing/calendar-desktop.svg"
-                                        width="1800"
-                                        height="757"
+                                        src="/images/landing/calendar-desktop-v2.webp"
+                                        width="1933"
+                                        height="813"
                                         alt="Календарь ИРСИ с визитами и перерывами"
                                         loading="eager"
                                     />
