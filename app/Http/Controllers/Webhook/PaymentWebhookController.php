@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Webhook;
 use App\Http\Controllers\Controller;
 use App\Services\Payment\PaymentGatewayInterface;
 use App\Services\Payment\PaymentGatewayManager;
+use App\Services\Payment\PaymentMethodCaptureService;
 use App\Services\Payment\PaymentTransitionService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
@@ -15,6 +16,7 @@ class PaymentWebhookController extends Controller
     public function __construct(
         private PaymentGatewayManager $gatewayManager,
         private PaymentTransitionService $transitionService,
+        private PaymentMethodCaptureService $paymentMethodCapture,
     ) {}
 
     /**
@@ -78,6 +80,8 @@ class PaymentWebhookController extends Controller
         );
 
         if ($result['success']) {
+            $this->paymentMethodCapture->capture($update);
+
             return $this->successResponse($gateway);
         }
 
