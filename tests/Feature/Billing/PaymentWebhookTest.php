@@ -24,6 +24,10 @@ class PaymentWebhookTest extends TestCase
 
     private const WEBHOOK_SECRET = 'test_legacy_webhook_secret_abc123';
 
+    private const TBANK_TERMINAL_KEY = 'TestTerminal';
+
+    private const TBANK_PASSWORD = 'tbank_test_password';
+
     private TariffPlan $proPlan;
     private Workspace $workspace;
 
@@ -31,7 +35,15 @@ class PaymentWebhookTest extends TestCase
     {
         parent::setUp();
 
-        config(['billing.legacy_mock_webhook_secret' => self::WEBHOOK_SECRET]);
+        config([
+            'billing.legacy_mock_webhook_secret' => self::WEBHOOK_SECRET,
+            'billing.gateways.tbank' => [
+                'driver' => 'tbank',
+                'terminal_key' => self::TBANK_TERMINAL_KEY,
+                'password' => self::TBANK_PASSWORD,
+                'base_url' => 'https://securepay.tinkoff.ru',
+            ],
+        ]);
 
         $master = User::factory()->master()->create();
         $this->workspace = Workspace::create([
@@ -64,7 +76,7 @@ class PaymentWebhookTest extends TestCase
         ]);
     }
 
-    private function createPendingSubscription(string $paymentId, int $amountPaid = 490): Subscription
+    private function createPendingSubscription(string $paymentId, int $amountPaid = 490, string $provider = 'mock'): Subscription
     {
         $sub = Subscription::create([
             'workspace_id' => $this->workspace->id,
@@ -99,7 +111,7 @@ class PaymentWebhookTest extends TestCase
 
         PaymentAttempt::create([
             'billing_cycle_id' => $cycle->id,
-            'provider' => 'mock',
+            'provider' => $provider,
             'attempt_number' => 1,
             'amount' => $amountPaid,
             'currency' => 'RUB',
@@ -118,6 +130,34 @@ class PaymentWebhookTest extends TestCase
         return $this->postJson(route('webhooks.payment'), $payload, [
             'X-Webhook-Signature' => $signature,
         ]);
+    }
+
+    /**
+     * Independent mirror of the T-Bank token algorithm for test payloads.
+     */
+    private function tbankToken(array $payload): string
+    {
+        unset($payload['Token']);
+
+        $scalars = [];
+        foreach ($payload as $key => $value) {
+            if (is_array($value) || is_object($value)) {
+                continue;
+            }
+
+            $scalars[$key] = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
+        }
+
+        ksort($scalars);
+
+        return hash('sha256', implode('', $scalars).self::TBANK_PASSWORD);
+    }
+
+    private function sendTbankWebhook(array $payload): \Illuminate\Testing\TestResponse
+    {
+        $payload['Token'] = $this->tbankToken($payload);
+
+        return $this->postJson(route('webhooks.payment.provider', 'tbank'), $payload);
     }
 
     // ── 1. Signature validation ──
@@ -169,6 +209,7 @@ class PaymentWebhookTest extends TestCase
         ]);
 
         $response->assertOk();
+        $response->assertExactJson(['ok' => true]);
 
         // Core state
         $attempt = PaymentAttempt::where('provider_payment_id', 'mock_valid_1')->first();
@@ -376,5 +417,75 @@ class PaymentWebhookTest extends TestCase
 
         $sub->refresh();
         $this->assertSame(SubscriptionStatus::Pending->value, $sub->status);
+    }
+
+    // ── 11. T-Bank webhooks: plain-text "OK" body ──
+
+    public function test_tbank_valid_webhook_returns_ok_body(): void
+    {
+        $this->createPendingSubscription('tbank_ok_1', 490, 'tbank');
+
+        $response = $this->sendTbankWebhook([
+            'TerminalKey' => self::TBANK_TERMINAL_KEY,
+            'PaymentId' => 'tbank_ok_1',
+            'OrderId' => 'ord_tbank_ok_1',
+            'Status' => 'CONFIRMED',
+            'Amount' => 49000,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('OK', $response->getContent());
+
+        $attempt = PaymentAttempt::where('provider_payment_id', 'tbank_ok_1')->first();
+        $this->assertNotNull($attempt);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+    }
+
+    public function test_tbank_validation_error_still_returns_ok_body(): void
+    {
+        $this->createPendingSubscription('tbank_wrong_amt', 490, 'tbank');
+
+        $response = $this->sendTbankWebhook([
+            'TerminalKey' => self::TBANK_TERMINAL_KEY,
+            'PaymentId' => 'tbank_wrong_amt',
+            'OrderId' => 'ord_tbank_wrong_amt',
+            'Status' => 'CONFIRMED',
+            'Amount' => 99900,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('OK', $response->getContent());
+
+        $attempt = PaymentAttempt::where('provider_payment_id', 'tbank_wrong_amt')->first();
+        $this->assertNotNull($attempt);
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+    }
+
+    public function test_tbank_unmatched_webhook_still_returns_ok_body(): void
+    {
+        $response = $this->sendTbankWebhook([
+            'TerminalKey' => self::TBANK_TERMINAL_KEY,
+            'PaymentId' => 'tbank_missing_1',
+            'OrderId' => 'ord_tbank_missing',
+            'Status' => 'CONFIRMED',
+            'Amount' => 49000,
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('OK', $response->getContent());
+    }
+
+    public function test_tbank_invalid_token_returns_403(): void
+    {
+        $response = $this->postJson(route('webhooks.payment.provider', 'tbank'), [
+            'TerminalKey' => self::TBANK_TERMINAL_KEY,
+            'PaymentId' => 'tbank_any',
+            'OrderId' => 'ord_tbank_any',
+            'Status' => 'CONFIRMED',
+            'Amount' => 49000,
+            'Token' => str_repeat('0', 64),
+        ]);
+
+        $response->assertStatus(403);
     }
 }

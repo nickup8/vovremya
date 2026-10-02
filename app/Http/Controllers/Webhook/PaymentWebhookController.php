@@ -6,9 +6,9 @@ use App\Http\Controllers\Controller;
 use App\Services\Payment\PaymentGatewayInterface;
 use App\Services\Payment\PaymentGatewayManager;
 use App\Services\Payment\PaymentTransitionService;
-use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Log;
+use Symfony\Component\HttpFoundation\Response;
 
 class PaymentWebhookController extends Controller
 {
@@ -22,7 +22,7 @@ class PaymentWebhookController extends Controller
      *
      * POST /webhooks/payment/{provider}
      */
-    public function handleProvider(Request $request, string $provider): JsonResponse
+    public function handleProvider(Request $request, string $provider): Response
     {
         // Resolve gateway from registered providers
         if (! $this->gatewayManager->hasGateway($provider)) {
@@ -43,7 +43,7 @@ class PaymentWebhookController extends Controller
      *
      * POST /webhooks/payment
      */
-    public function handle(Request $request): JsonResponse
+    public function handle(Request $request): Response
     {
         $gateway = $this->gatewayManager->getDefault();
 
@@ -56,7 +56,7 @@ class PaymentWebhookController extends Controller
     private function processWebhook(
         Request $request,
         PaymentGatewayInterface $gateway,
-    ): JsonResponse {
+    ): Response {
         $signature = $request->header('X-Webhook-Signature', '');
 
         if (! $gateway->verifyWebhook($request->all(), $signature)) {
@@ -78,7 +78,7 @@ class PaymentWebhookController extends Controller
         );
 
         if ($result['success']) {
-            return response()->json(['ok' => true]);
+            return $this->successResponse($gateway);
         }
 
         // Log but return 200 to prevent provider retries for validation errors
@@ -86,6 +86,18 @@ class PaymentWebhookController extends Controller
             'provider' => $update->provider,
             'error' => $result['error'],
         ]);
+
+        return $this->successResponse($gateway);
+    }
+
+    /**
+     * T-Bank expects a plain-text "OK" body; other gateways keep the JSON contract.
+     */
+    private function successResponse(PaymentGatewayInterface $gateway): Response
+    {
+        if ($gateway->name() === 'tbank') {
+            return response('OK', 200);
+        }
 
         return response()->json(['ok' => true]);
     }

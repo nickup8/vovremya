@@ -24,7 +24,7 @@ class PaymentGatewayManager extends Manager
      */
     public function getGateway(string $provider): PaymentGatewayInterface
     {
-        if (! $this->has($provider)) {
+        if (! $this->hasGateway($provider)) {
             throw new \InvalidArgumentException("Unknown payment gateway: {$provider}");
         }
 

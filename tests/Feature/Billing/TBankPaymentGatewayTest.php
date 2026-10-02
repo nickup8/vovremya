@@ -6,6 +6,7 @@ use App\Enums\PaymentAttemptStatus;
 use App\Services\Payment\PaymentGatewayManager;
 use App\Services\Payment\TBankPaymentGateway;
 use Illuminate\Support\Facades\Http;
+use InvalidArgumentException;
 use RuntimeException;
 use Tests\TestCase;
 
@@ -80,6 +81,26 @@ class TBankPaymentGatewayTest extends TestCase
         $this->assertSame('tbank', $gateway->name());
         $this->assertTrue($manager->hasGateway('tbank'));
         $this->assertSame('mock', config('billing.default_gateway'));
+    }
+
+    public function test_get_gateway_returns_tbank_gateway(): void
+    {
+        $manager = new PaymentGatewayManager(app());
+
+        $gateway = $manager->getGateway('tbank');
+
+        $this->assertInstanceOf(TBankPaymentGateway::class, $gateway);
+        $this->assertSame('tbank', $gateway->name());
+    }
+
+    public function test_get_gateway_unknown_provider_throws(): void
+    {
+        $manager = new PaymentGatewayManager(app());
+
+        $this->expectException(InvalidArgumentException::class);
+        $this->expectExceptionMessage('Unknown payment gateway: unknown_provider');
+
+        $manager->getGateway('unknown_provider');
     }
 
     public function test_init_sends_amount_in_kopecks(): void
