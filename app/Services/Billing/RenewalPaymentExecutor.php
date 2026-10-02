@@ -13,14 +13,17 @@ use Illuminate\Support\Facades\DB;
 use RuntimeException;
 
 /**
- * Executes a prepared renewal PaymentAttempt against T-Bank (A2.3c2/A2.3d).
+ * Executes a prepared renewal PaymentAttempt against T-Bank (A2.3c2–A2.3e).
  *
  * Always runs CheckOrder first for Created attempts without a PaymentId — a
  * lost Init may have already produced a bank payment. Then: Init (if fresh)
  * → attach PaymentId under a row lock → Charge (or recovery branching) →
- * PaymentTransitionService::transition(). No scheduler, no Charge retries,
- * no manual attempt/cycle/subscription edits after Charge — the existing
- * transition path owns state after that point.
+ * PaymentTransitionService::transition().
+ *
+ * Every Charge dispatch is preceded by an atomic charge_dispatch_started_at
+ * metadata marker: once written, that attempt is never Charged again from
+ * here. In-flight attempts without a marker (old attach→Charge crash window)
+ * are resolved via GetState first. No scheduler, no automatic Charge retry.
  */
 class RenewalPaymentExecutor
 {
@@ -46,14 +49,12 @@ class RenewalPaymentExecutor
             PaymentAttemptStatus::FailedTerminal,
             PaymentAttemptStatus::Refunded,
         ], true)) {
-            return ['success' => true, 'noop' => true];
+            return $this->noop();
         }
 
         if ($attempt->status === PaymentAttemptStatus::Processing
             && $attempt->provider_payment_id !== null) {
-            // In-flight with a provider PaymentId — a repeated Charge here is
-            // forbidden; reconciliation owns the clarification.
-            return ['success' => true, 'noop' => true];
+            return $this->resumeInFlight($attempt, $gateway);
         }
 
         if ($attempt->status !== PaymentAttemptStatus::Created
@@ -91,6 +92,11 @@ class RenewalPaymentExecutor
         // Persist the PaymentId BEFORE Charge so webhook and reconciliation
         // can locate the attempt while Charge is in flight.
         $this->attachPaymentId($attempt, $providerPaymentId);
+
+        // Marker immediately BEFORE the external /Charge; committed atomically.
+        if (! $this->markChargeDispatch($attempt)) {
+            return $this->noop();
+        }
 
         // Charge, then hand the normalized update to the shared transition
         // path without any state-machine logic here.
@@ -131,7 +137,12 @@ class RenewalPaymentExecutor
         }
 
         if (($existing->raw['Status'] ?? null) === 'NEW') {
-            // Recovered Init that never reached the COF Charge — charge now.
+            // Recovered Init that never reached the COF Charge — charge now,
+            // but only after the dispatch marker is committed under a lock.
+            if (! $this->markChargeDispatch($attempt)) {
+                return $this->noop();
+            }
+
             $update = $gateway->chargeRecurringPayment(
                 providerPaymentId: $recoveredPaymentId,
                 rebillId: $attempt->paymentMethod->provider_reference,
@@ -143,6 +154,103 @@ class RenewalPaymentExecutor
         // Any other status that normalized as Unknown — no Charge; the update
         // goes through transition and gets clarified by reconciliation later.
         return $this->transitionService->transition($existing);
+    }
+
+    /**
+     * Recovery for in-flight attempts (Processing + provider_payment_id).
+     */
+    private function resumeInFlight(
+        PaymentAttempt $attempt,
+        TBankPaymentGateway $gateway,
+    ): array {
+        // A) Dispatch marker present — Charge was already handed to the bank
+        // at least once; reconciliation owns the outcome. No HTTP at all.
+        if ($this->chargeDispatchStarted($attempt)) {
+            return $this->noop();
+        }
+
+        // B) Old crash window: attach committed, marker never written.
+        $state = $gateway->getPaymentStatus(
+            $attempt->provider_payment_id,
+            $attempt->internal_order_id,
+        );
+
+        if ($state === null) {
+            throw new RuntimeException('T-Bank GetState returned no data for in-flight renewal attempt');
+        }
+
+        if (($state->raw['Status'] ?? null) === 'NEW') {
+            // Payment exists but the COF Charge never ran — dispatch once.
+            if (! $this->markChargeDispatch($attempt)) {
+                return $this->noop();
+            }
+
+            $update = $gateway->chargeRecurringPayment(
+                providerPaymentId: $attempt->provider_payment_id,
+                rebillId: $attempt->paymentMethod->provider_reference,
+            );
+
+            return $this->transitionService->transition($update);
+        }
+
+        if (in_array($state->normalizedStatus, [
+            PaymentAttemptStatus::Succeeded,
+            PaymentAttemptStatus::Processing,
+            PaymentAttemptStatus::FailedTerminal,
+            PaymentAttemptStatus::Refunded,
+        ], true)) {
+            // No Charge — the bank already knows a definitive status.
+            return $this->transitionService->transition($state);
+        }
+
+        // Any other raw status / normalized Unknown — never force
+        // processing→unknown; reconciliation clarifies it later.
+        return $this->noop();
+    }
+
+    private function chargeDispatchStarted(PaymentAttempt $attempt): bool
+    {
+        return ($attempt->metadata['charge_dispatch_started_at'] ?? null) !== null;
+    }
+
+    /**
+     * Atomically write charge_dispatch_started_at immediately before /Charge.
+     *
+     * Returns false when the marker already exists — in that case the Charge
+     * must NOT be dispatched. Existing metadata keys are preserved.
+     */
+    private function markChargeDispatch(PaymentAttempt $attempt): bool
+    {
+        return DB::transaction(function () use ($attempt) {
+            $locked = PaymentAttempt::lockForUpdate()
+                ->whereKey($attempt->getKey())
+                ->first();
+
+            if ($locked === null) {
+                throw new RuntimeException('T-Bank renewal attempt not found for charge dispatch');
+            }
+
+            $metadata = $locked->metadata ?? [];
+
+            if (($metadata['charge_dispatch_started_at'] ?? null) !== null) {
+                return false;
+            }
+
+            $metadata['charge_dispatch_started_at'] = now()->toISOString();
+            $locked->update(['metadata' => $metadata]);
+
+            return true;
+        });
+    }
+
+    /**
+     * Controlled no-op result.
+     *
+     * @return array{success: bool, noop: bool}
+     */
+    private function noop(): array
+    {
+        return ['success' => true, 'noop' => true];
     }
 
     /**
