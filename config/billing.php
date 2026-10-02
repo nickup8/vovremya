@@ -34,11 +34,12 @@ return [
         'mock' => [
             'driver' => 'mock',
         ],
-        // Future: 'tbank' => [
-        //     'driver' => 'tbank',
-        //     'shop_id' => env('TBANK_SHOP_ID'),
-        //     'secret_key' => env('TBANK_SECRET_KEY'),
-        // ],
+        'tbank' => [
+            'driver' => 'tbank',
+            'terminal_key' => env('TBANK_TERMINAL_KEY'),
+            'password' => env('TBANK_PASSWORD'),
+            'base_url' => env('TBANK_BASE_URL', 'https://securepay.tinkoff.ru'),
+        ],
     ],
 
     /*

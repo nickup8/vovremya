@@ -58,8 +58,22 @@ class PaymentGatewayManager extends Manager
 
         return match ($driver) {
             'mock' => $this->createMockDriver(),
-            // Future: 'tbank' => $this->createTbankDriver($config),
+            'tbank' => $this->createTbankDriver($config),
             default => throw new \InvalidArgumentException("Unknown gateway driver: {$driver}"),
         };
+    }
+
+    /**
+     * Create T-Bank gateway driver.
+     */
+    public function createTbankDriver(array $config = []): PaymentGatewayInterface
+    {
+        $config = $config ?: config('billing.gateways.tbank', []);
+
+        return new TBankPaymentGateway(
+            terminalKey: $config['terminal_key'] ?? null,
+            password: $config['password'] ?? null,
+            baseUrl: ($config['base_url'] ?? '') ?: 'https://securepay.tinkoff.ru',
+        );
     }
 }
