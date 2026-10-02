@@ -146,6 +146,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
     private function mapStatus(mixed $status): PaymentAttemptStatus
     {
         return match ($status) {
+            'AUTHORIZED' => PaymentAttemptStatus::Processing,
             'CONFIRMED' => PaymentAttemptStatus::Succeeded,
             'REJECTED', 'CANCELED', 'REVERSED' => PaymentAttemptStatus::FailedTerminal,
             'REFUNDED' => PaymentAttemptStatus::Refunded,

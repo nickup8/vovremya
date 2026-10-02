@@ -10,6 +10,7 @@ use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentMethod;
+use App\Models\ProviderEvent;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
@@ -162,7 +163,7 @@ class PaymentMethodCaptureTest extends TestCase
         $this->assertSame('OK', $response->getContent());
 
         $attempt->refresh();
-        $this->assertSame(PaymentAttemptStatus::Unknown, $attempt->status);
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
         $this->assertNotNull($attempt->payment_method_id);
 
         $method = PaymentMethod::find($attempt->payment_method_id);
@@ -180,6 +181,52 @@ class PaymentMethodCaptureTest extends TestCase
 
         $legacy = Subscription::find($legacyId);
         $this->assertSame(SubscriptionStatus::Pending->value, $legacy->status);
+    }
+
+    public function test_authorized_on_processing_attempt_is_idempotent_and_captures_method(): void
+    {
+        // Production-like: after Init/paymentAttached the attempt is already processing
+        $attempt = $this->createTbankAttempt('tbank_auth_proc', status: PaymentAttemptStatus::Processing);
+        $cycleId = $attempt->billing_cycle_id;
+        $legacyId = $attempt->metadata['legacy_subscription_id'];
+
+        $response = $this->sendTbankWebhook([
+            'TerminalKey' => self::TBANK_TERMINAL_KEY,
+            'PaymentId' => 'tbank_auth_proc',
+            'OrderId' => $attempt->internal_order_id,
+            'Status' => 'AUTHORIZED',
+            'Amount' => 49000,
+            'RebillId' => 'rebill_auth_proc',
+        ]);
+
+        $response->assertOk();
+        $this->assertSame('OK', $response->getContent());
+
+        // Transition success: provider event processed without error
+        $event = ProviderEvent::where('provider', 'tbank')
+            ->where('event_type', 'processing')
+            ->first();
+        $this->assertNotNull($event);
+        $this->assertNull($event->processing_error);
+        $this->assertNotNull($event->processed_at);
+
+        // Attempt stays processing — no entitlement
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertNotNull($attempt->payment_method_id);
+
+        $cycle = BillingCycle::find($cycleId);
+        $this->assertSame(BillingCycleStatus::Pending, $cycle->status);
+
+        $legacy = Subscription::find($legacyId);
+        $this->assertSame(SubscriptionStatus::Pending->value, $legacy->status);
+
+        // Card method captured with RebillId
+        $method = PaymentMethod::find($attempt->payment_method_id);
+        $this->assertNotNull($method);
+        $this->assertSame('tbank', $method->provider);
+        $this->assertSame('card', $method->type);
+        $this->assertSame('rebill_auth_proc', $method->provider_reference);
     }
 
     public function test_confirmed_with_rebill_id_creates_method_and_attempt_succeeds(): void

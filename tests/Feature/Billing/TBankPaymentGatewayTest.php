@@ -280,6 +280,13 @@ class TBankPaymentGatewayTest extends TestCase
         $this->assertSame(PaymentAttemptStatus::Unknown, $pending->normalizedStatus);
     }
 
+    public function test_authorized_maps_to_processing(): void
+    {
+        $update = $this->gateway()->normalizeWebhook(['Status' => 'AUTHORIZED']);
+
+        $this->assertSame(PaymentAttemptStatus::Processing, $update->normalizedStatus);
+    }
+
     public function test_amount_converted_from_kopecks(): void
     {
         $gateway = $this->gateway();
