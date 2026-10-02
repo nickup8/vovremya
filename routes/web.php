@@ -183,6 +183,7 @@ Route::middleware(['auth'])->group(function () {
 
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
+    Route::post('/admin/billing/auto-renew/disable', [PaymentController::class, 'disableAutoRenew'])->name('admin.billing.auto-renew.disable');
 
     // Free windows — только Профи (feature gate)
     Route::middleware('feature:free_windows')->group(function () {

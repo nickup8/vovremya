@@ -37,6 +37,8 @@ interface PageProps {
         is_paid?: boolean;
         expires_at?: string | null;
         days_left?: number;
+        auto_renew_enabled?: boolean;
+        renewal_period_months?: number | null;
     };
     auth?: { user?: AuthUser };
     tariff_limits?: { total: number | null; used: number } | null;
@@ -109,6 +111,8 @@ export default function BillingPage() {
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
     const [autoRenew, setAutoRenew] = useState(false);
+    const [autoRenewActive, setAutoRenewActive] = useState(Boolean(current.auto_renew_enabled));
+    const [disablingAutoRenew, setDisablingAutoRenew] = useState(false);
 
     const selectedPrice = proPlan?.prices.find((p) => p.period_months === selectedPeriod);
     const monthlyEquiv = selectedPrice ? Math.round(selectedPrice.final / selectedPeriod) : 0;
@@ -148,6 +152,21 @@ export default function BillingPage() {
         }
     }
 
+    async function handleDisableAutoRenew() {
+        if (disablingAutoRenew) return;
+
+        setDisablingAutoRenew(true);
+        try {
+            await axios.post('/admin/billing/auto-renew/disable');
+            setAutoRenewActive(false);
+            toast.success('Автопродление отключено. Оплаченный период останется активным до даты окончания.');
+        } catch {
+            toast.error('Не удалось отключить автопродление');
+        } finally {
+            setDisablingAutoRenew(false);
+        }
+    }
+
     if (!proPlan) return null;
 
     return (
@@ -182,6 +201,30 @@ export default function BillingPage() {
                             </span>
                         </div>
                     </section>
+
+                    {/* ─── Auto renewal status (only while consented and active) ─── */}
+                    {isPaid && autoRenewActive && (
+                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
+                                        Автопродление включено
+                                    </div>
+                                    <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                        Следующий период: каждые {current.renewal_period_months} мес.
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={handleDisableAutoRenew}
+                                    disabled={disablingAutoRenew}
+                                    className="shrink-0 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {disablingAutoRenew ? 'Отключение…' : 'Отключить автопродление'}
+                                </button>
+                            </div>
+                        </section>
+                    )}
 
                     {/* ─── 2. Renewal Section ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">

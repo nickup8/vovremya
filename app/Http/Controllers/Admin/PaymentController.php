@@ -2,13 +2,16 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\BillingSubscriptionStatus;
 use App\Http\Controllers\Controller;
+use App\Models\BillingSubscription;
 use App\Models\TariffPlan;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\EntitlementService;
 use App\Support\PlanDefaults;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -45,6 +48,7 @@ class PaymentController extends Controller
 
         if (config('billing.core_entitlement') && $user->workspace) {
             $plan = app(EntitlementService::class)->currentPlan($user->workspace);
+            $subscription = $this->activeBillingSubscription($user->workspace_id);
 
             return Inertia::render('admin/billing', [
                 'plans' => $plans,
@@ -54,6 +58,11 @@ class PaymentController extends Controller
                     'is_paid' => ($plan?->code ?? 'start') !== 'start',
                     'expires_at' => $plan?->expiresAt?->toIso8601String(),
                     'days_left' => $plan?->expiresAt ? (int) ceil(now()->diffInDays($plan->expiresAt, absolute: false)) : 0,
+                    'auto_renew_enabled' => $subscription !== null
+                        && $subscription->auto_renew_consent_at !== null
+                        && $subscription->renewal_period_months !== null
+                        && $subscription->cancel_at_period_end === false,
+                    'renewal_period_months' => $subscription?->renewal_period_months,
                 ],
             ]);
         }
@@ -105,5 +114,58 @@ class PaymentController extends Controller
             'subscription_id' => $result['subscription']->id,
             'amount' => $result['subscription']->amount_paid,
         ]);
+    }
+
+    /**
+     * Disable auto renewal for the current Pro subscription.
+     *
+     * Idempotent: only flips cancel_at_period_end and clears next_charge_at;
+     * the paid period keeps running until it ends.
+     */
+    public function disableAutoRenew(Request $request): JsonResponse
+    {
+        abort_unless($request->user()->role->canManageBilling(), 403, 'Только владелец может управлять подпиской.');
+
+        $workspaceId = $request->user()->workspace_id;
+        abort_unless($workspaceId !== null, 404);
+
+        $subscription = DB::transaction(function () use ($workspaceId) {
+            $subscription = BillingSubscription::where('workspace_id', $workspaceId)
+                ->where('status', BillingSubscriptionStatus::Active)
+                ->lockForUpdate()
+                ->first();
+
+            if ($subscription === null) {
+                return null;
+            }
+
+            $subscription->update([
+                'cancel_at_period_end' => true,
+                'next_charge_at' => null,
+            ]);
+
+            return $subscription;
+        });
+
+        if ($subscription === null) {
+            abort(404, 'Активная подписка не найдена');
+        }
+
+        return response()->json([
+            'ok' => true,
+            'auto_renew_enabled' => false,
+        ]);
+    }
+
+    private function activeBillingSubscription(?string $workspaceId): ?BillingSubscription
+    {
+        if ($workspaceId === null) {
+            return null;
+        }
+
+        return BillingSubscription::where('workspace_id', $workspaceId)
+            ->where('status', BillingSubscriptionStatus::Active)
+            ->latest('updated_at')
+            ->first();
     }
 }
