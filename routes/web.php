@@ -36,10 +36,8 @@ Route::get('/', function () {
         return redirect()->route('admin.calendar');
     }
 
-    return Inertia::render('welcome');
+    return Inertia::render('welcome-v2');
 })->name('home');
-
-Route::get('/landing-v2', fn () => Inertia::render('welcome-v2'))->name('landing.v2.preview');
 
 Route::get('/login', fn () => redirect()->route('auth.choose'))->name('login');
 Route::get('/auth/login', [TelegramAuthController::class, 'showChoose'])->name('auth.choose');

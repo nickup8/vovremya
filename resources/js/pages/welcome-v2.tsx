@@ -105,7 +105,8 @@ export default function WelcomeV2() {
     return (
         <>
             <Head title="ИРСИ — онлайн-запись для частных мастеров">
-                <meta name="robots" content="noindex,nofollow" />
+                <meta name="description" content="Онлайн-запись, календарь, напоминания и подтверждение визита для частных мастеров. Начните с бесплатного тарифа «Старт». Профи — 490 ₽ в месяц." />
+                <link rel="canonical" href="https://irsi-app.ru/" />
             </Head>
 
             <div className="irsi-v2">
