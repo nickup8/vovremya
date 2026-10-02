@@ -351,6 +351,117 @@ class TBankPaymentGatewayTest extends TestCase
         $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
     }
 
+    // ── CheckOrder (recovery) ──
+
+    public function test_check_order_empty_payments_returns_null(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'Payments' => [],
+            ], 200),
+        ]);
+
+        $this->assertNull($this->gateway()->findPaymentByOrderId('renew_order_1'));
+
+        Http::assertSent(function ($request) {
+            if ($request->url() !== 'https://securepay.tinkoff.ru/v2/CheckOrder') {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return $data['TerminalKey'] === self::TERMINAL_KEY
+                && $data['OrderId'] === 'renew_order_1'
+                && isset($data['Token'])
+                && hash_equals($this->tokenFor($data), $data['Token']);
+        });
+    }
+
+    public function test_check_order_single_new_payment_returns_update(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'Payments' => [
+                    [
+                        'PaymentId' => '700123456',
+                        'OrderId' => 'renew_order_2',
+                        'Status' => 'NEW',
+                        'Amount' => 49000,
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $update = $this->gateway()->findPaymentByOrderId('renew_order_2');
+
+        $this->assertNotNull($update);
+        $this->assertSame('tbank', $update->provider);
+        $this->assertSame('700123456', $update->providerPaymentId);
+        $this->assertSame('renew_order_2', $update->internalOrderId);
+        $this->assertSame(PaymentAttemptStatus::Unknown, $update->normalizedStatus);
+        $this->assertSame('NEW', $update->raw['Status']);
+    }
+
+    public function test_check_order_confirmed_returns_succeeded_with_amount_conversion(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'Payments' => [
+                    [
+                        'PaymentId' => '700123456',
+                        'Status' => 'CONFIRMED',
+                        'Amount' => 49000,
+                        // No OrderId — must be injected from the request argument
+                    ],
+                ],
+            ], 200),
+        ]);
+
+        $update = $this->gateway()->findPaymentByOrderId('renew_order_3');
+
+        $this->assertNotNull($update);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $update->normalizedStatus);
+        $this->assertSame('700123456', $update->providerPaymentId);
+        $this->assertSame('renew_order_3', $update->internalOrderId);
+        $this->assertSame(490, $update->amount);
+        $this->assertSame('RUB', $update->currency);
+    }
+
+    public function test_check_order_multiple_payment_ids_throws(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'Payments' => [
+                    ['PaymentId' => '111111111', 'Status' => 'NEW'],
+                    ['PaymentId' => '222222222', 'Status' => 'NEW'],
+                ],
+            ], 200),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->findPaymentByOrderId('renew_order_4');
+    }
+
+    public function test_check_order_unsuccessful_throws(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '9999',
+                'ErrorMessage' => 'order not found',
+            ], 200),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->findPaymentByOrderId('renew_order_5');
+    }
+
     public function test_webhook_valid_token_accepted(): void
     {
         $payload = [

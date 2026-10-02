@@ -123,6 +123,55 @@ class TBankPaymentGateway implements PaymentGatewayInterface
     }
 
     /**
+     * Look up a payment by OrderId (CheckOrder) — recovery entry point for a
+     * possibly-lost Init.
+     *
+     * Returns null when no payments exist. Fail closed on multiple distinct
+     * PaymentIds: never pick one automatically.
+     */
+    public function findPaymentByOrderId(string $internalOrderId): ?ProviderStatusUpdate
+    {
+        $payload = [
+            'TerminalKey' => $this->terminalKey,
+            'OrderId' => $internalOrderId,
+        ];
+        $payload['Token'] = $this->computeToken($payload);
+
+        $data = $this->post($this->url('/v2/CheckOrder'), $payload, 'CheckOrder');
+
+        $payments = $data['Payments'] ?? null;
+        if (! is_array($payments) || $payments === []) {
+            return null;
+        }
+
+        // Keep the first item per distinct PaymentId, dropping empty ones.
+        $byPaymentId = [];
+        foreach ($payments as $payment) {
+            if (! is_array($payment) || empty($payment['PaymentId'])) {
+                continue;
+            }
+
+            $paymentId = (string) $payment['PaymentId'];
+            $byPaymentId[$paymentId] ??= $payment;
+        }
+
+        if ($byPaymentId === []) {
+            return null;
+        }
+
+        if (count($byPaymentId) > 1) {
+            throw new RuntimeException('T-Bank CheckOrder returned multiple distinct PaymentIds');
+        }
+
+        $payment = reset($byPaymentId);
+        if (empty($payment['OrderId'])) {
+            $payment['OrderId'] = $internalOrderId;
+        }
+
+        return $this->normalizeWebhook($payment);
+    }
+
+    /**
      * T-Bank signs webhooks with its own Token field, not X-Webhook-Signature.
      */
     public function verifyWebhook(array $payload, string $signature): bool

@@ -94,7 +94,11 @@ class RenewalPaymentExecutorTest extends TestCase
         $result = $this->executor->execute($attempt);
 
         $this->assertTrue($result['success']);
-        Http::assertSentCount(2);
+        // CheckOrder first (empty), then fresh Init → Charge.
+        $this->assertSame(
+            ['/v2/CheckOrder', '/v2/Init', '/v2/Charge'],
+            $this->sentPaths()
+        );
 
         $attempt->refresh();
         $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
@@ -123,6 +127,10 @@ class RenewalPaymentExecutorTest extends TestCase
                 $stateAtCharge = [$fresh->status, $fresh->provider_payment_id];
 
                 return Http::response($this->chargeResponseBody('CONFIRMED', $attempt->internal_order_id), 200);
+            }
+
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return Http::response($this->checkOrderEmptyBody(), 200);
             }
 
             return Http::response([
@@ -169,6 +177,10 @@ class RenewalPaymentExecutorTest extends TestCase
         $attempt = $this->preparedRenewalAttempt();
 
         Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return Http::response($this->checkOrderEmptyBody(), 200);
+            }
+
             if (str_ends_with($request->url(), '/v2/Init')) {
                 return Http::response([
                     'Success' => false,
@@ -192,7 +204,8 @@ class RenewalPaymentExecutorTest extends TestCase
         $this->assertSame(PaymentAttemptStatus::Created, $attempt->status);
         $this->assertNull($attempt->provider_payment_id);
 
-        Http::assertSentCount(1); // Init only — Charge must not be called
+        // CheckOrder + Init only — Charge must not be called
+        $this->assertSame(['/v2/CheckOrder', '/v2/Init'], $this->sentPaths());
     }
 
     public function test_charge_exception_leaves_attempt_processing_with_payment_id(): void
@@ -201,6 +214,10 @@ class RenewalPaymentExecutorTest extends TestCase
         $cycle = $attempt->billingCycle;
 
         Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return Http::response($this->checkOrderEmptyBody(), 200);
+            }
+
             if (str_ends_with($request->url(), '/v2/Init')) {
                 return Http::response([
                     'Success' => true,
@@ -346,6 +363,156 @@ class RenewalPaymentExecutorTest extends TestCase
         Http::assertNothingSent();
     }
 
+    // ── CheckOrder recovery ──
+
+    public function test_lost_init_recovers_via_check_order_new_then_charges(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+        $cycle = $attempt->billingCycle;
+
+        Http::fake(function ($request) use ($attempt) {
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return Http::response($this->checkOrderPaymentsBody([
+                    [
+                        'PaymentId' => self::PAYMENT_ID,
+                        'OrderId' => $attempt->internal_order_id,
+                        'Status' => 'NEW',
+                        'Amount' => 49000,
+                    ],
+                ]), 200);
+            }
+
+            if (str_ends_with($request->url(), '/v2/Charge')) {
+                return Http::response($this->chargeResponseBody('CONFIRMED', $attempt->internal_order_id), 200);
+            }
+
+            // Init must never be reached
+            return Http::response(['Success' => false, 'ErrorCode' => 'SHOULD_NOT_BE_CALLED'], 200);
+        });
+
+        $result = $this->executor->execute($attempt);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(['/v2/CheckOrder', '/v2/Charge'], $this->sentPaths());
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+        $this->assertSame(self::PAYMENT_ID, $attempt->provider_payment_id);
+
+        $cycle->refresh();
+        $this->assertSame(BillingCycleStatus::Paid, $cycle->status);
+    }
+
+    public function test_check_order_confirmed_skips_init_and_charge(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+        $cycle = $attempt->billingCycle;
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response($this->checkOrderPaymentsBody([
+                [
+                    'PaymentId' => self::PAYMENT_ID,
+                    'OrderId' => $attempt->internal_order_id,
+                    'Status' => 'CONFIRMED',
+                    'Amount' => 49000,
+                ],
+            ]), 200),
+        ]);
+
+        $result = $this->executor->execute($attempt);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(['/v2/CheckOrder'], $this->sentPaths());
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+        $this->assertSame(self::PAYMENT_ID, $attempt->provider_payment_id);
+
+        $cycle->refresh();
+        $this->assertSame(BillingCycleStatus::Paid, $cycle->status);
+    }
+
+    public function test_check_order_authorized_attaches_without_init_or_charge(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+        $cycle = $attempt->billingCycle;
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response($this->checkOrderPaymentsBody([
+                [
+                    'PaymentId' => self::PAYMENT_ID,
+                    'OrderId' => $attempt->internal_order_id,
+                    'Status' => 'AUTHORIZED',
+                    'Amount' => 49000,
+                ],
+            ]), 200),
+        ]);
+
+        $result = $this->executor->execute($attempt);
+
+        $this->assertTrue($result['success']);
+        $this->assertSame(['/v2/CheckOrder'], $this->sentPaths());
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame(self::PAYMENT_ID, $attempt->provider_payment_id);
+
+        $cycle->refresh();
+        $this->assertSame(BillingCycleStatus::Pending, $cycle->status);
+    }
+
+    public function test_check_order_exception_keeps_attempt_created(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '9999',
+            ], 200),
+        ]);
+
+        $caught = false;
+        try {
+            $this->executor->execute($attempt);
+        } catch (RuntimeException $e) {
+            $caught = true;
+        }
+
+        $this->assertTrue($caught, 'execute() should have thrown RuntimeException');
+        $this->assertSame(['/v2/CheckOrder'], $this->sentPaths());
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Created, $attempt->status);
+        $this->assertNull($attempt->provider_payment_id);
+    }
+
+    public function test_check_order_multiple_payment_ids_fails_closed(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response($this->checkOrderPaymentsBody([
+                ['PaymentId' => '111111111', 'Status' => 'NEW'],
+                ['PaymentId' => '222222222', 'Status' => 'NEW'],
+            ]), 200),
+        ]);
+
+        $caught = false;
+        try {
+            $this->executor->execute($attempt);
+        } catch (RuntimeException $e) {
+            $caught = true;
+        }
+
+        $this->assertTrue($caught, 'execute() should have thrown RuntimeException');
+        $this->assertSame(['/v2/CheckOrder'], $this->sentPaths());
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Created, $attempt->status);
+        $this->assertNull($attempt->provider_payment_id);
+    }
+
     // ── Helpers ──
 
     private function preparedRenewalAttempt(): PaymentAttempt
@@ -383,6 +550,10 @@ class RenewalPaymentExecutorTest extends TestCase
     private function fakeRecurringHttp(string $chargeStatus, string $orderId): void
     {
         Http::fake(function ($request) use ($chargeStatus, $orderId) {
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return Http::response($this->checkOrderEmptyBody(), 200);
+            }
+
             if (str_ends_with($request->url(), '/v2/Charge')) {
                 return Http::response($this->chargeResponseBody($chargeStatus, $orderId), 200);
             }
@@ -392,6 +563,26 @@ class RenewalPaymentExecutorTest extends TestCase
                 'PaymentId' => self::PAYMENT_ID,
             ], 200);
         });
+    }
+
+    private function checkOrderEmptyBody(): array
+    {
+        return ['Success' => true, 'Payments' => []];
+    }
+
+    private function checkOrderPaymentsBody(array $payments): array
+    {
+        return ['Success' => true, 'Payments' => $payments];
+    }
+
+    private function sentPaths(): array
+    {
+        $paths = [];
+        foreach (Http::recorded() as [$request]) {
+            $paths[] = parse_url($request->url(), PHP_URL_PATH);
+        }
+
+        return $paths;
     }
 
     private function chargeResponseBody(string $status, string $orderId): array
