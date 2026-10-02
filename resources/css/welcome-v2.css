@@ -912,7 +912,11 @@ html:has(.irsi-v2) {
         font-size: clamp(32px, 8.5vw, 44px);
     }
     .irsi-v2 .booking-layout {
+        grid-template-columns: minmax(0, 1fr);
         gap: 26px;
+    }
+    .irsi-v2 .booking-layout > * {
+        min-width: 0;
     }
     .irsi-v2 .booking-intro {
         display: block;
@@ -1562,6 +1566,21 @@ html:has(.irsi-v2) {
 @media (max-width: 360px) {
     .irsi-v2 .demo-times {
         grid-template-columns: repeat(3, 1fr);
+    }
+}
+
+@media (max-width: 650px) {
+    .irsi-v2 .demo {
+        height: auto;
+        max-height: none;
+        overflow: visible;
+        overscroll-behavior: auto;
+    }
+    .irsi-v2 .demo-head {
+        position: static;
+    }
+    .irsi-v2 .demo-dock {
+        position: static;
     }
 }
 
