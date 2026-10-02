@@ -772,6 +772,152 @@ class PaymentTransitionServiceTest extends TestCase
         $this->assertStringContainsString('provider_event_id IS NOT NULL', $eventIndex[0]->indexdef);
     }
 
+    // ── Auto-renew scheduling (next_charge_at from Core horizon) ──
+
+    public function test_confirmed_success_schedules_next_charge_at_period_end(): void
+    {
+        $sub = $this->createConsentedSubscription();
+        $cycle = $this->createCycleForSubscription($sub, now(), now()->addMonth());
+        $attempt = $this->createAttemptOnCycle($cycle, PaymentAttemptStatus::Processing);
+
+        $result = $this->transitionService->transition($this->confirmedUpdate($attempt));
+
+        $this->assertTrue($result['success']);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::Active, $sub->status);
+        $this->assertNotNull($sub->current_period_end);
+        $this->assertNotNull($sub->next_charge_at);
+        $this->assertTrue($sub->next_charge_at->equalTo($sub->current_period_end));
+    }
+
+    public function test_authorized_does_not_schedule_next_charge(): void
+    {
+        $sub = $this->createConsentedSubscription();
+        $cycle = $this->createCycleForSubscription($sub, now(), now()->addMonth());
+        $attempt = $this->createAttemptOnCycle($cycle, PaymentAttemptStatus::Processing);
+
+        $result = $this->transitionService->transition(new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerPaymentId: $attempt->provider_payment_id,
+            internalOrderId: $attempt->internal_order_id,
+            normalizedStatus: PaymentAttemptStatus::Processing,
+            amount: 490,
+            currency: 'RUB',
+            raw: [
+                'Status' => 'AUTHORIZED',
+                'PaymentId' => $attempt->provider_payment_id,
+                'Amount' => 49000,
+            ],
+        ));
+
+        $this->assertTrue($result['success']);
+
+        $sub->refresh();
+        $this->assertNull($sub->next_charge_at);
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+    }
+
+    public function test_confirmed_with_auto_renew_disabled_does_not_schedule(): void
+    {
+        $sub = $this->createConsentedSubscription(['cancel_at_period_end' => true]);
+        $cycle = $this->createCycleForSubscription($sub, now(), now()->addMonth());
+        $attempt = $this->createAttemptOnCycle($cycle, PaymentAttemptStatus::Processing);
+
+        $result = $this->transitionService->transition($this->confirmedUpdate($attempt));
+
+        $this->assertTrue($result['success']);
+
+        $sub->refresh();
+        $this->assertNull($sub->next_charge_at);
+        $this->assertTrue($sub->cancel_at_period_end);
+    }
+
+    public function test_stacked_success_moves_next_charge_to_new_horizon_end(): void
+    {
+        $sub = $this->createConsentedSubscription();
+
+        $cycle1 = $this->createCycleForSubscription($sub, now(), now()->addMonth());
+        $attempt1 = $this->createAttemptOnCycle($cycle1, PaymentAttemptStatus::Processing);
+        $this->assertTrue($this->transitionService->transition($this->confirmedUpdate($attempt1))['success']);
+
+        $sub->refresh();
+        $firstEnd = $sub->current_period_end;
+        $this->assertNotNull($sub->next_charge_at);
+        $this->assertTrue($sub->next_charge_at->equalTo($firstEnd));
+
+        $cycle2 = $this->createCycleForSubscription($sub, now()->addMonth(), now()->addMonths(2));
+        $attempt2 = $this->createAttemptOnCycle($cycle2, PaymentAttemptStatus::Processing);
+        $this->assertTrue($this->transitionService->transition($this->confirmedUpdate($attempt2))['success']);
+
+        $sub->refresh();
+        $cycle2->refresh();
+        $this->assertSame(BillingSubscriptionStatus::Active, $sub->status);
+        $this->assertTrue($sub->current_period_end->equalTo($cycle2->period_end));
+        $this->assertTrue($sub->next_charge_at->equalTo($sub->current_period_end));
+        $this->assertTrue($sub->next_charge_at->greaterThan($firstEnd));
+    }
+
+    public function test_repeated_confirmed_is_idempotent_for_next_charge(): void
+    {
+        $sub = $this->createConsentedSubscription();
+        $cycle = $this->createCycleForSubscription($sub, now(), now()->addMonth());
+        $attempt = $this->createAttemptOnCycle($cycle, PaymentAttemptStatus::Processing);
+
+        $update = $this->confirmedUpdate($attempt);
+        $this->assertTrue($this->transitionService->transition($update)['success']);
+
+        $sub->refresh();
+        $scheduled = $sub->next_charge_at;
+        $this->assertNotNull($scheduled);
+
+        // Same payload → duplicate event → idempotent success
+        $result2 = $this->transitionService->transition($this->confirmedUpdate($attempt));
+        $this->assertTrue($result2['success']);
+
+        $sub->refresh();
+        $attempt->refresh();
+        $this->assertTrue($sub->next_charge_at->equalTo($scheduled));
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+    }
+
+    public function test_refund_of_last_granting_cycle_clears_next_charge(): void
+    {
+        $sub = $this->createConsentedSubscription();
+        $cycle = $this->createCycleForSubscription($sub, now(), now()->addMonth());
+        $attempt1 = $this->createAttemptOnCycle($cycle, PaymentAttemptStatus::Processing);
+        $this->assertTrue($this->transitionService->transition($this->confirmedUpdate($attempt1))['success']);
+
+        $sub->refresh();
+        $this->assertNotNull($sub->next_charge_at);
+
+        $attempt2 = $this->createAttemptOnCycle($cycle, PaymentAttemptStatus::Processing);
+        $result = $this->transitionService->transition(new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerPaymentId: $attempt2->provider_payment_id,
+            internalOrderId: $attempt2->internal_order_id,
+            normalizedStatus: PaymentAttemptStatus::Refunded,
+            amount: 490,
+            currency: 'RUB',
+            raw: [
+                'Status' => 'REFUNDED',
+                'PaymentId' => $attempt2->provider_payment_id,
+                'Amount' => 49000,
+            ],
+        ));
+
+        $this->assertTrue($result['success']);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::Canceled, $sub->status);
+        $this->assertNull($sub->next_charge_at);
+
+        // Consent fields untouched
+        $this->assertNotNull($sub->auto_renew_consent_at);
+        $this->assertSame(1, $sub->renewal_period_months);
+    }
+
     // ── Helpers ──
 
     private function createAttemptWithProviderPaymentId(
@@ -935,5 +1081,73 @@ class PaymentTransitionServiceTest extends TestCase
                 'legacy_subscription_id' => $legacyId,
             ],
         ]);
+    }
+
+    private function createConsentedSubscription(array $overrides = []): BillingSubscription
+    {
+        return BillingSubscription::create(array_merge([
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+            'renewal_period_months' => 1,
+            'auto_renew_consent_at' => now(),
+            'auto_renew_consent_version' => config('billing.recurring_terms_version'),
+            'cancel_at_period_end' => false,
+        ], $overrides));
+    }
+
+    private function createCycleForSubscription(
+        BillingSubscription $sub,
+        \DateTimeInterface $start,
+        \DateTimeInterface $end,
+    ): BillingCycle {
+        return BillingCycle::create([
+            'billing_subscription_id' => $sub->id,
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => $start,
+            'period_end' => $end,
+            'status' => BillingCycleStatus::Pending,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => 'payment',
+        ]);
+    }
+
+    private function createAttemptOnCycle(
+        BillingCycle $cycle,
+        PaymentAttemptStatus $status,
+    ): PaymentAttempt {
+        $maxNumber = PaymentAttempt::where('billing_cycle_id', $cycle->id)
+            ->max('attempt_number') ?? 0;
+
+        return PaymentAttempt::create([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'tbank',
+            'attempt_number' => $maxNumber + 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => 'tbank_'.bin2hex(random_bytes(8)),
+            'status' => $status,
+            'initiated_at' => now(),
+        ]);
+    }
+
+    private function confirmedUpdate(PaymentAttempt $attempt): ProviderStatusUpdate
+    {
+        return new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerPaymentId: $attempt->provider_payment_id,
+            internalOrderId: $attempt->internal_order_id,
+            normalizedStatus: PaymentAttemptStatus::Succeeded,
+            amount: 490,
+            currency: 'RUB',
+            raw: [
+                'Status' => 'CONFIRMED',
+                'PaymentId' => $attempt->provider_payment_id,
+                'Amount' => 49000,
+            ],
+        );
     }
 }

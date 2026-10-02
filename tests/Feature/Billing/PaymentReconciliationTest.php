@@ -14,6 +14,7 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Payment\PaymentReconciliationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
 
 class PaymentReconciliationTest extends TestCase
@@ -156,6 +157,69 @@ class PaymentReconciliationTest extends TestCase
         $attempt->refresh();
         $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
         $this->assertSame('reconciliation_timeout', $attempt->failure_category);
+    }
+
+    // ── Reconciliation success schedules next_charge_at ──
+
+    public function test_reconciliation_success_schedules_next_charge(): void
+    {
+        $sub = BillingSubscription::create([
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+            'renewal_period_months' => 1,
+            'auto_renew_consent_at' => now(),
+            'auto_renew_consent_version' => config('billing.recurring_terms_version'),
+            'cancel_at_period_end' => false,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $sub->id,
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now(),
+            'period_end' => now()->addMonth(),
+            'status' => BillingCycleStatus::Pending,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => 'payment',
+        ]);
+
+        $attempt = new PaymentAttempt([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'tbank',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => 'tbank_recon_'.bin2hex(random_bytes(4)),
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now()->subHour(),
+        ]);
+        $attempt->created_at = now()->subHour();
+        $attempt->save();
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'CONFIRMED',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertGreaterThan(0, $result['processed']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+
+        $sub->refresh();
+        $this->assertNotNull($sub->current_period_end);
+        $this->assertNotNull($sub->next_charge_at);
+        $this->assertTrue($sub->next_charge_at->equalTo($sub->current_period_end));
     }
 
     // ── Helpers ──

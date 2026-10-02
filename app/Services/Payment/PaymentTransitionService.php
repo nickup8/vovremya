@@ -115,6 +115,9 @@ class PaymentTransitionService
             // 9. Sync BillingSubscription horizon
             $this->syncSubscriptionHorizon($attempt);
 
+            // 9a. Schedule/clear auto-renew charge marker from the Core horizon
+            $this->syncAutoRenewSchedule($attempt, $update);
+
             // 10. Link ProviderEvent → PaymentAttempt
             $event->update(['payment_attempt_id' => $attempt->id]);
 
@@ -503,6 +506,48 @@ class PaymentTransitionService
             $sub->update([
                 'status' => \App\Enums\BillingSubscriptionStatus::Canceled,
             ]);
+        }
+    }
+
+    /**
+     * Maintain next_charge_at from the Billing Core horizon.
+     *
+     * The source of truth is the actual current_period_end (never now()+period):
+     * a successful transition on a consented, non-canceled subscription schedules
+     * the marker; a canceled subscription (e.g. last granting cycle refunded)
+     * clears it. Payment method presence is deliberately not checked here —
+     * that belongs to the renewal engine before a real charge.
+     */
+    private function syncAutoRenewSchedule(PaymentAttempt $attempt, ProviderStatusUpdate $update): void
+    {
+        $cycle = $attempt->billingCycle;
+        $sub = $cycle?->billingSubscription;
+
+        if ($sub === null) {
+            return;
+        }
+
+        if ($sub->status === \App\Enums\BillingSubscriptionStatus::Canceled) {
+            if ($sub->next_charge_at !== null) {
+                $sub->update(['next_charge_at' => null]);
+            }
+
+            return;
+        }
+
+        if ($update->normalizedStatus !== PaymentAttemptStatus::Succeeded) {
+            return;
+        }
+
+        if ($sub->auto_renew_consent_at === null
+            || $sub->renewal_period_months === null
+            || $sub->cancel_at_period_end !== false
+            || $sub->current_period_end === null) {
+            return;
+        }
+
+        if ($sub->next_charge_at === null || ! $sub->next_charge_at->equalTo($sub->current_period_end)) {
+            $sub->update(['next_charge_at' => $sub->current_period_end]);
         }
     }
 
