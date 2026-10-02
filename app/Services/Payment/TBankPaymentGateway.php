@@ -247,9 +247,12 @@ class TBankPaymentGateway implements PaymentGatewayInterface
     }
 
     /**
-     * Token = SHA-256(sorted scalar values + Password).
+     * Token = SHA-256(sorted scalar values including Password).
      *
-     * Token itself and nested objects/arrays are excluded from the hash input.
+     * Official T-Bank algorithm: Password is added as a regular "Password"
+     * key and participates in the alphabetical sort — it must NOT be appended
+     * after sorting. Token itself and nested objects/arrays are excluded from
+     * the hash input.
      */
     private function computeToken(array $payload): string
     {
@@ -264,11 +267,11 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             $scalars[$key] = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
         }
 
+        $scalars['Password'] = $this->password ?? '';
+
         ksort($scalars);
 
-        $concatenated = implode('', $scalars).($this->password ?? '');
-
-        return hash('sha256', $concatenated);
+        return hash('sha256', implode('', $scalars));
     }
 
     private function mapStatus(mixed $status): PaymentAttemptStatus

@@ -40,7 +40,8 @@ class TBankPaymentGatewayTest extends TestCase
     }
 
     /**
-     * Independent mirror of the T-Bank token algorithm for test assertions.
+     * Independent mirror of the official T-Bank token algorithm for tests:
+     * scalars only, Password participates in the alphabetical sort.
      */
     private function tokenFor(array $payload): string
     {
@@ -55,9 +56,11 @@ class TBankPaymentGatewayTest extends TestCase
             $scalars[$key] = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
         }
 
+        $scalars['Password'] = self::PASSWORD;
+
         ksort($scalars);
 
-        return hash('sha256', implode('', $scalars).self::PASSWORD);
+        return hash('sha256', implode('', $scalars));
     }
 
     private function fakeInitSuccess(): void
@@ -460,6 +463,88 @@ class TBankPaymentGatewayTest extends TestCase
         $this->expectException(RuntimeException::class);
 
         $this->gateway()->findPaymentByOrderId('renew_order_5');
+    }
+
+    // ── Token signing (official T-Bank algorithm) ──
+
+    public function test_official_webhook_token_example(): void
+    {
+        // Official T-Bank docs example: Password must participate in the
+        // alphabetical sort, NOT be appended after it.
+        $gateway = new TBankPaymentGateway(
+            terminalKey: '1234567890DEMO',
+            password: '11111111111',
+            baseUrl: 'https://securepay.tinkoff.ru',
+        );
+
+        $payload = [
+            'TerminalKey' => '1234567890DEMO',
+            'OrderId' => '000000',
+            'Success' => true,
+            'Status' => 'AUTHORIZED',
+            'PaymentId' => '0000000',
+            'ErrorCode' => 0,
+            'Amount' => 1111,
+            'CardId' => '000000',
+            'Pan' => '200000******0000',
+            'ExpDate' => '1111',
+            'RebillId' => '000000',
+            'Token' => '1c0964277d0213349243065a0d5b838b8e90d2d25f740d0f2767836e710e80c8',
+        ];
+
+        $this->assertTrue($gateway->verifyWebhook($payload, ''));
+    }
+
+    public function test_outgoing_token_signing_never_leaks_password(): void
+    {
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/v2/Init')) {
+                return Http::response([
+                    'Success' => true,
+                    'PaymentId' => '700123456',
+                    'PaymentURL' => 'https://securepay.tinkoff.ru/pay?paymentId=700123456',
+                ], 200);
+            }
+
+            // CheckOrder and everything else
+            return Http::response([
+                'Success' => true,
+                'Payments' => [],
+            ], 200);
+        });
+
+        $this->gateway()->findPaymentByOrderId('renew_order_sign');
+
+        // CheckOrder: Token signed with Password inside the alphabetical sort,
+        // Password itself never appears in the HTTP payload.
+        Http::assertSent(function ($request) {
+            if (! str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return isset($data['Token'])
+                && ! array_key_exists('Password', $data)
+                && hash_equals($this->tokenFor($data), $data['Token']);
+        });
+
+        $this->gateway()->createPayment(490, 'RUB', 'order_sign', ['auto_renew' => true]);
+
+        // Init: nested DATA stays excluded from the signature (the mirror
+        // skips arrays — a matching Token proves production does too).
+        Http::assertSent(function ($request) {
+            if (! str_ends_with($request->url(), '/v2/Init')) {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return isset($data['Token'])
+                && ! array_key_exists('Password', $data)
+                && isset($data['DATA'])
+                && hash_equals($this->tokenFor($data), $data['Token']);
+        });
     }
 
     public function test_webhook_valid_token_accepted(): void

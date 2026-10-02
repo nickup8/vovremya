@@ -130,9 +130,11 @@ class PaymentMethodCaptureTest extends TestCase
             $scalars[$key] = is_bool($value) ? ($value ? 'true' : 'false') : (string) $value;
         }
 
+        $scalars['Password'] = self::TBANK_PASSWORD;
+
         ksort($scalars);
 
-        return hash('sha256', implode('', $scalars).self::TBANK_PASSWORD);
+        return hash('sha256', implode('', $scalars));
     }
 
     private function sendTbankWebhook(array $payload): TestResponse
