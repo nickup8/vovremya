@@ -23,6 +23,13 @@ return [
     'core_entitlement' => env('BILLING_CORE_ENTITLEMENT', false),
 
     /*
+     * Version of the auto-renewal terms the user explicitly consents to.
+     *
+     * Distinct from pdn_consent_version / legal.version.
+     */
+    'recurring_terms_version' => '2026-10-02',
+
+    /*
      * Default payment gateway for checkout.
      */
     'default_gateway' => env('BILLING_DEFAULT_GATEWAY', 'mock'),

@@ -23,6 +23,8 @@ class BillingSubscription extends Model
         'cancel_at_period_end',
         'grace_until',
         'plan_price_id',
+        'auto_renew_consent_at',
+        'auto_renew_consent_version',
     ];
 
     protected function casts(): array
@@ -35,6 +37,7 @@ class BillingSubscription extends Model
             'next_charge_at' => 'datetime',
             'cancel_at_period_end' => 'boolean',
             'grace_until' => 'datetime',
+            'auto_renew_consent_at' => 'datetime',
         ];
     }
 

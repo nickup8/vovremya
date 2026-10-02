@@ -79,6 +79,7 @@ class PaymentController extends Controller
         $validated = $request->validate([
             'tariff_plan_id' => 'required|exists:tariff_plans,id',
             'period_months' => 'required|integer|in:1,3,6,12',
+            'auto_renew' => 'sometimes|boolean',
         ]);
 
         /** @var TariffPlan $plan */
@@ -96,6 +97,7 @@ class PaymentController extends Controller
             $master,
             $plan,
             $validated['period_months'],
+            (bool) ($validated['auto_renew'] ?? false),
         );
 
         return response()->json([

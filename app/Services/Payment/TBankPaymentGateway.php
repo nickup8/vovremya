@@ -29,19 +29,25 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         string $internalOrderId,
         array $context = [],
     ): PaymentInitiation {
+        $autoRenew = ($context['auto_renew'] ?? false) === true;
+
         $payload = [
             'TerminalKey' => $this->terminalKey,
             'Amount' => $amount * 100,
             'OrderId' => $internalOrderId,
             'Description' => 'Подписка ИРСИ',
             'PayType' => 'O',
-            'Recurrent' => 'Y',
-            'CustomerKey' => (string) ($context['workspace_id'] ?? ''),
-            'DATA' => ['OperationInitiatorType' => '1'],
-            'NotificationURL' => config('app.url').'/webhooks/payment/tbank',
-            'SuccessURL' => config('app.url').'/admin/billing',
-            'FailURL' => config('app.url').'/admin/billing',
         ];
+
+        if ($autoRenew) {
+            $payload['Recurrent'] = 'Y';
+            $payload['CustomerKey'] = (string) ($context['workspace_id'] ?? '');
+        }
+
+        $payload['DATA'] = ['OperationInitiatorType' => $autoRenew ? '1' : '0'];
+        $payload['NotificationURL'] = config('app.url').'/webhooks/payment/tbank';
+        $payload['SuccessURL'] = config('app.url').'/admin/billing';
+        $payload['FailURL'] = config('app.url').'/admin/billing';
         $payload['Token'] = $this->computeToken($payload);
 
         $response = Http::post($this->url('/v2/Init'), $payload);

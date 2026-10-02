@@ -107,7 +107,7 @@ class TBankPaymentGatewayTest extends TestCase
     {
         $this->fakeInitSuccess();
 
-        $this->gateway()->createPayment(490, 'RUB', 'order-1', ['workspace_id' => 55]);
+        $this->gateway()->createPayment(490, 'RUB', 'order-1', ['workspace_id' => 55, 'auto_renew' => true]);
 
         Http::assertSent(function ($request) {
             if ($request->url() !== 'https://securepay.tinkoff.ru/v2/Init') {
@@ -140,6 +140,42 @@ class TBankPaymentGatewayTest extends TestCase
 
         $this->assertSame('700123456', $initiation->providerPaymentId);
         $this->assertSame('https://securepay.tinkoff.ru/pay?paymentId=700123456', $initiation->checkoutUrl);
+    }
+
+    public function test_init_without_auto_renew_is_not_recurrent(): void
+    {
+        $this->fakeInitSuccess();
+
+        // auto_renew отсутствует
+        $this->gateway()->createPayment(490, 'RUB', 'order_a', ['workspace_id' => 55]);
+        // auto_renew=false
+        $this->gateway()->createPayment(490, 'RUB', 'order_b', ['workspace_id' => 55, 'auto_renew' => false]);
+
+        Http::assertSentCount(2);
+
+        foreach (Http::recorded() as [$request]) {
+            $data = $request->data();
+
+            $this->assertSame(49000, $data['Amount']);
+            $this->assertArrayNotHasKey('Recurrent', $data);
+            $this->assertArrayNotHasKey('CustomerKey', $data);
+            $this->assertSame(['OperationInitiatorType' => '0'], $data['DATA']);
+        }
+    }
+
+    public function test_init_with_auto_renew_true_is_recurrent(): void
+    {
+        $this->fakeInitSuccess();
+
+        $this->gateway()->createPayment(490, 'RUB', 'order_recurrent', ['workspace_id' => 55, 'auto_renew' => true]);
+
+        Http::assertSent(function ($request) {
+            $data = $request->data();
+
+            return $data['Recurrent'] === 'Y'
+                && $data['CustomerKey'] === '55'
+                && $data['DATA'] === ['OperationInitiatorType' => '1'];
+        });
     }
 
     public function test_invalid_init_response_throws_exception(): void

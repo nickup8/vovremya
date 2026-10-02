@@ -34,6 +34,7 @@ class BillingCoreWriter
         array $price,
         int $periodMonths,
         string $provider = 'mock',
+        bool $autoRenew = false,
     ): array {
         $workspaceId = $legacy->workspace_id;
 
@@ -64,6 +65,18 @@ class BillingCoreWriter
                     'plan_price_id' => $planPriceId,
                 ],
             );
+        }
+
+        // Explicit auto-renew consent. Consent of false writes nothing, so an
+        // existing consent is never erased by a manual checkout.
+        // next_charge_at stays null until the charge scheduler lands.
+        if ($autoRenew) {
+            $billingSub->update([
+                'renewal_period_months' => $periodMonths,
+                'auto_renew_consent_at' => now(),
+                'auto_renew_consent_version' => config('billing.recurring_terms_version'),
+                'cancel_at_period_end' => false,
+            ]);
         }
 
         // Проверяем существующий cycle по ТОЧНЫМ period_start/period_end

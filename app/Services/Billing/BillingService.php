@@ -74,7 +74,7 @@ class BillingService
         ];
     }
 
-    public function subscribe(User $master, TariffPlan $plan, int $periodMonths): array
+    public function subscribe(User $master, TariffPlan $plan, int $periodMonths, bool $autoRenew = false): array
     {
         if (! $master->workspace_id) {
             $workspace = app(WorkspaceService::class)->createForUser($master);
@@ -93,7 +93,7 @@ class BillingService
 
         // ── Atomic lock: весь checkout flow (TTL 120s > HTTP timeout ~20s) ──
         try {
-            return Cache::lock($lockKey, 120)->block(30, function () use ($master, $plan, $periodMonths, $price) {
+            return Cache::lock($lockKey, 120)->block(30, function () use ($master, $plan, $periodMonths, $price, $autoRenew) {
                 // ── Check for in-flight attempt (workspace+plan, no period) ──
                 $inFlight = $this->coreWriter->findExistingInFlightAttempt(
                     $master->workspace_id,
@@ -110,7 +110,7 @@ class BillingService
                     : $this->computeLegacyPeriod($master, $periodMonths);
 
                 // ── Phase A: DB intent (legacy + Core) ──
-                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period) {
+                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period, $autoRenew) {
                     // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
                     if ($master->workspace_id) {
                         Subscription::where('workspace_id', $master->workspace_id)
@@ -134,6 +134,7 @@ class BillingService
                         $price,
                         $periodMonths,
                         $this->gateway->name(),
+                        $autoRenew,
                     );
 
                     return [
@@ -149,7 +150,10 @@ class BillingService
                         amount: $intent['price']['final'],
                         currency: $intent['price']['currency'] ?? 'RUB',
                         internalOrderId: $intent['coreResult']['internalOrderId'],
-                        context: ['workspace_id' => $master->workspace_id],
+                        context: [
+                            'workspace_id' => $master->workspace_id,
+                            'auto_renew' => $autoRenew,
+                        ],
                     );
                 } catch (\Throwable $e) {
                     DB::transaction(fn () => $this->coreWriter->checkoutFailed($intent['coreResult']['internalOrderId']));
