@@ -108,6 +108,7 @@ export default function BillingPage() {
     const [selectedPeriod, setSelectedPeriod] = useState(3);
     const [loading, setLoading] = useState(false);
     const [modalOpen, setModalOpen] = useState(false);
+    const [autoRenew, setAutoRenew] = useState(false);
 
     const selectedPrice = proPlan?.prices.find((p) => p.period_months === selectedPeriod);
     const monthlyEquiv = selectedPrice ? Math.round(selectedPrice.final / selectedPeriod) : 0;
@@ -124,6 +125,7 @@ export default function BillingPage() {
             const res = await axios.post('/admin/checkout', {
                 tariff_plan_id: proPlan.id,
                 period_months: selectedPeriod,
+                auto_renew: autoRenew,
             });
             const url = res.data?.checkout_url;
             if (url) {
@@ -337,6 +339,32 @@ export default function BillingPage() {
                                 </div>
                                 <div className="mt-[14px] text-[13px] leading-[18px] text-[var(--color-graphite)]">
                                     После продолжения вы перейдёте на страницу платёжного шлюза. Текущий оплаченный срок сохранится, новый период добавится после него.
+                                </div>
+                                <div className="mt-4 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-3">
+                                    <label className="flex cursor-pointer items-start gap-[10px]">
+                                        <input
+                                            type="checkbox"
+                                            checked={autoRenew}
+                                            onChange={(e) => setAutoRenew(e.target.checked)}
+                                            className="mt-[2px] h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-orange)]"
+                                        />
+                                        <span className="min-w-0">
+                                            <span className="block text-[13px] font-semibold leading-[18px] text-[var(--color-ink)]">
+                                                Автоматически продлевать Профи каждые {selectedPeriod} мес.
+                                            </span>
+                                            <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
+                                                После окончания оплаченного периода ИРСИ сможет автоматически списать стоимость следующего периода с сохранённого способа оплаты. Автопродление можно будет отключить до следующего списания.
+                                            </span>
+                                        </span>
+                                    </label>
+                                    <a
+                                        href="/offer#auto-renew"
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="mt-2.5 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
+                                    >
+                                        Условия автопродления
+                                    </a>
                                 </div>
                                 <div className="mt-5 flex justify-end gap-2">
                                     <button
