@@ -42,6 +42,7 @@ interface PageProps {
     };
     auth?: { user?: AuthUser };
     tariff_limits?: { total: number | null; used: number } | null;
+    payment_return?: 'success' | 'failed' | null;
     [key: string]: unknown;
 }
 
@@ -114,33 +115,38 @@ export default function BillingPage() {
     const [autoRenewActive, setAutoRenewActive] = useState(Boolean(current.auto_renew_enabled));
     const [disablingAutoRenew, setDisablingAutoRenew] = useState(false);
 
-    const [paymentNotice, setPaymentNotice] = useState<'success' | 'failed' | null>(() => {
-        if (typeof window === 'undefined') {
-            return null;
-        }
-
-        const value = new URL(window.location.href).searchParams.get('payment');
-
-        return value === 'success' || value === 'failed' ? value : null;
-    });
+    // UX-only signal flashed by the return routes — webhook / Billing Core
+    // remains the source of truth for payment status.
+    const [paymentResult, setPaymentResult] = useState<'success' | 'failed' | null>(
+        props.payment_return ?? null,
+    );
     const renewSectionRef = useRef<HTMLElement | null>(null);
 
-    // UX-only: strip the payment return query param from the address bar.
-    // Never affects subscription status / entitlement — webhook is the source of truth.
     useEffect(() => {
-        const url = new URL(window.location.href);
-
-        if (!url.searchParams.has('payment')) {
+        if (paymentResult === null) {
             return;
         }
 
-        url.searchParams.delete('payment');
-        window.history.replaceState(null, '', url.toString());
-    }, []);
+        function onKeyDown(event: KeyboardEvent) {
+            if (event.key === 'Escape') {
+                setPaymentResult(null);
+            }
+        }
 
-    function scrollToRenew() {
-        renewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-        renewSectionRef.current?.focus({ preventScroll: true });
+        window.addEventListener('keydown', onKeyDown);
+
+        return () => window.removeEventListener('keydown', onKeyDown);
+    }, [paymentResult]);
+
+    function closePaymentResult(focusRenew: boolean) {
+        setPaymentResult(null);
+
+        if (focusRenew) {
+            requestAnimationFrame(() => {
+                renewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                renewSectionRef.current?.focus({ preventScroll: true });
+            });
+        }
     }
 
     const selectedPrice = proPlan?.prices.find((p) => p.period_months === selectedPeriod);
@@ -205,54 +211,6 @@ export default function BillingPage() {
             <AdminLayout title="Тарифы и оплата" auth={auth} fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
                     <div className="w-full max-w-[1180px] space-y-4 pb-[180px] md:pb-10">
-
-                    {/* ─── 0. Payment return notice (UX-only) ─── */}
-                    {paymentNotice && (
-                        <section
-                            role="status"
-                            className={`rounded-[16px] border px-5 py-4 ${
-                                paymentNotice === 'success'
-                                    ? 'border-[var(--color-green)]/40 bg-[var(--color-green-bg)]'
-                                    : 'border-[var(--color-red)]/40 bg-[var(--color-red-bg)]'
-                            }`}
-                        >
-                            <div className="flex items-start justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className={`text-[15px] font-bold leading-[21px] tracking-[-.015em] ${
-                                        paymentNotice === 'success' ? 'text-[var(--color-green)]' : 'text-[var(--color-red)]'
-                                    }`}>
-                                        {paymentNotice === 'success' ? 'Оплата прошла' : 'Оплата не завершена'}
-                                    </div>
-                                    <div className="mt-[3px] text-[13px] leading-[18px] text-[var(--color-ink)]">
-                                        {paymentNotice === 'success'
-                                            ? current.is_paid && current.tariff === 'pro' && current.expires_at
-                                                ? `Профи активен до ${formatExpiry(current.expires_at)}.`
-                                                : 'Платёж принят. Статус тарифа обновляется — это может занять несколько секунд.'
-                                            : 'Тариф не изменён. Вы можете попробовать оплатить ещё раз.'}
-                                    </div>
-                                    {paymentNotice === 'failed' && (
-                                        <button
-                                            type="button"
-                                            onClick={scrollToRenew}
-                                            className="mt-3 h-9 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
-                                        >
-                                            Попробовать ещё раз
-                                        </button>
-                                    )}
-                                </div>
-                                <button
-                                    type="button"
-                                    aria-label="Закрыть"
-                                    onClick={() => setPaymentNotice(null)}
-                                    className="shrink-0 cursor-pointer rounded-[8px] p-1.5 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
-                                >
-                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
-                                        <path d="M18 6 6 18M6 6l12 12" />
-                                    </svg>
-                                </button>
-                            </div>
-                        </section>
-                    )}
 
                     {/* ─── 1. Current Plan Strip ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
@@ -505,6 +463,79 @@ export default function BillingPage() {
                                         className="h-10 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
                                     >
                                         Продолжить
+                                    </button>
+                                </div>
+                            </div>
+                        </div>
+                    </>
+                )}
+
+                {/* ─── 6. Payment Return Dialog (UX-only, one-shot flash) ─── */}
+                {paymentResult !== null && (
+                    <>
+                        <div
+                            className="fixed inset-0 z-[130] bg-[var(--color-ink)]/45"
+                            onClick={() => closePaymentResult(false)}
+                            aria-hidden="true"
+                        />
+                        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+                            <div
+                                role="dialog"
+                                aria-modal="true"
+                                aria-labelledby="payment-result-title"
+                                className="w-full max-w-[440px] rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface)] p-6 shadow-[0_16px_48px_rgba(24,24,24,0.18)]"
+                            >
+                                <div
+                                    className={`flex h-12 w-12 items-center justify-center rounded-full ${
+                                        paymentResult === 'success'
+                                            ? 'bg-[var(--color-green-bg)] text-[var(--color-green)]'
+                                            : 'bg-[var(--color-red-bg)] text-[var(--color-red)]'
+                                    }`}
+                                >
+                                    {paymentResult === 'success' ? (
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M20 6 9 17l-5-5" />
+                                        </svg>
+                                    ) : (
+                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                            <path d="M18 6 6 18M6 6l12 12" />
+                                        </svg>
+                                    )}
+                                </div>
+
+                                <div
+                                    id="payment-result-title"
+                                    className="mt-4 text-[20px] font-bold leading-[26px] tracking-[-.02em] text-[var(--color-ink)]"
+                                >
+                                    {paymentResult === 'success' ? 'Оплата прошла' : 'Оплата не прошла'}
+                                </div>
+                                <div className="mt-2 text-[14px] leading-[20px] text-[var(--color-graphite)]">
+                                    {paymentResult === 'success'
+                                        ? 'Платёж принят. Период Профи обновится автоматически.'
+                                        : 'Тариф не изменён. Попробуйте ещё раз.'}
+                                </div>
+
+                                <div className="mt-6 flex flex-col gap-2 max-[400px]:flex-col-reverse min-[401px]:flex-row min-[401px]:justify-end">
+                                    {paymentResult === 'failed' && (
+                                        <button
+                                            type="button"
+                                            onClick={() => closePaymentResult(false)}
+                                            className="h-10 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-5 text-[14px] font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                        >
+                                            Закрыть
+                                        </button>
+                                    )}
+                                    <button
+                                        type="button"
+                                        autoFocus
+                                        onClick={() => closePaymentResult(paymentResult === 'failed')}
+                                        className={`h-10 cursor-pointer rounded-[10px] border-0 px-5 text-[14px] font-semibold text-white transition-colors ${
+                                            paymentResult === 'success'
+                                                ? 'bg-[var(--color-green)] hover:opacity-90'
+                                                : 'bg-[var(--color-orange)] hover:bg-[var(--color-orange-600)]'
+                                        }`}
+                                    >
+                                        {paymentResult === 'success' ? 'Продолжить' : 'Попробовать ещё раз'}
                                     </button>
                                 </div>
                             </div>

@@ -141,8 +141,8 @@ class TBankPaymentGatewayTest extends TestCase
                 && $data['CustomerKey'] === '55'
                 && $data['DATA'] === ['OperationInitiatorType' => '1']
                 && $data['NotificationURL'] === config('app.url').'/webhooks/payment/tbank'
-                && $data['SuccessURL'] === config('app.url').'/admin/billing?payment=success'
-                && $data['FailURL'] === config('app.url').'/admin/billing?payment=failed'
+                && $data['SuccessURL'] === config('app.url').'/admin/billing/payment/success'
+                && $data['FailURL'] === config('app.url').'/admin/billing/payment/failed'
                 && isset($data['Token'])
                 && hash_equals($this->tokenFor($data), $data['Token']);
         });

@@ -47,10 +47,10 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
         $payload['DATA'] = ['OperationInitiatorType' => $autoRenew ? '1' : '0'];
         $payload['NotificationURL'] = config('app.url').'/webhooks/payment/tbank';
-        // `payment` query param is UX-only feedback for the billing page —
-        // the source of truth for status stays the webhook / Billing Core.
-        $payload['SuccessURL'] = config('app.url').'/admin/billing?payment=success';
-        $payload['FailURL'] = config('app.url').'/admin/billing?payment=failed';
+        // Return routes only set a one-shot UX flash — status source of truth
+        // stays the webhook / Billing Core.
+        $payload['SuccessURL'] = config('app.url').'/admin/billing/payment/success';
+        $payload['FailURL'] = config('app.url').'/admin/billing/payment/failed';
         $payload['Token'] = $this->computeToken($payload);
 
         $response = Http::post($this->url('/v2/Init'), $payload);

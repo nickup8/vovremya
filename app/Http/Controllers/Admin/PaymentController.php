@@ -46,6 +46,11 @@ class PaymentController extends Controller
 
         $user = $request->user();
 
+        // One-shot UX signal from the payment return routes — never a status
+        // source of truth (webhook / Billing Core owns that).
+        $flash = session('payment_return');
+        $paymentReturn = in_array($flash, ['success', 'failed'], true) ? $flash : null;
+
         if (config('billing.core_entitlement') && $user->workspace) {
             $plan = app(EntitlementService::class)->currentPlan($user->workspace);
             $subscription = $this->activeBillingSubscription($user->workspace_id);
@@ -64,6 +69,7 @@ class PaymentController extends Controller
                         && $subscription->cancel_at_period_end === false,
                     'renewal_period_months' => $subscription?->renewal_period_months,
                 ],
+                'payment_return' => $paymentReturn,
             ]);
         }
 
@@ -78,7 +84,30 @@ class PaymentController extends Controller
                 'expires_at' => $activeSub?->expires_at?->toIso8601String(),
                 'days_left' => $activeSub?->daysLeft() ?? 0,
             ],
+            'payment_return' => $paymentReturn,
         ]);
+    }
+
+    /**
+     * Payment provider success return — sets a one-shot UX flash only.
+     * No billing data is read or mutated here.
+     */
+    public function paymentReturnSuccess(Request $request)
+    {
+        abort_unless($request->user()->role->canManageBilling(), 403);
+
+        return redirect('/admin/billing')->with('payment_return', 'success');
+    }
+
+    /**
+     * Payment provider failure return — sets a one-shot UX flash only.
+     * No billing data is read or mutated here.
+     */
+    public function paymentReturnFailed(Request $request)
+    {
+        abort_unless($request->user()->role->canManageBilling(), 403);
+
+        return redirect('/admin/billing')->with('payment_return', 'failed');
     }
 
     public function createCheckout(Request $request): JsonResponse
