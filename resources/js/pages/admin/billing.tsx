@@ -474,7 +474,7 @@ export default function BillingPage() {
                 {paymentResult !== null && (
                     <>
                         <div
-                            className="fixed inset-0 z-[130] bg-[var(--color-ink)]/45"
+                            className="fixed inset-0 z-[130] bg-black/30 backdrop-blur-[2px]"
                             onClick={() => closePaymentResult(false)}
                             aria-hidden="true"
                         />
@@ -483,60 +483,60 @@ export default function BillingPage() {
                                 role="dialog"
                                 aria-modal="true"
                                 aria-labelledby="payment-result-title"
-                                className="w-full max-w-[440px] rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface)] p-6 shadow-[0_16px_48px_rgba(24,24,24,0.18)]"
+                                className="w-full max-w-[412px] rounded-[20px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5 shadow-[0_12px_40px_rgba(24,24,24,0.14)] md:p-6"
                             >
-                                <div
-                                    className={`flex h-12 w-12 items-center justify-center rounded-full ${
-                                        paymentResult === 'success'
-                                            ? 'bg-[var(--color-green-bg)] text-[var(--color-green)]'
-                                            : 'bg-[var(--color-red-bg)] text-[var(--color-red)]'
-                                    }`}
-                                >
-                                    {paymentResult === 'success' ? (
-                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M20 6 9 17l-5-5" />
-                                        </svg>
-                                    ) : (
-                                        <svg width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                            <path d="M18 6 6 18M6 6l12 12" />
-                                        </svg>
-                                    )}
-                                </div>
-
-                                <div
-                                    id="payment-result-title"
-                                    className="mt-4 text-[20px] font-bold leading-[26px] tracking-[-.02em] text-[var(--color-ink)]"
-                                >
-                                    {paymentResult === 'success' ? 'Оплата прошла' : 'Оплата не прошла'}
-                                </div>
-                                <div className="mt-2 text-[14px] leading-[20px] text-[var(--color-graphite)]">
-                                    {paymentResult === 'success'
-                                        ? 'Платёж принят. Период Профи обновится автоматически.'
-                                        : 'Тариф не изменён. Попробуйте ещё раз.'}
-                                </div>
-
-                                <div className="mt-6 flex flex-col gap-2 max-[400px]:flex-col-reverse min-[401px]:flex-row min-[401px]:justify-end">
-                                    {paymentResult === 'failed' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => closePaymentResult(false)}
-                                            className="h-10 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-5 text-[14px] font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
-                                        >
-                                            Закрыть
-                                        </button>
-                                    )}
-                                    <button
-                                        type="button"
-                                        autoFocus
-                                        onClick={() => closePaymentResult(paymentResult === 'failed')}
-                                        className={`h-10 cursor-pointer rounded-[10px] border-0 px-5 text-[14px] font-semibold text-white transition-colors ${
+                                <div className="flex flex-col items-center text-center">
+                                    <div
+                                        className={`flex h-12 w-12 items-center justify-center rounded-full ${
                                             paymentResult === 'success'
-                                                ? 'bg-[var(--color-green)] hover:opacity-90'
-                                                : 'bg-[var(--color-orange)] hover:bg-[var(--color-orange-600)]'
+                                                ? 'bg-[var(--color-green-bg)] text-[var(--color-green)]'
+                                                : 'bg-[var(--color-red-bg)] text-[var(--color-red)]'
                                         }`}
                                     >
-                                        {paymentResult === 'success' ? 'Продолжить' : 'Попробовать ещё раз'}
-                                    </button>
+                                        {paymentResult === 'success' ? (
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M20 6 9 17l-5-5" />
+                                            </svg>
+                                        ) : (
+                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
+                                                <path d="M18 6 6 18M6 6l12 12" />
+                                            </svg>
+                                        )}
+                                    </div>
+
+                                    <div
+                                        id="payment-result-title"
+                                        className="mt-4 text-[18px] font-bold leading-[24px] tracking-[-.015em] text-[var(--color-ink)]"
+                                    >
+                                        {paymentResult === 'success' ? 'Оплата прошла' : 'Оплата не завершена'}
+                                    </div>
+                                    <div className="mt-1.5 text-[14px] leading-[20px] text-[var(--color-graphite)]">
+                                        {paymentResult === 'success'
+                                            ? current.expires_at
+                                                ? `Профи активен до ${formatExpiry(current.expires_at)}.`
+                                                : 'Платёж принят. Период Профи обновится автоматически.'
+                                            : 'Тариф и срок подписки не изменились. Попробуйте оплатить ещё раз.'}
+                                    </div>
+
+                                    <div className="mt-5 flex w-full flex-col gap-1">
+                                        <button
+                                            type="button"
+                                            autoFocus
+                                            onClick={() => closePaymentResult(paymentResult === 'failed')}
+                                            className="h-11 w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] px-5 text-[14px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)]"
+                                        >
+                                            {paymentResult === 'success' ? 'Продолжить' : 'Попробовать ещё раз'}
+                                        </button>
+                                        {paymentResult === 'failed' && (
+                                            <button
+                                                type="button"
+                                                onClick={() => closePaymentResult(false)}
+                                                className="h-11 w-full cursor-pointer rounded-[12px] border-0 bg-transparent px-5 text-[14px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
+                                            >
+                                                Закрыть
+                                            </button>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
                         </div>
