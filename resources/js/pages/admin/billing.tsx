@@ -470,73 +470,99 @@ export default function BillingPage() {
                     </>
                 )}
 
-                {/* ─── 6. Payment Return Dialog (UX-only, one-shot flash) ─── */}
+                {/* ─── 6. Payment Return Dialog (UX-only, one-shot flash; design: docs/ux-validation/irsi_payment_result_prototype.html) ─── */}
                 {paymentResult !== null && (
                     <>
                         <div
-                            className="fixed inset-0 z-[130] bg-black/30 backdrop-blur-[2px]"
+                            className="fixed inset-0 z-[130] bg-black/[.22] backdrop-blur-[3px]"
                             onClick={() => closePaymentResult(false)}
                             aria-hidden="true"
                         />
-                        <div className="fixed inset-0 z-[140] flex items-center justify-center p-4">
+                        <div className="fixed inset-0 z-[140] flex items-center justify-center p-5">
                             <div
                                 role="dialog"
                                 aria-modal="true"
                                 aria-labelledby="payment-result-title"
-                                className="w-full max-w-[412px] rounded-[20px] border border-[var(--color-line)] bg-[var(--color-surface)] p-5 shadow-[0_12px_40px_rgba(24,24,24,0.14)] md:p-6"
+                                className="w-full max-w-[430px] overflow-hidden rounded-[22px] border border-black/[.08] bg-[var(--color-surface)] shadow-[0_22px_70px_rgba(24,24,24,0.18)]"
                             >
-                                <div className="flex flex-col items-center text-center">
-                                    <div
-                                        className={`flex h-12 w-12 items-center justify-center rounded-full ${
-                                            paymentResult === 'success'
-                                                ? 'bg-[var(--color-green-bg)] text-[var(--color-green)]'
-                                                : 'bg-[var(--color-red-bg)] text-[var(--color-red)]'
-                                        }`}
-                                    >
-                                        {paymentResult === 'success' ? (
-                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M20 6 9 17l-5-5" />
-                                            </svg>
-                                        ) : (
-                                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round">
-                                                <path d="M18 6 6 18M6 6l12 12" />
-                                            </svg>
-                                        )}
+                                <div className="p-5 pt-6 md:px-7 md:pb-6 md:pt-7">
+                                    <div className="mb-[18px] flex items-center gap-3">
+                                        <div
+                                            className={`flex h-10 w-10 flex-none items-center justify-center rounded-[12px] ${
+                                                paymentResult === 'success'
+                                                    ? 'bg-[var(--color-green-bg)] text-[var(--color-green)]'
+                                                    : 'bg-[var(--color-red-bg)] text-[var(--color-red)]'
+                                            }`}
+                                        >
+                                            {paymentResult === 'success' ? (
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                                                    <path d="m5 12 4 4L19 6" />
+                                                </svg>
+                                            ) : (
+                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                                                    <path d="m7 7 10 10M17 7 7 17" />
+                                                </svg>
+                                            )}
+                                        </div>
+                                        <div className="text-[12px] font-bold uppercase leading-4 tracking-[.04em] text-[var(--color-graphite)]">
+                                            {paymentResult === 'success' ? 'Платёж завершён' : 'Платёж не завершён'}
+                                        </div>
                                     </div>
 
                                     <div
                                         id="payment-result-title"
-                                        className="mt-4 text-[18px] font-bold leading-[24px] tracking-[-.015em] text-[var(--color-ink)]"
+                                        className="text-[22px] font-bold leading-[1.14] tracking-[-.035em] text-[var(--color-ink)] md:text-[24px]"
                                     >
                                         {paymentResult === 'success' ? 'Оплата прошла' : 'Оплата не завершена'}
                                     </div>
-                                    <div className="mt-1.5 text-[14px] leading-[20px] text-[var(--color-graphite)]">
+                                    <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-graphite)]">
                                         {paymentResult === 'success'
-                                            ? current.expires_at
-                                                ? `Профи активен до ${formatExpiry(current.expires_at)}.`
-                                                : 'Платёж принят. Период Профи обновится автоматически.'
-                                            : 'Тариф и срок подписки не изменились. Попробуйте оплатить ещё раз.'}
-                                    </div>
+                                            ? 'Профи продлён. Новый период уже добавлен к текущей подписке.'
+                                            : 'Списание не завершено. Тариф и срок подписки остались без изменений.'}
+                                    </p>
 
-                                    <div className="mt-5 flex w-full flex-col gap-1">
+                                    {paymentResult === 'success' && (
+                                        <div className="mt-[22px] grid gap-[9px] border-y border-[var(--color-line)] py-[15px]">
+                                            <div className="flex items-center justify-between gap-5 text-[13px]">
+                                                <span className="text-[var(--color-graphite)]">Тариф</span>
+                                                <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">Профи</strong>
+                                            </div>
+                                            {current.expires_at && (
+                                                <div className="flex items-center justify-between gap-5 text-[13px]">
+                                                    <span className="text-[var(--color-graphite)]">Активен до</span>
+                                                    <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">
+                                                        {formatExpiry(current.expires_at)}
+                                                    </strong>
+                                                </div>
+                                            )}
+                                        </div>
+                                    )}
+
+                                    <div className="mt-3 text-[12px] leading-[1.45] text-[var(--color-graphite)]/75">
+                                        {paymentResult === 'success'
+                                            ? 'Можно продолжать работу — дополнительные действия не нужны.'
+                                            : 'Вернитесь к выбору срока и попробуйте оплатить ещё раз.'}
+                                    </div>
+                                </div>
+
+                                <div className="grid gap-[9px] p-5 pt-4 md:px-7 md:pb-6 md:pt-[18px]">
+                                    <button
+                                        type="button"
+                                        autoFocus
+                                        onClick={() => closePaymentResult(paymentResult === 'failed')}
+                                        className="h-[46px] w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] text-[14px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]"
+                                    >
+                                        {paymentResult === 'success' ? 'Продолжить' : 'Попробовать ещё раз'}
+                                    </button>
+                                    {paymentResult === 'failed' && (
                                         <button
                                             type="button"
-                                            autoFocus
-                                            onClick={() => closePaymentResult(paymentResult === 'failed')}
-                                            className="h-11 w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] px-5 text-[14px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)]"
+                                            onClick={() => closePaymentResult(false)}
+                                            className="h-[42px] w-full cursor-pointer rounded-[10px] border-0 bg-transparent text-[13px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
                                         >
-                                            {paymentResult === 'success' ? 'Продолжить' : 'Попробовать ещё раз'}
+                                            Закрыть
                                         </button>
-                                        {paymentResult === 'failed' && (
-                                            <button
-                                                type="button"
-                                                onClick={() => closePaymentResult(false)}
-                                                className="h-11 w-full cursor-pointer rounded-[12px] border-0 bg-transparent px-5 text-[14px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
-                                            >
-                                                Закрыть
-                                            </button>
-                                        )}
-                                    </div>
+                                    )}
                                 </div>
                             </div>
                         </div>
