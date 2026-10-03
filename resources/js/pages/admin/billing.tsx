@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Head, usePage } from '@inertiajs/react';
 import AdminLayout from '@/layouts/AdminLayout';
 import axios from 'axios';
@@ -114,6 +114,35 @@ export default function BillingPage() {
     const [autoRenewActive, setAutoRenewActive] = useState(Boolean(current.auto_renew_enabled));
     const [disablingAutoRenew, setDisablingAutoRenew] = useState(false);
 
+    const [paymentNotice, setPaymentNotice] = useState<'success' | 'failed' | null>(() => {
+        if (typeof window === 'undefined') {
+            return null;
+        }
+
+        const value = new URL(window.location.href).searchParams.get('payment');
+
+        return value === 'success' || value === 'failed' ? value : null;
+    });
+    const renewSectionRef = useRef<HTMLElement | null>(null);
+
+    // UX-only: strip the payment return query param from the address bar.
+    // Never affects subscription status / entitlement — webhook is the source of truth.
+    useEffect(() => {
+        const url = new URL(window.location.href);
+
+        if (!url.searchParams.has('payment')) {
+            return;
+        }
+
+        url.searchParams.delete('payment');
+        window.history.replaceState(null, '', url.toString());
+    }, []);
+
+    function scrollToRenew() {
+        renewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        renewSectionRef.current?.focus({ preventScroll: true });
+    }
+
     const selectedPrice = proPlan?.prices.find((p) => p.period_months === selectedPeriod);
     const monthlyEquiv = selectedPrice ? Math.round(selectedPrice.final / selectedPeriod) : 0;
     const saving = selectedPrice ? selectedPrice.base - selectedPrice.final : 0;
@@ -177,6 +206,54 @@ export default function BillingPage() {
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
                     <div className="w-full max-w-[1180px] space-y-4 pb-[180px] md:pb-10">
 
+                    {/* ─── 0. Payment return notice (UX-only) ─── */}
+                    {paymentNotice && (
+                        <section
+                            role="status"
+                            className={`rounded-[16px] border px-5 py-4 ${
+                                paymentNotice === 'success'
+                                    ? 'border-[var(--color-green)]/40 bg-[var(--color-green-bg)]'
+                                    : 'border-[var(--color-red)]/40 bg-[var(--color-red-bg)]'
+                            }`}
+                        >
+                            <div className="flex items-start justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className={`text-[15px] font-bold leading-[21px] tracking-[-.015em] ${
+                                        paymentNotice === 'success' ? 'text-[var(--color-green)]' : 'text-[var(--color-red)]'
+                                    }`}>
+                                        {paymentNotice === 'success' ? 'Оплата прошла' : 'Оплата не завершена'}
+                                    </div>
+                                    <div className="mt-[3px] text-[13px] leading-[18px] text-[var(--color-ink)]">
+                                        {paymentNotice === 'success'
+                                            ? current.is_paid && current.tariff === 'pro' && current.expires_at
+                                                ? `Профи активен до ${formatExpiry(current.expires_at)}.`
+                                                : 'Платёж принят. Статус тарифа обновляется — это может занять несколько секунд.'
+                                            : 'Тариф не изменён. Вы можете попробовать оплатить ещё раз.'}
+                                    </div>
+                                    {paymentNotice === 'failed' && (
+                                        <button
+                                            type="button"
+                                            onClick={scrollToRenew}
+                                            className="mt-3 h-9 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
+                                        >
+                                            Попробовать ещё раз
+                                        </button>
+                                    )}
+                                </div>
+                                <button
+                                    type="button"
+                                    aria-label="Закрыть"
+                                    onClick={() => setPaymentNotice(null)}
+                                    className="shrink-0 cursor-pointer rounded-[8px] p-1.5 text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
+                                >
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+                                        <path d="M18 6 6 18M6 6l12 12" />
+                                    </svg>
+                                </button>
+                            </div>
+                        </section>
+                    )}
+
                     {/* ─── 1. Current Plan Strip ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
                         <div className="grid min-w-0 grid-cols-[minmax(0,1fr)_auto] items-center gap-4 max-md:grid-cols-1">
@@ -227,7 +304,11 @@ export default function BillingPage() {
                     )}
 
                     {/* ─── 2. Renewal Section ─── */}
-                    <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
+                    <section
+                        ref={renewSectionRef}
+                        tabIndex={-1}
+                        className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5 outline-none"
+                    >
                         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <div className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">
