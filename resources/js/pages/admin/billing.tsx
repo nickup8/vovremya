@@ -548,7 +548,6 @@ export default function BillingPage() {
                                 <div className="grid gap-[9px] p-5 pt-4 md:px-7 md:pb-6 md:pt-[18px]">
                                     <button
                                         type="button"
-                                        autoFocus
                                         onClick={() => closePaymentResult(paymentResult === 'failed')}
                                         className="h-[46px] w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] text-[14px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]"
                                     >
