@@ -7,6 +7,7 @@ use App\Services\Payment\DTOs\PaymentInitiation;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use RuntimeException;
 
 class TBankPaymentGateway implements PaymentGatewayInterface
@@ -118,8 +119,11 @@ class TBankPaymentGateway implements PaymentGatewayInterface
      * Insufficient-funds declines (ErrorCode 103/116/1051) are classified as
      * a terminal failure instead of an exception, so the business layer can
      * tell "card has no money" apart from a provider/technical error. Every
-     * other Success=false (e.g. ErrorCode 10) stays fail closed, as do
-     * transport errors, non-2xx and invalid JSON.
+     * other Success=false (e.g. ErrorCode 10) stays fail closed with a safe
+     * diagnostic: ErrorCode/Message/Details are logged and included in the
+     * exception message — never TerminalKey, Password, Token, RebillId or the
+     * request payload. Transport errors, non-2xx and invalid JSON also fail
+     * closed; non-2xx logs only the safe response fields.
      */
     public function chargeRecurringPayment(
         string $providerPaymentId,
@@ -138,15 +142,22 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             throw new RuntimeException('T-Bank Charge request failed', 0, $e);
         }
 
-        $data = $response->successful() ? $response->json() : null;
+        if (! $response->successful()) {
+            // Non-2xx: fail closed, log only safe fields (never the payload).
+            $this->logChargeFailure($response->status(), $providerPaymentId, $response->json());
+
+            throw new RuntimeException('T-Bank Charge request failed');
+        }
+
+        $data = $response->json();
 
         if (! is_array($data)) {
             throw new RuntimeException('T-Bank Charge request failed');
         }
 
         if (empty($data['Success'])) {
-            $errorCode = isset($data['ErrorCode']) ? (string) $data['ErrorCode'] : '';
-            $category = $this->classifyFailure($errorCode === '' ? null : $errorCode);
+            $errorCode = $this->safeDiagnosticValue($data['ErrorCode'] ?? null);
+            $category = $this->classifyFailure($errorCode);
 
             if ($category !== null) {
                 $paymentId = ! empty($data['PaymentId']) ? (string) $data['PaymentId'] : $providerPaymentId;
@@ -165,7 +176,15 @@ class TBankPaymentGateway implements PaymentGatewayInterface
                 );
             }
 
-            throw new RuntimeException('T-Bank Charge request failed');
+            $fields = $this->safeErrorFields($data);
+            $this->logChargeFailure($response->status(), $providerPaymentId, $data);
+
+            throw new RuntimeException(sprintf(
+                'T-Bank Charge request failed: ErrorCode=%s; Message=%s; Details=%s',
+                $fields['error_code'] ?? '-',
+                $fields['message'] ?? '-',
+                $fields['details'] ?? '-',
+            ));
         }
 
         return $this->normalizeWebhook($data);
@@ -402,6 +421,59 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         }
 
         return $message;
+    }
+
+    /**
+     * Scalar diagnostic value as string; anything else (null, array, object,
+     * bool) → null so callers never trigger PHP warnings/coercion issues.
+     */
+    private function safeDiagnosticValue(mixed $value): ?string
+    {
+        if (is_string($value)) {
+            return $value === '' ? null : $value;
+        }
+
+        if (is_int($value) || is_float($value)) {
+            return (string) $value;
+        }
+
+        return null;
+    }
+
+    /**
+     * Safe T-Bank error fields for diagnostics/logs. Only ErrorCode, Message
+     * and Details are extracted — never TerminalKey/Password/Token/RebillId
+     * and never the full payload.
+     *
+     * @return array{error_code: ?string, message: ?string, details: ?string}
+     */
+    private function safeErrorFields(array $data): array
+    {
+        return [
+            'error_code' => $this->safeDiagnosticValue($data['ErrorCode'] ?? null),
+            'message' => $this->safeDiagnosticValue($data['Message'] ?? null),
+            'details' => $this->safeDiagnosticValue($data['Details'] ?? null),
+        ];
+    }
+
+    /**
+     * Log a Charge failure with safe fields only: operation, payment_id and
+     * HTTP status always; ErrorCode/Message/Details when the body has them.
+     */
+    private function logChargeFailure(int $httpStatus, string $providerPaymentId, mixed $body): void
+    {
+        $fields = is_array($body)
+            ? $this->safeErrorFields($body)
+            : ['error_code' => null, 'message' => null, 'details' => null];
+
+        Log::warning('T-Bank Charge request failed', [
+            'operation' => 'Charge',
+            'payment_id' => $providerPaymentId,
+            'http_status' => $httpStatus,
+            'error_code' => $fields['error_code'],
+            'message' => $fields['message'],
+            'details' => $fields['details'],
+        ]);
     }
 
     private function toInternalAmount(mixed $amount): ?int

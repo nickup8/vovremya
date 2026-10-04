@@ -6,6 +6,7 @@ use App\Enums\PaymentAttemptStatus;
 use App\Services\Payment\PaymentGatewayManager;
 use App\Services\Payment\TBankPaymentGateway;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Log;
 use InvalidArgumentException;
 use RuntimeException;
 use Tests\TestCase;
@@ -360,13 +361,114 @@ class TBankPaymentGatewayTest extends TestCase
             'securepay.tinkoff.ru/*' => Http::response([
                 'Success' => false,
                 'ErrorCode' => '10',
-                'ErrorMessage' => 'request is incorrect',
+                'Message' => 'request is incorrect',
+                'Details' => 'Invalid RebillId',
             ], 200),
         ]);
 
-        $this->expectException(RuntimeException::class);
+        try {
+            $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('T-Bank Charge request failed:', $e->getMessage());
+            $this->assertStringContainsString('ErrorCode=10', $e->getMessage());
+            $this->assertStringContainsString('Message=request is incorrect', $e->getMessage());
+            $this->assertStringContainsString('Details=Invalid RebillId', $e->getMessage());
+        }
+    }
 
-        $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+    public function test_charge_arbitrary_error_code_is_diagnosed(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => 5106,
+                // no Message / Details — must render safely without PHP warnings
+            ], 200),
+        ]);
+
+        try {
+            $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertStringContainsString('ErrorCode=5106;', $e->getMessage());
+            $this->assertStringContainsString('Message=-;', $e->getMessage());
+            $this->assertStringContainsString('Details=-', $e->getMessage());
+        }
+    }
+
+    public function test_charge_failure_log_contains_only_safe_fields(): void
+    {
+        Log::spy();
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '10',
+                'Message' => 'request is incorrect',
+                'Details' => 'Invalid RebillId',
+            ], 200),
+        ]);
+
+        try {
+            $this->gateway()->chargeRecurringPayment('700123456', 'rebill_secret_123');
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException) {
+            // expected fail-closed
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(function ($message, $context) {
+                $encoded = json_encode($context);
+
+                return $message === 'T-Bank Charge request failed'
+                    && $context['operation'] === 'Charge'
+                    && $context['payment_id'] === '700123456'
+                    && $context['http_status'] === 200
+                    && $context['error_code'] === '10'
+                    && $context['message'] === 'request is incorrect'
+                    && $context['details'] === 'Invalid RebillId'
+                    // Never log secrets: RebillId / Token / TerminalKey / Password / payload
+                    && ! str_contains($encoded, 'rebill_secret_123')
+                    && ! str_contains($encoded, self::TERMINAL_KEY)
+                    && ! str_contains($encoded, self::PASSWORD)
+                    && ! array_key_exists('Token', $context)
+                    && ! array_key_exists('RebillId', $context)
+                    && ! array_key_exists('TerminalKey', $context)
+                    && ! array_key_exists('Password', $context)
+                    && ! array_key_exists('payload', $context);
+            });
+    }
+
+    public function test_charge_non_2xx_logs_safe_fields_without_secrets(): void
+    {
+        Log::spy();
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response('Server Error', 500),
+        ]);
+
+        try {
+            $this->gateway()->chargeRecurringPayment('700123456', 'rebill_secret_123');
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame('T-Bank Charge request failed', $e->getMessage());
+        }
+
+        Log::shouldHaveReceived('warning')
+            ->once()
+            ->withArgs(function ($message, $context) {
+                $encoded = json_encode($context);
+
+                return $message === 'T-Bank Charge request failed'
+                    && $context['operation'] === 'Charge'
+                    && $context['payment_id'] === '700123456'
+                    && $context['http_status'] === 500
+                    && ! str_contains($encoded, 'rebill_secret_123')
+                    && ! str_contains($encoded, self::TERMINAL_KEY)
+                    && ! str_contains($encoded, self::PASSWORD);
+            });
     }
 
     public function test_charge_non_2xx_still_throws_exception(): void
