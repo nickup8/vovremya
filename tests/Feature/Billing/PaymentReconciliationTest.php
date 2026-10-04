@@ -313,6 +313,144 @@ class PaymentReconciliationTest extends TestCase
         $this->assertNotEmpty($attempt->metadata['last_polled_at']);
     }
 
+    // ── Processing attempt + provider Unknown (in-flight recurring payment) ──
+
+    public function test_processing_attempt_with_provider_unknown_stays_processing(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+
+        // T-Bank GetState for Status=NEW normalizes as Unknown.
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'NEW',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(1, $result['processed']);
+        $this->assertSame(0, $result['errors']);
+        Http::assertSentCount(1);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        // Poll metadata advanced through the existing backoff mechanism.
+        $this->assertSame(1, $attempt->metadata['poll_count']);
+        $this->assertNotEmpty($attempt->metadata['last_polled_at']);
+
+        // Transition service never ran: no provider event claimed, no cycle change.
+        $this->assertDatabaseCount('provider_events', 0);
+        $attempt->billingCycle->refresh();
+        $this->assertSame(BillingCycleStatus::Pending, $attempt->billingCycle->status);
+    }
+
+    public function test_processing_unknown_respects_backoff_on_next_reconcile(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'NEW',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $service = app(PaymentReconciliationService::class);
+
+        $first = $service->reconcile();
+        $this->assertSame(0, $first['errors']);
+        Http::assertSentCount(1);
+
+        // Immediately after: backoff[0] = 60s not elapsed → provider not called.
+        $second = $service->reconcile();
+        $this->assertSame(0, $second['errors']);
+        Http::assertSentCount(1);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame(1, $attempt->metadata['poll_count']);
+        $this->assertDatabaseCount('provider_events', 0);
+    }
+
+    public function test_processing_attempt_with_provider_succeeded_transitions(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'CONFIRMED',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+        // Transition service ran: provider event claimed.
+        $this->assertDatabaseCount('provider_events', 1);
+    }
+
+    public function test_processing_attempt_with_provider_failed_terminal_transitions(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'REJECTED',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertDatabaseCount('provider_events', 1);
+    }
+
+    public function test_unknown_attempt_with_provider_unknown_keeps_current_behavior(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Unknown, 490, 'tbank');
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'NEW',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        // Existing behavior: goes through PaymentTransitionService as an
+        // idempotent same-status no-op — not an error, event is journaled.
+        $this->assertSame(0, $result['errors']);
+        $this->assertDatabaseCount('provider_events', 1);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Unknown, $attempt->status);
+    }
+
     // ── Helpers ──
 
     private function createAttempt(

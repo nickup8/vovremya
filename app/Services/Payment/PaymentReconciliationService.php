@@ -109,6 +109,18 @@ class PaymentReconciliationService
         );
 
         if ($statusUpdate !== null) {
+            // T-Bank GetState for an in-flight recurring payment (Status=NEW)
+            // normalizes as Unknown while the local attempt is Processing.
+            // processing -> unknown is not an allowed transition, so skip the
+            // state machine entirely: keep Processing, advance backoff poll
+            // metadata, and create no provider event.
+            if ($attempt->status === PaymentAttemptStatus::Processing
+                && $statusUpdate->normalizedStatus === PaymentAttemptStatus::Unknown) {
+                $this->updatePollMetadata($attempt, $pollCount);
+
+                return;
+            }
+
             // Provider returned a status - transition
             $result = $this->transitionService->transition($statusUpdate);
 
