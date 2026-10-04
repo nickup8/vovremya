@@ -374,7 +374,9 @@ class PaymentTransitionService
 
         // Set failure info for terminal failures
         if ($update->normalizedStatus === PaymentAttemptStatus::FailedTerminal) {
-            $updateData['failure_category'] = 'provider_failed';
+            $updateData['failure_code'] = $update->failureCode;
+            $updateData['failure_category'] = $update->failureCategory ?? 'provider_failed';
+            $updateData['failure_message'] = $update->failureMessage;
         }
 
         $attempt->update($updateData);

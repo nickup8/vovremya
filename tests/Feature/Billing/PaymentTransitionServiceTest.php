@@ -228,6 +228,33 @@ class PaymentTransitionServiceTest extends TestCase
         $this->assertTrue($result['success']);
         $attempt->refresh();
         $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        // No failure details in the DTO — keep the legacy default category
+        $this->assertNull($attempt->failure_code);
+        $this->assertSame('provider_failed', $attempt->failure_category);
+        $this->assertNull($attempt->failure_message);
+    }
+
+    public function test_failed_terminal_persists_failure_details_from_dto(): void
+    {
+        $attempt = $this->createAttemptWithStatus(PaymentAttemptStatus::Processing, 490);
+
+        $update = new ProviderStatusUpdate(
+            provider: 'mock',
+            providerPaymentId: $attempt->provider_payment_id,
+            normalizedStatus: PaymentAttemptStatus::FailedTerminal,
+            failureCode: '103',
+            failureCategory: 'insufficient_funds',
+            failureMessage: 'Недостаточно средств на карте',
+        );
+
+        $result = $this->transitionService->transition($update);
+
+        $this->assertTrue($result['success']);
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertSame('103', $attempt->failure_code);
+        $this->assertSame('insufficient_funds', $attempt->failure_category);
+        $this->assertSame('Недостаточно средств на карте', $attempt->failure_message);
     }
 
     public function test_failed_terminal_to_succeeded_late_success(): void

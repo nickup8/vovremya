@@ -15,5 +15,8 @@ readonly class ProviderStatusUpdate
         public ?int $amount = null,
         public ?string $currency = null,
         public array $raw = [],
+        public ?string $failureCode = null,
+        public ?string $failureCategory = null,
+        public ?string $failureMessage = null,
     ) {}
 }

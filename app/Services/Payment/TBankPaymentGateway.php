@@ -13,6 +13,13 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 {
     private const DEFAULT_BASE_URL = 'https://securepay.tinkoff.ru';
 
+    /**
+     * ErrorCode set returned by T-Bank for "insufficient funds" on Charge.
+     * Only these are classified as a user-level decline; every other
+     * Success=false stays fail closed.
+     */
+    private const INSUFFICIENT_FUNDS_ERROR_CODES = ['103', '116', '1051'];
+
     public function __construct(
         private readonly ?string $terminalKey,
         private readonly ?string $password,
@@ -107,6 +114,12 @@ class TBankPaymentGateway implements PaymentGatewayInterface
      *
      * Response is normalized through the shared webhook path — no separate
      * status mapping or amount conversion here.
+     *
+     * Insufficient-funds declines (ErrorCode 103/116/1051) are classified as
+     * a terminal failure instead of an exception, so the business layer can
+     * tell "card has no money" apart from a provider/technical error. Every
+     * other Success=false (e.g. ErrorCode 10) stays fail closed, as do
+     * transport errors, non-2xx and invalid JSON.
      */
     public function chargeRecurringPayment(
         string $providerPaymentId,
@@ -119,7 +132,40 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         ];
         $payload['Token'] = $this->computeToken($payload);
 
-        $data = $this->post($this->url('/v2/Charge'), $payload, 'Charge');
+        try {
+            $response = Http::post($this->url('/v2/Charge'), $payload);
+        } catch (HttpClientException $e) {
+            throw new RuntimeException('T-Bank Charge request failed', 0, $e);
+        }
+
+        $data = $response->successful() ? $response->json() : null;
+
+        if (! is_array($data)) {
+            throw new RuntimeException('T-Bank Charge request failed');
+        }
+
+        if (empty($data['Success'])) {
+            $errorCode = isset($data['ErrorCode']) ? (string) $data['ErrorCode'] : '';
+
+            if (in_array($errorCode, self::INSUFFICIENT_FUNDS_ERROR_CODES, true)) {
+                $paymentId = ! empty($data['PaymentId']) ? (string) $data['PaymentId'] : $providerPaymentId;
+
+                return new ProviderStatusUpdate(
+                    provider: $this->name(),
+                    normalizedStatus: PaymentAttemptStatus::FailedTerminal,
+                    providerPaymentId: $paymentId,
+                    internalOrderId: isset($data['OrderId']) ? (string) $data['OrderId'] : null,
+                    amount: $this->toInternalAmount($data['Amount'] ?? null),
+                    currency: 'RUB',
+                    raw: $data,
+                    failureCode: $errorCode,
+                    failureCategory: 'insufficient_funds',
+                    failureMessage: $this->extractFailureMessage($data),
+                );
+            }
+
+            throw new RuntimeException('T-Bank Charge request failed');
+        }
 
         return $this->normalizeWebhook($data);
     }
@@ -219,6 +265,8 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             amount: $this->toInternalAmount($payload['Amount'] ?? null),
             currency: 'RUB',
             raw: $payload,
+            failureCode: $this->extractFailureCode($payload),
+            failureMessage: $this->extractFailureMessage($payload),
         );
     }
 
@@ -307,6 +355,33 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             'REFUNDED' => PaymentAttemptStatus::Refunded,
             default => PaymentAttemptStatus::Unknown,
         };
+    }
+
+    /**
+     * ErrorCode as-is when present and not "0". Message/Details are provider
+     * human-readable error texts — safe to keep, never secrets (Token and
+     * card data live in raw only).
+     */
+    private function extractFailureCode(array $payload): ?string
+    {
+        if (! array_key_exists('ErrorCode', $payload)) {
+            return null;
+        }
+
+        $code = (string) $payload['ErrorCode'];
+
+        return $code === '' || $code === '0' ? null : $code;
+    }
+
+    private function extractFailureMessage(array $payload): ?string
+    {
+        $message = $payload['Message'] ?? $payload['Details'] ?? null;
+
+        if (! is_string($message) || $message === '') {
+            return null;
+        }
+
+        return $message;
     }
 
     private function toInternalAmount(mixed $amount): ?int

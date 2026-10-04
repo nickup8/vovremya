@@ -354,6 +354,134 @@ class TBankPaymentGatewayTest extends TestCase
         $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
     }
 
+    public function test_charge_error_code_10_still_throws_exception(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '10',
+                'ErrorMessage' => 'request is incorrect',
+            ], 200),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+    }
+
+    public function test_charge_non_2xx_still_throws_exception(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response('Server Error', 500),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+    }
+
+    public function test_charge_invalid_json_still_throws_exception(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response('<html>not json</html>', 200, ['Content-Type' => 'text/html']),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+    }
+
+    public function test_charge_transport_error_still_throws_exception(): void
+    {
+        Http::fake(Http::failedConnection());
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+    }
+
+    // ── Charge: insufficient funds classification ──
+
+    public function test_charge_insufficient_funds_103_returns_failed_terminal(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '103',
+                'Message' => 'Недостаточно средств на карте',
+                'PaymentId' => '700123456',
+                'OrderId' => 'renew_order_1',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $update = $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+
+        $this->assertSame('tbank', $update->provider);
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $update->normalizedStatus);
+        $this->assertSame('700123456', $update->providerPaymentId);
+        $this->assertSame('renew_order_1', $update->internalOrderId);
+        $this->assertSame('103', $update->failureCode);
+        $this->assertSame('insufficient_funds', $update->failureCategory);
+        $this->assertSame('Недостаточно средств на карте', $update->failureMessage);
+        $this->assertSame('103', $update->raw['ErrorCode']);
+        $this->assertSame(490, $update->amount);
+    }
+
+    public function test_charge_insufficient_funds_116_returns_failed_terminal(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '116',
+                'Details' => 'Недостаточно средств',
+                'PaymentId' => '700123456',
+            ], 200),
+        ]);
+
+        $update = $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $update->normalizedStatus);
+        $this->assertSame('116', $update->failureCode);
+        $this->assertSame('insufficient_funds', $update->failureCategory);
+        $this->assertSame('Недостаточно средств', $update->failureMessage);
+    }
+
+    public function test_charge_insufficient_funds_1051_returns_failed_terminal(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '1051',
+                'Message' => 'Недостаточно средств на счете',
+            ], 200),
+        ]);
+
+        $update = $this->gateway()->chargeRecurringPayment('700123456', 'rebill_123');
+
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $update->normalizedStatus);
+        $this->assertSame('1051', $update->failureCode);
+        $this->assertSame('insufficient_funds', $update->failureCategory);
+        $this->assertSame('Недостаточно средств на счете', $update->failureMessage);
+    }
+
+    public function test_charge_insufficient_funds_falls_back_to_input_payment_id(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '103',
+                'Message' => 'Недостаточно средств',
+                // No PaymentId in the response
+            ], 200),
+        ]);
+
+        $update = $this->gateway()->chargeRecurringPayment('input_payment_id', 'rebill_123');
+
+        $this->assertSame('input_payment_id', $update->providerPaymentId);
+        $this->assertSame('insufficient_funds', $update->failureCategory);
+    }
+
     // ── CheckOrder (recovery) ──
 
     public function test_check_order_empty_payments_returns_null(): void
