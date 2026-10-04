@@ -670,9 +670,12 @@ class PaymentTransitionService
     }
 
     /**
-     * One notification per attempt: claim NotificationLog inside the
-     * transition transaction (rollback drops the claim too), external send
-     * runs strictly after commit via DB::afterCommit.
+     * One notification per attempt. The transition transaction only registers
+     * a DB::afterCommit callback — no external calls and no NotificationLog
+     * claim inside the transaction. The callback checks NotificationLog first
+     * (duplicate safety), performs the send, and records markSent only after
+     * the post-commit attempt completed: rollback → no row and no send,
+     * committed row always means a real send attempt, never a pre-commit claim.
      */
     private function notifyRenewalInsufficientFunds(PaymentAttempt $attempt): void
     {
@@ -684,13 +687,11 @@ class PaymentTransitionService
         $type = 'renewal_insufficient_funds';
         $periodKey = (string) $attempt->id;
 
-        if (NotificationLog::hasBeenSent($workspaceId, $type, $periodKey)) {
-            return;
-        }
+        DB::afterCommit(function () use ($workspaceId, $type, $periodKey): void {
+            if (NotificationLog::hasBeenSent($workspaceId, $type, $periodKey)) {
+                return;
+            }
 
-        NotificationLog::markSent($workspaceId, $type, $periodKey);
-
-        DB::afterCommit(function () use ($workspaceId): void {
             try {
                 $owner = Workspace::find($workspaceId)?->owner;
                 if ($owner === null) {
@@ -703,6 +704,8 @@ class PaymentTransitionService
                 if (! $owner->is_blocked) {
                     $owner->notify(new RenewalInsufficientFundsNotification);
                 }
+
+                NotificationLog::markSent($workspaceId, $type, $periodKey);
             } catch (\Throwable $e) {
                 Log::error('Renewal insufficient funds notification failed', [
                     'workspace_id' => $workspaceId,

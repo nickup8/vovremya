@@ -1030,9 +1030,51 @@ class PaymentTransitionServiceTest extends TestCase
         $notifier->shouldHaveReceived('sendToMaster')
             ->once()
             ->withArgs(fn ($master, $text) => $master->is($this->master) && $text === RenewalInsufficientFundsNotification::TEXT);
+        // Committed transition → exactly one row, written after the send.
+        $this->assertSame(1, NotificationLog::where('type', 'renewal_insufficient_funds')
+            ->where('period_key', $attempt->id)
+            ->count());
         $this->assertTrue(
             NotificationLog::hasBeenSent($this->workspace->id, 'renewal_insufficient_funds', $attempt->id)
         );
+    }
+
+    public function test_rolled_back_transition_sends_no_notification_and_writes_no_log(): void
+    {
+        Notification::fake();
+        $notifier = $this->spy(MasterNotificationService::class);
+
+        [, , , $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+
+        // Outer transaction: the payment transition commits its inner savepoint
+        // but its DB::afterCommit callback is staged on the outer level —
+        // a rollback must discard both the send and any NotificationLog row.
+        DB::beginTransaction();
+        $result = $this->transitionService->transition($this->insufficientFundsUpdate($attempt));
+        $this->assertTrue($result['success']);
+        DB::rollBack();
+
+        Notification::assertNothingSent();
+        $notifier->shouldNotHaveReceived('sendToMaster');
+        $this->assertSame(0, NotificationLog::where('type', 'renewal_insufficient_funds')->count());
+    }
+
+    public function test_failed_notification_send_does_not_record_notification_log(): void
+    {
+        Notification::fake();
+        $notifier = $this->mock(MasterNotificationService::class);
+        $notifier->shouldReceive('sendToMaster')->once()->andThrow(new \RuntimeException('MAX down'));
+
+        [, , , $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+
+        $this->transitionService->transition($this->insufficientFundsUpdate($attempt));
+
+        // The log row must mean a completed post-commit send attempt, not a
+        // pre-commit claim: a failed send leaves no NotificationLog row.
+        Notification::assertNothingSent();
+        $this->assertSame(0, NotificationLog::where('type', 'renewal_insufficient_funds')
+            ->where('period_key', $attempt->id)
+            ->count());
     }
 
     public function test_duplicate_renewal_failure_does_not_duplicate_notification(): void
@@ -1066,6 +1108,9 @@ class PaymentTransitionServiceTest extends TestCase
 
         Notification::assertSentToTimes($this->master, RenewalInsufficientFundsNotification::class, 1);
         $notifier->shouldHaveReceived('sendToMaster')->once();
+        $this->assertSame(1, NotificationLog::where('type', 'renewal_insufficient_funds')
+            ->where('period_key', $attempt->id)
+            ->count());
     }
 
     public function test_ordinary_provider_failed_terminal_failure_does_not_run_renewal_lifecycle(): void
