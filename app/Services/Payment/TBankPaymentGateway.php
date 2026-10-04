@@ -146,8 +146,9 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
         if (empty($data['Success'])) {
             $errorCode = isset($data['ErrorCode']) ? (string) $data['ErrorCode'] : '';
+            $category = $this->classifyFailure($errorCode === '' ? null : $errorCode);
 
-            if (in_array($errorCode, self::INSUFFICIENT_FUNDS_ERROR_CODES, true)) {
+            if ($category !== null) {
                 $paymentId = ! empty($data['PaymentId']) ? (string) $data['PaymentId'] : $providerPaymentId;
 
                 return new ProviderStatusUpdate(
@@ -159,7 +160,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
                     currency: 'RUB',
                     raw: $data,
                     failureCode: $errorCode,
-                    failureCategory: 'insufficient_funds',
+                    failureCategory: $category,
                     failureMessage: $this->extractFailureMessage($data),
                 );
             }
@@ -257,6 +258,8 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
     public function normalizeWebhook(array $payload): ProviderStatusUpdate
     {
+        $failureCode = $this->extractFailureCode($payload);
+
         return new ProviderStatusUpdate(
             provider: $this->name(),
             normalizedStatus: $this->mapStatus($payload['Status'] ?? null),
@@ -265,7 +268,8 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             amount: $this->toInternalAmount($payload['Amount'] ?? null),
             currency: 'RUB',
             raw: $payload,
-            failureCode: $this->extractFailureCode($payload),
+            failureCode: $failureCode,
+            failureCategory: $this->classifyFailure($failureCode),
             failureMessage: $this->extractFailureMessage($payload),
         );
     }
@@ -371,6 +375,22 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         $code = (string) $payload['ErrorCode'];
 
         return $code === '' || $code === '0' ? null : $code;
+    }
+
+    /**
+     * Single classifier shared by the direct Charge response path and the
+     * webhook/reconciliation path (normalizeWebhook), so ErrorCode 103/116/1051
+     * always yield the same failureCategory. Unknown codes stay unclassified.
+     */
+    private function classifyFailure(?string $errorCode): ?string
+    {
+        if ($errorCode === null) {
+            return null;
+        }
+
+        return in_array($errorCode, self::INSUFFICIENT_FUNDS_ERROR_CODES, true)
+            ? 'insufficient_funds'
+            : null;
     }
 
     private function extractFailureMessage(array $payload): ?string

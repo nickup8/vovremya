@@ -2,22 +2,29 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\BillingCycleOrigin;
 use App\Enums\BillingCycleStatus;
 use App\Enums\BillingSubscriptionStatus;
 use App\Enums\PaymentAttemptStatus;
 use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
+use App\Models\NotificationLog;
 use App\Models\PaymentAttempt;
+use App\Models\PaymentMethod;
 use App\Models\PlanPrice;
 use App\Models\ProviderEvent;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Notifications\RenewalInsufficientFundsNotification;
+use App\Services\Notification\MasterNotificationService;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use App\Services\Payment\PaymentTransitionService;
+use Carbon\CarbonInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Notification;
 use Tests\TestCase;
 
 class PaymentTransitionServiceTest extends TestCase
@@ -945,6 +952,184 @@ class PaymentTransitionServiceTest extends TestCase
         $this->assertSame(1, $sub->renewal_period_months);
     }
 
+    // ── Renewal insufficient-funds lifecycle ──
+
+    public function test_renewal_insufficient_funds_at_period_end_expires_subscription(): void
+    {
+        Notification::fake();
+        $this->spy(MasterNotificationService::class);
+
+        [$sub, $renewalCycle, , $attempt] = $this->prepareRenewalFailure(now()->subDay());
+        $originalEnd = $sub->current_period_end;
+
+        $result = $this->transitionService->transition($this->insufficientFundsUpdate($attempt));
+
+        $this->assertTrue($result['success']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertSame('insufficient_funds', $attempt->failure_category);
+
+        $renewalCycle->refresh();
+        $this->assertSame(BillingCycleStatus::Failed, $renewalCycle->status);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::Expired, $sub->status);
+        $this->assertNull($sub->next_charge_at);
+        $this->assertTrue($sub->cancel_at_period_end);
+        $this->assertNull($sub->grace_until);
+        $this->assertTrue($sub->current_period_end->equalTo($originalEnd));
+        $this->assertNotNull($sub->auto_renew_consent_at);
+    }
+
+    public function test_renewal_insufficient_funds_before_period_end_keeps_subscription_active(): void
+    {
+        Notification::fake();
+        $this->spy(MasterNotificationService::class);
+
+        [$sub, , , $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+        $originalEnd = $sub->current_period_end;
+
+        $result = $this->transitionService->transition($this->insufficientFundsUpdate($attempt));
+
+        $this->assertTrue($result['success']);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::Active, $sub->status);
+        $this->assertTrue($sub->current_period_end->equalTo($originalEnd));
+        $this->assertNull($sub->next_charge_at);
+        $this->assertTrue($sub->cancel_at_period_end);
+        $this->assertNull($sub->grace_until);
+    }
+
+    public function test_renewal_insufficient_funds_keeps_payment_method_active(): void
+    {
+        Notification::fake();
+        $this->spy(MasterNotificationService::class);
+
+        [, , $method, $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+
+        $this->transitionService->transition($this->insufficientFundsUpdate($attempt));
+
+        $method->refresh();
+        $this->assertSame('active', $method->status);
+        $this->assertTrue($method->is_default);
+        $this->assertNull($method->revoked_at);
+    }
+
+    public function test_renewal_insufficient_funds_sends_notification_once(): void
+    {
+        Notification::fake();
+        $notifier = $this->spy(MasterNotificationService::class);
+
+        [, , , $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+
+        $this->transitionService->transition($this->insufficientFundsUpdate($attempt));
+
+        Notification::assertSentToTimes($this->master, RenewalInsufficientFundsNotification::class, 1);
+        $notifier->shouldHaveReceived('sendToMaster')
+            ->once()
+            ->withArgs(fn ($master, $text) => $master->is($this->master) && $text === RenewalInsufficientFundsNotification::TEXT);
+        $this->assertTrue(
+            NotificationLog::hasBeenSent($this->workspace->id, 'renewal_insufficient_funds', $attempt->id)
+        );
+    }
+
+    public function test_duplicate_renewal_failure_does_not_duplicate_notification(): void
+    {
+        Notification::fake();
+        $notifier = $this->spy(MasterNotificationService::class);
+
+        [, , , $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+        $update = $this->insufficientFundsUpdate($attempt);
+
+        $this->assertTrue($this->transitionService->transition($update)['success']);
+
+        // Exact duplicate payload — dropped at provider event claim.
+        $this->assertTrue($this->transitionService->transition($update)['success']);
+
+        // Different payload, same terminal status — idempotent same-status no-op.
+        $this->assertTrue($this->transitionService->transition(new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerPaymentId: $attempt->provider_payment_id,
+            internalOrderId: $attempt->internal_order_id,
+            normalizedStatus: PaymentAttemptStatus::FailedTerminal,
+            raw: [
+                'Status' => 'REJECTED',
+                'ErrorCode' => '103',
+                'PaymentId' => $attempt->provider_payment_id,
+                'TerminalKey' => self::class, // different fingerprint
+            ],
+            failureCode: '103',
+            failureCategory: 'insufficient_funds',
+        ))['success']);
+
+        Notification::assertSentToTimes($this->master, RenewalInsufficientFundsNotification::class, 1);
+        $notifier->shouldHaveReceived('sendToMaster')->once();
+    }
+
+    public function test_ordinary_provider_failed_terminal_failure_does_not_run_renewal_lifecycle(): void
+    {
+        Notification::fake();
+        $notifier = $this->spy(MasterNotificationService::class);
+
+        [$sub, , , $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+
+        $result = $this->transitionService->transition(new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerPaymentId: $attempt->provider_payment_id,
+            internalOrderId: $attempt->internal_order_id,
+            normalizedStatus: PaymentAttemptStatus::FailedTerminal,
+            raw: [
+                'Status' => 'REJECTED',
+                'ErrorCode' => '5106',
+                'PaymentId' => $attempt->provider_payment_id,
+            ],
+            failureCode: '5106',
+            // no failureCategory → provider_failed
+        ));
+
+        $this->assertTrue($result['success']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertSame('provider_failed', $attempt->failure_category);
+
+        $sub->refresh();
+        $this->assertFalse($sub->cancel_at_period_end);
+        $this->assertNotNull($sub->next_charge_at);
+        $this->assertSame(BillingSubscriptionStatus::Active, $sub->status);
+
+        Notification::assertNothingSent();
+        $notifier->shouldNotHaveReceived('sendToMaster');
+        $this->assertFalse(
+            NotificationLog::hasBeenSent($this->workspace->id, 'renewal_insufficient_funds', $attempt->id)
+        );
+    }
+
+    public function test_non_renewal_insufficient_funds_does_not_run_renewal_lifecycle(): void
+    {
+        Notification::fake();
+        $notifier = $this->spy(MasterNotificationService::class);
+
+        [$sub, , , $attempt] = $this->prepareRenewalFailure(now()->addDays(10));
+        $attempt->update(['metadata' => []]); // initial / non-renewal attempt
+
+        $this->transitionService->transition($this->insufficientFundsUpdate($attempt));
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertSame('insufficient_funds', $attempt->failure_category);
+
+        $sub->refresh();
+        $this->assertFalse($sub->cancel_at_period_end);
+        $this->assertNotNull($sub->next_charge_at);
+        $this->assertSame(BillingSubscriptionStatus::Active, $sub->status);
+
+        Notification::assertNothingSent();
+        $notifier->shouldNotHaveReceived('sendToMaster');
+    }
+
     // ── Helpers ──
 
     private function createAttemptWithProviderPaymentId(
@@ -1175,6 +1360,89 @@ class PaymentTransitionServiceTest extends TestCase
                 'PaymentId' => $attempt->provider_payment_id,
                 'Amount' => 49000,
             ],
+        );
+    }
+
+    /**
+     * Consented subscription whose current period is already paid (Paid cycle
+     * with period_end === current_period_end) plus a pending renewal cycle,
+     * an active default payment method and a Processing renewal attempt.
+     *
+     * @return array{0: BillingSubscription, 1: BillingCycle, 2: PaymentMethod, 3: PaymentAttempt}
+     */
+    private function prepareRenewalFailure(CarbonInterface $periodEnd): array
+    {
+        $sub = $this->createConsentedSubscription([
+            'current_period_start' => $periodEnd->copy()->subMonth(),
+            'current_period_end' => $periodEnd,
+            'next_charge_at' => $periodEnd,
+            'grace_until' => now()->addDays(3),
+        ]);
+
+        $paidCycle = $this->createCycleForSubscription($sub, $sub->current_period_start, $periodEnd);
+        $paidCycle->update(['status' => BillingCycleStatus::Paid]);
+
+        $renewalCycle = BillingCycle::create([
+            'billing_subscription_id' => $sub->id,
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => $periodEnd,
+            'period_end' => $periodEnd->copy()->addMonth(),
+            'status' => BillingCycleStatus::Pending,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::Renewal,
+        ]);
+
+        $method = PaymentMethod::create([
+            'workspace_id' => $this->workspace->id,
+            'provider' => 'tbank',
+            'type' => 'card',
+            'provider_reference' => 'RebillId123',
+            'status' => 'active',
+            'is_default' => true,
+        ]);
+
+        $attempt = PaymentAttempt::create([
+            'billing_cycle_id' => $renewalCycle->id,
+            'payment_method_id' => $method->id,
+            'provider' => 'tbank',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'renew_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => 'tbank_'.bin2hex(random_bytes(8)),
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now(),
+            'metadata' => [
+                'renewal' => true,
+                'billing_subscription_id' => $sub->id,
+            ],
+        ]);
+
+        return [$sub, $renewalCycle, $method, $attempt];
+    }
+
+    /**
+     * Normalized T-Bank Charge decline for insufficient funds, exactly as
+     * chargeRecurringPayment() would produce it.
+     */
+    private function insufficientFundsUpdate(PaymentAttempt $attempt): ProviderStatusUpdate
+    {
+        return new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerPaymentId: $attempt->provider_payment_id,
+            internalOrderId: $attempt->internal_order_id,
+            normalizedStatus: PaymentAttemptStatus::FailedTerminal,
+            raw: [
+                'Status' => 'REJECTED',
+                'ErrorCode' => '103',
+                'PaymentId' => $attempt->provider_payment_id,
+                'Amount' => 49000,
+            ],
+            failureCode: '103',
+            failureCategory: 'insufficient_funds',
+            failureMessage: 'Недостаточно средств на карте',
         );
     }
 }

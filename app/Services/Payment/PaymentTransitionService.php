@@ -3,12 +3,17 @@
 namespace App\Services\Payment;
 
 use App\Enums\BillingCycleStatus;
+use App\Enums\BillingSubscriptionStatus;
 use App\Enums\PaymentAttemptStatus;
 use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
+use App\Models\NotificationLog;
 use App\Models\PaymentAttempt;
 use App\Models\ProviderEvent;
 use App\Models\Subscription;
+use App\Models\Workspace;
+use App\Notifications\RenewalInsufficientFundsNotification;
+use App\Services\Notification\MasterNotificationService;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -117,6 +122,10 @@ class PaymentTransitionService
 
             // 9a. Schedule/clear auto-renew charge marker from the Core horizon
             $this->syncAutoRenewSchedule($attempt, $update);
+
+            // 9b. First terminal failure of a renewal attempt caused by
+            // insufficient funds — stop auto-renew, keep paid entitlement.
+            $this->handleRenewalInsufficientFunds($attempt, $update);
 
             // 10. Link ProviderEvent → PaymentAttempt
             $event->update(['payment_attempt_id' => $attempt->id]);
@@ -611,5 +620,95 @@ class PaymentTransitionService
         ]);
 
         return ['success' => true];
+    }
+
+    /**
+     * Renewal attempt failed on insufficient funds (ErrorCode 103/116/1051):
+     * stop auto-renew, but never revoke the already-paid entitlement early,
+     * never touch current_period_end and never touch the payment method
+     * (an empty card is not a revoked card). Other failure categories and
+     * non-renewal attempts are out of scope — they keep legacy behavior.
+     *
+     * Only runs on the actual transition into failed_terminal: duplicate
+     * events are dropped at claim and same-status events at the state
+     * machine, both before this point.
+     */
+    private function handleRenewalInsufficientFunds(
+        PaymentAttempt $attempt,
+        ProviderStatusUpdate $update,
+    ): void {
+        if ($attempt->status !== PaymentAttemptStatus::FailedTerminal
+            || $update->normalizedStatus !== PaymentAttemptStatus::FailedTerminal
+            || ($attempt->metadata['renewal'] ?? null) !== true
+            || $attempt->failure_category !== 'insufficient_funds') {
+            return;
+        }
+
+        $sub = $attempt->billingCycle?->billingSubscription;
+        if ($sub === null) {
+            return;
+        }
+
+        $periodEnded = $sub->current_period_end !== null
+            && $sub->current_period_end->lte(now());
+
+        $updates = [
+            'next_charge_at' => null,
+            'cancel_at_period_end' => true,
+            'grace_until' => null,
+        ];
+
+        // Paid entitlement is never revoked early: only mark expired when the
+        // paid period has actually ended, otherwise leave status untouched.
+        if ($periodEnded) {
+            $updates['status'] = BillingSubscriptionStatus::Expired;
+        }
+
+        $sub->update($updates);
+
+        $this->notifyRenewalInsufficientFunds($attempt);
+    }
+
+    /**
+     * One notification per attempt: claim NotificationLog inside the
+     * transition transaction (rollback drops the claim too), external send
+     * runs strictly after commit via DB::afterCommit.
+     */
+    private function notifyRenewalInsufficientFunds(PaymentAttempt $attempt): void
+    {
+        $workspaceId = $attempt->billingCycle?->workspace_id;
+        if ($workspaceId === null) {
+            return;
+        }
+
+        $type = 'renewal_insufficient_funds';
+        $periodKey = (string) $attempt->id;
+
+        if (NotificationLog::hasBeenSent($workspaceId, $type, $periodKey)) {
+            return;
+        }
+
+        NotificationLog::markSent($workspaceId, $type, $periodKey);
+
+        DB::afterCommit(function () use ($workspaceId): void {
+            try {
+                $owner = Workspace::find($workspaceId)?->owner;
+                if ($owner === null) {
+                    return;
+                }
+
+                app(MasterNotificationService::class)
+                    ->sendToMaster($owner, RenewalInsufficientFundsNotification::TEXT);
+
+                if (! $owner->is_blocked) {
+                    $owner->notify(new RenewalInsufficientFundsNotification);
+                }
+            } catch (\Throwable $e) {
+                Log::error('Renewal insufficient funds notification failed', [
+                    'workspace_id' => $workspaceId,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        });
     }
 }

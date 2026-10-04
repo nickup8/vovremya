@@ -482,6 +482,50 @@ class TBankPaymentGatewayTest extends TestCase
         $this->assertSame('insufficient_funds', $update->failureCategory);
     }
 
+    public function test_normalize_webhook_insufficient_funds_codes_classify_failure_category(): void
+    {
+        foreach (['103', '116', '1051'] as $code) {
+            $update = $this->gateway()->normalizeWebhook([
+                'Status' => 'REJECTED',
+                'ErrorCode' => $code,
+                'Message' => 'Недостаточно средств',
+                'PaymentId' => '700123456',
+                'OrderId' => 'renew_order_1',
+            ]);
+
+            $this->assertSame(PaymentAttemptStatus::FailedTerminal, $update->normalizedStatus, $code);
+            $this->assertSame($code, $update->failureCode, $code);
+            $this->assertSame('insufficient_funds', $update->failureCategory, $code);
+            $this->assertSame('Недостаточно средств', $update->failureMessage, $code);
+        }
+    }
+
+    public function test_normalize_webhook_other_error_code_is_not_classified_as_insufficient_funds(): void
+    {
+        $update = $this->gateway()->normalizeWebhook([
+            'Status' => 'REJECTED',
+            'ErrorCode' => '10',
+            'Message' => 'request is incorrect',
+        ]);
+
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $update->normalizedStatus);
+        $this->assertSame('10', $update->failureCode);
+        $this->assertNull($update->failureCategory);
+    }
+
+    public function test_normalize_webhook_without_error_code_has_no_failure_fields(): void
+    {
+        $update = $this->gateway()->normalizeWebhook([
+            'Status' => 'CONFIRMED',
+            'PaymentId' => '700123456',
+        ]);
+
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $update->normalizedStatus);
+        $this->assertNull($update->failureCode);
+        $this->assertNull($update->failureCategory);
+        $this->assertNull($update->failureMessage);
+    }
+
     // ── CheckOrder (recovery) ──
 
     public function test_check_order_empty_payments_returns_null(): void
