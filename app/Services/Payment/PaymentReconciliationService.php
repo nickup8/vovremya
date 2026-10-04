@@ -4,6 +4,7 @@ namespace App\Services\Payment;
 
 use App\Enums\PaymentAttemptStatus;
 use App\Models\PaymentAttempt;
+use Carbon\Carbon;
 use Illuminate\Support\Facades\Log;
 
 class PaymentReconciliationService
@@ -70,7 +71,7 @@ class PaymentReconciliationService
     ): void {
         $metadata = $attempt->metadata ?? [];
         $pollCount = $metadata['poll_count'] ?? 0;
-        $lastPolledAt = $metadata['last_polled_at'] ?? null;
+        $lastPolledAt = $this->parseLastPolledAt($metadata['last_polled_at'] ?? null);
 
         // Check age release
         if ($this->shouldAgeRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId)) {
@@ -125,6 +126,26 @@ class PaymentReconciliationService
         } else {
             // Provider returned null - update metadata with backoff
             $this->updatePollMetadata($attempt, $pollCount);
+        }
+    }
+
+    /**
+     * Parse metadata last_polled_at (ISO8601 string) into Carbon.
+     *
+     * Returns null for missing or malformed values: backoff then cannot be
+     * evaluated, so the current poll is allowed instead of failing. The
+     * original metadata value is never mutated — a fresh instance is parsed.
+     */
+    private function parseLastPolledAt(mixed $value): ?Carbon
+    {
+        if (! is_string($value) || $value === '') {
+            return null;
+        }
+
+        try {
+            return Carbon::parse($value);
+        } catch (\Throwable) {
+            return null;
         }
     }
 

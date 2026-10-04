@@ -222,6 +222,97 @@ class PaymentReconciliationTest extends TestCase
         $this->assertTrue($sub->next_charge_at->equalTo($sub->current_period_end));
     }
 
+    // ── last_polled_at backoff parsing ──
+
+    public function test_iso8601_last_polled_inside_backoff_skips_provider(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+        // poll_count=1 → backoff[0] = 60s; polled 30s ago → still inside backoff
+        $attempt->update(['metadata' => [
+            'poll_count' => 1,
+            'last_polled_at' => now()->subSeconds(30)->toIso8601String(),
+        ]]);
+
+        Http::fake();
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+        Http::assertNothingSent();
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame(1, $attempt->metadata['poll_count']);
+    }
+
+    public function test_iso8601_last_polled_after_backoff_polls_provider(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+        // poll_count=1 → backoff[0] = 60s; polled 120s ago → due
+        $attempt->update(['metadata' => [
+            'poll_count' => 1,
+            'last_polled_at' => now()->subSeconds(120)->toIso8601String(),
+        ]]);
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response(['Success' => false], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v2/GetState'));
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame(2, $attempt->metadata['poll_count']);
+    }
+
+    public function test_malformed_last_polled_at_does_not_crash_command(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+        $attempt->update(['metadata' => [
+            'poll_count' => 3,
+            'last_polled_at' => 'not-a-timestamp',
+        ]]);
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response(['Success' => false], 200),
+        ]);
+
+        // Backoff unverifiable → current poll allowed, no crash, no errors.
+        $this->artisan('billing:reconcile-payment-attempts')
+            ->assertExitCode(0);
+
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v2/GetState'));
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame(4, $attempt->metadata['poll_count']);
+        // The poll itself rewrote last_polled_at with a fresh valid timestamp.
+        $this->assertNotSame('not-a-timestamp', $attempt->metadata['last_polled_at']);
+    }
+
+    public function test_null_last_polled_at_keeps_previous_behavior(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+        $attempt->update(['metadata' => ['poll_count' => 3]]); // no last_polled_at
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response(['Success' => false], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v2/GetState'));
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame(4, $attempt->metadata['poll_count']);
+        $this->assertNotEmpty($attempt->metadata['last_polled_at']);
+    }
+
     // ── Helpers ──
 
     private function createAttempt(
