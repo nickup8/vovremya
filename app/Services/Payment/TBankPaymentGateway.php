@@ -128,8 +128,12 @@ class TBankPaymentGateway implements PaymentGatewayInterface
      * Look up a payment by OrderId (CheckOrder) — recovery entry point for a
      * possibly-lost Init.
      *
-     * Returns null when no payments exist. Fail closed on multiple distinct
-     * PaymentIds: never pick one automatically.
+     * Returns null when no payments exist, and also when the provider reports
+     * ErrorCode 335 ("OrderId not found"): for a fresh renewal OrderId there is
+     * legitimately no payment yet, so the caller may proceed with a fresh Init.
+     * Every other failure (transport, non-2xx, invalid body, other error codes)
+     * fails closed. Multiple distinct PaymentIds also fail closed: never pick
+     * one automatically.
      */
     public function findPaymentByOrderId(string $internalOrderId): ?ProviderStatusUpdate
     {
@@ -139,7 +143,25 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         ];
         $payload['Token'] = $this->computeToken($payload);
 
-        $data = $this->post($this->url('/v2/CheckOrder'), $payload, 'CheckOrder');
+        try {
+            $response = Http::post($this->url('/v2/CheckOrder'), $payload);
+        } catch (HttpClientException $e) {
+            throw new RuntimeException('T-Bank CheckOrder request failed', 0, $e);
+        }
+
+        $data = $response->successful() ? $response->json() : null;
+
+        if (! is_array($data)) {
+            throw new RuntimeException('T-Bank CheckOrder request failed');
+        }
+
+        if (empty($data['Success'])) {
+            if ((string) ($data['ErrorCode'] ?? '') === '335') {
+                return null;
+            }
+
+            throw new RuntimeException('T-Bank CheckOrder request failed');
+        }
 
         $payments = $data['Payments'] ?? null;
         if (! is_array($payments) || $payments === []) {

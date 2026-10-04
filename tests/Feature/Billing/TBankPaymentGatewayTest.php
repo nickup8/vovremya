@@ -465,6 +465,53 @@ class TBankPaymentGatewayTest extends TestCase
         $this->gateway()->findPaymentByOrderId('renew_order_5');
     }
 
+    public function test_check_order_error_code_335_returns_null_for_missing_order(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '335',
+                'ErrorMessage' => 'Order not found',
+            ], 200),
+        ]);
+
+        $this->assertNull($this->gateway()->findPaymentByOrderId('renew_order_fresh'));
+    }
+
+    public function test_check_order_error_code_335_as_integer_returns_null(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => false,
+                'ErrorCode' => 335,
+            ], 200),
+        ]);
+
+        $this->assertNull($this->gateway()->findPaymentByOrderId('renew_order_fresh_int'));
+    }
+
+    public function test_check_order_non_2xx_throws(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response('Server Error', 500),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->findPaymentByOrderId('renew_order_6');
+    }
+
+    public function test_check_order_invalid_json_throws(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response('<html>not json</html>', 200, ['Content-Type' => 'text/html']),
+        ]);
+
+        $this->expectException(RuntimeException::class);
+
+        $this->gateway()->findPaymentByOrderId('renew_order_7');
+    }
+
     // ── Token signing (official T-Bank algorithm) ──
 
     public function test_official_webhook_token_example(): void
