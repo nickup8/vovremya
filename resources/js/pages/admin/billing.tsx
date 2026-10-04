@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Head, usePage } from '@inertiajs/react';
+import { Head, router, usePage } from '@inertiajs/react';
 import AdminLayout from '@/layouts/AdminLayout';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -109,9 +109,6 @@ export default function BillingPage() {
     const proPlan = plans.find((p) => p.code === 'pro');
 
     const [selectedPeriod, setSelectedPeriod] = useState(3);
-    const [loading, setLoading] = useState(false);
-    const [modalOpen, setModalOpen] = useState(false);
-    const [autoRenew, setAutoRenew] = useState(false);
     const [autoRenewActive, setAutoRenewActive] = useState(Boolean(current.auto_renew_enabled));
     const [disablingAutoRenew, setDisablingAutoRenew] = useState(false);
 
@@ -155,36 +152,10 @@ export default function BillingPage() {
 
     const isPaid = current.is_paid && current.tariff === 'pro';
 
-    async function handleCheckout() {
-        if (!proPlan || !selectedPrice || loading) return;
-
-        setLoading(true);
-        setModalOpen(false);
-        try {
-            const res = await axios.post('/admin/checkout', {
-                tariff_plan_id: proPlan.id,
-                period_months: selectedPeriod,
-                auto_renew: autoRenew,
-            });
-            const url = res.data?.checkout_url;
-            if (url) {
-                window.location.href = url;
-            } else {
-                toast.error('Не удалось получить ссылку на оплату');
-            }
-        } catch (err: unknown) {
-            if (axios.isAxiosError(err) && err.response?.status === 422) {
-                const errors = err.response.data?.errors ?? {};
-                const first = Object.values(errors)[0];
-                toast.error(Array.isArray(first) ? first[0] : 'Ошибка валидации');
-            } else if (axios.isAxiosError(err) && err.response?.status === 403) {
-                toast.error('Недостаточно прав');
-            } else {
-                toast.error('Ошибка при создании платежа');
-            }
-        } finally {
-            setLoading(false);
-        }
+    // PR1: card payment contract is unchanged — the own checkout page owns
+    // the POST /admin/checkout call and the T-Bank redirect.
+    function goToCheckout() {
+        router.get(`/admin/billing/checkout?period_months=${selectedPeriod}`);
     }
 
     async function handleDisableAutoRenew() {
@@ -352,11 +323,10 @@ export default function BillingPage() {
                             <div className="mt-5 flex justify-end">
                                 <button
                                     type="button"
-                                    disabled={loading}
-                                    onClick={() => setModalOpen(true)}
+                                    onClick={goToCheckout}
                                     className="h-10 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-5 text-[14px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    {loading ? 'Перенаправление…' : `Продлить на ${pluralizePeriod(selectedPeriod)} — ${selectedPrice ? fmt(selectedPrice.final) : ''}`}
+                                    {`Продлить на ${pluralizePeriod(selectedPeriod)} — ${selectedPrice ? fmt(selectedPrice.final) : ''}`}
                                 </button>
                             </div>
                         </div>
@@ -397,80 +367,16 @@ export default function BillingPage() {
                         </div>
                         <button
                             type="button"
-                            disabled={loading}
-                            onClick={() => setModalOpen(true)}
+                            onClick={goToCheckout}
                             className="shrink-0 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
                             style={{ height: 40 }}
                         >
-                            {loading ? '…' : 'Продлить'}
+                            Продлить
                         </button>
                     </div>
                 </div>
 
-                {/* ─── 5. Payment Confirmation Modal ─── */}
-                {modalOpen && (
-                    <>
-                        <div
-                            className="fixed inset-0 z-[110] bg-[var(--color-ink)]/25"
-                            onClick={() => setModalOpen(false)}
-                        />
-                        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4">
-                            <div className="w-full max-w-[460px] rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface)] p-6 shadow-[0_12px_32px_rgba(24,24,24,0.1)]">
-                                <div className="text-[18px] font-bold leading-[23px] text-[var(--color-ink)]">
-                                    Переход к оплате
-                                </div>
-                                <div className="mt-[14px] text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                    После продолжения вы перейдёте на страницу платёжного шлюза. Текущий оплаченный срок сохранится, новый период добавится после него.
-                                </div>
-                                <div className="mt-4 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] p-3">
-                                    <label className="flex cursor-pointer items-start gap-[10px]">
-                                        <input
-                                            type="checkbox"
-                                            checked={autoRenew}
-                                            onChange={(e) => setAutoRenew(e.target.checked)}
-                                            className="mt-[2px] h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-orange)]"
-                                        />
-                                        <span className="min-w-0">
-                                            <span className="block text-[13px] font-semibold leading-[18px] text-[var(--color-ink)]">
-                                                Автоматически продлевать Профи каждые {selectedPeriod} мес.
-                                            </span>
-                                            <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
-                                                После окончания оплаченного периода ИРСИ сможет автоматически списать стоимость следующего периода с сохранённого способа оплаты. Автопродление можно будет отключить до следующего списания.
-                                            </span>
-                                        </span>
-                                    </label>
-                                    <a
-                                        href="/offer#auto-renew"
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="mt-2.5 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
-                                    >
-                                        Условия автопродления
-                                    </a>
-                                </div>
-                                <div className="mt-5 flex justify-end gap-2">
-                                    <button
-                                        type="button"
-                                        onClick={() => setModalOpen(false)}
-                                        className="h-10 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:bg-[var(--color-surface-hover)]"
-                                    >
-                                        Отмена
-                                    </button>
-                                    <button
-                                        type="button"
-                                        onClick={handleCheckout}
-                                        disabled={loading}
-                                        className="h-10 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
-                                    >
-                                        Продолжить
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </>
-                )}
-
-                {/* ─── 6. Payment Return Dialog (UX-only, one-shot flash; design: docs/ux-validation/irsi_payment_result_prototype.html) ─── */}
+                {/* ─── 5. Payment Return Dialog (UX-only, one-shot flash; design: docs/ux-validation/irsi_payment_result_prototype.html) ─── */}
                 {paymentResult !== null && (
                     <>
                         <div

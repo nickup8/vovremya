@@ -6,10 +6,12 @@ import { toast } from 'sonner';
 import BillingPage from '@/pages/admin/billing';
 
 const mockUsePage = vi.fn();
+const { routerGet } = vi.hoisted(() => ({ routerGet: vi.fn() }));
 
 vi.mock('@inertiajs/react', () => ({
     Head: () => null,
     usePage: () => mockUsePage(),
+    router: { get: routerGet, post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), visit: vi.fn() },
 }));
 
 vi.mock('@/layouts/AdminLayout', () => ({
@@ -59,72 +61,45 @@ function makeProps(currentOverrides: Record<string, unknown> = {}) {
     };
 }
 
-function openModal() {
-    fireEvent.click(screen.getByText('Продлить'));
-    screen.getByText('Переход к оплате');
-}
-
-describe('admin/billing.tsx — auto renewal consent', () => {
+describe('admin/billing.tsx — CTA goes to own checkout', () => {
     beforeEach(() => {
         mockUsePage.mockReturnValue(makeProps());
-        vi.mocked(axios.post).mockReset().mockResolvedValue({ data: {} });
+        routerGet.mockReset();
     });
 
-    it('shows unchecked consent checkbox with copy and offer link', () => {
+    it('mobile «Продлить» opens own checkout with selected period', () => {
         render(<BillingPage />);
-        openModal();
 
-        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
-        expect(checkbox.checked).toBe(false);
+        fireEvent.click(screen.getByText('Продлить'));
 
-        expect(screen.getByText('Автоматически продлевать Профи каждые 3 мес.')).toBeTruthy();
-        expect(
-            screen.getByText(/После окончания оплаченного периода ИРСИ сможет автоматически списать стоимость следующего периода/),
-        ).toBeTruthy();
-
-        const link = screen.getByRole('link', { name: 'Условия автопродления' });
-        expect(link.getAttribute('href')).toBe('/offer#auto-renew');
+        expect(routerGet).toHaveBeenCalledTimes(1);
+        expect(routerGet).toHaveBeenCalledWith('/admin/billing/checkout?period_months=3');
     });
 
-    it('sends auto_renew=false when checkbox is left unchecked', async () => {
+    it('desktop CTA opens own checkout with selected period', () => {
         render(<BillingPage />);
-        openModal();
 
-        fireEvent.click(screen.getByText('Продолжить'));
+        fireEvent.click(screen.getByRole('button', { name: /Продлить на 3 месяца — 1.470 ₽/u }));
 
-        await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
-        expect(axios.post).toHaveBeenCalledWith('/admin/checkout', {
-            tariff_plan_id: 1,
-            period_months: 3,
-            auto_renew: false,
-        });
+        expect(routerGet).toHaveBeenCalledWith('/admin/billing/checkout?period_months=3');
     });
 
-    it('sends auto_renew=true when checkbox is checked', async () => {
+    it('passes the selected period to the checkout url', () => {
         render(<BillingPage />);
-        openModal();
 
-        fireEvent.click(screen.getByRole('checkbox'));
-        fireEvent.click(screen.getByText('Продолжить'));
+        fireEvent.click(screen.getByText('12 мес'));
+        fireEvent.click(screen.getByText('Продлить'));
 
-        await waitFor(() => expect(axios.post).toHaveBeenCalledTimes(1));
-        expect(axios.post).toHaveBeenCalledWith('/admin/checkout', {
-            tariff_plan_id: 1,
-            period_months: 3,
-            auto_renew: true,
-        });
+        expect(routerGet).toHaveBeenCalledWith('/admin/billing/checkout?period_months=12');
     });
 
-    it('keeps checkbox value between modal reopenings', () => {
+    it('no longer opens the old confirmation modal', () => {
         render(<BillingPage />);
-        openModal();
 
-        fireEvent.click(screen.getByRole('checkbox'));
-        fireEvent.click(screen.getByText('Отмена'));
+        fireEvent.click(screen.getByText('Продлить'));
 
-        openModal();
-        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
-        expect(checkbox.checked).toBe(true);
+        expect(screen.queryByText('Переход к оплате')).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Продолжить' })).toBeNull();
     });
 });
 

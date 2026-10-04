@@ -182,6 +182,7 @@ Route::middleware(['auth'])->group(function () {
     });
 
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');
+    Route::get('/admin/billing/checkout', [PaymentController::class, 'checkout'])->name('admin.billing.checkout');
     Route::get('/admin/billing/payment/success', [PaymentController::class, 'paymentReturnSuccess'])->name('admin.billing.payment.success');
     Route::get('/admin/billing/payment/failed', [PaymentController::class, 'paymentReturnFailed'])->name('admin.billing.payment.failed');
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');

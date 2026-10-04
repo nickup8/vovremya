@@ -89,6 +89,47 @@ class PaymentController extends Controller
     }
 
     /**
+     * Own checkout page (PR1): read-only pricing for the Pro plan.
+     *
+     * No Subscription/PaymentAttempt is created and T-Bank is never called —
+     * the POST /admin/checkout contract stays the source of the redirect.
+     */
+    public function checkout(Request $request)
+    {
+        abort_unless($request->user()->role->canManageBilling(), 403);
+
+        // Controlled failure for missing/invalid period: this app renders
+        // web validation errors as redirects (shouldRenderJsonWhen is api/*),
+        // so an explicit 404 keeps the GET contract deterministic.
+        $periodMonths = filter_var($request->query('period_months'), FILTER_VALIDATE_INT);
+        abort_unless($periodMonths !== false && in_array($periodMonths, [1, 3, 6, 12], true), 404);
+
+        $plan = TariffPlan::where('code', 'pro')
+            ->where('is_active', true)
+            ->first();
+
+        abort_if($plan === null, 404);
+
+        $price = $this->billingService->calculatePrice($plan, $periodMonths);
+
+        return Inertia::render('admin/billing-checkout', [
+            'plan' => [
+                'id' => $plan->id,
+                'code' => $plan->code,
+                'name' => $plan->name,
+                'price_monthly' => $plan->price_monthly,
+            ],
+            'period_months' => $periodMonths,
+            'price' => [
+                'base' => $price['base'],
+                'discount_percent' => $price['discount_percent'],
+                'final' => $price['final'],
+                'currency' => $price['currency'] ?? 'RUB',
+            ],
+        ]);
+    }
+
+    /**
      * Payment provider success return — sets a one-shot UX flash only.
      * No billing data is read or mutated here.
      */
