@@ -2,9 +2,12 @@
 
 namespace App\Services\Payment;
 
+use App\Enums\BillingCycleStatus;
 use App\Enums\PaymentAttemptStatus;
+use App\Models\BillingCycle;
 use App\Models\PaymentAttempt;
 use Carbon\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PaymentReconciliationService
@@ -75,7 +78,7 @@ class PaymentReconciliationService
 
         // Check age release
         if ($this->shouldAgeRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId)) {
-            $this->ageRelease($attempt);
+            $this->ageRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId);
 
             return;
         }
@@ -116,7 +119,7 @@ class PaymentReconciliationService
             // metadata, and create no provider event.
             if ($attempt->status === PaymentAttemptStatus::Processing
                 && $statusUpdate->normalizedStatus === PaymentAttemptStatus::Unknown) {
-                $this->updatePollMetadata($attempt, $pollCount);
+                $this->updatePollMetadata($attempt);
 
                 return;
             }
@@ -137,7 +140,7 @@ class PaymentReconciliationService
             }
         } else {
             // Provider returned null - update metadata with backoff
-            $this->updatePollMetadata($attempt, $pollCount);
+            $this->updatePollMetadata($attempt);
         }
     }
 
@@ -178,41 +181,113 @@ class PaymentReconciliationService
 
     /**
      * Age-release attempt to failed_terminal.
+     *
+     * The batch model may be stale by the time this runs (a webhook can
+     * confirm the payment in between), so the attempt is re-read under a
+     * row lock and the release decision is re-taken against the fresh
+     * status and age. Nothing is written when the outcome is already
+     * decided — Succeeded attempts, a Paid cycle and an already extended
+     * subscription are never overwritten. Attempt, cycle and subscription
+     * changes commit atomically in one transaction.
+     *
+     * Stays a local release: PaymentTransitionService::transition() would
+     * claim a provider event and therefore fabricate a webhook, which the
+     * provider never sent. The lock order (attempt → cycle) matches the
+     * transition path, so the two cannot interleave into a lost update.
      */
-    private function ageRelease(PaymentAttempt $attempt): void
-    {
-        $attempt->update([
-            'status' => PaymentAttemptStatus::FailedTerminal,
-            'failure_category' => 'reconciliation_timeout',
-            'finished_at' => now(),
-        ]);
+    private function ageRelease(
+        PaymentAttempt $attempt,
+        int $maxAgeWithProviderId,
+        int $maxAgeWithoutProviderId,
+    ): void {
+        DB::transaction(function () use ($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId) {
+            $fresh = PaymentAttempt::lockForUpdate()
+                ->whereKey($attempt->getKey())
+                ->first();
 
-        // Update cycle status
-        $cycle = $attempt->billingCycle;
-        if ($cycle !== null) {
-            $cycle->update(['status' => \App\Enums\BillingCycleStatus::Failed]);
+            if ($fresh === null
+                || ! $this->isAgeReleaseEligible($fresh, $maxAgeWithProviderId, $maxAgeWithoutProviderId)) {
+                return;
+            }
+
+            $cycle = $fresh->billing_cycle_id === null
+                ? null
+                : BillingCycle::lockForUpdate()->whereKey($fresh->billing_cycle_id)->first();
+
+            if ($cycle !== null && $cycle->status === BillingCycleStatus::Paid) {
+                // The renewal already succeeded — never downgrade Paid and
+                // never open a technical grace on a renewed subscription.
+                return;
+            }
+
+            $fresh->update([
+                'status' => PaymentAttemptStatus::FailedTerminal,
+                'failure_category' => 'reconciliation_timeout',
+                'finished_at' => now(),
+            ]);
+
+            if ($cycle !== null && $cycle->status !== BillingCycleStatus::Failed) {
+                $cycle->update(['status' => BillingCycleStatus::Failed]);
+            }
+
+            // Same timeout + bounded technical grace rules as before, but
+            // applied to the locked row from this transaction.
+            $this->transitionService->applyTechnicalRenewalGrace($fresh);
+
+            Log::info('Age-released payment attempt', [
+                'attempt_id' => $fresh->id,
+                'provider_payment_id' => $fresh->provider_payment_id,
+                'age_hours' => $fresh->created_at->diffInHours(now()),
+            ]);
+        });
+    }
+
+    /**
+     * Re-evaluate the age-release decision against the fresh row: the
+     * attempt must still be in a batch-eligible status and already older
+     * than the age limit that applies to its current provider_payment_id.
+     */
+    private function isAgeReleaseEligible(
+        PaymentAttempt $attempt,
+        int $maxAgeWithProviderId,
+        int $maxAgeWithoutProviderId,
+    ): bool {
+        if (! in_array($attempt->status, [
+            PaymentAttemptStatus::Created,
+            PaymentAttemptStatus::Processing,
+            PaymentAttemptStatus::Unknown,
+        ], true)) {
+            return false;
         }
 
-        // Renewal attempts: PastDue + bounded technical grace (no-op for
-        // checkout attempts and other failure categories).
-        $this->transitionService->applyTechnicalRenewalGrace($attempt);
-
-        Log::info('Age-released payment attempt', [
-            'attempt_id' => $attempt->id,
-            'provider_payment_id' => $attempt->provider_payment_id,
-            'age_hours' => $attempt->created_at->diffInHours(now()),
-        ]);
+        return $this->shouldAgeRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId);
     }
 
     /**
      * Update poll metadata with backoff info.
+     *
+     * Runs after the provider HTTP call, never during it: the row is
+     * re-read under a lock inside a short transaction and only the two
+     * polling-owned keys are rewritten, so a marker or flag written in the
+     * meantime (charge_dispatch_started_at, technical_retry, …) survives
+     * and the stale batch snapshot is not written back.
      */
-    private function updatePollMetadata(PaymentAttempt $attempt, int $currentPollCount): void
+    private function updatePollMetadata(PaymentAttempt $attempt): void
     {
-        $metadata = $attempt->metadata ?? [];
-        $metadata['poll_count'] = $currentPollCount + 1;
-        $metadata['last_polled_at'] = now()->toIso8601String();
+        DB::transaction(function () use ($attempt) {
+            $fresh = PaymentAttempt::lockForUpdate()
+                ->whereKey($attempt->getKey())
+                ->first();
 
-        $attempt->update(['metadata' => $metadata]);
+            if ($fresh === null) {
+                return;
+            }
+
+            $metadata = $fresh->metadata ?? [];
+            $metadata['poll_count'] = (int) ($metadata['poll_count'] ?? 0) + 1;
+            $metadata['last_polled_at'] = now()->toIso8601String();
+
+            $fresh->update(['metadata' => $metadata]);
+        });
     }
 }

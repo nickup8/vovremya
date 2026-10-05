@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\BillingCycleOrigin;
 use App\Enums\BillingCycleStatus;
 use App\Enums\BillingSubscriptionStatus;
 use App\Enums\PaymentAttemptStatus;
@@ -12,7 +13,9 @@ use App\Models\PlanPrice;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use App\Services\Payment\PaymentReconciliationService;
+use App\Services\Payment\PaymentTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Tests\TestCase;
@@ -452,6 +455,249 @@ class PaymentReconciliationTest extends TestCase
     }
 
     // ── Helpers ──
+
+    // ── Races between the batch snapshot and concurrent writers ──
+
+    public function test_age_release_does_not_overwrite_success_confirmed_after_batch_read(): void
+    {
+        // Renewal attempt: age-releasable (no provider id → 30min window),
+        // but handled second because its created_at is younger.
+        [$sub, $cycle, $renewal] = $this->createRenewalAttempt();
+
+        // Oldest row in the batch: polled first, still inside the 24h age
+        // window, so it goes to GetState instead of an age-release.
+        $inFlightCycle = BillingCycle::create([
+            'billing_subscription_id' => $sub->id,
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => now()->subMonths(2),
+            'period_end' => now()->subMonth(),
+            'status' => BillingCycleStatus::Pending,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        $inFlight = new PaymentAttempt([
+            'billing_cycle_id' => $inFlightCycle->id,
+            'provider' => 'tbank',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => 'tbank_'.bin2hex(random_bytes(8)),
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now()->subHour(),
+            'metadata' => ['billing_subscription_id' => $sub->id],
+        ]);
+        $inFlight->created_at = now()->subHour();
+        $inFlight->save();
+
+        $confirmed = false;
+        Http::fake(function ($request) use (&$confirmed, $inFlight, $renewal) {
+            // While reconcile() is mid-batch, the webhook confirms the
+            // renewal payment — exactly the window ageRelease() used to
+            // decide on its stale model.
+            if (! $confirmed) {
+                $confirmed = true;
+
+                app(PaymentTransitionService::class)->transition(new ProviderStatusUpdate(
+                    provider: 'tbank',
+                    internalOrderId: $renewal->internal_order_id,
+                    normalizedStatus: PaymentAttemptStatus::Succeeded,
+                    amount: $renewal->amount,
+                    currency: $renewal->currency,
+                    raw: [
+                        'Status' => 'CONFIRMED',
+                        'OrderId' => $renewal->internal_order_id,
+                    ],
+                ));
+            }
+
+            return Http::response([
+                'Success' => true,
+                'PaymentId' => $inFlight->provider_payment_id,
+                'OrderId' => $inFlight->internal_order_id,
+                'Status' => 'NEW',
+                'Amount' => 49000,
+            ], 200);
+        });
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(2, $result['processed']);
+        $this->assertSame(0, $result['errors']);
+        Http::assertSentCount(1);
+
+        // The confirmed outcome is never overwritten by the age-release.
+        $renewal->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $renewal->status);
+
+        $cycle->refresh();
+        $this->assertSame(BillingCycleStatus::Paid, $cycle->status);
+
+        // Subscription stays renewed: horizon not rolled back, no grace.
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::Active, $sub->status);
+        $this->assertTrue($sub->current_period_end->equalTo($cycle->period_end));
+        $this->assertNotNull($sub->next_charge_at);
+        $this->assertTrue($sub->next_charge_at->equalTo($sub->current_period_end));
+        $this->assertNull($sub->grace_until);
+
+        $inFlight->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $inFlight->status);
+        $this->assertSame(1, $inFlight->metadata['poll_count']);
+    }
+
+    public function test_poll_metadata_write_preserves_dispatch_marker_written_in_between(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+        $attempt->update([
+            'metadata' => [
+                'renewal' => true,
+                'billing_subscription_id' => $attempt->billingCycle->billing_subscription_id,
+                'technical_retry' => true,
+            ],
+        ]);
+
+        Http::fake(function ($request) use ($attempt) {
+            if (str_ends_with($request->url(), '/v2/GetState')) {
+                // The executor commits its dispatch marker while the batch
+                // still holds the pre-marker metadata snapshot.
+                $fresh = PaymentAttempt::findOrFail($attempt->getKey());
+                $fresh->update([
+                    'metadata' => array_merge($fresh->metadata ?? [], [
+                        'charge_dispatch_started_at' => now()->toISOString(),
+                    ]),
+                ]);
+            }
+
+            return Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'NEW',
+                'Amount' => 49000,
+            ], 200);
+        });
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v2/GetState'));
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        // Only the polling keys were written: the marker and the retry flag
+        // that landed after the batch read both survive.
+        $this->assertNotNull($attempt->metadata['charge_dispatch_started_at'] ?? null);
+        $this->assertTrue($attempt->metadata['technical_retry'] ?? false);
+        $this->assertSame(1, $attempt->metadata['poll_count']);
+        $this->assertNotEmpty($attempt->metadata['last_polled_at']);
+    }
+
+    // ── Ordinary age-release keeps working ──
+
+    public function test_age_release_still_fails_cycle_and_opens_bounded_grace(): void
+    {
+        // DB timestamps have second precision — freeze so grace_until and
+        // the assertion below are computed from the same instant.
+        $this->freezeSecond();
+
+        [$sub, $cycle, $attempt] = $this->createRenewalAttempt();
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(1, $result['processed']);
+        $this->assertSame(0, $result['errors']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertSame('reconciliation_timeout', $attempt->failure_category);
+
+        $cycle->refresh();
+        $this->assertSame(BillingCycleStatus::Failed, $cycle->status);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::PastDue, $sub->status);
+        // Bounded window from config, measured from now (period already ended).
+        $this->assertTrue($sub->grace_until->equalTo(now()->addDays(
+            (int) config('billing.renewal.technical_grace_days'),
+        )));
+        $this->assertNull($sub->next_charge_at);
+        $this->assertFalse($sub->cancel_at_period_end);
+        $this->assertTrue($sub->current_period_end->equalTo(now()->subDay()));
+
+        $grace = $sub->grace_until->copy();
+
+        // A terminal attempt is out of the batch: no second release, no
+        // grace extension.
+        $again = app(PaymentReconciliationService::class)->reconcile();
+        $this->assertSame(0, $again['processed']);
+
+        $sub->refresh();
+        $this->assertTrue($sub->grace_until->equalTo($grace));
+    }
+
+    // ── Helpers ──
+
+    /**
+     * Active renewal subscription + pending renewal cycle + in-flight
+     * renewal attempt without a provider payment id, backdated so the
+     * 30-minute age window applies.
+     *
+     * @return array{0: BillingSubscription, 1: BillingCycle, 2: PaymentAttempt}
+     */
+    private function createRenewalAttempt(array $attemptOverrides = [], int $ageMinutes = 40): array
+    {
+        $periodEnd = now()->subDay();
+
+        $sub = BillingSubscription::create([
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::Active,
+            'renewal_period_months' => 1,
+            'auto_renew_consent_at' => now()->subDays(2),
+            'auto_renew_consent_version' => config('billing.recurring_terms_version'),
+            'cancel_at_period_end' => false,
+            'current_period_start' => $periodEnd->copy()->subMonth(),
+            'current_period_end' => $periodEnd,
+            'next_charge_at' => $periodEnd,
+            'grace_until' => null,
+        ]);
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $sub->id,
+            'workspace_id' => $this->workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => $periodEnd,
+            'period_end' => $periodEnd->copy()->addMonth(),
+            'status' => BillingCycleStatus::Pending,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::Renewal,
+        ]);
+
+        $attempt = new PaymentAttempt(array_merge([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'tbank',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'renew_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => null,
+            'status' => PaymentAttemptStatus::Processing,
+            'initiated_at' => now()->subHour(),
+            'metadata' => [
+                'renewal' => true,
+                'billing_subscription_id' => $sub->id,
+            ],
+        ], $attemptOverrides));
+        $attempt->created_at = now()->subMinutes($ageMinutes);
+        $attempt->save();
+
+        return [$sub, $cycle, $attempt];
+    }
 
     private function createAttempt(
         PaymentAttemptStatus $status,
