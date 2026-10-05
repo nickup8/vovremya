@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { Head, Link, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
@@ -54,6 +54,9 @@ const MONTHS_RU: Record<number, string> = {
 
 const fmt = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽';
 
+const RETURN_BTN_CLASS =
+    'mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]';
+
 function pluralizePeriod(n: number): string {
     return `${n} ${MONTHS_RU[n] ?? 'месяцев'}`;
 }
@@ -61,6 +64,8 @@ function pluralizePeriod(n: number): string {
 /* ═══════════════ Main Page ═══════════════ */
 
 type PaymentMethod = 'sbp' | 'card';
+
+type SbpStatus = 'waiting' | 'succeeded' | 'failed' | 'refunded';
 
 interface SbpPayment {
     payload: string;
@@ -76,6 +81,7 @@ export default function BillingCheckoutPage() {
     const [autoRenew, setAutoRenew] = useState(false);
     const [loading, setLoading] = useState(false);
     const [sbpPayment, setSbpPayment] = useState<SbpPayment | null>(null);
+    const [sbpStatus, setSbpStatus] = useState<SbpStatus>('waiting');
 
     const isSbp = paymentMethod === 'sbp';
     const monthlyEquiv = Math.round(price.final / periodMonths);
@@ -131,6 +137,53 @@ export default function BillingCheckoutPage() {
             setLoading(false);
         }
     }
+
+    // ── SBP status polling: local Billing Core attempt only, never T-Bank ──
+    useEffect(() => {
+        if (!sbpPayment?.paymentId || sbpStatus !== 'waiting') {
+            return;
+        }
+
+        const paymentId = sbpPayment.paymentId;
+        let stopped = false;
+
+        const timer = window.setInterval(async () => {
+            if (stopped) {
+                return;
+            }
+
+            try {
+                const res = await axios.get(
+                    `/admin/billing/payment-status/${paymentId}`,
+                );
+
+                if (stopped) {
+                    return;
+                }
+
+                const status = res.data?.status;
+
+                if (status === 'succeeded') {
+                    setSbpStatus('succeeded');
+                } else if (status === 'failed_terminal') {
+                    setSbpStatus('failed');
+                } else if (
+                    status === 'refunded' ||
+                    status === 'partially_refunded'
+                ) {
+                    setSbpStatus('refunded');
+                }
+                // processing / created / unknown / failed_retryable → ждём дальше
+            } catch {
+                // Временный сбой polling — оплата не «упала», ждём следующий тик
+            }
+        }, 2000);
+
+        return () => {
+            stopped = true;
+            window.clearInterval(timer);
+        };
+    }, [sbpPayment?.paymentId, sbpStatus]);
 
     return (
         <>
@@ -209,52 +262,100 @@ export default function BillingCheckoutPage() {
                         {sbpPayment ? (
                             /* ─── SBP payment pending (stays on our page) ─── */
                             <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
-                                <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
-                                    Ожидаем подтверждение оплаты
-                                </div>
-                                <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                    Не закрывайте страницу до завершения оплаты
-                                </p>
+                                {sbpStatus === 'succeeded' ? (
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            Оплата прошла
+                                        </div>
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            Профи активирован
+                                        </p>
+                                        <Link
+                                            href="/admin/billing"
+                                            className={RETURN_BTN_CLASS}
+                                        >
+                                            Вернуться к тарифам
+                                        </Link>
+                                    </>
+                                ) : sbpStatus === 'failed' ? (
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            Оплата не прошла
+                                        </div>
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            Попробуйте снова или выберите другой
+                                            способ оплаты
+                                        </p>
+                                        <Link
+                                            href="/admin/billing"
+                                            className={RETURN_BTN_CLASS}
+                                        >
+                                            Вернуться к тарифам
+                                        </Link>
+                                    </>
+                                ) : sbpStatus === 'refunded' ? (
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            Платёж возвращён
+                                        </div>
+                                        <Link
+                                            href="/admin/billing"
+                                            className={RETURN_BTN_CLASS}
+                                        >
+                                            Вернуться к тарифам
+                                        </Link>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            Ожидаем подтверждение оплаты
+                                        </div>
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            Не закрывайте страницу до завершения
+                                            оплаты
+                                        </p>
 
-                                {/* Desktop (md+): QR rendered locally from sbp_payload */}
-                                <div className="mt-4 hidden md:block">
-                                    <div className="inline-block rounded-[16px] border border-[var(--color-line)] bg-white p-4">
-                                        <QRCodeSVG
-                                            value={sbpPayment.payload}
-                                            size={232}
-                                            bgColor="#ffffff"
-                                            fgColor="#000000"
-                                            level="M"
-                                            marginSize={2}
-                                            title="QR-код для оплаты через СБП"
-                                        />
-                                    </div>
-                                    <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-ink)]">
-                                        Отсканируйте QR-код камерой телефона или
-                                        в приложении банка
-                                    </p>
-                                    <p className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]">
-                                        Сумма: {fmt(price.final)}
-                                    </p>
-                                    <a
-                                        href={sbpPayment.payload}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="mt-2 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
-                                    >
-                                        Открыть СБП
-                                    </a>
-                                </div>
+                                        {/* Desktop (md+): QR rendered locally from sbp_payload */}
+                                        <div className="mt-4 hidden md:block">
+                                            <div className="inline-block rounded-[16px] border border-[var(--color-line)] bg-white p-4">
+                                                <QRCodeSVG
+                                                    value={sbpPayment.payload}
+                                                    size={232}
+                                                    bgColor="#ffffff"
+                                                    fgColor="#000000"
+                                                    level="M"
+                                                    marginSize={2}
+                                                    title="QR-код для оплаты через СБП"
+                                                />
+                                            </div>
+                                            <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-ink)]">
+                                                Отсканируйте QR-код камерой
+                                                телефона или в приложении банка
+                                            </p>
+                                            <p className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]">
+                                                Сумма: {fmt(price.final)}
+                                            </p>
+                                            <a
+                                                href={sbpPayment.payload}
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="mt-2 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
+                                            >
+                                                Открыть СБП
+                                            </a>
+                                        </div>
 
-                                {/* Mobile: open-bank action only, no QR */}
-                                <a
-                                    href={sbpPayment.payload}
-                                    target="_blank"
-                                    rel="noopener noreferrer"
-                                    className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)] md:hidden"
-                                >
-                                    Открыть приложение банка
-                                </a>
+                                        {/* Mobile: open-bank action only, no QR */}
+                                        <a
+                                            href={sbpPayment.payload}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)] md:hidden"
+                                        >
+                                            Открыть приложение банка
+                                        </a>
+                                    </>
+                                )}
                             </section>
                         ) : (
                             <>

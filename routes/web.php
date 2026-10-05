@@ -185,6 +185,7 @@ Route::middleware(['auth'])->group(function () {
     Route::get('/admin/billing/checkout', [PaymentController::class, 'checkout'])->name('admin.billing.checkout');
     Route::get('/admin/billing/payment/success', [PaymentController::class, 'paymentReturnSuccess'])->name('admin.billing.payment.success');
     Route::get('/admin/billing/payment/failed', [PaymentController::class, 'paymentReturnFailed'])->name('admin.billing.payment.failed');
+    Route::get('/admin/billing/payment-status/{paymentId}', [PaymentController::class, 'paymentStatus'])->name('admin.billing.payment-status');
     Route::post('/admin/checkout', [PaymentController::class, 'createCheckout'])->name('admin.checkout');
     Route::post('/admin/billing/auto-renew/disable', [PaymentController::class, 'disableAutoRenew'])->name('admin.billing.auto-renew.disable');
 

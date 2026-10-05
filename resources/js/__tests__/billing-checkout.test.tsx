@@ -1,5 +1,11 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import {
+    act,
+    fireEvent,
+    render,
+    screen,
+    waitFor,
+} from '@testing-library/react';
 import React from 'react';
 import axios from 'axios';
 import { toast } from 'sonner';
@@ -24,6 +30,7 @@ vi.mock('@/layouts/AdminLayout', () => ({
 vi.mock('axios', () => ({
     default: {
         post: vi.fn(),
+        get: vi.fn(),
         isAxiosError: (err: unknown) =>
             Boolean(
                 err &&
@@ -73,12 +80,35 @@ function makeProps() {
     };
 }
 
+const SBP_CHECKOUT_RESPONSE = {
+    data: {
+        payment_method: 'sbp',
+        payment_id: 'pay_1',
+        sbp_payload: 'https://qr.nspk.ru/TESTPAYLOAD',
+        subscription_id: 7,
+        amount: 1323,
+    },
+};
+
+/** SBP checkout до экрана ожидания (микротаски, без реальных таймеров). */
+async function startSbpCheckout() {
+    vi.mocked(axios.post).mockResolvedValue(SBP_CHECKOUT_RESPONSE);
+    const view = render(<BillingCheckoutPage />);
+    fireEvent.click(screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }));
+    await act(async () => {});
+
+    return view;
+}
+
 describe('admin/billing-checkout.tsx — own checkout page', () => {
     const originalLocation = window.location;
 
     beforeEach(() => {
         mockUsePage.mockReturnValue(makeProps());
         vi.mocked(axios.post).mockReset().mockResolvedValue({ data: {} });
+        vi.mocked(axios.get)
+            .mockReset()
+            .mockResolvedValue({ data: { status: 'processing' } });
         vi.mocked(toast.error).mockClear();
         Object.defineProperty(window, 'location', {
             value: { href: '' },
@@ -88,6 +118,7 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
     });
 
     afterEach(() => {
+        vi.useRealTimers();
         Object.defineProperty(window, 'location', {
             value: originalLocation,
             writable: true,
@@ -335,6 +366,185 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
             screen.queryByText(/подтверждение появится на этой странице/),
         ).toBeNull();
         expect(window.location.href).toBe('');
+    });
+
+    // ── SBP status polling ──
+
+    it('sbp checkout starts polling payment status every 2s', async () => {
+        vi.useFakeTimers();
+
+        await startSbpCheckout();
+
+        expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+        expect(axios.get).not.toHaveBeenCalled();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+
+        expect(axios.get).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1',
+        );
+    });
+
+    it('succeeded stops polling and shows success', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+
+        await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        expect(screen.getByText('Профи активирован')).toBeTruthy();
+        const back = screen.getByRole('link', { name: 'Вернуться к тарифам' });
+        expect(back.getAttribute('href')).toBe('/admin/billing');
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+
+        act(() => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('failed_terminal stops polling and shows failure', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal' },
+        });
+
+        await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+        expect(
+            screen.getByText(
+                'Попробуйте снова или выберите другой способ оплаты',
+            ),
+        ).toBeTruthy();
+        expect(
+            screen.getByRole('link', { name: 'Вернуться к тарифам' }),
+        ).toBeTruthy();
+
+        act(() => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('refunded shows neutral state and stops polling', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'refunded' },
+        });
+
+        await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Платёж возвращён')).toBeTruthy();
+        expect(
+            screen.getByRole('link', { name: 'Вернуться к тарифам' }),
+        ).toBeTruthy();
+
+        act(() => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('processing keeps polling and stays on waiting screen', async () => {
+        vi.useFakeTimers();
+
+        await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+    });
+
+    it('polling request error keeps waiting without terminal failure', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValue(new Error('network down'));
+
+        await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+
+        // Следующий тик продолжает polling
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(2);
+    });
+
+    it('unmount clears the polling interval', async () => {
+        vi.useFakeTimers();
+
+        const { unmount } = await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+
+        unmount();
+
+        act(() => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('card flow never polls payment status', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                checkout_url: 'https://securepay.tinkoff.ru/pay?paymentId=1',
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        act(() => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(axios.get).not.toHaveBeenCalled();
     });
 
     it('shows validation toast on 422', async () => {

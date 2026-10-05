@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\BillingSubscriptionStatus;
 use App\Http\Controllers\Controller;
 use App\Models\BillingSubscription;
+use App\Models\PaymentAttempt;
 use App\Models\TariffPlan;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\EntitlementService;
@@ -196,6 +197,36 @@ class PaymentController extends Controller
             'checkout_url' => $result['confirmation_url'],
             'subscription_id' => $result['subscription']->id,
             'amount' => $result['subscription']->amount_paid,
+        ]);
+    }
+
+    /**
+     * Read-only SBP status for checkout polling.
+     *
+     * Source of truth is the local PaymentAttempt (webhook/reconciliation
+     * own its lifecycle) — T-Bank is never called from here. The response
+     * carries the status string only: no metadata, payload or internal ids.
+     */
+    public function paymentStatus(Request $request, string $paymentId): JsonResponse
+    {
+        abort_unless($request->user()->role->canManageBilling(), 403);
+
+        $workspaceId = $request->user()->workspace_id;
+        abort_unless($workspaceId !== null, 404);
+
+        $attempt = PaymentAttempt::query()
+            ->where('provider', 'tbank')
+            ->where('provider_payment_id', $paymentId)
+            ->where('metadata->payment_method', 'sbp')
+            ->whereHas('billingCycle', function ($query) use ($workspaceId) {
+                $query->where('workspace_id', $workspaceId);
+            })
+            ->first();
+
+        abort_if($attempt === null, 404);
+
+        return response()->json([
+            'status' => $attempt->status->value,
         ]);
     }
 
