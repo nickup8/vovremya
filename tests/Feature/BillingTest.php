@@ -128,7 +128,7 @@ class BillingTest extends TestCase
     {
         $master = User::factory()->master()->create();
 
-        $result = $this->billingService->subscribe($master, $this->proPlan, 1);
+        $result = $this->billingService->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $subscription = $result['subscription'];
 
@@ -141,7 +141,7 @@ class BillingTest extends TestCase
     {
         $master = User::factory()->master()->create();
 
-        $result = $this->billingService->subscribe($master, $this->proPlan, 6);
+        $result = $this->billingService->subscribe($master, $this->proPlan, 6, false, 'card');
 
         $subscription = $result['subscription'];
 
@@ -160,7 +160,7 @@ class BillingTest extends TestCase
     {
         $master = User::factory()->master()->create();
 
-        $result = $this->billingService->subscribe($master, $this->proPlan, 1);
+        $result = $this->billingService->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $payload = [
             'payment_id' => $result['subscription']->payment_id,
@@ -181,7 +181,7 @@ class BillingTest extends TestCase
     public function test_webhook_payment_with_invalid_signature_is_rejected(): void
     {
         $master = User::factory()->master()->create();
-        $result = $this->billingService->subscribe($master, $this->proPlan, 1);
+        $result = $this->billingService->subscribe($master, $this->proPlan, 1, false, 'card');
         $subscription = $result['subscription'];
 
         $response = $this->postJson('/webhooks/payment', [
@@ -205,7 +205,7 @@ class BillingTest extends TestCase
 
         $this->assertNull($master->workspace_id);
 
-        $result = $this->billingService->subscribe($master, $this->proPlan, 1);
+        $result = $this->billingService->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $master->refresh();
 

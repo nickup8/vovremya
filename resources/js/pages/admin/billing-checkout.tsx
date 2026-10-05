@@ -59,14 +59,24 @@ function pluralizePeriod(n: number): string {
 
 /* ═══════════════ Main Page ═══════════════ */
 
+type PaymentMethod = 'sbp' | 'card';
+
+interface SbpPayment {
+    payload: string;
+    paymentId: string | null;
+}
+
 export default function BillingCheckoutPage() {
     const props = usePage<PageProps>().props;
     const auth = props.auth;
     const { plan, period_months: periodMonths, price } = props;
 
+    const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('sbp');
     const [autoRenew, setAutoRenew] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [sbpPayment, setSbpPayment] = useState<SbpPayment | null>(null);
 
+    const isSbp = paymentMethod === 'sbp';
     const monthlyEquiv = Math.round(price.final / periodMonths);
     const saving = price.base - price.final;
 
@@ -81,8 +91,19 @@ export default function BillingCheckoutPage() {
             const res = await axios.post('/admin/checkout', {
                 tariff_plan_id: plan.id,
                 period_months: periodMonths,
-                auto_renew: autoRenew,
+                auto_renew: isSbp ? false : autoRenew,
+                payment_method: paymentMethod,
             });
+
+            if (res.data?.sbp_payload) {
+                setSbpPayment({
+                    payload: res.data.sbp_payload,
+                    paymentId: res.data.payment_id ?? null,
+                });
+
+                return;
+            }
+
             const url = res.data?.checkout_url;
 
             if (url) {
@@ -184,91 +205,215 @@ export default function BillingCheckoutPage() {
                             </div>
                         </section>
 
-                        {/* ─── Payment method ─── */}
-                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
-                            <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
-                                Способ оплаты
-                            </div>
-
-                            <div className="mt-3 rounded-[14px] border border-[var(--color-orange)] bg-[var(--color-orange-100)] p-[14px] shadow-[inset_0_0_0_1px_var(--color-orange)]">
-                                <div className="flex items-center gap-3">
-                                    <svg
-                                        className="shrink-0 text-[var(--color-orange)]"
-                                        width="22"
-                                        height="22"
-                                        viewBox="0 0 24 24"
-                                        fill="none"
-                                        stroke="currentColor"
-                                        strokeWidth="2"
-                                        strokeLinecap="round"
-                                        strokeLinejoin="round"
-                                    >
-                                        <rect
-                                            width="20"
-                                            height="14"
-                                            x="2"
-                                            y="5"
-                                            rx="2"
-                                        />
-                                        <path d="M2 10h20" />
-                                    </svg>
-                                    <div className="min-w-0">
-                                        <div className="text-[13px] leading-[18px] font-semibold text-[var(--color-ink)]">
-                                            Банковская карта
-                                        </div>
-                                        <div className="mt-[2px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                            Оплата на защищённой странице T-Bank
-                                        </div>
-                                    </div>
+                        {sbpPayment ? (
+                            /* ─── SBP payment pending (stays on our page) ─── */
+                            <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
+                                <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                    Ожидаем подтверждение оплаты
                                 </div>
-                            </div>
-                        </section>
+                                <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                    Оплатите счёт в приложении вашего банка —
+                                    подтверждение появится на этой странице.
+                                </p>
+                                <a
+                                    href={sbpPayment.payload}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]"
+                                >
+                                    Открыть приложение банка
+                                </a>
+                            </section>
+                        ) : (
+                            <>
+                                {/* ─── Payment method ─── */}
+                                <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
+                                    <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                        Способ оплаты
+                                    </div>
 
-                        {/* ─── Auto renewal consent ─── */}
-                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
-                            <label className="flex cursor-pointer items-start gap-[10px]">
-                                <input
-                                    type="checkbox"
-                                    checked={autoRenew}
-                                    onChange={(e) =>
-                                        setAutoRenew(e.target.checked)
-                                    }
-                                    className="mt-[2px] h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-orange)]"
-                                />
-                                <span className="min-w-0">
-                                    <span className="block text-[13px] leading-[18px] font-semibold text-[var(--color-ink)]">
-                                        Продлевать автоматически
-                                    </span>
-                                    <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
-                                        После окончания оплаченного периода ИРСИ
-                                        сможет автоматически списать стоимость
-                                        следующего периода с сохранённого
-                                        способа оплаты. Автопродление можно
-                                        будет отключить до следующего списания.
-                                    </span>
-                                </span>
-                            </label>
-                            <a
-                                href="/offer#auto-renew"
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                className="mt-2.5 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
-                            >
-                                Условия автопродления
-                            </a>
-                        </section>
+                                    <div
+                                        role="radiogroup"
+                                        aria-label="Способ оплаты"
+                                        className="mt-3 grid gap-3"
+                                    >
+                                        <button
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={isSbp}
+                                            onClick={() =>
+                                                setPaymentMethod('sbp')
+                                            }
+                                            className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left ${
+                                                isSbp
+                                                    ? 'border-[var(--color-orange)] bg-[var(--color-orange-100)] shadow-[inset_0_0_0_1px_var(--color-orange)]'
+                                                    : 'border-[var(--color-line)] bg-[var(--color-surface)] transition-colors hover:border-[var(--color-orange)]'
+                                            }`}
+                                        >
+                                            <svg
+                                                className={
+                                                    isSbp
+                                                        ? 'shrink-0 text-[var(--color-orange)]'
+                                                        : 'shrink-0 text-[var(--color-graphite)]'
+                                                }
+                                                width="22"
+                                                height="22"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            >
+                                                <rect
+                                                    x="3"
+                                                    y="3"
+                                                    width="7"
+                                                    height="7"
+                                                    rx="1"
+                                                />
+                                                <rect
+                                                    x="14"
+                                                    y="3"
+                                                    width="7"
+                                                    height="7"
+                                                    rx="1"
+                                                />
+                                                <rect
+                                                    x="3"
+                                                    y="14"
+                                                    width="7"
+                                                    height="7"
+                                                    rx="1"
+                                                />
+                                                <path d="M14 14h4v4h-4z" />
+                                                <path d="M21 14v.01M14 21v.01M21 21v.01" />
+                                            </svg>
+                                            <div className="min-w-0">
+                                                <div className="text-[13px] leading-[18px] font-semibold text-[var(--color-ink)]">
+                                                    СБП
+                                                </div>
+                                                <div className="mt-[2px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                                    Оплата через приложение
+                                                    вашего банка
+                                                </div>
+                                            </div>
+                                        </button>
 
-                        {/* ─── CTA ─── */}
-                        <button
-                            type="button"
-                            onClick={handleCheckout}
-                            disabled={loading}
-                            className="h-[46px] w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
-                        >
-                            {loading
-                                ? 'Перенаправление…'
-                                : `Оплатить ${fmt(price.final)}`}
-                        </button>
+                                        <button
+                                            type="button"
+                                            role="radio"
+                                            aria-checked={
+                                                paymentMethod === 'card'
+                                            }
+                                            onClick={() =>
+                                                setPaymentMethod('card')
+                                            }
+                                            className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left ${
+                                                paymentMethod === 'card'
+                                                    ? 'border-[var(--color-orange)] bg-[var(--color-orange-100)] shadow-[inset_0_0_0_1px_var(--color-orange)]'
+                                                    : 'border-[var(--color-line)] bg-[var(--color-surface)] transition-colors hover:border-[var(--color-orange)]'
+                                            }`}
+                                        >
+                                            <svg
+                                                className={
+                                                    paymentMethod === 'card'
+                                                        ? 'shrink-0 text-[var(--color-orange)]'
+                                                        : 'shrink-0 text-[var(--color-graphite)]'
+                                                }
+                                                width="22"
+                                                height="22"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                            >
+                                                <rect
+                                                    width="20"
+                                                    height="14"
+                                                    x="2"
+                                                    y="5"
+                                                    rx="2"
+                                                />
+                                                <path d="M2 10h20" />
+                                            </svg>
+                                            <div className="min-w-0">
+                                                <div className="text-[13px] leading-[18px] font-semibold text-[var(--color-ink)]">
+                                                    Банковская карта
+                                                </div>
+                                                <div className="mt-[2px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                                    Оплата на защищённой
+                                                    странице T-Bank
+                                                </div>
+                                            </div>
+                                        </button>
+                                    </div>
+                                </section>
+
+                                {/* ─── Auto renewal consent ─── */}
+                                <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
+                                    <label className="flex cursor-pointer items-start gap-[10px]">
+                                        <input
+                                            type="checkbox"
+                                            checked={isSbp ? false : autoRenew}
+                                            disabled={isSbp}
+                                            onChange={(e) =>
+                                                setAutoRenew(e.target.checked)
+                                            }
+                                            className="mt-[2px] h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-orange)] disabled:cursor-not-allowed"
+                                        />
+                                        <span className="min-w-0">
+                                            <span className="block text-[13px] leading-[18px] font-semibold text-[var(--color-ink)]">
+                                                Продлевать автоматически
+                                            </span>
+                                            {isSbp ? (
+                                                <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
+                                                    Автопродление через СБП
+                                                    появится позже.
+                                                </span>
+                                            ) : (
+                                                <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
+                                                    После окончания оплаченного
+                                                    периода ИРСИ сможет
+                                                    автоматически списать
+                                                    стоимость следующего периода
+                                                    с сохранённого способа
+                                                    оплаты. Автопродление можно
+                                                    будет отключить до
+                                                    следующего списания.
+                                                </span>
+                                            )}
+                                        </span>
+                                    </label>
+                                    {!isSbp && (
+                                        <a
+                                            href="/offer#auto-renew"
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="mt-2.5 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
+                                        >
+                                            Условия автопродления
+                                        </a>
+                                    )}
+                                </section>
+
+                                {/* ─── CTA ─── */}
+                                <button
+                                    type="button"
+                                    onClick={handleCheckout}
+                                    disabled={loading}
+                                    className="h-[46px] w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
+                                >
+                                    {loading
+                                        ? isSbp
+                                            ? 'Создание платежа…'
+                                            : 'Перенаправление…'
+                                        : `Оплатить ${fmt(price.final)}`}
+                                </button>
+                            </>
+                        )}
                     </div>
                 </div>
             </AdminLayout>

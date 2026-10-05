@@ -159,6 +159,7 @@ class PaymentController extends Controller
             'tariff_plan_id' => 'required|exists:tariff_plans,id',
             'period_months' => 'required|integer|in:1,3,6,12',
             'auto_renew' => 'sometimes|boolean',
+            'payment_method' => 'required|string|in:sbp,card',
         ]);
 
         /** @var TariffPlan $plan */
@@ -177,9 +178,21 @@ class PaymentController extends Controller
             $plan,
             $validated['period_months'],
             (bool) ($validated['auto_renew'] ?? false),
+            $validated['payment_method'],
         );
 
+        if (($result['payment_method'] ?? null) === 'sbp') {
+            return response()->json([
+                'payment_method' => 'sbp',
+                'payment_id' => $result['payment_id'],
+                'sbp_payload' => $result['sbp_payload'],
+                'subscription_id' => $result['subscription']->id,
+                'amount' => $result['subscription']->amount_paid,
+            ]);
+        }
+
         return response()->json([
+            'payment_method' => 'card',
             'checkout_url' => $result['confirmation_url'],
             'subscription_id' => $result['subscription']->id,
             'amount' => $result['subscription']->amount_paid,

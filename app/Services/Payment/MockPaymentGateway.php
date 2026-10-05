@@ -21,6 +21,14 @@ class MockPaymentGateway implements PaymentGatewayInterface
     ): PaymentInitiation {
         $paymentId = 'mock_'.bin2hex(random_bytes(16));
 
+        if (($context['payment_method'] ?? null) === 'sbp') {
+            return new PaymentInitiation(
+                providerPaymentId: $paymentId,
+                method: PaymentInitiation::METHOD_SBP,
+                payload: config('app.url')."/admin/settings?payment={$paymentId}",
+            );
+        }
+
         return new PaymentInitiation(
             providerPaymentId: $paymentId,
             method: PaymentInitiation::METHOD_REDIRECT,

@@ -215,7 +215,7 @@ class PlanPriceResolverTest extends TestCase
         $master->update(['workspace_id' => $workspace->id]);
 
         $service = app(BillingService::class);
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $cycle = \App\Models\BillingCycle::where('legacy_subscription_id', $result['subscription']->id)->first();
         $this->assertNotNull($cycle);
@@ -255,7 +255,7 @@ class PlanPriceResolverTest extends TestCase
         $master->update(['workspace_id' => $workspace->id]);
 
         $service = app(BillingService::class);
-        $result = $service->subscribe($master, $this->proPlan, 3);
+        $result = $service->subscribe($master, $this->proPlan, 3, false, 'card');
 
         $this->assertSame(1397, $result['subscription']->amount_paid);
     }
@@ -313,7 +313,7 @@ class PlanPriceResolverTest extends TestCase
         $this->assertEquals($horizonEnd->timestamp, $foundEnd->timestamp);
 
         $service = app(BillingService::class);
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         // Starts after existing horizon, not from now
         $this->assertEqualsWithDelta($horizonEnd->timestamp, $result['subscription']->starts_at->timestamp, 2);
@@ -362,7 +362,7 @@ class PlanPriceResolverTest extends TestCase
         ]);
 
         $service = app(BillingService::class);
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         // Starts from approximately now (within a few seconds)
         $this->assertTrue($result['subscription']->starts_at->diffInSeconds(now()) <= 2);

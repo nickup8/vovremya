@@ -114,7 +114,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
     {
         [$master] = $this->createMasterWithWorkspace();
 
-        $result = app(BillingService::class)->subscribe($master, $this->proPlan, 1);
+        $result = app(BillingService::class)->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $this->assertNotNull($result['confirmation_url']);
 
@@ -131,7 +131,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
         $gateway = $this->recordingGateway();
         $this->app->instance(PaymentGatewayInterface::class, $gateway);
 
-        app(BillingService::class)->subscribe($master, $this->proPlan, 1, false);
+        app(BillingService::class)->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $sub = $this->billingSub($master);
         $this->assertNull($sub->auto_renew_consent_at);
@@ -150,7 +150,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
         $gateway = $this->recordingGateway();
         $this->app->instance(PaymentGatewayInterface::class, $gateway);
 
-        app(BillingService::class)->subscribe($master, $this->proPlan, 3, true);
+        app(BillingService::class)->subscribe($master, $this->proPlan, 3, true, 'card');
 
         $sub = $this->billingSub($master);
         $this->assertNotNull($sub->auto_renew_consent_at);
@@ -167,7 +167,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
     {
         [$master] = $this->createMasterWithWorkspace();
 
-        app(BillingService::class)->subscribe($master, $this->proPlan, 1, true);
+        app(BillingService::class)->subscribe($master, $this->proPlan, 1, true, 'card');
 
         $sub = $this->billingSub($master);
         $this->assertNotNull($sub->auto_renew_consent_at);
@@ -180,7 +180,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $service->subscribe($master, $this->proPlan, 1, true);
+        $service->subscribe($master, $this->proPlan, 1, true, 'card');
 
         $sub = $this->billingSub($master);
         $this->assertNotNull($sub->auto_renew_consent_at);
@@ -193,7 +193,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
         PaymentAttempt::where('status', PaymentAttemptStatus::Processing)
             ->update(['status' => PaymentAttemptStatus::FailedTerminal]);
 
-        $service->subscribe($master, $this->proPlan, 1, false);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $sub->refresh();
         $this->assertNotNull($sub->auto_renew_consent_at);
@@ -208,6 +208,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
         $response = $this->actingAs($master)->post('/admin/checkout', [
             'tariff_plan_id' => $this->proPlan->id,
             'period_months' => 1,
+            'payment_method' => 'card',
         ]);
 
         $response->assertOk();

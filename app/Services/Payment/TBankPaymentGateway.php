@@ -38,6 +38,10 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         string $internalOrderId,
         array $context = [],
     ): PaymentInitiation {
+        if (($context['payment_method'] ?? null) === 'sbp') {
+            return $this->createSbpPayment($amount, $internalOrderId);
+        }
+
         $autoRenew = ($context['auto_renew'] ?? false) === true;
 
         $payload = [
@@ -76,6 +80,67 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             providerPaymentId: (string) $data['PaymentId'],
             method: PaymentInitiation::METHOD_REDIRECT,
             checkoutUrl: (string) $data['PaymentURL'],
+        );
+    }
+
+    /**
+     * SBP Init + GetQr(PAYLOAD) — без card redirect.
+     *
+     * Init идентичен карточному, но без автопродления (Recurrent/CustomerKey/
+     * DATA не передаются — автопродление через СБП не реализовано). PaymentURL
+     * не требуется: клиентский payload берётся из GetQr Data.
+     *
+     * Если Init прошёл, а GetQr упал — fail closed без второго Init:
+     * платёж остаётся в статусе unknown и уходит в reconciliation.
+     * Token/Password/TerminalKey никогда не логируются.
+     */
+    private function createSbpPayment(int $amount, string $internalOrderId): PaymentInitiation
+    {
+        $initPayload = [
+            'TerminalKey' => $this->terminalKey,
+            'Amount' => $amount * 100,
+            'OrderId' => $internalOrderId,
+            'Description' => 'Подписка ИРСИ',
+            'PayType' => 'O',
+            'NotificationURL' => config('app.url').'/webhooks/payment/tbank',
+            'SuccessURL' => config('app.url').'/admin/billing/payment/success',
+            'FailURL' => config('app.url').'/admin/billing/payment/failed',
+        ];
+        $initPayload['Token'] = $this->computeToken($initPayload);
+
+        $data = $this->post($this->url('/v2/Init'), $initPayload, 'Init');
+
+        if (empty($data['PaymentId'])) {
+            throw new RuntimeException('T-Bank Init response missing PaymentId');
+        }
+
+        $paymentId = (string) $data['PaymentId'];
+
+        $qrPayload = [
+            'TerminalKey' => $this->terminalKey,
+            'PaymentId' => $paymentId,
+            'DataType' => 'PAYLOAD',
+            'PaymentMethod' => 'SBP',
+        ];
+        $qrPayload['Token'] = $this->computeToken($qrPayload);
+
+        $qrData = $this->post($this->url('/v2/GetQr'), $qrPayload, 'GetQr');
+
+        if (! isset($qrData['Data']) || ! is_string($qrData['Data']) || $qrData['Data'] === '') {
+            throw new RuntimeException('T-Bank GetQr response missing Data');
+        }
+
+        $metadata = [];
+
+        if (isset($qrData['RequestKey']) && is_string($qrData['RequestKey']) && $qrData['RequestKey'] !== '') {
+            $metadata['request_key'] = $qrData['RequestKey'];
+        }
+
+        return new PaymentInitiation(
+            providerPaymentId: $paymentId,
+            method: PaymentInitiation::METHOD_SBP,
+            payload: $qrData['Data'],
+            metadata: $metadata,
         );
     }
 

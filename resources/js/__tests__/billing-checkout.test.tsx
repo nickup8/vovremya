@@ -86,13 +86,59 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(screen.getByText('147 ₽ (−10%)')).toBeTruthy();
     });
 
-    it('renders the only payment method with T-Bank caption', () => {
+    it('renders both payment methods with SBP selected by default', () => {
         render(<BillingCheckoutPage />);
 
-        expect(screen.getByText('Банковская карта')).toBeTruthy();
+        const sbp = screen.getByRole('radio', { name: /СБП/ });
+        const card = screen.getByRole('radio', { name: /Банковская карта/ });
+
+        expect(sbp.getAttribute('aria-checked')).toBe('true');
+        expect(card.getAttribute('aria-checked')).toBe('false');
+        expect(
+            screen.getByText('Оплата через приложение вашего банка'),
+        ).toBeTruthy();
         expect(
             screen.getByText('Оплата на защищённой странице T-Bank'),
         ).toBeTruthy();
+    });
+
+    it('card is selectable', () => {
+        render(<BillingCheckoutPage />);
+
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+
+        const sbp = screen.getByRole('radio', { name: /СБП/ });
+        const card = screen.getByRole('radio', { name: /Банковская карта/ });
+
+        expect(card.getAttribute('aria-checked')).toBe('true');
+        expect(sbp.getAttribute('aria-checked')).toBe('false');
+    });
+
+    it('auto-renew is disabled for SBP with a notice', () => {
+        render(<BillingCheckoutPage />);
+
+        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+        expect(checkbox.disabled).toBe(true);
+        expect(checkbox.checked).toBe(false);
+        expect(
+            screen.getByText('Автопродление через СБП появится позже.'),
+        ).toBeTruthy();
+    });
+
+    it('card keeps auto-renew enabled', () => {
+        render(<BillingCheckoutPage />);
+
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+
+        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+        expect(checkbox.disabled).toBe(false);
+        expect(
+            screen.queryByText('Автопродление через СБП появится позже.'),
+        ).toBeNull();
     });
 
     it('back link goes to the billing page', () => {
@@ -102,13 +148,7 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(back.getAttribute('href')).toBe('/admin/billing');
     });
 
-    it('CTA posts current card checkout payload and redirects to checkout_url', async () => {
-        vi.mocked(axios.post).mockResolvedValue({
-            data: {
-                checkout_url: 'https://securepay.tinkoff.ru/pay?paymentId=1',
-            },
-        });
-
+    it('CTA posts payment_method sbp by default', async () => {
         render(<BillingCheckoutPage />);
         fireEvent.click(
             screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
@@ -119,6 +159,32 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
                 tariff_plan_id: 1,
                 period_months: 3,
                 auto_renew: false,
+                payment_method: 'sbp',
+            }),
+        );
+    });
+
+    it('CTA posts card checkout payload and redirects to checkout_url', async () => {
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                checkout_url: 'https://securepay.tinkoff.ru/pay?paymentId=1',
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+
+        await waitFor(() =>
+            expect(axios.post).toHaveBeenCalledWith('/admin/checkout', {
+                tariff_plan_id: 1,
+                period_months: 3,
+                auto_renew: false,
+                payment_method: 'card',
             }),
         );
         await waitFor(() => {
@@ -128,8 +194,12 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         });
     });
 
-    it('consent checkbox is unchecked by default and toggles auto_renew payload', async () => {
+    it('consent checkbox is unchecked by default and toggles auto_renew payload for card', async () => {
         render(<BillingCheckoutPage />);
+
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
 
         const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
         expect(checkbox.checked).toBe(false);
@@ -144,8 +214,35 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
                 tariff_plan_id: 1,
                 period_months: 3,
                 auto_renew: true,
+                payment_method: 'card',
             }),
         );
+    });
+
+    it('sbp response stays on IRSI checkout and exposes Open-bank action', async () => {
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                payment_method: 'sbp',
+                payment_id: 'pay_1',
+                sbp_payload: 'https://qr.nspk.ru/TESTPAYLOAD',
+                subscription_id: 7,
+                amount: 1323,
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+
+        const action = await screen.findByRole('link', {
+            name: 'Открыть приложение банка',
+        });
+        expect(action.getAttribute('href')).toBe(
+            'https://qr.nspk.ru/TESTPAYLOAD',
+        );
+        expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+        expect(window.location.href).toBe('');
     });
 
     it('shows validation toast on 422', async () => {

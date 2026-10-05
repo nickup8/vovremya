@@ -120,6 +120,7 @@ class PlanCatalogHardeningTest extends TestCase
             ->post('/admin/checkout', [
                 'tariff_plan_id' => $studioPlan->id,
                 'period_months' => 1,
+                'payment_method' => 'card',
             ]);
 
         $response->assertRedirect();
@@ -136,6 +137,7 @@ class PlanCatalogHardeningTest extends TestCase
             ->post('/admin/checkout', [
                 'tariff_plan_id' => $salonPlan->id,
                 'period_months' => 1,
+                'payment_method' => 'card',
             ]);
 
         $response->assertRedirect();
@@ -152,6 +154,7 @@ class PlanCatalogHardeningTest extends TestCase
             ->post('/admin/checkout', [
                 'tariff_plan_id' => $startPlan->id,
                 'period_months' => 1,
+                'payment_method' => 'card',
             ]);
 
         $response->assertRedirect();
@@ -168,6 +171,7 @@ class PlanCatalogHardeningTest extends TestCase
             ->post('/admin/checkout', [
                 'tariff_plan_id' => $proPlan->id,
                 'period_months' => 1,
+                'payment_method' => 'card',
             ]);
 
         $response->assertOk();

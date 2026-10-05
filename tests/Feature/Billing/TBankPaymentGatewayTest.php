@@ -225,6 +225,212 @@ class TBankPaymentGatewayTest extends TestCase
         $this->gateway()->createPayment(490, 'RUB', 'order-1');
     }
 
+    // ── SBP: Init → GetQr(PAYLOAD) ──
+
+    public function test_sbp_init_then_getqr_success(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/Init' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+            ], 200),
+            'securepay.tinkoff.ru/v2/GetQr' => Http::response([
+                'Success' => true,
+                'Data' => 'https://qr.nspk.ru/AS10001234567890',
+                'RequestKey' => 'req-key-1',
+            ], 200),
+        ]);
+
+        $initiation = $this->gateway()->createPayment(490, 'RUB', 'order-sbp', [
+            'workspace_id' => 55,
+            // Must be ignored for SBP: no auto-renew over СБП in this PR
+            'auto_renew' => true,
+            'payment_method' => 'sbp',
+        ]);
+
+        $this->assertSame('700123456', $initiation->providerPaymentId);
+        $this->assertSame('sbp', $initiation->method);
+        $this->assertSame('https://qr.nspk.ru/AS10001234567890', $initiation->payload);
+        $this->assertNull($initiation->checkoutUrl);
+        $this->assertSame(['request_key' => 'req-key-1'], $initiation->metadata);
+
+        Http::assertSentCount(2);
+
+        // Init comes first, GetQr second
+        $recorded = Http::recorded();
+        $this->assertStringEndsWith('/v2/Init', $recorded[0][0]->url());
+        $this->assertStringEndsWith('/v2/GetQr', $recorded[1][0]->url());
+
+        // Init: card-like fields, but never Recurrent/CustomerKey/DATA
+        Http::assertSent(function ($request) {
+            if ($request->url() !== 'https://securepay.tinkoff.ru/v2/Init') {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return $data['Amount'] === 49000
+                && $data['TerminalKey'] === self::TERMINAL_KEY
+                && $data['OrderId'] === 'order-sbp'
+                && $data['Description'] === 'Подписка ИРСИ'
+                && $data['PayType'] === 'O'
+                && $data['NotificationURL'] === config('app.url').'/webhooks/payment/tbank'
+                && $data['SuccessURL'] === config('app.url').'/admin/billing/payment/success'
+                && $data['FailURL'] === config('app.url').'/admin/billing/payment/failed'
+                && ! array_key_exists('Recurrent', $data)
+                && ! array_key_exists('CustomerKey', $data)
+                && ! array_key_exists('DATA', $data)
+                && isset($data['Token'])
+                && hash_equals($this->tokenFor($data), $data['Token']);
+        });
+
+        // GetQr: DataType=PAYLOAD + PaymentMethod=SBP
+        Http::assertSent(function ($request) {
+            if ($request->url() !== 'https://securepay.tinkoff.ru/v2/GetQr') {
+                return false;
+            }
+
+            $data = $request->data();
+
+            return $data['TerminalKey'] === self::TERMINAL_KEY
+                && $data['PaymentId'] === '700123456'
+                && $data['DataType'] === 'PAYLOAD'
+                && $data['PaymentMethod'] === 'SBP'
+                && ! array_key_exists('Password', $data)
+                && isset($data['Token'])
+                && hash_equals($this->tokenFor($data), $data['Token']);
+        });
+    }
+
+    public function test_sbp_getqr_without_request_key_has_empty_metadata(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/Init' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+            ], 200),
+            'securepay.tinkoff.ru/v2/GetQr' => Http::response([
+                'Success' => true,
+                'Data' => 'https://qr.nspk.ru/AS10001234567890',
+            ], 200),
+        ]);
+
+        $initiation = $this->gateway()->createPayment(490, 'RUB', 'order-sbp', ['payment_method' => 'sbp']);
+
+        $this->assertSame('sbp', $initiation->method);
+        $this->assertSame([], $initiation->metadata);
+    }
+
+    public function test_sbp_getqr_success_false_fails_closed_without_second_init(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/Init' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+            ], 200),
+            'securepay.tinkoff.ru/v2/GetQr' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '9999',
+            ], 200),
+        ]);
+
+        try {
+            $this->gateway()->createPayment(490, 'RUB', 'order-sbp-fail', ['payment_method' => 'sbp']);
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame('T-Bank GetQr request failed', $e->getMessage());
+        }
+
+        // Exactly one Init + one GetQr — no automatic second Init
+        Http::assertSentCount(2);
+    }
+
+    public function test_sbp_getqr_non_2xx_fails_closed(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/Init' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+            ], 200),
+            'securepay.tinkoff.ru/v2/GetQr' => Http::response('Server Error', 500),
+        ]);
+
+        try {
+            $this->gateway()->createPayment(490, 'RUB', 'order-sbp-500', ['payment_method' => 'sbp']);
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame('T-Bank GetQr request failed', $e->getMessage());
+        }
+
+        Http::assertSentCount(2);
+    }
+
+    public function test_sbp_getqr_invalid_json_fails_closed(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/Init' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+            ], 200),
+            'securepay.tinkoff.ru/v2/GetQr' => Http::response(
+                '<html>not json</html>',
+                200,
+                ['Content-Type' => 'text/html'],
+            ),
+        ]);
+
+        try {
+            $this->gateway()->createPayment(490, 'RUB', 'order-sbp-html', ['payment_method' => 'sbp']);
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame('T-Bank GetQr request failed', $e->getMessage());
+        }
+
+        Http::assertSentCount(2);
+    }
+
+    public function test_sbp_getqr_missing_data_fails_closed(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/Init' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+            ], 200),
+            'securepay.tinkoff.ru/v2/GetQr' => Http::response([
+                'Success' => true,
+            ], 200),
+        ]);
+
+        try {
+            $this->gateway()->createPayment(490, 'RUB', 'order-sbp-nodata', ['payment_method' => 'sbp']);
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame('T-Bank GetQr response missing Data', $e->getMessage());
+        }
+
+        Http::assertSentCount(2);
+    }
+
+    public function test_sbp_init_failure_fails_closed_without_getqr(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/Init' => Http::response([
+                'Success' => false,
+                'ErrorCode' => '9999',
+            ], 200),
+        ]);
+
+        try {
+            $this->gateway()->createPayment(490, 'RUB', 'order-sbp-initfail', ['payment_method' => 'sbp']);
+            $this->fail('Expected RuntimeException');
+        } catch (RuntimeException $e) {
+            $this->assertSame('T-Bank Init request failed', $e->getMessage());
+        }
+
+        // GetQr must never be attempted after a failed Init
+        Http::assertSentCount(1);
+    }
+
     // ── Recurring Init (renewal card) ──
 
     public function test_recurring_init_sends_expected_payload(): void

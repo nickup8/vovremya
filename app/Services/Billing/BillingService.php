@@ -76,8 +76,20 @@ class BillingService
         ];
     }
 
-    public function subscribe(User $master, TariffPlan $plan, int $periodMonths, bool $autoRenew = false): array
+    public function subscribe(User $master, TariffPlan $plan, int $periodMonths, bool $autoRenew, string $paymentMethod): array
     {
+        if (! in_array($paymentMethod, ['sbp', 'card'], true)) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Недоступный способ оплаты.',
+            ]);
+        }
+
+        if ($paymentMethod === 'sbp' && $autoRenew) {
+            throw ValidationException::withMessages([
+                'auto_renew' => 'Автопродление через СБП пока недоступно. Отключите автопродление или выберите банковскую карту.',
+            ]);
+        }
+
         if (! $master->workspace_id) {
             $workspace = app(WorkspaceService::class)->createForUser($master);
             $master->refresh();
@@ -95,7 +107,7 @@ class BillingService
 
         // ── Atomic lock: весь checkout flow (TTL 120s > HTTP timeout ~20s) ──
         try {
-            return Cache::lock($lockKey, 120)->block(30, function () use ($master, $plan, $periodMonths, $price, $autoRenew) {
+            return Cache::lock($lockKey, 120)->block(30, function () use ($master, $plan, $periodMonths, $price, $autoRenew, $paymentMethod) {
                 // ── Check for in-flight attempt (workspace+plan, no period) ──
                 $inFlight = $this->coreWriter->findExistingInFlightAttempt(
                     $master->workspace_id,
@@ -155,12 +167,18 @@ class BillingService
                         context: [
                             'workspace_id' => $master->workspace_id,
                             'auto_renew' => $autoRenew,
+                            'payment_method' => $paymentMethod,
                         ],
                     );
 
-                    // Fail closed: only the card redirect initiation is wired
-                    // through checkout — SBP orchestration is not implemented yet.
-                    if ($paymentResult->method !== PaymentInitiation::METHOD_REDIRECT
+                    // Fail closed: initiation method must match the requested
+                    // checkout method (card → redirect+URL, sbp → payload).
+                    if ($paymentMethod === 'sbp') {
+                        if ($paymentResult->method !== PaymentInitiation::METHOD_SBP
+                            || $paymentResult->payload === null) {
+                            throw new RuntimeException("Unsupported payment initiation: method={$paymentResult->method}");
+                        }
+                    } elseif ($paymentResult->method !== PaymentInitiation::METHOD_REDIRECT
                         || $paymentResult->checkoutUrl === null) {
                         throw new RuntimeException("Unsupported payment initiation: method={$paymentResult->method}");
                     }
@@ -172,19 +190,28 @@ class BillingService
                     throw $e;
                 }
 
-                // ── Phase C: Attach provider payment ID + checkout URL atomically ──
-                DB::transaction(function () use ($intent, $paymentResult, $checkoutUrl) {
+                // ── Phase C: Attach provider payment ID + initiation data atomically ──
+                DB::transaction(function () use ($intent, $paymentResult, $paymentMethod) {
                     Subscription::where('id', $intent['subscription']->id)
                         ->lockForUpdate()
                         ->first();
 
                     $this->coreWriter->paymentAttached(
                         $intent['coreResult']['internalOrderId'],
-                        $paymentResult->providerPaymentId,
-                        $checkoutUrl,
+                        $paymentResult,
+                        $paymentMethod,
                         $intent['subscription'],
                     );
                 });
+
+                if ($paymentMethod === 'sbp') {
+                    return [
+                        'subscription' => $intent['subscription']->refresh(),
+                        'payment_method' => PaymentInitiation::METHOD_SBP,
+                        'payment_id' => $paymentResult->providerPaymentId,
+                        'sbp_payload' => $paymentResult->payload,
+                    ];
+                }
 
                 return [
                     'subscription' => $intent['subscription']->refresh(),
@@ -201,8 +228,9 @@ class BillingService
     /**
      * Обработка повторного checkout при наличии in-flight attempt.
      *
-     * Возвращает существующий checkout_url с тем же response contract,
-     * или controlled 422 для unknown/created без checkout_url.
+     * Возвращает существующий initiation (card checkout_url / SBP payload)
+     * с тем же response contract, или controlled 422 для unknown/created
+     * без данных оплаты.
      */
     private function handleInFlightAttempt(
         \App\Models\PaymentAttempt $inFlight,
@@ -210,20 +238,23 @@ class BillingService
     ): array {
         $metadata = $inFlight->metadata ?? [];
         $checkoutUrl = $metadata['checkout_url'] ?? null;
+        $sbpPayload = $metadata['sbp_payload'] ?? null;
 
         if ($inFlight->status === PaymentAttemptStatus::Processing && $checkoutUrl) {
             // Возвращаем существующий checkout
-            $legacySubId = $metadata['legacy_subscription_id'] ?? null;
-            $subscription = $legacySubId
-                ? Subscription::find($legacySubId)
-                : Subscription::where('workspace_id', $master->workspace_id)
-                    ->where('status', 'pending')
-                    ->latest()
-                    ->first();
-
             return [
-                'subscription' => $subscription?->refresh() ?? $this->createFallbackSubscription($master),
+                'subscription' => $this->resolveInFlightSubscription($metadata, $master),
                 'confirmation_url' => $checkoutUrl,
+            ];
+        }
+
+        if ($inFlight->status === PaymentAttemptStatus::Processing && $sbpPayload) {
+            // Возвращаем существующий SBP payment (идемпотентный повтор)
+            return [
+                'subscription' => $this->resolveInFlightSubscription($metadata, $master),
+                'payment_method' => 'sbp',
+                'payment_id' => $inFlight->provider_payment_id,
+                'sbp_payload' => $sbpPayload,
             ];
         }
 
@@ -237,6 +268,21 @@ class BillingService
         throw ValidationException::withMessages([
             'plan' => 'Статус предыдущего платежа уточняется. Попробуйте позже.',
         ]);
+    }
+
+    private function resolveInFlightSubscription(
+        array $metadata,
+        User $master,
+    ): Subscription {
+        $legacySubId = $metadata['legacy_subscription_id'] ?? null;
+        $subscription = $legacySubId
+            ? Subscription::find($legacySubId)
+            : Subscription::where('workspace_id', $master->workspace_id)
+                ->where('status', 'pending')
+                ->latest()
+                ->first();
+
+        return $subscription?->refresh() ?? $this->createFallbackSubscription($master);
     }
 
     private function createFallbackSubscription(User $master): Subscription

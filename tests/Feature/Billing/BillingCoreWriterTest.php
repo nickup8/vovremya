@@ -80,7 +80,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $legacy = Subscription::where('workspace_id', $master->workspace_id)->first();
         $this->assertNotNull($legacy);
@@ -116,14 +116,14 @@ class BillingCoreWriterTest extends TestCase
         $service = app(BillingService::class);
 
         // First purchase
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $sub1 = $r1['subscription'];
 
         // Activate it via webhook
         $this->sendWebhook($sub1->payment_id, 'paid', $sub1->amount_paid);
 
         // Second purchase: stacked renewal (starts after first expires)
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $sub2 = Subscription::where('id', $r2['subscription']->id)->first();
 
         $this->assertSame($sub1->expires_at->format('Y-m-d H:i:s'), $sub2->starts_at->format('Y-m-d H:i:s'));
@@ -171,7 +171,7 @@ class BillingCoreWriterTest extends TestCase
 
         $threw = false;
         try {
-            $service->subscribe($master, $this->proPlan, 1);
+            $service->subscribe($master, $this->proPlan, 1, false, 'card');
         } catch (\RuntimeException) {
             $threw = true;
         }
@@ -197,7 +197,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $legacy = $result['subscription'];
 
         $this->sendWebhook($legacy->payment_id, 'paid', $legacy->amount_paid);
@@ -223,7 +223,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $legacy = $result['subscription'];
 
         $this->sendWebhook($legacy->payment_id, 'paid', $legacy->amount_paid);
@@ -249,7 +249,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $legacy = $result['subscription'];
 
         $this->sendWebhook($legacy->payment_id, 'failed', $legacy->amount_paid);
@@ -271,7 +271,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $legacy = $result['subscription'];
 
         // First succeed
@@ -299,11 +299,11 @@ class BillingCoreWriterTest extends TestCase
         $service = app(BillingService::class);
 
         // First purchase → attempt #1
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $this->sendWebhook($r1['subscription']->payment_id, 'paid', $r1['subscription']->amount_paid);
 
         // Second purchase (same plan, after first active = stacked) → new cycle, attempt #1
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $cycle2 = BillingCycle::where('legacy_subscription_id', $r2['subscription']->id)->first();
         $attempt2 = PaymentAttempt::where('billing_cycle_id', $cycle2->id)->first();
@@ -323,7 +323,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $legacy = $result['subscription'];
 
         // First: fail
@@ -349,7 +349,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $this->sendWebhook($result['subscription']->payment_id, 'paid', $result['subscription']->amount_paid);
 
         $event = ProviderEvent::where('provider', 'mock')
@@ -366,14 +366,14 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $attempt1 = PaymentAttempt::where('internal_order_id', 'like', 'core_%')->first();
         $this->assertSame(PaymentAttemptStatus::Processing, $attempt1->status);
 
         $this->sendWebhook($r1['subscription']->payment_id, 'paid', $r1['subscription']->amount_paid);
 
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $legacy1 = Subscription::where('id', $r1['subscription']->id)->first();
         $this->assertSame('active', $legacy1->status);
@@ -391,7 +391,7 @@ class BillingCoreWriterTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $this->sendWebhook($result['subscription']->payment_id, 'paid', $result['subscription']->amount_paid);
 
         $entitlement = app(\App\Services\Billing\EntitlementService::class);

@@ -132,14 +132,14 @@ class BillingCheckoutHardeningTest extends TestCase
         $service = app(BillingService::class);
 
         // First checkout
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $attempt1 = PaymentAttempt::where('billing_cycle_id', BillingCycle::where('legacy_subscription_id', $r1['subscription']->id)->first()->id)->first();
         $this->assertSame(PaymentAttemptStatus::Processing, $attempt1->status);
         $this->assertNotNull($attempt1->metadata['checkout_url']);
 
         // Second checkout — same plan, returns existing
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $this->assertSame($r1['confirmation_url'], $r2['confirmation_url']);
         $this->assertDatabaseCount('billing_cycles', 1);
@@ -185,8 +185,8 @@ class BillingCheckoutHardeningTest extends TestCase
         $this->app->instance(PaymentGatewayInterface::class, $gateway);
         $service = app(BillingService::class);
 
-        $service->subscribe($master, $this->proPlan, 1);
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $this->assertSame(1, $callCounter->count);
     }
@@ -211,14 +211,14 @@ class BillingCheckoutHardeningTest extends TestCase
 
         $service = app(BillingService::class);
 
-        try { $service->subscribe($master, $this->proPlan, 1); } catch (\RuntimeException) {}
+        try { $service->subscribe($master, $this->proPlan, 1, false, 'card'); } catch (\RuntimeException) {}
 
         $attempt = PaymentAttempt::where('internal_order_id', 'like', 'core_%')->first();
         $this->assertSame(PaymentAttemptStatus::Unknown, $attempt->status);
 
         // Second attempt: 422, no new attempt
         $this->expectException(ValidationException::class);
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $this->assertDatabaseCount('payment_attempts', 1);
     }
@@ -230,7 +230,7 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         // Force attempt back to Created
         $attempt = PaymentAttempt::where('internal_order_id', 'like', 'core_%')->first();
@@ -252,7 +252,7 @@ class BillingCheckoutHardeningTest extends TestCase
         $this->app->instance(PaymentGatewayInterface::class, $failingGateway);
 
         $this->expectException(ValidationException::class);
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $this->assertDatabaseCount('payment_attempts', 1);
     }
@@ -266,7 +266,7 @@ class BillingCheckoutHardeningTest extends TestCase
 
         \Carbon\Carbon::setTestNow(now());
 
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $this->sendWebhook($r1['subscription']->payment_id, 'failed', $r1['subscription']->amount_paid);
 
         $cycle = BillingCycle::where('legacy_subscription_id', $r1['subscription']->id)->first();
@@ -278,7 +278,7 @@ class BillingCheckoutHardeningTest extends TestCase
         $totalBefore = PaymentAttempt::count();
 
         // Retry — frozen time → exact period match → attempt #2 in same cycle
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         \Carbon\Carbon::setTestNow();
 
@@ -303,7 +303,7 @@ class BillingCheckoutHardeningTest extends TestCase
         $service = app(BillingService::class);
 
         // First checkout: cycle with period P1
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $cycle1 = BillingCycle::where('legacy_subscription_id', $r1['subscription']->id)->first();
         $periodStart1 = $cycle1->period_start;
 
@@ -314,7 +314,7 @@ class BillingCheckoutHardeningTest extends TestCase
         $newStart = $periodStart1->copy()->addSeconds(5);
         $newEnd = $newStart->copy()->addMonth();
 
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         // Since same-second, timestamps likely match → same cycle. Verify cycle reuse.
         // But if timestamps differ (test takes >1s), a new cycle would be created.
@@ -341,7 +341,7 @@ class BillingCheckoutHardeningTest extends TestCase
         $service = app(BillingService::class);
 
         try {
-            $service->subscribe($master, $this->proPlan, 1);
+            $service->subscribe($master, $this->proPlan, 1, false, 'card');
             $this->fail('Expected ValidationException');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('plan', $e->errors());
@@ -358,8 +358,8 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $this->assertArrayHasKey('confirmation_url', $r2);
         $this->assertArrayHasKey('subscription', $r2);
@@ -611,7 +611,7 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $billingSub = BillingSubscription::where('workspace_id', $master->workspace_id)->first();
         $this->assertSame(BillingSubscriptionStatus::PendingInitial, $billingSub->status);
@@ -622,13 +622,13 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $this->sendWebhook($r1['subscription']->payment_id, 'paid', $r1['subscription']->amount_paid);
 
         $billingSub = BillingSubscription::where('workspace_id', $master->workspace_id)->first();
         $this->assertSame(BillingSubscriptionStatus::Active, $billingSub->status);
 
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $billingSub->refresh();
         $this->assertSame(BillingSubscriptionStatus::Active, $billingSub->status);
@@ -645,7 +645,7 @@ class BillingCheckoutHardeningTest extends TestCase
         ]);
 
         $service = app(BillingService::class);
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $billingSub = BillingSubscription::where('workspace_id', $master->workspace_id)->first();
         $this->assertSame(BillingSubscriptionStatus::PendingInitial, $billingSub->status);
@@ -658,7 +658,7 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         $attempt = PaymentAttempt::where('internal_order_id', 'like', 'core_%')->first();
         $this->assertNotNull($attempt->metadata['checkout_url']);
@@ -671,7 +671,7 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $paymentId = $result['subscription']->payment_id;
         $amount = $result['subscription']->amount_paid;
 
@@ -695,7 +695,7 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $r1 = $service->subscribe($master, $this->proPlan, 1);
+        $r1 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $billingSub = BillingSubscription::where('workspace_id', $master->workspace_id)->first();
         $this->assertSame(BillingSubscriptionStatus::PendingInitial, $billingSub->status);
 
@@ -711,10 +711,10 @@ class BillingCheckoutHardeningTest extends TestCase
         $lockKey = "billing-checkout:{$master->workspace_id}:{$this->proPlan->id}";
         $service = app(BillingService::class);
 
-        $service->subscribe($master, $this->proPlan, 1);
+        $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         // Lock should be released — second call succeeds without timeout
-        $r2 = $service->subscribe($master, $this->proPlan, 1);
+        $r2 = $service->subscribe($master, $this->proPlan, 1, false, 'card');
         $this->assertNotNull($r2['subscription']);
     }
 
@@ -725,7 +725,7 @@ class BillingCheckoutHardeningTest extends TestCase
         [$master] = $this->createMasterWithWorkspace();
         $service = app(BillingService::class);
 
-        $result = $service->subscribe($master, $this->proPlan, 1);
+        $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
         // Response contract не изменился: только subscription + confirmation_url
         $this->assertSame(['subscription', 'confirmation_url'], array_keys($result));
@@ -762,7 +762,7 @@ class BillingCheckoutHardeningTest extends TestCase
         $service = app(BillingService::class);
 
         try {
-            $service->subscribe($master, $this->proPlan, 1);
+            $service->subscribe($master, $this->proPlan, 1, false, 'card');
             $this->fail('Expected RuntimeException for non-redirect initiation');
         } catch (\RuntimeException $e) {
             $this->assertStringContainsString('Unsupported payment initiation: method=sbp', $e->getMessage());

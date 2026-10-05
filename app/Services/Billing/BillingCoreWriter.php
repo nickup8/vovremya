@@ -11,6 +11,7 @@ use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
+use App\Services\Payment\DTOs\PaymentInitiation;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -150,27 +151,39 @@ class BillingCoreWriter
      * - legacy subscription.payment_id
      * - attempt.provider_payment_id
      * - attempt.status = processing
-     * - attempt.metadata.checkout_url
+     * - attempt.metadata.payment_method
+     * - attempt.metadata.checkout_url (card) / attempt.metadata.sbp_payload (sbp)
+     * - extra initiation metadata (e.g. sbp request_key)
      */
     public function paymentAttached(
         string $internalOrderId,
-        string $providerPaymentId,
-        string $checkoutUrl,
+        PaymentInitiation $initiation,
+        string $paymentMethod,
         Subscription $legacy,
     ): void {
         $attempt = PaymentAttempt::where('internal_order_id', $internalOrderId)->firstOrFail();
 
         $metadata = $attempt->metadata ?? [];
-        $metadata['checkout_url'] = $checkoutUrl;
+        $metadata['payment_method'] = $paymentMethod;
+
+        if ($paymentMethod === 'sbp') {
+            $metadata['sbp_payload'] = $initiation->payload;
+        } else {
+            $metadata['checkout_url'] = $initiation->checkoutUrl;
+        }
+
+        foreach ($initiation->metadata as $key => $value) {
+            $metadata[$key] = $value;
+        }
 
         $attempt->update([
-            'provider_payment_id' => $providerPaymentId,
+            'provider_payment_id' => $initiation->providerPaymentId,
             'status' => PaymentAttemptStatus::Processing,
             'metadata' => $metadata,
         ]);
 
         $legacy->update([
-            'payment_id' => $providerPaymentId,
+            'payment_id' => $initiation->providerPaymentId,
         ]);
     }
 

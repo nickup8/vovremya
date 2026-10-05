@@ -313,7 +313,7 @@ class ProviderSeatLimitTest extends TestCase
         $this->expectException(ValidationException::class);
 
         try {
-            $billingService->subscribe($owner, $newPlan, 1);
+            $billingService->subscribe($owner, $newPlan, 1, false, 'card');
         } catch (ValidationException $e) {
             $this->assertArrayHasKey('plan', $e->errors());
             throw $e;
@@ -353,7 +353,7 @@ class ProviderSeatLimitTest extends TestCase
 
         $this->assertNull($master->workspace_id);
 
-        $result = $billingService->subscribe($master, $plan, 1);
+        $result = $billingService->subscribe($master, $plan, 1, false, 'card');
 
         $master->refresh();
 
