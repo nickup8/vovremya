@@ -131,6 +131,10 @@ class PaymentTransitionService
             // (reconciliation timeout) — PastDue with a bounded grace.
             $this->applyTechnicalRenewalGrace($attempt);
 
+            // 9d. A renewal attempt succeeded — a surviving technical grace
+            // window is no longer needed.
+            $this->clearRenewalGrace($attempt, $update);
+
             // 10. Link ProviderEvent → PaymentAttempt
             $event->update(['payment_attempt_id' => $attempt->id]);
 
@@ -684,6 +688,10 @@ class PaymentTransitionService
      * must be true) and never for other failure categories — insufficient
      * funds owns its own terminal flow above. Called both from the core
      * transition path and from reconciliation age-release.
+     *
+     * An already running grace window is never extended: a repeated
+     * technical failure (e.g. the single technical retry failing again)
+     * keeps the original grace_until so the window stays bounded.
      */
     public function applyTechnicalRenewalGrace(PaymentAttempt $attempt): void
     {
@@ -698,16 +706,44 @@ class PaymentTransitionService
             return;
         }
 
-        $now = now();
-        $base = $sub->current_period_end !== null && $sub->current_period_end->gt($now)
-            ? $sub->current_period_end
-            : $now;
-
-        $sub->update([
+        $updates = [
             'status' => BillingSubscriptionStatus::PastDue,
-            'grace_until' => $base->copy()->addDays((int) config('billing.renewal.technical_grace_days')),
             'next_charge_at' => null,
-        ]);
+        ];
+
+        if ($sub->grace_until === null) {
+            $now = now();
+            $base = $sub->current_period_end !== null && $sub->current_period_end->gt($now)
+                ? $sub->current_period_end
+                : $now;
+
+            $updates['grace_until'] = $base->copy()->addDays((int) config('billing.renewal.technical_grace_days'));
+        }
+
+        $sub->update($updates);
+    }
+
+    /**
+     * A successful renewal transition ends any technical grace window that
+     * a previous technical failure opened (the horizon itself is already
+     * synced above). Checkout attempts never carry metadata.renewal and are
+     * therefore untouched.
+     */
+    private function clearRenewalGrace(
+        PaymentAttempt $attempt,
+        ProviderStatusUpdate $update,
+    ): void {
+        if ($update->normalizedStatus !== PaymentAttemptStatus::Succeeded
+            || ($attempt->metadata['renewal'] ?? null) !== true) {
+            return;
+        }
+
+        $sub = $attempt->billingCycle?->billingSubscription;
+        if ($sub === null || $sub->grace_until === null) {
+            return;
+        }
+
+        $sub->update(['grace_until' => null]);
     }
 
     /**

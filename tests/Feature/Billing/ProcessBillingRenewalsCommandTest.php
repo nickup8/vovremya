@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\BillingCycleOrigin;
 use App\Enums\BillingCycleStatus;
 use App\Enums\BillingSubscriptionStatus;
 use App\Enums\PaymentAttemptStatus;
@@ -234,6 +235,186 @@ class ProcessBillingRenewalsCommandTest extends TestCase
         $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
     }
 
+    // ── Technical retry (--retry-technical) ──
+
+    public function test_default_run_ignores_technical_grace_candidates(): void
+    {
+        $workspace = $this->createWorkspace();
+        $this->technicalFailureSubscription($workspace);
+        Http::fake();
+
+        $this->artisan('billing:process-renewals')
+            ->expectsOutputToContain('Candidates: 0')
+            ->assertExitCode(0);
+
+        $this->artisan('billing:process-renewals --execute')
+            ->expectsOutputToContain('Candidates: 0')
+            ->expectsOutputToContain('Processed: 0')
+            ->assertExitCode(0);
+
+        Http::assertNothingSent();
+        // Nothing was prepared or charged without the explicit option.
+        $this->assertSame(1, PaymentAttempt::count());
+        $this->assertSame(
+            BillingCycleStatus::Failed,
+            BillingCycle::where('origin', BillingCycleOrigin::Renewal)->sole()->status,
+        );
+    }
+
+    public function test_retry_technical_dry_run_reports_candidate_without_writes_or_http(): void
+    {
+        $workspace = $this->createWorkspace();
+        $this->technicalFailureSubscription($workspace);
+        Http::fake();
+
+        $this->artisan('billing:process-renewals --retry-technical')
+            ->expectsOutputToContain('Candidates: 1')
+            ->assertExitCode(0);
+
+        Http::assertNothingSent();
+        $this->assertSame(1, PaymentAttempt::count());
+        $this->assertSame(
+            BillingCycleStatus::Failed,
+            BillingCycle::where('origin', BillingCycleOrigin::Renewal)->sole()->status,
+        );
+        $this->assertSame(
+            BillingSubscriptionStatus::PastDue,
+            BillingSubscription::sole()->status,
+        );
+    }
+
+    public function test_retry_technical_execute_charges_a_new_attempt_via_existing_executor(): void
+    {
+        $workspace = $this->createWorkspace();
+        $sub = $this->technicalFailureSubscription($workspace);
+        $this->fakeRecurringHttp();
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Processed: 1')
+            ->expectsOutputToContain('Failed: 0')
+            ->assertExitCode(0);
+
+        $this->assertSame(2, PaymentAttempt::count());
+
+        $first = PaymentAttempt::where('attempt_number', 1)->sole();
+        $retry = PaymentAttempt::where('attempt_number', 2)->sole();
+
+        // The old failed attempt was never re-Charged and stays terminal.
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $first->status);
+        $this->assertNull($first->metadata['technical_retry'] ?? null);
+        $this->assertStringStartsWith('renew_', $retry->internal_order_id);
+        $this->assertNotSame($first->internal_order_id, $retry->internal_order_id);
+        $this->assertTrue($retry->metadata['renewal'] ?? false);
+        $this->assertTrue($retry->metadata['technical_retry'] ?? false);
+        $this->assertSame($first->id, $retry->metadata['retry_of_attempt_id']);
+
+        // The retry ran through the ordinary executor: own dispatch marker.
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $retry->status);
+        $this->assertNotNull($retry->metadata['charge_dispatch_started_at'] ?? null);
+
+        $cycle = BillingCycle::where('origin', BillingCycleOrigin::Renewal)->sole();
+        $this->assertSame(BillingCycleStatus::Paid, $cycle->status);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::Active, $sub->status);
+        $this->assertNull($sub->grace_until);
+        $this->assertTrue($sub->current_period_end->equalTo($cycle->period_end));
+        $this->assertNotNull($sub->next_charge_at);
+        $this->assertTrue($sub->next_charge_at->equalTo($sub->current_period_end));
+    }
+
+    public function test_retry_technical_rerun_does_not_create_a_duplicate_attempt(): void
+    {
+        $workspace = $this->createWorkspace();
+        // Executor guard: empty provider_reference fails closed after prepare.
+        $sub = $this->technicalFailureSubscription($workspace, [], [
+            'provider_reference' => '',
+        ]);
+        $this->fakeRecurringHttp();
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Failed: 1')
+            ->assertExitCode(1);
+
+        $this->assertSame(2, PaymentAttempt::count());
+        $this->assertSame(
+            PaymentAttemptStatus::Created,
+            PaymentAttempt::where('attempt_number', 2)->sole()->status,
+        );
+
+        // Second run: the existing retry attempt is reused, never duplicated.
+        Http::fake();
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Skipped: 1')
+            ->expectsOutputToContain('Processed: 0')
+            ->assertExitCode(0);
+
+        Http::assertNothingSent();
+        $this->assertSame(2, PaymentAttempt::count());
+        $this->assertSame(2, BillingCycle::count());
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::PastDue, $sub->status);
+        $this->assertNotNull($sub->grace_until);
+    }
+
+    public function test_retry_technical_respects_subscription_option(): void
+    {
+        $workspaceA = $this->createWorkspace();
+        $subA = $this->technicalFailureSubscription($workspaceA);
+
+        $workspaceB = $this->createWorkspace();
+        $subB = $this->technicalFailureSubscription($workspaceB);
+
+        $this->fakeRecurringHttp();
+
+        $this->artisan("billing:process-renewals --retry-technical --execute --subscription={$subA->id}")
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Processed: 1')
+            ->assertExitCode(0);
+
+        $this->assertSame(3, PaymentAttempt::count());
+        $this->assertSame(1, BillingCycle::where('workspace_id', $workspaceA->id)
+            ->where('origin', BillingCycleOrigin::Renewal)
+            ->where('status', BillingCycleStatus::Paid)->count());
+
+        // Subscription B was untouched.
+        $subB->refresh();
+        $this->assertSame(BillingSubscriptionStatus::PastDue, $subB->status);
+        $this->assertSame(1, PaymentAttempt::whereHas('billingCycle', function ($q) use ($workspaceB) {
+            $q->where('workspace_id', $workspaceB->id);
+        })->count());
+    }
+
+    public function test_retry_technical_respects_limit_option(): void
+    {
+        $workspaceA = $this->createWorkspace();
+        $this->technicalFailureSubscription($workspaceA, [
+            'grace_until' => now()->addDay(),
+        ]);
+
+        $workspaceB = $this->createWorkspace();
+        $this->technicalFailureSubscription($workspaceB, [
+            'grace_until' => now()->addDays(2),
+        ]);
+
+        $this->fakeRecurringHttp();
+
+        $this->artisan('billing:process-renewals --retry-technical --execute --limit=1')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Processed: 1')
+            ->assertExitCode(0);
+
+        // Earliest grace window (A) was retried; B still has only attempt #1.
+        $this->assertSame(3, PaymentAttempt::count());
+        $this->assertSame(1, PaymentAttempt::whereHas('billingCycle', function ($q) use ($workspaceB) {
+            $q->where('workspace_id', $workspaceB->id);
+        })->count());
+    }
+
     // ── Helpers ──
 
     private function createWorkspace(): Workspace
@@ -277,6 +458,89 @@ class ProcessBillingRenewalsCommandTest extends TestCase
             'status' => 'active',
             'is_default' => true,
         ], $methodOverrides));
+
+        return $sub;
+    }
+
+    /**
+     * PastDue subscription with an open technical grace window: paid
+     * granting cycle + failed renewal cycle + one terminal technical
+     * failure attempt + active default payment method.
+     */
+    private function technicalFailureSubscription(
+        Workspace $workspace,
+        array $overrides = [],
+        array $methodOverrides = [],
+    ): BillingSubscription {
+        $periodEnd = now()->subDay();
+
+        $sub = BillingSubscription::create(array_merge([
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::PastDue,
+            'renewal_period_months' => 1,
+            'current_period_start' => $periodEnd->copy()->subMonth(),
+            'current_period_end' => $periodEnd,
+            'next_charge_at' => null,
+            'cancel_at_period_end' => false,
+            'auto_renew_consent_at' => now()->subDays(2),
+            'auto_renew_consent_version' => config('billing.recurring_terms_version'),
+            'grace_until' => now()->addDays(3),
+        ], $overrides));
+
+        BillingCycle::create([
+            'billing_subscription_id' => $sub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => $periodEnd->copy()->subMonth(),
+            'period_end' => $periodEnd,
+            'status' => BillingCycleStatus::Paid,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::LegacyGrant,
+        ]);
+
+        $renewalCycle = BillingCycle::create([
+            'billing_subscription_id' => $sub->id,
+            'workspace_id' => $workspace->id,
+            'tariff_plan_id' => $this->proPlan->id,
+            'period_start' => $periodEnd,
+            'period_end' => $periodEnd->copy()->addMonth(),
+            'status' => BillingCycleStatus::Failed,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::Renewal,
+        ]);
+
+        $method = PaymentMethod::create(array_merge([
+            'workspace_id' => $workspace->id,
+            'provider' => 'tbank',
+            'type' => 'card',
+            'provider_reference' => 'rebill_'.bin2hex(random_bytes(8)),
+            'status' => 'active',
+            'is_default' => true,
+        ], $methodOverrides));
+
+        PaymentAttempt::create([
+            'billing_cycle_id' => $renewalCycle->id,
+            'payment_method_id' => $method->id,
+            'provider' => 'tbank',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'renew_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => 'tbank_'.bin2hex(random_bytes(8)),
+            'status' => PaymentAttemptStatus::FailedTerminal,
+            'failure_code' => '9999',
+            'failure_category' => 'reconciliation_timeout',
+            'failure_message' => 'Не удалось подтвердить статус платежа',
+            'initiated_at' => now()->subHour(),
+            'finished_at' => now()->subMinutes(30),
+            'metadata' => [
+                'renewal' => true,
+                'billing_subscription_id' => $sub->id,
+            ],
+        ]);
 
         return $sub;
     }

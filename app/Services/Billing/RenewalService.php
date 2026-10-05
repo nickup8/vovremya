@@ -66,6 +66,112 @@ class RenewalService
         });
     }
 
+    /**
+     * One safe retry of a technical renewal failure (reconciliation_timeout)
+     * while the technical grace window is still open.
+     *
+     * The old PaymentAttempt is never touched and never Charged again: the
+     * retry is a brand-new attempt in the same renewal BillingCycle, which
+     * then runs through the ordinary RenewalPaymentExecutor. Fail closed on
+     * every precondition; at most one technical retry per cycle (v1 policy).
+     */
+    public function prepareTechnicalRetry(BillingSubscription $subscription): ?PaymentAttempt
+    {
+        return DB::transaction(function () use ($subscription) {
+            $sub = BillingSubscription::lockForUpdate()
+                ->whereKey($subscription->getKey())
+                ->first();
+
+            if ($sub === null || ! $this->isTechnicalRetryAllowed($sub)) {
+                return null;
+            }
+
+            $cycle = BillingCycle::where('billing_subscription_id', $sub->id)
+                ->where('origin', BillingCycleOrigin::Renewal)
+                ->where('period_start', $sub->current_period_end)
+                ->where('status', '!=', BillingCycleStatus::Paid)
+                ->first();
+
+            if ($cycle === null) {
+                return null;
+            }
+
+            $attempts = PaymentAttempt::where('billing_cycle_id', $cycle->id)->get();
+
+            if ($attempts->isEmpty()) {
+                return null;
+            }
+
+            // v1 policy: exactly one technical retry per renewal cycle.
+            $alreadyRetried = $attempts->contains(
+                fn (PaymentAttempt $attempt) => ($attempt->metadata['technical_retry'] ?? null) === true
+            );
+
+            if ($alreadyRetried) {
+                return null;
+            }
+
+            if ($attempts->whereIn('status', [
+                PaymentAttemptStatus::Created,
+                PaymentAttemptStatus::Processing,
+                PaymentAttemptStatus::Unknown,
+            ])->isNotEmpty()) {
+                return null;
+            }
+
+            $last = $attempts->sortByDesc('attempt_number')->first();
+
+            if ($last->status !== PaymentAttemptStatus::FailedTerminal
+                || $last->failure_category !== 'reconciliation_timeout'
+                || ($last->metadata['renewal'] ?? null) !== true) {
+                return null;
+            }
+
+            $method = $this->findDefaultPaymentMethod($sub);
+            if ($method === null) {
+                return null;
+            }
+
+            if ($cycle->status === BillingCycleStatus::Failed) {
+                $cycle->update(['status' => BillingCycleStatus::Pending]);
+            }
+
+            return PaymentAttempt::create([
+                'billing_cycle_id' => $cycle->id,
+                'payment_method_id' => $method->id,
+                'provider' => $method->provider,
+                'attempt_number' => (int) $attempts->max('attempt_number') + 1,
+                'amount' => $cycle->amount,
+                'currency' => $cycle->currency,
+                'internal_order_id' => 'renew_'.Str::random(32),
+                'provider_payment_id' => null,
+                'status' => PaymentAttemptStatus::Created,
+                'initiated_at' => now(),
+                'metadata' => [
+                    'renewal' => true,
+                    'billing_subscription_id' => $sub->id,
+                    'technical_retry' => true,
+                    'retry_of_attempt_id' => $last->id,
+                ],
+            ]);
+        });
+    }
+
+    private function isTechnicalRetryAllowed(BillingSubscription $sub): bool
+    {
+        if ($sub->status !== BillingSubscriptionStatus::PastDue
+            || $sub->grace_until === null
+            || ! $sub->grace_until->isFuture()
+            || $sub->auto_renew_consent_at === null
+            || $sub->renewal_period_months === null
+            || $sub->cancel_at_period_end !== false
+            || $sub->current_period_end === null) {
+            return false;
+        }
+
+        return true;
+    }
+
     private function isDue(BillingSubscription $sub): bool
     {
         if ($sub->status !== BillingSubscriptionStatus::Active) {

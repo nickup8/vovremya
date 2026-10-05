@@ -15,11 +15,16 @@ use Throwable;
 /**
  * Manual orchestration for billing renewals (A2.4a). No scheduler entry —
  * every mutation / external HTTP call requires an explicit --execute.
+ *
+ * --retry-technical switches the candidate set to PastDue subscriptions
+ * inside an active technical grace window and creates exactly one safe
+ * technical retry attempt (v1) instead of a regular renewal prepare.
  */
 class ProcessBillingRenewals extends Command
 {
     protected $signature = 'billing:process-renewals
         {--execute : Actually run renewal prepare + charge}
+        {--retry-technical : Retry a technical renewal failure once while the grace window is open}
         {--subscription= : Process only one BillingSubscription}
         {--limit=50 : Max subscriptions per run}';
 
@@ -29,7 +34,8 @@ class ProcessBillingRenewals extends Command
         RenewalService $renewalService,
         RenewalPaymentExecutor $executor,
     ): int {
-        $query = $this->dueCandidates();
+        $retryTechnical = (bool) $this->option('retry-technical');
+        $query = $retryTechnical ? $this->technicalRetryCandidates() : $this->dueCandidates();
 
         if (! $this->option('execute')) {
             $this->info('Candidates: '.$query->count());
@@ -38,7 +44,7 @@ class ProcessBillingRenewals extends Command
         }
 
         $subscriptions = $query
-            ->orderBy('next_charge_at')
+            ->orderBy($retryTechnical ? 'grace_until' : 'next_charge_at')
             ->limit((int) $this->option('limit'))
             ->get();
 
@@ -49,7 +55,9 @@ class ProcessBillingRenewals extends Command
 
         foreach ($subscriptions as $subscription) {
             try {
-                $attempt = $renewalService->prepare($subscription);
+                $attempt = $retryTechnical
+                    ? $renewalService->prepareTechnicalRetry($subscription)
+                    : $renewalService->prepare($subscription);
 
                 if ($attempt === null) {
                     $skipped++;
@@ -92,6 +100,26 @@ class ProcessBillingRenewals extends Command
             ->whereNotNull('next_charge_at')
             ->where('next_charge_at', '<=', now());
 
+        return $this->applySubscriptionOption($query);
+    }
+
+    /**
+     * PastDue subscriptions still inside the technical grace window — the
+     * only set prepareTechnicalRetry() may ever consider.
+     */
+    private function technicalRetryCandidates(): Builder
+    {
+        $query = BillingSubscription::query()
+            ->where('status', BillingSubscriptionStatus::PastDue)
+            ->whereNotNull('grace_until')
+            ->where('grace_until', '>', now())
+            ->where('cancel_at_period_end', false);
+
+        return $this->applySubscriptionOption($query);
+    }
+
+    private function applySubscriptionOption(Builder $query): Builder
+    {
         if ($this->option('subscription') !== null) {
             $subscriptionId = (string) $this->option('subscription');
 
