@@ -74,6 +74,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
         return new PaymentInitiation(
             providerPaymentId: (string) $data['PaymentId'],
+            method: PaymentInitiation::METHOD_REDIRECT,
             checkoutUrl: (string) $data['PaymentURL'],
         );
     }

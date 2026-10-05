@@ -88,6 +88,7 @@ class BillingCheckoutAutoRenewTest extends TestCase
 
                 return new PaymentInitiation(
                     providerPaymentId: 'test_'.bin2hex(random_bytes(8)),
+                    method: 'redirect',
                     checkoutUrl: 'https://example.test/checkout',
                 );
             }

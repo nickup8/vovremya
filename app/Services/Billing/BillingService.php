@@ -7,6 +7,7 @@ use App\Models\DiscountRule;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
+use App\Services\Payment\DTOs\PaymentInitiation;
 use App\Services\Payment\PaymentGatewayInterface;
 use App\Services\WorkspaceService;
 use Illuminate\Contracts\Cache\LockTimeoutException;
@@ -14,6 +15,7 @@ use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
+use RuntimeException;
 
 class BillingService
 {
@@ -155,6 +157,15 @@ class BillingService
                             'auto_renew' => $autoRenew,
                         ],
                     );
+
+                    // Fail closed: only the card redirect initiation is wired
+                    // through checkout — SBP orchestration is not implemented yet.
+                    if ($paymentResult->method !== PaymentInitiation::METHOD_REDIRECT
+                        || $paymentResult->checkoutUrl === null) {
+                        throw new RuntimeException("Unsupported payment initiation: method={$paymentResult->method}");
+                    }
+
+                    $checkoutUrl = $paymentResult->checkoutUrl;
                 } catch (\Throwable $e) {
                     DB::transaction(fn () => $this->coreWriter->checkoutFailed($intent['coreResult']['internalOrderId']));
 
@@ -162,7 +173,7 @@ class BillingService
                 }
 
                 // ── Phase C: Attach provider payment ID + checkout URL atomically ──
-                DB::transaction(function () use ($intent, $paymentResult) {
+                DB::transaction(function () use ($intent, $paymentResult, $checkoutUrl) {
                     Subscription::where('id', $intent['subscription']->id)
                         ->lockForUpdate()
                         ->first();
@@ -170,14 +181,14 @@ class BillingService
                     $this->coreWriter->paymentAttached(
                         $intent['coreResult']['internalOrderId'],
                         $paymentResult->providerPaymentId,
-                        $paymentResult->checkoutUrl,
+                        $checkoutUrl,
                         $intent['subscription'],
                     );
                 });
 
                 return [
                     'subscription' => $intent['subscription']->refresh(),
-                    'confirmation_url' => $paymentResult->checkoutUrl,
+                    'confirmation_url' => $checkoutUrl,
                 ];
             });
         } catch (LockTimeoutException) {

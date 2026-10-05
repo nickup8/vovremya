@@ -156,6 +156,7 @@ class TBankPaymentGatewayTest extends TestCase
         $initiation = $this->gateway()->createPayment(490, 'RUB', 'order-1');
 
         $this->assertSame('700123456', $initiation->providerPaymentId);
+        $this->assertSame('redirect', $initiation->method);
         $this->assertSame('https://securepay.tinkoff.ru/pay?paymentId=700123456', $initiation->checkoutUrl);
     }
 

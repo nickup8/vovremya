@@ -172,6 +172,7 @@ class BillingCheckoutHardeningTest extends TestCase
 
                 return new \App\Services\Payment\DTOs\PaymentInitiation(
                     providerPaymentId: 'mock_'.uniqid(),
+                    method: 'redirect',
                     checkoutUrl: 'http://example.com/pay?'.uniqid(),
                 );
             }
@@ -715,6 +716,66 @@ class BillingCheckoutHardeningTest extends TestCase
         // Lock should be released — second call succeeds without timeout
         $r2 = $service->subscribe($master, $this->proPlan, 1);
         $this->assertNotNull($r2['subscription']);
+    }
+
+    // ── Payment initiation method: redirect contract ──
+
+    public function test_card_checkout_contract_requires_redirect_method(): void
+    {
+        [$master] = $this->createMasterWithWorkspace();
+        $service = app(BillingService::class);
+
+        $result = $service->subscribe($master, $this->proPlan, 1);
+
+        // Response contract не изменился: только subscription + confirmation_url
+        $this->assertSame(['subscription', 'confirmation_url'], array_keys($result));
+        $this->assertIsString($result['confirmation_url']);
+        $this->assertNotSame('', $result['confirmation_url']);
+
+        $attempt = PaymentAttempt::where('internal_order_id', 'like', 'core_%')->first();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame($result['confirmation_url'], $attempt->metadata['checkout_url']);
+        $this->assertNotNull($result['subscription']->payment_id);
+        $this->assertSame($attempt->provider_payment_id, $result['subscription']->payment_id);
+    }
+
+    public function test_non_redirect_initiation_fails_closed(): void
+    {
+        [$master] = $this->createMasterWithWorkspace();
+
+        $sbpGateway = new class implements PaymentGatewayInterface {
+            public function name(): string { return 'mock'; }
+            public function createPayment(int $amount, string $currency, string $internalOrderId, array $context = []): \App\Services\Payment\DTOs\PaymentInitiation
+            {
+                return new \App\Services\Payment\DTOs\PaymentInitiation(
+                    providerPaymentId: 'sbp_'.uniqid(),
+                    method: 'sbp',
+                    payload: 'https://qr.nspk.ru/AS10001234567890',
+                );
+            }
+            public function verifyWebhook(array $payload, string $signature): bool { return true; }
+            public function normalizeWebhook(array $payload): \App\Services\Payment\DTOs\ProviderStatusUpdate { throw new \RuntimeException('Not implemented'); }
+            public function getPaymentStatus(?string $providerPaymentId, string $internalOrderId): ?\App\Services\Payment\DTOs\ProviderStatusUpdate { return null; }
+        };
+        $this->app->instance(PaymentGatewayInterface::class, $sbpGateway);
+
+        $service = app(BillingService::class);
+
+        try {
+            $service->subscribe($master, $this->proPlan, 1);
+            $this->fail('Expected RuntimeException for non-redirect initiation');
+        } catch (\RuntimeException $e) {
+            $this->assertStringContainsString('Unsupported payment initiation: method=sbp', $e->getMessage());
+        }
+
+        // Fail closed: attempt не прикреплён, checkout URL не сохранён
+        $attempt = PaymentAttempt::where('internal_order_id', 'like', 'core_%')->first();
+        $this->assertSame(PaymentAttemptStatus::Unknown, $attempt->status);
+        $this->assertNull($attempt->provider_payment_id);
+        $this->assertArrayNotHasKey('checkout_url', $attempt->metadata ?? []);
+
+        $legacy = Subscription::where('workspace_id', $master->workspace_id)->first();
+        $this->assertNull($legacy->payment_id);
     }
 
     // ── Helpers ──

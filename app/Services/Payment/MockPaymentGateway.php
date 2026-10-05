@@ -23,6 +23,7 @@ class MockPaymentGateway implements PaymentGatewayInterface
 
         return new PaymentInitiation(
             providerPaymentId: $paymentId,
+            method: PaymentInitiation::METHOD_REDIRECT,
             checkoutUrl: config('app.url')."/admin/settings?payment={$paymentId}",
         );
     }
