@@ -368,6 +368,59 @@ class RenewalTechnicalRetryTest extends TestCase
         $this->assertSame(PaymentAttemptStatus::FailedTerminal, $first->status);
     }
 
+    // ── Resume with a stale subscription object ──
+
+    public function test_resume_with_stale_subscription_ignores_canceled_auto_renew(): void
+    {
+        [$stale, $sub] = $this->staleSubscriptionSnapshot();
+
+        // Canceled in the DB after $stale was loaded.
+        $sub->update(['cancel_at_period_end' => true]);
+
+        $this->assertFalse($stale->cancel_at_period_end);
+        $this->assertNull($this->renewalService->resumeTechnicalRetry($stale));
+        $this->assertSame(2, PaymentAttempt::count());
+    }
+
+    public function test_resume_with_stale_subscription_ignores_revoked_consent(): void
+    {
+        [$stale, $sub] = $this->staleSubscriptionSnapshot();
+
+        $sub->update(['auto_renew_consent_at' => null]);
+
+        $this->assertNotNull($stale->auto_renew_consent_at);
+        $this->assertNull($this->renewalService->resumeTechnicalRetry($stale));
+        $this->assertSame(2, PaymentAttempt::count());
+    }
+
+    public function test_resume_with_stale_subscription_ignores_expired_grace(): void
+    {
+        [$stale, $sub] = $this->staleSubscriptionSnapshot();
+
+        $sub->update(['grace_until' => now()->subMinute()]);
+
+        $this->assertTrue($stale->grace_until->isFuture());
+        $this->assertNull($this->renewalService->resumeTechnicalRetry($stale));
+        $this->assertSame(2, PaymentAttempt::count());
+    }
+
+    public function test_resume_with_stale_subscription_ignores_changed_status(): void
+    {
+        [$stale, $sub] = $this->staleSubscriptionSnapshot();
+
+        $sub->update(['status' => BillingSubscriptionStatus::Canceled]);
+
+        $this->assertSame(BillingSubscriptionStatus::PastDue, $stale->status);
+        $this->assertNull($this->renewalService->resumeTechnicalRetry($stale));
+        $this->assertSame(2, PaymentAttempt::count());
+
+        // The pending retry attempt itself is untouched by the refusal.
+        $this->assertSame(
+            PaymentAttemptStatus::Created,
+            PaymentAttempt::where('attempt_number', 2)->sole()->status,
+        );
+    }
+
     public function test_resume_returns_null_once_the_retry_is_terminal(): void
     {
         [$sub] = $this->technicalFailureState();
@@ -513,6 +566,23 @@ class RenewalTechnicalRetryTest extends TestCase
     }
 
     // ── Helpers ──
+
+    /**
+     * Snapshot of a subscription that already has a technical retry attempt,
+     * plus a second instance used to change the row afterwards — so the
+     * first one stays stale, the way a command-held model can go stale
+     * between loading it and calling resumeTechnicalRetry().
+     *
+     * @return array{0: BillingSubscription, 1: BillingSubscription}
+     */
+    private function staleSubscriptionSnapshot(): array
+    {
+        [$sub] = $this->technicalFailureState();
+
+        $this->assertNotNull($this->renewalService->prepareTechnicalRetry($sub));
+
+        return [BillingSubscription::findOrFail($sub->getKey()), $sub];
+    }
 
     /**
      * PastDue subscription with an open technical grace window: paid

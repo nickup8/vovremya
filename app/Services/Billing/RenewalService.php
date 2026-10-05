@@ -181,36 +181,45 @@ class RenewalService
      * the original failed attempt: the one-technical-retry-per-cycle limit
      * stays with prepareTechnicalRetry(). Unsupported or terminal states
      * return null so the command keeps counting them as Skipped.
+     *
+     * The caller's model may be stale (auto-renew canceled, consent
+     * revoked, grace expired or status changed after it was loaded), so
+     * the subscription is re-read under lock and the very same
+     * isTechnicalRetryAllowed() gate as prepare applies — a refusal there
+     * must not be bypassed by this fallback.
      */
     public function resumeTechnicalRetry(BillingSubscription $subscription): ?PaymentAttempt
     {
-        if ($subscription->current_period_end === null) {
-            return null;
-        }
+        return DB::transaction(function () use ($subscription) {
+            $sub = BillingSubscription::lockForUpdate()
+                ->whereKey($subscription->getKey())
+                ->first();
 
-        $cycle = BillingCycle::where('billing_subscription_id', $subscription->getKey())
-            ->where('origin', BillingCycleOrigin::Renewal)
-            ->where('period_start', $subscription->current_period_end)
-            ->where('status', '!=', BillingCycleStatus::Paid)
-            ->first();
+            if ($sub === null || ! $this->isTechnicalRetryAllowed($sub)) {
+                return null;
+            }
 
-        if ($cycle === null) {
-            return null;
-        }
+            $cycle = BillingCycle::where('billing_subscription_id', $sub->id)
+                ->where('origin', BillingCycleOrigin::Renewal)
+                ->where('period_start', $sub->current_period_end)
+                ->where('status', '!=', BillingCycleStatus::Paid)
+                ->first();
 
-        $resumable = PaymentAttempt::where('billing_cycle_id', $cycle->id)
-            ->whereIn('status', [
-                PaymentAttemptStatus::Created,
-                PaymentAttemptStatus::Processing,
-            ])
-            ->orderByDesc('attempt_number')
-            ->get()
-            ->first(fn (PaymentAttempt $attempt) => ($attempt->metadata['technical_retry'] ?? null) === true);
+            if ($cycle === null) {
+                return null;
+            }
 
-        // Loading is enough: the executor owns idempotency for the attempt
-        // it receives (charge_dispatch_started_at, atomic attach, state
-        // machine), so no lock is needed here and nothing is written.
-        return $resumable;
+            // Read-only: nothing is created or written here, the executor
+            // owns idempotency for the attempt it receives.
+            return PaymentAttempt::where('billing_cycle_id', $cycle->id)
+                ->whereIn('status', [
+                    PaymentAttemptStatus::Created,
+                    PaymentAttemptStatus::Processing,
+                ])
+                ->orderByDesc('attempt_number')
+                ->get()
+                ->first(fn (PaymentAttempt $attempt) => ($attempt->metadata['technical_retry'] ?? null) === true);
+        });
     }
 
     private function isTechnicalRetryAllowed(BillingSubscription $sub): bool
