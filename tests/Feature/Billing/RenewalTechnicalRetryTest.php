@@ -293,6 +293,108 @@ class RenewalTechnicalRetryTest extends TestCase
         $this->assertSame(1, PaymentAttempt::count());
     }
 
+    // ── Dispatched Charge = undefined outcome ──
+
+    public function test_timeout_after_dispatched_charge_blocks_new_payment(): void
+    {
+        Http::fake();
+        [$sub, , , $first] = $this->technicalFailureState();
+
+        // Age-release does not ask the provider, so a dispatched Charge that
+        // timed out may still have moved money.
+        $first->update(['metadata' => array_merge($first->metadata, [
+            'charge_dispatch_started_at' => now()->toISOString(),
+        ])]);
+
+        $this->assertNull($this->renewalService->prepareTechnicalRetry($sub));
+
+        $this->assertSame(1, PaymentAttempt::count());
+        // The old attempt keeps its marker and its terminal state: no reset,
+        // no re-Charge, no second payment.
+        $first->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $first->status);
+        $this->assertNotNull($first->metadata['charge_dispatch_started_at'] ?? null);
+        Http::assertNothingSent();
+    }
+
+    public function test_get_state_new_is_not_a_safety_proof_after_dispatched_charge(): void
+    {
+        [$sub, , , $first] = $this->technicalFailureState();
+        $first->update(['metadata' => array_merge($first->metadata, [
+            'charge_dispatch_started_at' => now()->toISOString(),
+        ])]);
+
+        // The provider would even answer NEW — still not proof that the
+        // dispatched Charge did not go through, so no new payment is made
+        // and the provider is never asked.
+        Http::fake([
+            '*/GetState' => Http::response([
+                'Success' => true,
+                'PaymentId' => $first->provider_payment_id,
+                'Status' => 'NEW',
+            ], 200),
+        ]);
+
+        $this->assertNull($this->renewalService->prepareTechnicalRetry($sub));
+        $this->assertSame(1, PaymentAttempt::count());
+        Http::assertNothingSent();
+    }
+
+    // ── Resume of an already created retry ──
+
+    public function test_resume_returns_the_same_retry_attempt_without_creating_one(): void
+    {
+        [$sub] = $this->technicalFailureState();
+
+        $retry = $this->renewalService->prepareTechnicalRetry($sub);
+        $this->assertNotNull($retry);
+
+        $resumed = $this->renewalService->resumeTechnicalRetry($sub);
+
+        $this->assertNotNull($resumed);
+        $this->assertSame($retry->id, $resumed->id);
+        $this->assertSame($retry->internal_order_id, $resumed->internal_order_id);
+        $this->assertSame(2, PaymentAttempt::count());
+    }
+
+    public function test_resume_never_returns_the_original_failed_attempt(): void
+    {
+        [$sub, , , $first] = $this->technicalFailureState();
+
+        $this->assertNull($this->renewalService->resumeTechnicalRetry($sub));
+        $this->assertSame(1, PaymentAttempt::count());
+
+        $first->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $first->status);
+    }
+
+    public function test_resume_returns_null_once_the_retry_is_terminal(): void
+    {
+        [$sub] = $this->technicalFailureState();
+
+        $retry = $this->renewalService->prepareTechnicalRetry($sub);
+        $this->assertNotNull($retry);
+
+        $retry->update(['status' => PaymentAttemptStatus::FailedTerminal]);
+
+        $this->assertNull($this->renewalService->resumeTechnicalRetry($sub));
+        $this->assertSame(2, PaymentAttempt::count());
+    }
+
+    public function test_resume_returns_null_for_a_paid_cycle(): void
+    {
+        [$sub, $cycle] = $this->technicalFailureState();
+
+        $retry = $this->renewalService->prepareTechnicalRetry($sub);
+        $this->assertNotNull($retry);
+
+        $retry->update(['status' => PaymentAttemptStatus::Succeeded]);
+        $cycle->update(['status' => BillingCycleStatus::Paid]);
+
+        $this->assertNull($this->renewalService->resumeTechnicalRetry($sub));
+        $this->assertSame(2, PaymentAttempt::count());
+    }
+
     // ── Outcomes ──
 
     public function test_insufficient_funds_on_retry_stops_auto_renew_without_grace(): void

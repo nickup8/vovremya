@@ -56,7 +56,8 @@ class ProcessBillingRenewals extends Command
         foreach ($subscriptions as $subscription) {
             try {
                 $attempt = $retryTechnical
-                    ? $renewalService->prepareTechnicalRetry($subscription)
+                    ? ($renewalService->prepareTechnicalRetry($subscription)
+                        ?? $renewalService->resumeTechnicalRetry($subscription))
                     : $renewalService->prepare($subscription);
 
                 if ($attempt === null) {

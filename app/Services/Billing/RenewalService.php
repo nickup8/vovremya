@@ -73,7 +73,9 @@ class RenewalService
      * The old PaymentAttempt is never touched and never Charged again: the
      * retry is a brand-new attempt in the same renewal BillingCycle, which
      * then runs through the ordinary RenewalPaymentExecutor. Fail closed on
-     * every precondition; at most one technical retry per cycle (v1 policy).
+     * every precondition — including an already dispatched Charge whose
+     * outcome is still unknown; at most one technical retry per cycle
+     * (v1 policy).
      */
     public function prepareTechnicalRetry(BillingSubscription $subscription): ?PaymentAttempt
     {
@@ -127,6 +129,18 @@ class RenewalService
                 return null;
             }
 
+            // reconciliation_timeout is set by age-release (which never asks
+            // the provider) — so for a dispatched Charge it means the bank
+            // answer is unknown, not that nothing was charged. A single
+            // GetState NEW would not prove otherwise either. Creating a
+            // payment now could double-charge: fail closed and leave the
+            // outcome to the existing recovery (reconciliation polling /
+            // late success). The marker is never cleared and the old
+            // attempt is never Charged again.
+            if (($last->metadata['charge_dispatch_started_at'] ?? null) !== null) {
+                return null;
+            }
+
             $method = $this->findDefaultPaymentMethod($sub);
             if ($method === null) {
                 return null;
@@ -155,6 +169,48 @@ class RenewalService
                 ],
             ]);
         });
+    }
+
+    /**
+     * The already-created technical retry attempt of the current renewal
+     * cycle, when it is in a state RenewalPaymentExecutor can progress.
+     *
+     * Lets a rerun continue where the previous run stopped (crash after
+     * prepare, CheckOrder/Init exception, in-flight Charge) instead of
+     * reporting Skipped forever. Never creates an attempt, never touches
+     * the original failed attempt: the one-technical-retry-per-cycle limit
+     * stays with prepareTechnicalRetry(). Unsupported or terminal states
+     * return null so the command keeps counting them as Skipped.
+     */
+    public function resumeTechnicalRetry(BillingSubscription $subscription): ?PaymentAttempt
+    {
+        if ($subscription->current_period_end === null) {
+            return null;
+        }
+
+        $cycle = BillingCycle::where('billing_subscription_id', $subscription->getKey())
+            ->where('origin', BillingCycleOrigin::Renewal)
+            ->where('period_start', $subscription->current_period_end)
+            ->where('status', '!=', BillingCycleStatus::Paid)
+            ->first();
+
+        if ($cycle === null) {
+            return null;
+        }
+
+        $resumable = PaymentAttempt::where('billing_cycle_id', $cycle->id)
+            ->whereIn('status', [
+                PaymentAttemptStatus::Created,
+                PaymentAttemptStatus::Processing,
+            ])
+            ->orderByDesc('attempt_number')
+            ->get()
+            ->first(fn (PaymentAttempt $attempt) => ($attempt->metadata['technical_retry'] ?? null) === true);
+
+        // Loading is enough: the executor owns idempotency for the attempt
+        // it receives (charge_dispatch_started_at, atomic attach, state
+        // machine), so no lock is needed here and nothing is written.
+        return $resumable;
     }
 
     private function isTechnicalRetryAllowed(BillingSubscription $sub): bool

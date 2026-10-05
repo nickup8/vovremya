@@ -344,14 +344,15 @@ class ProcessBillingRenewalsCommandTest extends TestCase
             PaymentAttempt::where('attempt_number', 2)->sole()->status,
         );
 
-        // Second run: the existing retry attempt is reused, never duplicated.
+        // Second run: the existing retry attempt is resumed, never
+        // duplicated — it fails again on the same executor guard.
         Http::fake();
 
         $this->artisan('billing:process-renewals --retry-technical --execute')
             ->expectsOutputToContain('Candidates: 1')
-            ->expectsOutputToContain('Skipped: 1')
             ->expectsOutputToContain('Processed: 0')
-            ->assertExitCode(0);
+            ->expectsOutputToContain('Failed: 1')
+            ->assertExitCode(1);
 
         Http::assertNothingSent();
         $this->assertSame(2, PaymentAttempt::count());
@@ -359,6 +360,184 @@ class ProcessBillingRenewalsCommandTest extends TestCase
         $sub->refresh();
         $this->assertSame(BillingSubscriptionStatus::PastDue, $sub->status);
         $this->assertNotNull($sub->grace_until);
+    }
+
+    public function test_rerun_after_prepare_continues_the_same_attempt(): void
+    {
+        $workspace = $this->createWorkspace();
+        $sub = $this->technicalFailureSubscription($workspace);
+
+        // Stopped between prepare and execute: the retry attempt exists.
+        $retry = app(RenewalService::class)->prepareTechnicalRetry($sub);
+        $this->assertNotNull($retry);
+        $this->assertSame(2, PaymentAttempt::count());
+
+        $this->fakeRecurringHttp();
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Processed: 1')
+            ->expectsOutputToContain('Failed: 0')
+            ->assertExitCode(0);
+
+        $this->assertSame(2, PaymentAttempt::count());
+        $this->assertSame(
+            PaymentAttemptStatus::Succeeded,
+            PaymentAttempt::whereKey($retry->id)->sole()->status,
+        );
+        $this->assertSame(
+            BillingCycleStatus::Paid,
+            BillingCycle::where('origin', BillingCycleOrigin::Renewal)->sole()->status,
+        );
+    }
+
+    public function test_check_order_exception_is_recovered_on_next_run_without_duplicate(): void
+    {
+        $workspace = $this->createWorkspace();
+        $sub = $this->technicalFailureSubscription($workspace);
+
+        // CheckOrder blows up right after prepare — nothing is dispatched.
+        $failCheckOrder = true;
+        Http::fake(function ($request) use (&$failCheckOrder) {
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return $failCheckOrder
+                    ? Http::response(['Success' => false], 500)
+                    : Http::response(['Success' => true, 'Payments' => []], 200);
+            }
+
+            if (str_ends_with($request->url(), '/v2/Charge')) {
+                return Http::response([
+                    'Success' => true,
+                    'PaymentId' => self::PAYMENT_ID,
+                    'Status' => 'CONFIRMED',
+                    'Amount' => 49000,
+                ], 200);
+            }
+
+            if (str_ends_with($request->url(), '/v2/Init')) {
+                return Http::response(['Success' => true, 'PaymentId' => self::PAYMENT_ID], 200);
+            }
+
+            return Http::response(['Success' => true, 'Payments' => []], 200);
+        });
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Failed: 1')
+            ->assertExitCode(1);
+
+        $this->assertSame(2, PaymentAttempt::count());
+        $failedAttempt = PaymentAttempt::where('attempt_number', 2)->sole();
+        $this->assertSame(PaymentAttemptStatus::Created, $failedAttempt->status);
+        $this->assertNull($failedAttempt->provider_payment_id);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::PastDue, $sub->status);
+        $this->assertNotNull($sub->grace_until);
+
+        // Next run recovers the very same attempt through the executor.
+        $failCheckOrder = false;
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Processed: 1')
+            ->expectsOutputToContain('Failed: 0')
+            ->assertExitCode(0);
+
+        $this->assertSame(2, PaymentAttempt::count());
+        $this->assertSame(
+            PaymentAttemptStatus::Succeeded,
+            PaymentAttempt::whereKey($failedAttempt->id)->sole()->status,
+        );
+        $this->assertNotNull(
+            PaymentAttempt::whereKey($failedAttempt->id)->sole()->metadata['charge_dispatch_started_at'] ?? null,
+        );
+    }
+
+    public function test_init_exception_is_recovered_on_next_run_without_duplicate(): void
+    {
+        $workspace = $this->createWorkspace();
+        $sub = $this->technicalFailureSubscription($workspace);
+
+        $failInit = true;
+        Http::fake(function ($request) use (&$failInit) {
+            if (str_ends_with($request->url(), '/v2/Init')) {
+                return $failInit
+                    ? Http::response(['Success' => false], 500)
+                    : Http::response(['Success' => true, 'PaymentId' => self::PAYMENT_ID], 200);
+            }
+
+            if (str_ends_with($request->url(), '/v2/Charge')) {
+                return Http::response([
+                    'Success' => true,
+                    'PaymentId' => self::PAYMENT_ID,
+                    'Status' => 'CONFIRMED',
+                    'Amount' => 49000,
+                ], 200);
+            }
+
+            // CheckOrder — no payment yet
+            return Http::response(['Success' => true, 'Payments' => []], 200);
+        });
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Failed: 1')
+            ->assertExitCode(1);
+
+        $this->assertSame(2, PaymentAttempt::count());
+        $failedAttempt = PaymentAttempt::where('attempt_number', 2)->sole();
+        $this->assertSame(PaymentAttemptStatus::Created, $failedAttempt->status);
+        $this->assertNull($failedAttempt->provider_payment_id);
+
+        $sub->refresh();
+        $this->assertSame(BillingSubscriptionStatus::PastDue, $sub->status);
+        $this->assertNotNull($sub->grace_until);
+
+        // Next run resumes the same attempt: CheckOrder → Init → Charge.
+        $failInit = false;
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('Processed: 1')
+            ->expectsOutputToContain('Failed: 0')
+            ->assertExitCode(0);
+
+        $this->assertSame(2, PaymentAttempt::count());
+        $this->assertSame(
+            PaymentAttemptStatus::Succeeded,
+            PaymentAttempt::whereKey($failedAttempt->id)->sole()->status,
+        );
+    }
+
+    public function test_marked_processing_technical_retry_is_noop_without_http(): void
+    {
+        $workspace = $this->createWorkspace();
+        $sub = $this->technicalFailureSubscription($workspace);
+
+        $retry = app(RenewalService::class)->prepareTechnicalRetry($sub);
+        $this->assertNotNull($retry);
+        $retry->update([
+            'status' => PaymentAttemptStatus::Processing,
+            'provider_payment_id' => self::PAYMENT_ID,
+            'metadata' => array_merge($retry->metadata ?? [], [
+                'charge_dispatch_started_at' => now()->toISOString(),
+            ]),
+        ]);
+
+        Http::fake();
+
+        $this->artisan('billing:process-renewals --retry-technical --execute')
+            ->expectsOutputToContain('Candidates: 1')
+            ->expectsOutputToContain('No-op: 1')
+            ->expectsOutputToContain('Processed: 0')
+            ->assertExitCode(0);
+
+        Http::assertNothingSent();
+        $this->assertSame(2, PaymentAttempt::count());
+        $retry->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $retry->status);
+        $this->assertNotNull($retry->metadata['charge_dispatch_started_at'] ?? null);
     }
 
     public function test_retry_technical_respects_subscription_option(): void
