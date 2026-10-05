@@ -60,4 +60,13 @@ return [
         'max_age_without_provider_id' => 1800, // 30 minutes
     ],
 
+    /*
+     * Renewal settings.
+     */
+    'renewal' => [
+        // Technical grace window (days) after a renewal attempt ends as
+        // failed_terminal with failure_category=reconciliation_timeout.
+        'technical_grace_days' => (int) env('BILLING_RENEWAL_TECHNICAL_GRACE_DAYS', 3),
+    ],
+
 ];

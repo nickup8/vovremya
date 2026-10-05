@@ -127,6 +127,10 @@ class PaymentTransitionService
             // insufficient funds — stop auto-renew, keep paid entitlement.
             $this->handleRenewalInsufficientFunds($attempt, $update);
 
+            // 9c. Renewal attempt failed on a technical issue
+            // (reconciliation timeout) — PastDue with a bounded grace.
+            $this->applyTechnicalRenewalGrace($attempt);
+
             // 10. Link ProviderEvent → PaymentAttempt
             $event->update(['payment_attempt_id' => $attempt->id]);
 
@@ -667,6 +671,43 @@ class PaymentTransitionService
         $sub->update($updates);
 
         $this->notifyRenewalInsufficientFunds($attempt);
+    }
+
+    /**
+     * Renewal attempt ended as failed_terminal for a technical reason
+     * (reconciliation_timeout): keep the user on Pro for a bounded window
+     * without any new charge — status=PastDue, grace_until =
+     * max(current_period_end, now()) + billing.renewal.technical_grace_days.
+     *
+     * Never touches cancel_at_period_end, current_period_start/end or the
+     * payment method, never runs for checkout attempts (metadata.renewal
+     * must be true) and never for other failure categories — insufficient
+     * funds owns its own terminal flow above. Called both from the core
+     * transition path and from reconciliation age-release.
+     */
+    public function applyTechnicalRenewalGrace(PaymentAttempt $attempt): void
+    {
+        if ($attempt->status !== PaymentAttemptStatus::FailedTerminal
+            || ($attempt->metadata['renewal'] ?? null) !== true
+            || $attempt->failure_category !== 'reconciliation_timeout') {
+            return;
+        }
+
+        $sub = $attempt->billingCycle?->billingSubscription;
+        if ($sub === null) {
+            return;
+        }
+
+        $now = now();
+        $base = $sub->current_period_end !== null && $sub->current_period_end->gt($now)
+            ? $sub->current_period_end
+            : $now;
+
+        $sub->update([
+            'status' => BillingSubscriptionStatus::PastDue,
+            'grace_until' => $base->copy()->addDays((int) config('billing.renewal.technical_grace_days')),
+            'next_charge_at' => null,
+        ]);
     }
 
     /**

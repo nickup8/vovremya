@@ -193,6 +193,10 @@ class PaymentReconciliationService
             $cycle->update(['status' => \App\Enums\BillingCycleStatus::Failed]);
         }
 
+        // Renewal attempts: PastDue + bounded technical grace (no-op for
+        // checkout attempts and other failure categories).
+        $this->transitionService->applyTechnicalRenewalGrace($attempt);
+
         Log::info('Age-released payment attempt', [
             'attempt_id' => $attempt->id,
             'provider_payment_id' => $attempt->provider_payment_id,
