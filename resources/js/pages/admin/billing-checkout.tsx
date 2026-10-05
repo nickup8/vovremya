@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Head, Link, usePage } from '@inertiajs/react';
 import axios from 'axios';
+import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
 import AdminLayout from '@/layouts/AdminLayout';
 
@@ -212,14 +213,45 @@ export default function BillingCheckoutPage() {
                                     Ожидаем подтверждение оплаты
                                 </div>
                                 <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                    Оплатите счёт в приложении вашего банка —
-                                    подтверждение появится на этой странице.
+                                    Не закрывайте страницу до завершения оплаты
                                 </p>
+
+                                {/* Desktop (md+): QR rendered locally from sbp_payload */}
+                                <div className="mt-4 hidden md:block">
+                                    <div className="inline-block rounded-[16px] border border-[var(--color-line)] bg-white p-4">
+                                        <QRCodeSVG
+                                            value={sbpPayment.payload}
+                                            size={232}
+                                            bgColor="#ffffff"
+                                            fgColor="#000000"
+                                            level="M"
+                                            marginSize={2}
+                                            title="QR-код для оплаты через СБП"
+                                        />
+                                    </div>
+                                    <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-ink)]">
+                                        Отсканируйте QR-код камерой телефона или
+                                        в приложении банка
+                                    </p>
+                                    <p className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]">
+                                        Сумма: {fmt(price.final)}
+                                    </p>
+                                    <a
+                                        href={sbpPayment.payload}
+                                        target="_blank"
+                                        rel="noopener noreferrer"
+                                        className="mt-2 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
+                                    >
+                                        Открыть СБП
+                                    </a>
+                                </div>
+
+                                {/* Mobile: open-bank action only, no QR */}
                                 <a
                                     href={sbpPayment.payload}
                                     target="_blank"
                                     rel="noopener noreferrer"
-                                    className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]"
+                                    className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)] md:hidden"
                                 >
                                     Открыть приложение банка
                                 </a>

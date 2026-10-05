@@ -38,6 +38,25 @@ vi.mock('sonner', () => ({
     toast: { error: vi.fn(), success: vi.fn(), info: vi.fn() },
 }));
 
+vi.mock('qrcode.react', () => ({
+    QRCodeSVG: ({
+        value,
+        size,
+        title,
+    }: {
+        value: string;
+        size: number;
+        title?: string;
+    }) => (
+        <svg
+            data-testid="sbp-qr"
+            data-value={value}
+            data-size={String(size)}
+            aria-label={title}
+        />
+    ),
+}));
+
 function makeProps() {
     return {
         props: {
@@ -241,7 +260,80 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(action.getAttribute('href')).toBe(
             'https://qr.nspk.ru/TESTPAYLOAD',
         );
+        // Mobile action is hidden on md+ (no QR there)
+        expect(action.className).toContain('md:hidden');
         expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+        expect(
+            screen.getByText('Не закрывайте страницу до завершения оплаты'),
+        ).toBeTruthy();
+        // SBP CTA must not redirect away from IRSI (no T-Bank / checkout_url)
+        expect(window.location.href).toBe('');
+    });
+
+    it('sbp desktop renders QR built from exact sbp_payload', async () => {
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                payment_method: 'sbp',
+                payment_id: 'pay_1',
+                sbp_payload: 'https://qr.nspk.ru/TESTPAYLOAD',
+                subscription_id: 7,
+                amount: 1323,
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+
+        const qr = await screen.findByTestId('sbp-qr');
+
+        // QR encodes the backend payload verbatim — no external services
+        expect(qr.getAttribute('data-value')).toBe(
+            'https://qr.nspk.ru/TESTPAYLOAD',
+        );
+        expect(qr.getAttribute('data-size')).toBe('232');
+
+        // QR lives inside the desktop-only wrapper (hidden on mobile)
+        const desktopWrapper = qr.closest('[class*="md:block"]');
+        expect(desktopWrapper).toBeTruthy();
+        expect(desktopWrapper?.className).toContain('hidden');
+
+        expect(
+            screen.getByText(
+                'Отсканируйте QR-код камерой телефона или в приложении банка',
+            ),
+        ).toBeTruthy();
+        expect(screen.getByText('Сумма: 1 323 ₽')).toBeTruthy();
+
+        // Secondary desktop link, not a primary CTA button
+        const openSbp = screen.getByRole('link', { name: 'Открыть СБП' });
+        expect(openSbp.getAttribute('href')).toBe(
+            'https://qr.nspk.ru/TESTPAYLOAD',
+        );
+    });
+
+    it('sbp pending never mentions polling that is not implemented yet', async () => {
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                payment_method: 'sbp',
+                payment_id: 'pay_1',
+                sbp_payload: 'https://qr.nspk.ru/TESTPAYLOAD',
+                subscription_id: 7,
+                amount: 1323,
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+
+        await screen.findByText('Ожидаем подтверждение оплаты');
+
+        expect(
+            screen.queryByText(/подтверждение появится на этой странице/),
+        ).toBeNull();
         expect(window.location.href).toBe('');
     });
 
