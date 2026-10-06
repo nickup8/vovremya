@@ -887,6 +887,173 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(screen.queryByText('Оплата не прошла')).toBeNull();
     });
 
+    it('reconciliation_timeout before the deadline stays unconfirmed', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        // Локальный age-release — не отказ банка до дедлайна тоже
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(screen.queryByText(/Попробуйте снова/)).toBeNull();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+
+        // Авто-проверка остановлена
+        act(() => {
+            vi.advanceTimersByTime(10_000);
+        });
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(1);
+    });
+
+    it('reconciliation_timeout with deadline=null stays unconfirmed and manual check re-checks at once', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(null);
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(screen.queryByTestId('sbp-countdown')).toBeNull();
+
+        // Ручная проверка без дедлайна тоже начинается немедленно
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(2);
+        expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+    });
+
+    it('processing after the deadline exhausts the 25-request budget', async () => {
+        vi.useFakeTimers();
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        // Истечение → немедленный запрос нового цикла
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(1);
+
+        // 24 тика интервала по 2 c → всего 25 запросов бюджета
+        for (let i = 0; i < 24; i++) {
+            act(() => {
+                vi.advanceTimersByTime(2000);
+            });
+            await act(async () => {});
+        }
+
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(25);
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+
+        // Больше автоматических запросов не уходит
+        act(() => {
+            vi.advanceTimersByTime(30_000);
+        });
+        await act(async () => {});
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(25);
+    });
+
+    it('manual check starts a new bounded cycle after the budget', async () => {
+        vi.useFakeTimers();
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+
+        for (let i = 0; i < 24; i++) {
+            act(() => {
+                vi.advanceTimersByTime(2000);
+            });
+            await act(async () => {});
+        }
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(25);
+
+        // Новый цикл: немедленный запрос, снова без параллельных
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(26);
+
+        // И снова максимум 25 запросов в цикле (26…50)
+        for (let i = 0; i < 24; i++) {
+            act(() => {
+                vi.advanceTimersByTime(2000);
+            });
+            await act(async () => {});
+        }
+
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(50);
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+    });
+
+    it('success inside the post-expiry budget wins and stops polling', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get)
+            .mockResolvedValueOnce({ data: { status: 'processing' } })
+            .mockResolvedValueOnce({ data: { status: 'processing' } })
+            .mockResolvedValue({ data: { status: 'succeeded' } });
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
+
+        const total = vi.mocked(axios.get).mock.calls.length;
+        expect(total).toBeLessThan(25);
+
+        act(() => {
+            vi.advanceTimersByTime(30_000);
+        });
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(total);
+    });
+
     it('old attempt without a deadline shows no timer and never expires', async () => {
         vi.useFakeTimers();
 

@@ -60,14 +60,20 @@ const METHOD_MISMATCH_ERROR =
 const RETURN_BTN_CLASS =
     'mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]';
 
-// Post-expiry verdict copy. The link is dead, the outcome is not confirmed:
-// never offer a new payment here (no Init, no «Попробуйте снова»).
+// Unconfirmed verdict copy: the outcome is not confirmed — never offer a
+// new payment here (no Init, no «Попробуйте снова»).
 const EXPIRED_TITLE = 'Срок ссылки истёк. Проверяем результат оплаты';
 const EXPIRED_BODY =
     'Если вы уже оплачивали — не запускайте оплату повторно. Результат появится после подтверждения платежа.';
 const UNCONFIRMED_TITLE = 'Пока не удалось подтвердить оплату';
 const UNCONFIRMED_BODY =
     'Если вы уже оплачивали — не запускайте оплату повторно. Нажмите «Проверить статус» или вернитесь позже: результат появится после подтверждения платежа.';
+
+// Наш UX-бюджет авто-проверки после истечения срока (как в PR9), а не
+// требование банка: максимум 25 запросов раз в 2 секунды, затем —
+// неподтверждённый исход. Ручная проверка начинает новый цикл.
+const EXPIRED_CHECK_BUDGET = 25;
+const STATUS_POLL_INTERVAL_MS = 2000;
 
 function pluralizePeriod(n: number): string {
     return `${n} ${MONTHS_RU[n] ?? 'месяцев'}`;
@@ -120,10 +126,13 @@ export default function BillingCheckoutPage() {
     const [sbpStatus, setSbpStatus] = useState<SbpStatus>('waiting');
     // Остаток до абсолютного дедлайна; null = срока нет (старый attempt).
     const [remainingMs, setRemainingMs] = useState<number | null>(null);
-    // Исход после истечения срока не подтверждён — ручная проверка.
-    const [expiredUnconfirmed, setExpiredUnconfirmed] = useState(false);
+    // Исход не подтверждён (сеть/unknown/reconciliation_timeout) — ручная
+    // проверка. Независимо от дедлайна, включая attempts без срока.
+    const [unconfirmed, setUnconfirmed] = useState(false);
 
     const inFlightRef = useRef(false);
+    // Клик по «Проверить статус»: начать новый цикл немедленным запросом.
+    const retryRequestedRef = useRef(false);
 
     const isSbp = paymentMethod === 'sbp';
     const monthlyEquiv = Math.round(price.final / periodMonths);
@@ -251,21 +260,30 @@ export default function BillingCheckoutPage() {
 
     // ── SBP status polling: local Billing Core attempt only, never T-Bank ──
     useEffect(() => {
-        if (
-            !sbpPayment?.paymentId ||
-            sbpStatus !== 'waiting' ||
-            expiredUnconfirmed
-        ) {
+        if (!sbpPayment?.paymentId || sbpStatus !== 'waiting' || unconfirmed) {
             return;
         }
 
         const paymentId = sbpPayment.paymentId;
         let stopped = false;
         let timer: number | null = null;
+        // Бюджет считает только запросы после истечения срока; новый цикл
+        // (истечение или «Проверить статус») начинается снова с нуля.
+        let expiredChecks = 0;
 
         async function check() {
             if (stopped || inFlightRef.current) {
                 return;
+            }
+
+            if (linkExpired) {
+                if (expiredChecks >= EXPIRED_CHECK_BUDGET) {
+                    setUnconfirmed(true);
+
+                    return;
+                }
+
+                expiredChecks += 1;
             }
 
             inFlightRef.current = true;
@@ -281,15 +299,16 @@ export default function BillingCheckoutPage() {
 
                 const status = res.data?.status;
                 // Локальный age-release (reconciliation_timeout) — не отказ
-                // банка: после истечения срока это неизвестный исход.
+                // банка: всегда неподтверждённый исход, независимо от
+                // дедлайна (включая attempts без срока).
                 const undefinedOutcome = res.data?.undefined_outcome === true;
 
                 if (status === 'succeeded') {
                     // Успех имеет приоритет над истечением срока.
                     setSbpStatus('succeeded');
                 } else if (status === 'failed_terminal') {
-                    if (linkExpired && undefinedOutcome) {
-                        setExpiredUnconfirmed(true);
+                    if (undefinedOutcome) {
+                        setUnconfirmed(true);
                     } else {
                         setSbpStatus('failed');
                     }
@@ -298,10 +317,19 @@ export default function BillingCheckoutPage() {
                     status === 'partially_refunded'
                 ) {
                     setSbpStatus('refunded');
-                } else if (linkExpired && status === 'unknown') {
-                    setExpiredUnconfirmed(true);
+                } else if (linkExpired) {
+                    if (
+                        status === 'unknown' ||
+                        expiredChecks >= EXPIRED_CHECK_BUDGET
+                    ) {
+                        // Исход неизвестен либо UX-бюджет авто-проверки
+                        // исчерпан — ручная проверка начинает новый цикл.
+                        setUnconfirmed(true);
+                    }
+                    // created / processing / failed_retryable → ждём дальше
                 }
-                // processing / created / failed_retryable → ждём дальше
+                // До истечения срока (и без срока): created / processing /
+                // failed_retryable / unknown → ждём дальше, бюджет не нужен
             } catch {
                 if (stopped) {
                     return;
@@ -310,7 +338,7 @@ export default function BillingCheckoutPage() {
                 if (linkExpired) {
                     // Сеть недоступна после истечения срока — исход
                     // не подтверждён, статус по часам не угадываем.
-                    setExpiredUnconfirmed(true);
+                    setUnconfirmed(true);
                 }
                 // До истечения срока временный сбой polling — оплата не
                 // «упала», ждём следующий тик
@@ -319,15 +347,17 @@ export default function BillingCheckoutPage() {
             }
         }
 
-        // Истечение срока (и повторная проверка по кнопке) — немедленный
-        // запрос вместо ожидания следующего тика интервала.
-        if (linkExpired) {
+        // Истечение срока или ручная проверка — немедленный запрос вместо
+        // ожидания следующего тика интервала.
+        if (linkExpired || retryRequestedRef.current) {
             void check();
         }
 
+        retryRequestedRef.current = false;
+
         timer = window.setInterval(() => {
             void check();
-        }, 2000);
+        }, STATUS_POLL_INTERVAL_MS);
 
         return () => {
             stopped = true;
@@ -336,7 +366,7 @@ export default function BillingCheckoutPage() {
                 window.clearInterval(timer);
             }
         };
-    }, [sbpPayment?.paymentId, sbpStatus, linkExpired, expiredUnconfirmed]);
+    }, [sbpPayment?.paymentId, sbpStatus, linkExpired, unconfirmed]);
 
     return (
         <>
@@ -458,7 +488,7 @@ export default function BillingCheckoutPage() {
                                             Вернуться к тарифам
                                         </Link>
                                     </>
-                                ) : linkExpired && expiredUnconfirmed ? (
+                                ) : unconfirmed ? (
                                     /* Исход не подтверждён: без новой оплаты */
                                     <>
                                         <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
@@ -469,9 +499,10 @@ export default function BillingCheckoutPage() {
                                         </p>
                                         <button
                                             type="button"
-                                            onClick={() =>
-                                                setExpiredUnconfirmed(false)
-                                            }
+                                            onClick={() => {
+                                                retryRequestedRef.current = true;
+                                                setUnconfirmed(false);
+                                            }}
                                             className={RETURN_BTN_CLASS}
                                         >
                                             Проверить статус
