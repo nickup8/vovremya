@@ -216,6 +216,9 @@ class BillingService
                 return [
                     'subscription' => $intent['subscription']->refresh(),
                     'confirmation_url' => $checkoutUrl,
+                    // Provider id of this exact attempt — lets the caller bind
+                    // the bank return to it instead of any "latest payment".
+                    'payment_id' => $paymentResult->providerPaymentId,
                 ];
             });
         } catch (LockTimeoutException) {
@@ -245,6 +248,7 @@ class BillingService
             return [
                 'subscription' => $this->resolveInFlightSubscription($metadata, $master),
                 'confirmation_url' => $checkoutUrl,
+                'payment_id' => $inFlight->provider_payment_id,
             ];
         }
 

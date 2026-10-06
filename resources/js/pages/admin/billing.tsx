@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
+import type { ReactNode } from 'react';
 import { Head, router, usePage } from '@inertiajs/react';
 import AdminLayout from '@/layouts/AdminLayout';
 import axios from 'axios';
@@ -42,7 +43,8 @@ interface PageProps {
     };
     auth?: { user?: AuthUser };
     tariff_limits?: { total: number | null; used: number } | null;
-    payment_return?: 'success' | 'failed' | null;
+    payment_return?: 'returned' | null;
+    payment_attempt_id?: string | null;
     [key: string]: unknown;
 }
 
@@ -98,6 +100,41 @@ function pluralizePeriod(n: number): string {
     return `${n} ${MONTHS_RU[n] ?? 'месяцев'}`;
 }
 
+/* ═══════════════ Payment return verification ═══════════════ */
+
+// Verdict stages of the return dialog. 'verifying' polls the read-only
+// status endpoint; 'success' is only reachable via a Billing Core
+// confirmed attempt. FailURL / network errors land in 'unconfirmed' —
+// never in 'failed' and never in 'success'.
+type PaymentCheckStage =
+    | 'verifying'
+    | 'success'
+    | 'failed'
+    | 'refunded'
+    | 'unconfirmed'
+    | 'neutral';
+
+const PAYMENT_POLL_INTERVAL_MS = 2000;
+const PAYMENT_POLL_MAX_ATTEMPTS = 25;
+
+const PAYMENT_BTN_PRIMARY =
+    'h-[46px] w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] text-[14px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]';
+const PAYMENT_BTN_SECONDARY =
+    'h-[42px] w-full cursor-pointer rounded-[10px] border-0 bg-transparent text-[13px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]';
+
+function initialPaymentCheck(
+    returned: boolean,
+    attemptId: string | null,
+): PaymentCheckStage | null {
+    if (attemptId !== null) {
+        return 'verifying';
+    }
+
+    // Return without a bound attempt (or a foreign/unknown id dropped by the
+    // server) → neutral result: no verdict, no polling.
+    return returned ? 'neutral' : null;
+}
+
 /* ═══════════════ Main Page ═══════════════ */
 
 export default function BillingPage() {
@@ -112,39 +149,173 @@ export default function BillingPage() {
     const [autoRenewActive, setAutoRenewActive] = useState(Boolean(current.auto_renew_enabled));
     const [disablingAutoRenew, setDisablingAutoRenew] = useState(false);
 
-    // UX-only signal flashed by the return routes — webhook / Billing Core
-    // remains the source of truth for payment status.
-    const [paymentResult, setPaymentResult] = useState<'success' | 'failed' | null>(
-        props.payment_return ?? null,
+    // The return routes only signal "user came back from the bank" — the
+    // verdict comes from Billing Core via the read-only status endpoint.
+    const paymentAttemptId = props.payment_attempt_id ?? null;
+    const [paymentCheck, setPaymentCheck] = useState<PaymentCheckStage | null>(() =>
+        initialPaymentCheck(props.payment_return === 'returned', paymentAttemptId),
     );
     const renewSectionRef = useRef<HTMLElement | null>(null);
 
+    const closePaymentCheck = useCallback(
+        (focusRenew: boolean) => {
+            setPaymentCheck(null);
+
+            // The bound attempt id lives in the URL — strip it so a reload
+            // after closing doesn't reopen the dialog.
+            if (paymentAttemptId !== null) {
+                window.history.replaceState(
+                    window.history.state,
+                    '',
+                    window.location.pathname,
+                );
+            }
+
+            if (focusRenew) {
+                requestAnimationFrame(() => {
+                    renewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                    renewSectionRef.current?.focus({ preventScroll: true });
+                });
+            }
+        },
+        [paymentAttemptId],
+    );
+
     useEffect(() => {
-        if (paymentResult === null) {
+        if (paymentCheck === null) {
             return;
         }
 
         function onKeyDown(event: KeyboardEvent) {
             if (event.key === 'Escape') {
-                setPaymentResult(null);
+                closePaymentCheck(false);
             }
         }
 
         window.addEventListener('keydown', onKeyDown);
 
         return () => window.removeEventListener('keydown', onKeyDown);
-    }, [paymentResult]);
+    }, [paymentCheck, closePaymentCheck]);
 
-    function closePaymentResult(focusRenew: boolean) {
-        setPaymentResult(null);
-
-        if (focusRenew) {
-            requestAnimationFrame(() => {
-                renewSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                renewSectionRef.current?.focus({ preventScroll: true });
-            });
+    // ── Bounded verification polling: local Billing Core attempt only ──
+    // Sequential by construction: one request at a time (inFlight guard),
+    // the next tick is scheduled only after the previous response, cleanup
+    // on state change/unmount, and an immediate re-check when the tab
+    // becomes visible again.
+    useEffect(() => {
+        if (paymentCheck !== 'verifying' || paymentAttemptId === null) {
+            return;
         }
-    }
+
+        let cancelled = false;
+        let inFlight = false;
+        let attempts = 0;
+        let timer: number | null = null;
+
+        function schedule() {
+            if (cancelled) {
+                return;
+            }
+
+            if (attempts >= PAYMENT_POLL_MAX_ATTEMPTS) {
+                // Time budget exhausted without confirmation — an unknown
+                // outcome is not a failure and not a success.
+                setPaymentCheck('unconfirmed');
+
+                return;
+            }
+
+            timer = window.setTimeout(() => {
+                timer = null;
+                void check();
+            }, PAYMENT_POLL_INTERVAL_MS);
+        }
+
+        async function check() {
+            if (cancelled || inFlight) {
+                return;
+            }
+
+            inFlight = true;
+            attempts += 1;
+
+            try {
+                const res = await axios.get(
+                    `/admin/billing/payment-status/${paymentAttemptId}`,
+                );
+
+                if (cancelled) {
+                    return;
+                }
+
+                const status = res.data?.status;
+
+                if (status === 'succeeded') {
+                    // Success only after Billing Core confirmed it — refresh
+                    // the subscription data, then show the result.
+                    try {
+                        await router.reload({ only: ['current'] });
+                    } catch {
+                        // The confirmed status stays authoritative; a failed
+                        // refresh must not downgrade a real success.
+                    }
+
+                    if (!cancelled) {
+                        setPaymentCheck('success');
+                    }
+                } else if (status === 'failed_terminal') {
+                    setPaymentCheck('failed');
+                } else if (
+                    status === 'refunded' ||
+                    status === 'partially_refunded'
+                ) {
+                    setPaymentCheck('refunded');
+                } else {
+                    // created / processing / failed_retryable / unknown → wait
+                    schedule();
+                }
+            } catch {
+                // Network error / timeout / 404 — cannot confirm, never guess
+                if (!cancelled) {
+                    setPaymentCheck('unconfirmed');
+                }
+            } finally {
+                inFlight = false;
+            }
+        }
+
+        // Returning to the tab re-checks immediately. The pending timer is
+        // reset so requests stay strictly sequential.
+        function onVisibilityChange() {
+            if (
+                document.visibilityState !== 'visible' ||
+                cancelled ||
+                inFlight
+            ) {
+                return;
+            }
+
+            if (timer !== null) {
+                window.clearTimeout(timer);
+                timer = null;
+            }
+
+            void check();
+        }
+
+        void check();
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            cancelled = true;
+
+            if (timer !== null) {
+                window.clearTimeout(timer);
+            }
+
+            document.removeEventListener('visibilitychange', onVisibilityChange);
+        };
+    }, [paymentCheck, paymentAttemptId]);
 
     const selectedPrice = proPlan?.prices.find((p) => p.period_months === selectedPeriod);
     const monthlyEquiv = selectedPrice ? Math.round(selectedPrice.final / selectedPeriod) : 0;
@@ -174,6 +345,189 @@ export default function BillingPage() {
     }
 
     if (!proPlan) return null;
+
+    // ─── Payment return dialog content (stage-driven) ───
+    const paymentStage = paymentCheck;
+
+    let dialogTone =
+        'bg-[var(--color-surface-hover)] text-[var(--color-graphite)]';
+    let dialogIcon: ReactNode = null;
+    let dialogLabel = '';
+    let dialogTitle = '';
+    let dialogBody = '';
+    let dialogNote: string | null = null;
+    let dialogDetails = false;
+    let dialogFooter: ReactNode = null;
+
+    switch (paymentStage) {
+        case 'verifying':
+            dialogTone = 'bg-[var(--color-orange-100)] text-[var(--color-orange)]';
+            dialogIcon = (
+                <svg
+                    width="20"
+                    height="20"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2.2"
+                    strokeLinecap="round"
+                    className="animate-spin"
+                    aria-hidden="true"
+                >
+                    <path d="M21 12a9 9 0 1 1-6.219-8.56" />
+                </svg>
+            );
+            dialogLabel = 'Проверка оплаты';
+            dialogTitle = 'Проверяем оплату';
+            dialogBody =
+                'Подтверждаем, что платёж обработан. Это занимает до минуты — не запускайте оплату повторно.';
+            dialogFooter = (
+                <button
+                    type="button"
+                    onClick={() => closePaymentCheck(false)}
+                    className={PAYMENT_BTN_SECONDARY}
+                >
+                    Закрыть
+                </button>
+            );
+            break;
+
+        case 'success':
+            dialogTone = 'bg-[var(--color-green-bg)] text-[var(--color-green)]';
+            dialogIcon = (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="m5 12 4 4L19 6" />
+                </svg>
+            );
+            dialogLabel = 'Платёж завершён';
+            dialogTitle = 'Оплата прошла';
+            dialogBody =
+                'Профи продлён. Новый период уже добавлен к текущей подписке.';
+            dialogDetails = true;
+            dialogNote =
+                'Можно продолжать работу — дополнительные действия не нужны.';
+            dialogFooter = (
+                <button
+                    type="button"
+                    onClick={() => closePaymentCheck(false)}
+                    className={PAYMENT_BTN_PRIMARY}
+                >
+                    Продолжить
+                </button>
+            );
+            break;
+
+        case 'failed':
+            dialogTone = 'bg-[var(--color-red-bg)] text-[var(--color-red)]';
+            dialogIcon = (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
+                    <path d="m7 7 10 10M17 7 7 17" />
+                </svg>
+            );
+            dialogLabel = 'Платёж не завершён';
+            dialogTitle = 'Оплата не завершена';
+            dialogBody =
+                'Списание не завершено. Тариф и срок подписки остались без изменений.';
+            dialogNote = 'Вернитесь к выбору срока и попробуйте оплатить ещё раз.';
+            dialogFooter = (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => closePaymentCheck(true)}
+                        className={PAYMENT_BTN_PRIMARY}
+                    >
+                        Попробовать ещё раз
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => closePaymentCheck(false)}
+                        className={PAYMENT_BTN_SECONDARY}
+                    >
+                        Закрыть
+                    </button>
+                </>
+            );
+            break;
+
+        case 'refunded':
+            dialogIcon = (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                </svg>
+            );
+            dialogLabel = 'Возврат платежа';
+            dialogTitle = 'Платёж возвращён';
+            dialogBody =
+                'Деньги возвращены. Подписка и тариф остались без изменений.';
+            dialogFooter = (
+                <button
+                    type="button"
+                    onClick={() => closePaymentCheck(false)}
+                    className={PAYMENT_BTN_SECONDARY}
+                >
+                    Закрыть
+                </button>
+            );
+            break;
+
+        case 'unconfirmed':
+            dialogTone = 'bg-[var(--color-orange-100)] text-[var(--color-orange)]';
+            dialogIcon = (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 6v6l4 2" />
+                </svg>
+            );
+            dialogLabel = 'Статус не подтверждён';
+            dialogTitle = 'Пока не удалось подтвердить оплату';
+            dialogBody =
+                'Если вы уже оплачивали — не запускайте оплату повторно. Нажмите «Проверить статус» или вернитесь позже: результат появится после подтверждения платежа.';
+            dialogFooter = (
+                <>
+                    <button
+                        type="button"
+                        onClick={() => setPaymentCheck('verifying')}
+                        className={PAYMENT_BTN_PRIMARY}
+                    >
+                        Проверить статус
+                    </button>
+                    <button
+                        type="button"
+                        onClick={() => closePaymentCheck(false)}
+                        className={PAYMENT_BTN_SECONDARY}
+                    >
+                        Закрыть
+                    </button>
+                </>
+            );
+            break;
+
+        case 'neutral':
+            dialogIcon = (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <circle cx="12" cy="12" r="10" />
+                    <path d="M12 6v6l4 2" />
+                </svg>
+            );
+            dialogLabel = 'Статус оплаты';
+            dialogTitle = 'Пока не удалось подтвердить оплату';
+            dialogBody =
+                'Не удалось определить этот платёж. Если списание произошло, оно подтвердится автоматически — раздел тарифов обновится после обработки.';
+            dialogFooter = (
+                <button
+                    type="button"
+                    onClick={() => closePaymentCheck(false)}
+                    className={PAYMENT_BTN_SECONDARY}
+                >
+                    Закрыть
+                </button>
+            );
+            break;
+
+        case null:
+            break;
+    }
 
     return (
         <>
@@ -376,98 +730,72 @@ export default function BillingPage() {
                     </div>
                 </div>
 
-                {/* ─── 5. Payment Return Dialog (UX-only, one-shot flash; design: docs/ux-validation/irsi_payment_result_prototype.html) ─── */}
-                {paymentResult !== null && (
+                {/* ─── 5. Payment Return Dialog — verifies the bound checkout attempt against Billing Core ─── */}
+                {paymentStage !== null && (
                     <>
                         <div
                             className="fixed inset-0 z-[130] bg-black/[.22] backdrop-blur-[3px]"
-                            onClick={() => closePaymentResult(false)}
+                            onClick={() => closePaymentCheck(false)}
                             aria-hidden="true"
                         />
-                        <div className="fixed inset-0 z-[140] flex items-center justify-center p-5">
-                            <div
-                                role="dialog"
-                                aria-modal="true"
-                                aria-labelledby="payment-result-title"
-                                className="w-full max-w-[430px] overflow-hidden rounded-[22px] border border-black/[.08] bg-[var(--color-surface)] shadow-[0_22px_70px_rgba(24,24,24,0.18)]"
-                            >
-                                <div className="p-5 pt-6 md:px-7 md:pb-6 md:pt-7">
-                                    <div className="mb-[18px] flex items-center gap-3">
-                                        <div
-                                            className={`flex h-10 w-10 flex-none items-center justify-center rounded-[12px] ${
-                                                paymentResult === 'success'
-                                                    ? 'bg-[var(--color-green-bg)] text-[var(--color-green)]'
-                                                    : 'bg-[var(--color-red-bg)] text-[var(--color-red)]'
-                                            }`}
-                                        >
-                                            {paymentResult === 'success' ? (
-                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
-                                                    <path d="m5 12 4 4L19 6" />
-                                                </svg>
-                                            ) : (
-                                                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round">
-                                                    <path d="m7 7 10 10M17 7 7 17" />
-                                                </svg>
-                                            )}
-                                        </div>
-                                        <div className="text-[12px] font-bold uppercase leading-4 tracking-[.04em] text-[var(--color-graphite)]">
-                                            {paymentResult === 'success' ? 'Платёж завершён' : 'Платёж не завершён'}
-                                        </div>
-                                    </div>
-
-                                    <div
-                                        id="payment-result-title"
-                                        className="text-[22px] font-bold leading-[1.14] tracking-[-.035em] text-[var(--color-ink)] md:text-[24px]"
-                                    >
-                                        {paymentResult === 'success' ? 'Оплата прошла' : 'Оплата не завершена'}
-                                    </div>
-                                    <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-graphite)]">
-                                        {paymentResult === 'success'
-                                            ? 'Профи продлён. Новый период уже добавлен к текущей подписке.'
-                                            : 'Списание не завершено. Тариф и срок подписки остались без изменений.'}
-                                    </p>
-
-                                    {paymentResult === 'success' && (
-                                        <div className="mt-[22px] grid gap-[9px] border-y border-[var(--color-line)] py-[15px]">
-                                            <div className="flex items-center justify-between gap-5 text-[13px]">
-                                                <span className="text-[var(--color-graphite)]">Тариф</span>
-                                                <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">Профи</strong>
+                        {/* Scrollable shell: readable and scrollable on desktop and mobile */}
+                        <div className="fixed inset-0 z-[140] overflow-y-auto p-4 md:p-5">
+                            <div className="flex min-h-full items-center justify-center">
+                                <div
+                                    role="dialog"
+                                    aria-modal="true"
+                                    aria-labelledby="payment-result-title"
+                                    className="w-full max-w-[430px] overflow-hidden rounded-[22px] border border-black/[.08] bg-[var(--color-surface)] shadow-[0_22px_70px_rgba(24,24,24,0.18)]"
+                                >
+                                    <div className="p-5 pt-6 md:px-7 md:pb-6 md:pt-7">
+                                        <div className="mb-[18px] flex items-center gap-3">
+                                            <div
+                                                className={`flex h-10 w-10 flex-none items-center justify-center rounded-[12px] ${dialogTone}`}
+                                            >
+                                                {dialogIcon}
                                             </div>
-                                            {current.expires_at && (
-                                                <div className="flex items-center justify-between gap-5 text-[13px]">
-                                                    <span className="text-[var(--color-graphite)]">Активен до</span>
-                                                    <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">
-                                                        {formatExpiry(current.expires_at)}
-                                                    </strong>
-                                                </div>
-                                            )}
+                                            <div className="text-[12px] font-bold uppercase leading-4 tracking-[.04em] text-[var(--color-graphite)]">
+                                                {dialogLabel}
+                                            </div>
                                         </div>
-                                    )}
 
-                                    <div className="mt-3 text-[12px] leading-[1.45] text-[var(--color-graphite)]/75">
-                                        {paymentResult === 'success'
-                                            ? 'Можно продолжать работу — дополнительные действия не нужны.'
-                                            : 'Вернитесь к выбору срока и попробуйте оплатить ещё раз.'}
-                                    </div>
-                                </div>
-
-                                <div className="grid gap-[9px] p-5 pt-4 md:px-7 md:pb-6 md:pt-[18px]">
-                                    <button
-                                        type="button"
-                                        onClick={() => closePaymentResult(paymentResult === 'failed')}
-                                        className="h-[46px] w-full cursor-pointer rounded-[12px] border-0 bg-[var(--color-orange)] text-[14px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]"
-                                    >
-                                        {paymentResult === 'success' ? 'Продолжить' : 'Попробовать ещё раз'}
-                                    </button>
-                                    {paymentResult === 'failed' && (
-                                        <button
-                                            type="button"
-                                            onClick={() => closePaymentResult(false)}
-                                            className="h-[42px] w-full cursor-pointer rounded-[10px] border-0 bg-transparent text-[13px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
+                                        <div
+                                            id="payment-result-title"
+                                            className="text-[22px] font-bold leading-[1.14] tracking-[-.035em] text-[var(--color-ink)] md:text-[24px]"
                                         >
-                                            Закрыть
-                                        </button>
-                                    )}
+                                            {dialogTitle}
+                                        </div>
+                                        <p className="mt-3 text-[14px] leading-[1.55] text-[var(--color-graphite)]">
+                                            {dialogBody}
+                                        </p>
+
+                                        {dialogDetails && (
+                                            <div className="mt-[22px] grid gap-[9px] border-y border-[var(--color-line)] py-[15px]">
+                                                <div className="flex items-center justify-between gap-5 text-[13px]">
+                                                    <span className="text-[var(--color-graphite)]">Тариф</span>
+                                                    <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">Профи</strong>
+                                                </div>
+                                                {current.expires_at && (
+                                                    <div className="flex items-center justify-between gap-5 text-[13px]">
+                                                        <span className="text-[var(--color-graphite)]">Активен до</span>
+                                                        <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">
+                                                            {formatExpiry(current.expires_at)}
+                                                        </strong>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        )}
+
+                                        {dialogNote !== null && (
+                                            <div className="mt-3 text-[12px] leading-[1.45] text-[var(--color-graphite)]/75">
+                                                {dialogNote}
+                                            </div>
+                                        )}
+                                    </div>
+
+                                    <div className="grid gap-[9px] p-5 pt-4 md:px-7 md:pb-6 md:pt-[18px]">
+                                        {dialogFooter}
+                                    </div>
                                 </div>
                             </div>
                         </div>

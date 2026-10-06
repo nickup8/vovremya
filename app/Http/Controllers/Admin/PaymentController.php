@@ -11,6 +11,7 @@ use App\Services\Billing\BillingService;
 use App\Services\Billing\EntitlementService;
 use App\Support\PlanDefaults;
 use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Validation\ValidationException;
@@ -47,10 +48,11 @@ class PaymentController extends Controller
 
         $user = $request->user();
 
-        // One-shot UX signal from the payment return routes — never a status
-        // source of truth (webhook / Billing Core owns that).
-        $flash = session('payment_return');
-        $paymentReturn = in_array($flash, ['success', 'failed'], true) ? $flash : null;
+        // Payment return signal: the return routes only mark that the user came
+        // back from the bank — they never claim success/failure (FailURL and
+        // SuccessURL prove nothing; Billing Core does). The attempt id survives
+        // reloads via the ?payment_attempt= query param.
+        $paymentReturn = $this->paymentReturnState($request);
 
         if (config('billing.core_entitlement') && $user->workspace) {
             $plan = app(EntitlementService::class)->currentPlan($user->workspace);
@@ -70,7 +72,8 @@ class PaymentController extends Controller
                         && $subscription->cancel_at_period_end === false,
                     'renewal_period_months' => $subscription?->renewal_period_months,
                 ],
-                'payment_return' => $paymentReturn,
+                'payment_return' => $paymentReturn['signal'] ? 'returned' : null,
+                'payment_attempt_id' => $paymentReturn['attempt_id'],
             ]);
         }
 
@@ -85,7 +88,8 @@ class PaymentController extends Controller
                 'expires_at' => $activeSub?->expires_at?->toIso8601String(),
                 'days_left' => $activeSub?->daysLeft() ?? 0,
             ],
-            'payment_return' => $paymentReturn,
+            'payment_return' => $paymentReturn['signal'] ? 'returned' : null,
+            'payment_attempt_id' => $paymentReturn['attempt_id'],
         ]);
     }
 
@@ -131,25 +135,73 @@ class PaymentController extends Controller
     }
 
     /**
-     * Payment provider success return — sets a one-shot UX flash only.
-     * No billing data is read or mutated here.
+     * Payment provider return (SuccessURL) — never a status verdict.
+     *
+     * Redirects to billing carrying the checkout attempt bound at creation
+     * time, so the client can verify it against Billing Core. No billing
+     * data is read or mutated here.
      */
-    public function paymentReturnSuccess(Request $request)
+    public function paymentReturnSuccess(Request $request): RedirectResponse
     {
         abort_unless($request->user()->role->canManageBilling(), 403);
 
-        return redirect('/admin/billing')->with('payment_return', 'success');
+        return $this->redirectAfterPaymentReturn($request);
     }
 
     /**
-     * Payment provider failure return — sets a one-shot UX flash only.
-     * No billing data is read or mutated here.
+     * Payment provider return (FailURL) — a bank redirect alone does not
+     * prove a declined payment, so this behaves exactly like SuccessURL:
+     * bind the attempt and let the client verify the status.
      */
-    public function paymentReturnFailed(Request $request)
+    public function paymentReturnFailed(Request $request): RedirectResponse
     {
         abort_unless($request->user()->role->canManageBilling(), 403);
 
-        return redirect('/admin/billing')->with('payment_return', 'failed');
+        return $this->redirectAfterPaymentReturn($request);
+    }
+
+    /**
+     * One-shot handoff of the bound checkout attempt to the billing page.
+     *
+     * The session key is consumed on return (the ?payment_attempt= URL param
+     * becomes the carrier, surviving reloads). Without a bound attempt the
+     * redirect carries only the neutral "returned" flash — never a verdict.
+     */
+    private function redirectAfterPaymentReturn(Request $request): RedirectResponse
+    {
+        $attemptId = $request->session()->pull('payment_return_attempt');
+
+        if (is_string($attemptId) && $attemptId !== '') {
+            return redirect()->route('admin.billing', ['payment_attempt' => $attemptId]);
+        }
+
+        return redirect('/admin/billing')->with('payment_return', 'returned');
+    }
+
+    /**
+     * @return array{signal: bool, attempt_id: ?string}
+     */
+    private function paymentReturnState(Request $request): array
+    {
+        $signal = session('payment_return') === 'returned';
+        $attemptParam = $request->query('payment_attempt');
+
+        if (! is_string($attemptParam) || $attemptParam === '') {
+            return ['signal' => $signal, 'attempt_id' => null];
+        }
+
+        // The return URL carries the attempt id — the signal and the id stay
+        // alive across reloads of the billing page, no flash needed.
+        $workspaceId = $request->user()->workspace_id;
+        $belongsToWorkspace = $workspaceId !== null && PaymentAttempt::query()
+            ->where('provider_payment_id', $attemptParam)
+            ->whereHas('billingCycle', function ($query) use ($workspaceId) {
+                $query->where('workspace_id', $workspaceId);
+            })
+            ->exists();
+
+        // Foreign or unknown id → neutral (signal without id), never a verdict.
+        return ['signal' => true, 'attempt_id' => $belongsToWorkspace ? $attemptParam : null];
     }
 
     public function createCheckout(Request $request): JsonResponse
@@ -192,6 +244,14 @@ class PaymentController extends Controller
             ]);
         }
 
+        // Bind this exact checkout attempt to the session: the bank return
+        // routes replay it so the billing page verifies this attempt only —
+        // never "the latest payment".
+        $boundAttemptId = $result['payment_id'] ?? null;
+        if (is_string($boundAttemptId) && $boundAttemptId !== '') {
+            $request->session()->put('payment_return_attempt', $boundAttemptId);
+        }
+
         return response()->json([
             'payment_method' => 'card',
             'checkout_url' => $result['confirmation_url'],
@@ -201,11 +261,13 @@ class PaymentController extends Controller
     }
 
     /**
-     * Read-only SBP status for checkout polling.
+     * Read-only checkout status for return-page polling (SBP and card).
      *
      * Source of truth is the local PaymentAttempt (webhook/reconciliation
-     * own its lifecycle) — T-Bank is never called from here. The response
-     * carries the status string only: no metadata, payload or internal ids.
+     * own its lifecycle) — T-Bank is never called from here. Workspace
+     * scoping is unchanged: an attempt of another workspace yields 404. The
+     * response carries the status string only: no metadata, payload or
+     * internal ids.
      */
     public function paymentStatus(Request $request, string $paymentId): JsonResponse
     {
@@ -217,7 +279,6 @@ class PaymentController extends Controller
         $attempt = PaymentAttempt::query()
             ->where('provider', 'tbank')
             ->where('provider_payment_id', $paymentId)
-            ->where('metadata->payment_method', 'sbp')
             ->whereHas('billingCycle', function ($query) use ($workspaceId) {
                 $query->where('workspace_id', $workspaceId);
             })

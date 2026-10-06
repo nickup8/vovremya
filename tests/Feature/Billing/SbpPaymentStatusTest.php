@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\PaymentAttemptStatus;
 use App\Models\PaymentAttempt;
 use App\Models\PlanPrice;
 use App\Models\TariffPlan;
@@ -99,14 +100,30 @@ class SbpPaymentStatusTest extends TestCase
             ->assertNotFound();
     }
 
-    public function test_card_payment_gets_404(): void
+    public function test_card_payment_gets_status(): void
     {
         [$master] = $this->createMasterWithWorkspace();
         $attempt = $this->attemptFromCheckout($master, 'card');
 
+        $response = $this->actingAs($master)
+            ->get("/admin/billing/payment-status/{$attempt->provider_payment_id}");
+
+        $response->assertOk();
+
+        // Same contract as SBP: status string only, workspace-scoped
+        $response->assertExactJson(['status' => 'processing']);
+    }
+
+    public function test_card_payment_unknown_outcome_is_reported_verbatim(): void
+    {
+        [$master] = $this->createMasterWithWorkspace();
+        $attempt = $this->attemptFromCheckout($master, 'card');
+        $attempt->update(['status' => PaymentAttemptStatus::Unknown]);
+
         $this->actingAs($master)
             ->get("/admin/billing/payment-status/{$attempt->provider_payment_id}")
-            ->assertNotFound();
+            ->assertOk()
+            ->assertExactJson(['status' => 'unknown']);
     }
 
     public function test_unknown_payment_gets_404(): void
