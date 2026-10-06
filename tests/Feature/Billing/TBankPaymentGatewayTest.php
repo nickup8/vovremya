@@ -5,8 +5,10 @@ namespace Tests\Feature\Billing;
 use App\Enums\PaymentAttemptStatus;
 use App\Services\Payment\PaymentGatewayManager;
 use App\Services\Payment\TBankPaymentGateway;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 use InvalidArgumentException;
 use RuntimeException;
 use Tests\TestCase;
@@ -124,7 +126,11 @@ class TBankPaymentGatewayTest extends TestCase
     {
         $this->fakeInitSuccess();
 
-        $this->gateway()->createPayment(490, 'RUB', 'order-1', ['workspace_id' => 55, 'auto_renew' => true]);
+        $this->gateway()->createPayment(490, 'RUB', 'order-1', [
+            'workspace_id' => 55,
+            'auto_renew' => true,
+            'return_attempt_id' => '01923456-789a-7bcd-8def-0123456789ab',
+        ]);
 
         Http::assertSent(function ($request) {
             if ($request->url() !== 'https://securepay.tinkoff.ru/v2/Init') {
@@ -142,11 +148,51 @@ class TBankPaymentGatewayTest extends TestCase
                 && $data['CustomerKey'] === '55'
                 && $data['DATA'] === ['OperationInitiatorType' => '1']
                 && $data['NotificationURL'] === config('app.url').'/webhooks/payment/tbank'
-                && $data['SuccessURL'] === config('app.url').'/admin/billing/payment/success'
-                && $data['FailURL'] === config('app.url').'/admin/billing/payment/failed'
+                // Return URLs are signed for the local attempt of THIS Init.
+                && $data['SuccessURL'] === URL::signedRoute('admin.billing.payment.success', ['attempt' => '01923456-789a-7bcd-8def-0123456789ab'])
+                && $data['FailURL'] === URL::signedRoute('admin.billing.payment.failed', ['attempt' => '01923456-789a-7bcd-8def-0123456789ab'])
                 && isset($data['Token'])
                 && hash_equals($this->tokenFor($data), $data['Token']);
         });
+    }
+
+    public function test_init_return_urls_are_bound_per_attempt(): void
+    {
+        $this->fakeInitSuccess();
+
+        $attemptA = '01923456-789a-7bcd-8def-0123456789ab';
+        $attemptB = '01923456-789a-7bcd-8def-0123456789cd';
+
+        $this->gateway()->createPayment(490, 'RUB', 'order-1', ['return_attempt_id' => $attemptA]);
+        $this->gateway()->createPayment(490, 'RUB', 'order-2', ['return_attempt_id' => $attemptB]);
+
+        $initRequests = Http::recorded(
+            fn ($request) => $request->url() === 'https://securepay.tinkoff.ru/v2/Init'
+        )->map(fn ($pair) => $pair[0]);
+
+        $this->assertCount(2, $initRequests);
+
+        $successUrls = $initRequests
+            ->map(fn ($request) => $request->data()['SuccessURL'])
+            ->values();
+
+        // Two attempts in one session → two distinct, independently signed
+        // return URLs; neither can be replayed for the other payment.
+        $this->assertNotSame($successUrls[0], $successUrls[1]);
+
+        $this->assertSame($attemptA, $this->attemptParam($successUrls[0]));
+        $this->assertSame($attemptB, $this->attemptParam($successUrls[1]));
+
+        foreach ($successUrls as $url) {
+            $this->assertTrue(Request::create($url)->hasValidSignature());
+        }
+    }
+
+    private function attemptParam(string $url): ?string
+    {
+        parse_str((string) parse_url($url, PHP_URL_QUERY), $query);
+
+        return $query['attempt'] ?? null;
     }
 
     public function test_init_returns_payment_initiation(): void

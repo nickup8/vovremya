@@ -8,6 +8,7 @@ use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use Illuminate\Http\Client\HttpClientException;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Facades\URL;
 use RuntimeException;
 
 class TBankPaymentGateway implements PaymentGatewayInterface
@@ -59,10 +60,12 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
         $payload['DATA'] = ['OperationInitiatorType' => $autoRenew ? '1' : '0'];
         $payload['NotificationURL'] = config('app.url').'/webhooks/payment/tbank';
-        // Return routes only set a one-shot UX flash — status source of truth
-        // stays the webhook / Billing Core.
-        $payload['SuccessURL'] = config('app.url').'/admin/billing/payment/success';
-        $payload['FailURL'] = config('app.url').'/admin/billing/payment/failed';
+        // Signed per-attempt return URLs: the local attempt already exists
+        // (Phase A), so the bank can only bring THIS payment back — never
+        // "the latest one" a parallel tab started. Return routes stay
+        // verdict-free; status source of truth is the webhook / Billing Core.
+        $payload['SuccessURL'] = $this->signedReturnUrl('admin.billing.payment.success', $context);
+        $payload['FailURL'] = $this->signedReturnUrl('admin.billing.payment.failed', $context);
         $payload['Token'] = $this->computeToken($payload);
 
         $response = Http::post($this->url('/v2/Init'), $payload);
@@ -81,6 +84,20 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             method: PaymentInitiation::METHOD_REDIRECT,
             checkoutUrl: (string) $data['PaymentURL'],
         );
+    }
+
+    /**
+     * Return URL signed for the exact local PaymentAttempt of this checkout.
+     *
+     * `return_attempt_id` is the primary key of the attempt created before
+     * Init. Without it the URL is still signed but carries no attempt — the
+     * return route treats that (like a legacy unsigned URL) as neutral.
+     */
+    private function signedReturnUrl(string $routeName, array $context): string
+    {
+        return URL::signedRoute($routeName, [
+            'attempt' => $context['return_attempt_id'] ?? null,
+        ]);
     }
 
     /**

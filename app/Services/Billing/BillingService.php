@@ -168,6 +168,10 @@ class BillingService
                             'workspace_id' => $master->workspace_id,
                             'auto_renew' => $autoRenew,
                             'payment_method' => $paymentMethod,
+                            // The attempt exists from Phase A — the gateway
+                            // signs the bank return URLs for it, so a return
+                            // can never select another payment.
+                            'return_attempt_id' => $intent['coreResult']['attempt']->id,
                         ],
                     );
 

@@ -14,6 +14,7 @@ use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Str;
 use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
@@ -50,8 +51,8 @@ class PaymentController extends Controller
 
         // Payment return signal: the return routes only mark that the user came
         // back from the bank — they never claim success/failure (FailURL and
-        // SuccessURL prove nothing; Billing Core does). The attempt id survives
-        // reloads via the ?payment_attempt= query param.
+        // SuccessURL prove nothing; Billing Core does). The attempt id of a
+        // signed return survives reloads via the ?payment_attempt= query param.
         $paymentReturn = $this->paymentReturnState($request);
 
         if (config('billing.core_entitlement') && $user->workspace) {
@@ -137,9 +138,9 @@ class PaymentController extends Controller
     /**
      * Payment provider return (SuccessURL) — never a status verdict.
      *
-     * Redirects to billing carrying the checkout attempt bound at creation
-     * time, so the client can verify it against Billing Core. No billing
-     * data is read or mutated here.
+     * Redirects to billing carrying the attempt named by the signed return
+     * URL (bound at Init time), so the client can verify it against Billing
+     * Core. No billing data is read or mutated here.
      */
     public function paymentReturnSuccess(Request $request): RedirectResponse
     {
@@ -151,7 +152,7 @@ class PaymentController extends Controller
     /**
      * Payment provider return (FailURL) — a bank redirect alone does not
      * prove a declined payment, so this behaves exactly like SuccessURL:
-     * bind the attempt and let the client verify the status.
+     * hand over the signed attempt and let the client verify the status.
      */
     public function paymentReturnFailed(Request $request): RedirectResponse
     {
@@ -161,21 +162,58 @@ class PaymentController extends Controller
     }
 
     /**
-     * One-shot handoff of the bound checkout attempt to the billing page.
+     * Hand the attempt of THIS signed return URL to the billing page.
      *
-     * The session key is consumed on return (the ?payment_attempt= URL param
-     * becomes the carrier, surviving reloads). Without a bound attempt the
-     * redirect carries only the neutral "returned" flash — never a verdict.
+     * The bank return URL was signed for one local attempt before Init, so
+     * parallel checkouts can never overwrite each other's binding. A legacy
+     * unsigned URL, a broken signature, or an attempt of another workspace /
+     * another provider yields the neutral "returned" flash with no id — no
+     * verdict and no data of the payment behind the URL.
      */
     private function redirectAfterPaymentReturn(Request $request): RedirectResponse
     {
-        $attemptId = $request->session()->pull('payment_return_attempt');
+        $providerPaymentId = $this->boundReturnPaymentId($request);
 
-        if (is_string($attemptId) && $attemptId !== '') {
-            return redirect()->route('admin.billing', ['payment_attempt' => $attemptId]);
+        if ($providerPaymentId !== null) {
+            return redirect()->route('admin.billing', ['payment_attempt' => $providerPaymentId]);
         }
 
         return redirect('/admin/billing')->with('payment_return', 'returned');
+    }
+
+    /**
+     * Provider payment id of the attempt this signed URL is bound to, or
+     * null when the URL carries no verifiable binding to the caller's
+     * workspace. Never reads or writes payment status.
+     */
+    private function boundReturnPaymentId(Request $request): ?string
+    {
+        if (! $request->hasValidSignature()) {
+            return null;
+        }
+
+        $attemptParam = $request->query('attempt');
+
+        if (! is_string($attemptParam) || ! Str::isUuid($attemptParam)) {
+            return null;
+        }
+
+        $workspaceId = $request->user()->workspace_id;
+
+        if ($workspaceId === null) {
+            return null;
+        }
+
+        $attempt = PaymentAttempt::query()
+            ->where('id', $attemptParam)
+            ->where('provider', 'tbank')
+            ->whereNotNull('provider_payment_id')
+            ->whereHas('billingCycle', function ($query) use ($workspaceId) {
+                $query->where('workspace_id', $workspaceId);
+            })
+            ->first();
+
+        return $attempt?->provider_payment_id;
     }
 
     /**
@@ -242,14 +280,6 @@ class PaymentController extends Controller
                 'subscription_id' => $result['subscription']->id,
                 'amount' => $result['subscription']->amount_paid,
             ]);
-        }
-
-        // Bind this exact checkout attempt to the session: the bank return
-        // routes replay it so the billing page verifies this attempt only —
-        // never "the latest payment".
-        $boundAttemptId = $result['payment_id'] ?? null;
-        if (is_string($boundAttemptId) && $boundAttemptId !== '') {
-            $request->session()->put('payment_return_attempt', $boundAttemptId);
         }
 
         return response()->json([
