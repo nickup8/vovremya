@@ -28,6 +28,10 @@ class BillingCoreWriter
      *
      * Called inside the checkout lock / Transaction A.
      * Reuses existing in-flight cycle for same period if one exists.
+     *
+     * `$sbpExpiresAt` — абсолютный срок действия SBP-ссылки (RedirectDueDate),
+     * вычисленный вызывающим ДО HTTP. Пишется в metadata один раз; старые
+     * attempts без срока никогда не досчитываются задним числом.
      */
     public function checkoutCreated(
         Subscription $legacy,
@@ -36,6 +40,7 @@ class BillingCoreWriter
         int $periodMonths,
         string $provider = 'mock',
         bool $autoRenew = false,
+        ?string $sbpExpiresAt = null,
     ): array {
         $workspaceId = $legacy->workspace_id;
 
@@ -125,6 +130,16 @@ class BillingCoreWriter
 
         $internalOrderId = 'core_'.Str::random(32);
 
+        $metadata = [
+            'legacy' => true,
+            'legacy_subscription_id' => $legacy->id,
+            'period_months' => $periodMonths,
+        ];
+
+        if ($sbpExpiresAt !== null) {
+            $metadata['sbp_expires_at'] = $sbpExpiresAt;
+        }
+
         $attempt = PaymentAttempt::create([
             'billing_cycle_id' => $cycle->id,
             'provider' => $provider,
@@ -134,11 +149,7 @@ class BillingCoreWriter
             'internal_order_id' => $internalOrderId,
             'status' => PaymentAttemptStatus::Created,
             'initiated_at' => now(),
-            'metadata' => [
-                'legacy' => true,
-                'legacy_subscription_id' => $legacy->id,
-                'period_months' => $periodMonths,
-            ],
+            'metadata' => $metadata,
         ]);
 
         return compact('billingSub', 'cycle', 'attempt', 'internalOrderId');

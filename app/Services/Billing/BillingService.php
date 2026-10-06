@@ -125,8 +125,13 @@ class BillingService
                     ? $this->horizon->computeNewPeriod($master->workspace, $plan->code, $periodMonths)
                     : $this->computeLegacyPeriod($master, $periodMonths);
 
+                // ── Абсолютный срок действия SBP-ссылки: считается ОДИН РАЗ
+                //    на сервере до Phase A, чтобы attempt.metadata и Init
+                //    (RedirectDueDate) несли один и тот же дедлайн. ──
+                $sbpExpiresAt = $paymentMethod === 'sbp' ? $this->sbpExpiresAt() : null;
+
                 // ── Phase A: DB intent (legacy + Core) ──
-                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period, $autoRenew) {
+                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period, $autoRenew, $sbpExpiresAt) {
                     // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
                     if ($master->workspace_id) {
                         Subscription::where('workspace_id', $master->workspace_id)
@@ -151,6 +156,7 @@ class BillingService
                         $periodMonths,
                         $this->gateway->name(),
                         $autoRenew,
+                        $sbpExpiresAt,
                     );
 
                     return [
@@ -174,6 +180,9 @@ class BillingService
                             // signs the bank return URLs for it, so a return
                             // can never select another payment.
                             'return_attempt_id' => $intent['coreResult']['attempt']->id,
+                            // Тот же дедлайн, что уже сохранён в Phase A:
+                            // gateway передаёт его в Init как RedirectDueDate.
+                            'sbp_expires_at' => $sbpExpiresAt,
                         ],
                     );
 
@@ -216,6 +225,9 @@ class BillingService
                         'payment_method' => PaymentInitiation::METHOD_SBP,
                         'payment_id' => $paymentResult->providerPaymentId,
                         'sbp_payload' => $paymentResult->payload,
+                        // Исходный дедлайн этой попытки (он же в attempt.metadata
+                        // и в Init RedirectDueDate) — без продления.
+                        'sbp_expires_at' => $sbpExpiresAt,
                     ];
                 }
 
@@ -232,6 +244,21 @@ class BillingService
                 'plan' => 'Платёж уже обрабатывается. Попробуйте через несколько секунд.',
             ]);
         }
+    }
+
+    /**
+     * Абсолютный срок действия новой SBP-ссылки (RedirectDueDate).
+     *
+     * ISO8601 с timezone; TTL — billing config, default 15 минут
+     * (T-Bank допускает от 1 минуты до 90 дней). Считается один раз
+     * на сервере в checkout — НЕ при reuse: истечение срока не меняет
+     * статус попытки и не разрешает новый Init.
+     */
+    private function sbpExpiresAt(): string
+    {
+        $minutes = (int) config('billing.sbp_redirect_ttl_minutes', 15);
+
+        return Carbon::now()->addMinutes($minutes)->format(DATE_ATOM);
     }
 
     /**
@@ -285,6 +312,10 @@ class BillingService
                 'payment_method' => 'sbp',
                 'payment_id' => $inFlight->provider_payment_id,
                 'sbp_payload' => $sbpPayload,
+                // Исходный срок этой попытки. Attempt без срока (создан до
+                // этого изменения) остаётся без него — задним числом не
+                // вычисляем и не продлеваем.
+                'sbp_expires_at' => $metadata['sbp_expires_at'] ?? null,
             ];
         }
 

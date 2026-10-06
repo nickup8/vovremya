@@ -40,7 +40,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         array $context = [],
     ): PaymentInitiation {
         if (($context['payment_method'] ?? null) === 'sbp') {
-            return $this->createSbpPayment($amount, $internalOrderId);
+            return $this->createSbpPayment($amount, $internalOrderId, $context);
         }
 
         $autoRenew = ($context['auto_renew'] ?? false) === true;
@@ -107,11 +107,17 @@ class TBankPaymentGateway implements PaymentGatewayInterface
      * DATA не передаются — автопродление через СБП не реализовано). PaymentURL
      * не требуется: клиентский payload берётся из GetQr Data.
      *
+     * context['sbp_expires_at'] — абсолютный срок действия ссылки,
+     * вычисленный сервером ОДИН РАЗ в Phase A и уже сохранённый в
+     * attempt.metadata: он уходит в Init как RedirectDueDate и
+     * участвует в Token. Здесь срок не вычисляется и не продлевается;
+     * без контекста поле в Init не попадает.
+     *
      * Если Init прошёл, а GetQr упал — fail closed без второго Init:
      * платёж остаётся в статусе unknown и уходит в reconciliation.
      * Token/Password/TerminalKey никогда не логируются.
      */
-    private function createSbpPayment(int $amount, string $internalOrderId): PaymentInitiation
+    private function createSbpPayment(int $amount, string $internalOrderId, array $context = []): PaymentInitiation
     {
         $initPayload = [
             'TerminalKey' => $this->terminalKey,
@@ -123,6 +129,14 @@ class TBankPaymentGateway implements PaymentGatewayInterface
             'SuccessURL' => config('app.url').'/admin/billing/payment/success',
             'FailURL' => config('app.url').'/admin/billing/payment/failed',
         ];
+
+        // Absolute deadline with timezone — added BEFORE the Token so it
+        // participates in the hash (official Init contract).
+        $expiresAt = $context['sbp_expires_at'] ?? null;
+        if (is_string($expiresAt) && $expiresAt !== '') {
+            $initPayload['RedirectDueDate'] = $expiresAt;
+        }
+
         $initPayload['Token'] = $this->computeToken($initPayload);
 
         $data = $this->post($this->url('/v2/Init'), $initPayload, 'Init');

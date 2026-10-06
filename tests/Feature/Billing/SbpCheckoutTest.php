@@ -13,6 +13,7 @@ use App\Services\Payment\DTOs\PaymentInitiation;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use App\Services\Payment\PaymentGatewayInterface;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
@@ -69,6 +70,23 @@ class SbpCheckoutTest extends TestCase
         return PaymentAttempt::where('internal_order_id', 'like', 'core_%')->firstOrFail();
     }
 
+    /**
+     * Абсолютный дедлайн SBP-ссылки: ISO8601 с timezone и TTL из
+     * billing config (default 15 минут) от «сейчас».
+     */
+    private function assertSbpExpiresAt(mixed $expiresAt): void
+    {
+        $this->assertIsString($expiresAt);
+        $this->assertMatchesRegularExpression(
+            '/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}[+-]\d{2}:\d{2}$/',
+            $expiresAt,
+        );
+
+        $ttl = (int) config('billing.sbp_redirect_ttl_minutes', 15);
+        $drift = abs(Carbon::parse($expiresAt)->diffInSeconds(Carbon::now()->addMinutes($ttl)));
+        $this->assertLessThanOrEqual(5, $drift, "sbp_expires_at is not ~now+{$ttl}min: {$expiresAt}");
+    }
+
     // ── Service contract ──
 
     public function test_sbp_checkout_returns_sbp_contract(): void
@@ -78,7 +96,7 @@ class SbpCheckoutTest extends TestCase
         $result = app(BillingService::class)->subscribe($master, $this->proPlan, 1, false, 'sbp');
 
         $this->assertSame(
-            ['subscription', 'payment_method', 'payment_id', 'sbp_payload'],
+            ['subscription', 'payment_method', 'payment_id', 'sbp_payload', 'sbp_expires_at'],
             array_keys($result),
         );
         $this->assertSame('sbp', $result['payment_method']);
@@ -86,6 +104,8 @@ class SbpCheckoutTest extends TestCase
         $this->assertNotNull($result['sbp_payload']);
         $this->assertNotSame('', $result['sbp_payload']);
         $this->assertSame($result['payment_id'], $result['subscription']->payment_id);
+        // Абсолютный срок ссылки: ISO8601 с timezone, default TTL 15 минут.
+        $this->assertSbpExpiresAt($result['sbp_expires_at']);
     }
 
     public function test_sbp_attempt_is_processing_with_metadata(): void
@@ -99,6 +119,8 @@ class SbpCheckoutTest extends TestCase
         $this->assertSame($result['payment_id'], $attempt->provider_payment_id);
         $this->assertSame('sbp', $attempt->metadata['payment_method']);
         $this->assertSame($result['sbp_payload'], $attempt->metadata['sbp_payload']);
+        // Дедлайн сохраняется в Phase A ДО HTTP — ответ возвращает его же.
+        $this->assertSame($result['sbp_expires_at'], $attempt->metadata['sbp_expires_at']);
         $this->assertArrayNotHasKey('checkout_url', $attempt->metadata);
         $this->assertSame($result['payment_id'], $attempt->provider_payment_id);
     }
@@ -114,6 +136,9 @@ class SbpCheckoutTest extends TestCase
         $this->assertSame('card', $attempt->metadata['payment_method']);
         $this->assertSame($result['confirmation_url'], $attempt->metadata['checkout_url']);
         $this->assertArrayNotHasKey('sbp_payload', $attempt->metadata);
+        // Card-попытка не получает SBP-дедлайн.
+        $this->assertArrayNotHasKey('sbp_expires_at', $attempt->metadata);
+        $this->assertArrayNotHasKey('sbp_expires_at', $result);
     }
 
     public function test_sbp_with_auto_renew_is_rejected(): void
@@ -210,6 +235,8 @@ class SbpCheckoutTest extends TestCase
         $this->assertSame($r1['payment_id'], $r2['payment_id']);
         $this->assertSame($r1['sbp_payload'], $r2['sbp_payload']);
         $this->assertSame('sbp', $r2['payment_method']);
+        // Reuse не продлевает срок.
+        $this->assertSame($r1['sbp_expires_at'], $r2['sbp_expires_at']);
         $this->assertDatabaseCount('payment_attempts', 1);
     }
 
@@ -284,6 +311,7 @@ class SbpCheckoutTest extends TestCase
         $attempt = $this->coreAttempt();
         $this->assertSame('card', $attempt->metadata['payment_method']);
         $this->assertSame($json['checkout_url'], $attempt->metadata['checkout_url']);
+        $this->assertArrayNotHasKey('sbp_expires_at', $json);
     }
 
     public function test_checkout_sbp_returns_payload(): void
@@ -305,5 +333,8 @@ class SbpCheckoutTest extends TestCase
         $this->assertArrayHasKey('subscription_id', $json);
         $this->assertArrayHasKey('amount', $json);
         $this->assertArrayNotHasKey('checkout_url', $json);
+        // Ответ несёт тот же дедлайн, что сохранён в attempt.metadata.
+        $this->assertSbpExpiresAt($json['sbp_expires_at']);
+        $this->assertSame($json['sbp_expires_at'], $this->coreAttempt()->metadata['sbp_expires_at']);
     }
 }

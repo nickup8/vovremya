@@ -61,6 +61,15 @@ return [
     ],
 
     /*
+     * SBP checkout link lifetime.
+     *
+     * Absolute RedirectDueDate for a NEW SBP attempt (T-Bank allows
+     * 1 minute … 90 days). Computed once on the server in Phase A,
+     * before any provider call — reuse never extends it.
+     */
+    'sbp_redirect_ttl_minutes' => (int) env('BILLING_SBP_REDIRECT_TTL_MINUTES', 15),
+
+    /*
      * Renewal settings.
      */
     'renewal' => [

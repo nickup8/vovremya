@@ -293,6 +293,9 @@ class PaymentController extends Controller
                 'payment_method' => 'sbp',
                 'payment_id' => $result['payment_id'],
                 'sbp_payload' => $result['sbp_payload'],
+                // Исходный срок действия ссылки этой попытки (null для
+                // старых attempts без срока) — без продления при reuse.
+                'sbp_expires_at' => $result['sbp_expires_at'] ?? null,
                 'subscription_id' => $result['subscription']->id,
                 'amount' => $result['subscription']->amount_paid,
             ]);
