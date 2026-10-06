@@ -264,13 +264,29 @@ class PaymentController extends Controller
 
         $master = auth()->user();
 
-        $result = $this->billingService->subscribe(
-            $master,
-            $plan,
-            $validated['period_months'],
-            (bool) ($validated['auto_renew'] ?? false),
-            $validated['payment_method'],
-        );
+        // The checkout page is an axios client. Web ValidationExceptions are
+        // rendered as redirects here (shouldRenderJsonWhen is api/*), and a
+        // redirect followed by the browser turns a controlled 422 into a
+        // silent HTML 200 — JSON clients therefore get the 422 contract,
+        // plain form posts keep the session-error redirect.
+        try {
+            $result = $this->billingService->subscribe(
+                $master,
+                $plan,
+                $validated['period_months'],
+                (bool) ($validated['auto_renew'] ?? false),
+                $validated['payment_method'],
+            );
+        } catch (ValidationException $exception) {
+            if (! $request->expectsJson()) {
+                throw $exception;
+            }
+
+            return response()->json([
+                'message' => $exception->getMessage(),
+                'errors' => $exception->errors(),
+            ], $exception->status);
+        }
 
         if (($result['payment_method'] ?? null) === 'sbp') {
             return response()->json([

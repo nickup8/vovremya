@@ -4,9 +4,11 @@ namespace App\Services\Billing;
 
 use App\Enums\PaymentAttemptStatus;
 use App\Models\DiscountRule;
+use App\Models\PaymentAttempt;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
+use App\Models\Workspace;
 use App\Services\Payment\DTOs\PaymentInitiation;
 use App\Services\Payment\PaymentGatewayInterface;
 use App\Services\WorkspaceService;
@@ -115,7 +117,7 @@ class BillingService
                 );
 
                 if ($inFlight) {
-                    return $this->handleInFlightAttempt($inFlight, $master);
+                    return $this->handleInFlightAttempt($inFlight, $master, $paymentMethod);
                 }
 
                 // ── Core horizon for stacking (replaces legacy activeSubscription().expires_at) ──
@@ -235,28 +237,48 @@ class BillingService
     /**
      * Обработка повторного checkout при наличии in-flight attempt.
      *
-     * Возвращает существующий initiation (card checkout_url / SBP payload)
-     * с тем же response contract, или controlled 422 для unknown/created
-     * без данных оплаты.
+     * Возвращает сохранённое initiation (card checkout_url / SBP payload)
+     * с тем же response contract — но только когда сохранённый способ
+     * совпадает с запрошенным. Несовпадение, отсутствующие или
+     * противоречивые данные способа → controlled 422: без нового attempt,
+     * без Init, без отмены старого платежа.
      */
     private function handleInFlightAttempt(
-        \App\Models\PaymentAttempt $inFlight,
+        PaymentAttempt $inFlight,
         User $master,
+        string $paymentMethod,
     ): array {
         $metadata = $inFlight->metadata ?? [];
         $checkoutUrl = $metadata['checkout_url'] ?? null;
         $sbpPayload = $metadata['sbp_payload'] ?? null;
+        $storedMethod = $this->storedPaymentMethod($metadata);
 
-        if ($inFlight->status === PaymentAttemptStatus::Processing && $checkoutUrl) {
-            // Возвращаем существующий checkout
-            return [
-                'subscription' => $this->resolveInFlightSubscription($metadata, $master),
-                'confirmation_url' => $checkoutUrl,
-                'payment_id' => $inFlight->provider_payment_id,
-            ];
+        // Не подменять выбранный способ: чужой initiation не выдаём,
+        // новый attempt/Init не создаём, старый не отменяем.
+        if ($storedMethod !== null && $storedMethod !== $paymentMethod) {
+            throw ValidationException::withMessages([
+                'payment_method' => 'Есть незавершённый платёж другим способом. Сначала проверьте его статус',
+            ]);
         }
 
-        if ($inFlight->status === PaymentAttemptStatus::Processing && $sbpPayload) {
+        if ($inFlight->status === PaymentAttemptStatus::Processing) {
+            // Fail closed: способ неизвестен или данные противоречивы —
+            // initiation не выдаём.
+            if ($storedMethod === null) {
+                throw ValidationException::withMessages([
+                    'plan' => 'Платёж уже обрабатывается. Попробуйте через несколько секунд.',
+                ]);
+            }
+
+            if ($storedMethod === 'card') {
+                // Возвращаем существующий checkout
+                return [
+                    'subscription' => $this->resolveInFlightSubscription($metadata, $master),
+                    'confirmation_url' => $checkoutUrl,
+                    'payment_id' => $inFlight->provider_payment_id,
+                ];
+            }
+
             // Возвращаем существующий SBP payment (идемпотентный повтор)
             return [
                 'subscription' => $this->resolveInFlightSubscription($metadata, $master),
@@ -266,16 +288,36 @@ class BillingService
             ];
         }
 
-        if ($inFlight->status === PaymentAttemptStatus::Processing) {
-            throw ValidationException::withMessages([
-                'plan' => 'Платёж уже обрабатывается. Попробуйте через несколько секунд.',
-            ]);
-        }
-
         // Unknown — 422, НЕ supersede, НЕ retry
         throw ValidationException::withMessages([
             'plan' => 'Статус предыдущего платежа уточняется. Попробуйте позже.',
         ]);
+    }
+
+    /**
+     * Способ сохранённого initiation из attempt metadata.
+     *
+     * null = данных нет или они противоречивы (заявленный способ не совпадает
+     * с реально сохранёнными checkout_url / sbp_payload) — fail closed.
+     *
+     * @param  array<string, mixed>  $metadata
+     */
+    private function storedPaymentMethod(array $metadata): ?string
+    {
+        $method = $metadata['payment_method'] ?? null;
+
+        if ($method !== 'sbp' && $method !== 'card') {
+            return null;
+        }
+
+        $hasCheckoutUrl = ! empty($metadata['checkout_url']);
+        $hasSbpPayload = ! empty($metadata['sbp_payload']);
+
+        $consistent = $method === 'card'
+            ? ($hasCheckoutUrl && ! $hasSbpPayload)
+            : ($hasSbpPayload && ! $hasCheckoutUrl);
+
+        return $consistent ? $method : null;
     }
 
     private function resolveInFlightSubscription(
@@ -321,7 +363,7 @@ class BillingService
         return $this->downgradeBlockReasonLegacy($ws, $plan);
     }
 
-    private function downgradeBlockReasonCore(\App\Models\Workspace $ws, TariffPlan $plan): ?string
+    private function downgradeBlockReasonCore(Workspace $ws, TariffPlan $plan): ?string
     {
         $currentPlan = app(EntitlementService::class)->currentPlan($ws);
 
@@ -345,7 +387,7 @@ class BillingService
         return null;
     }
 
-    private function downgradeBlockReasonLegacy(\App\Models\Workspace $ws, TariffPlan $plan): ?string
+    private function downgradeBlockReasonLegacy(Workspace $ws, TariffPlan $plan): ?string
     {
         $activeSub = $ws->activeSubscription();
 

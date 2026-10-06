@@ -599,4 +599,85 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
             ),
         );
     });
+
+    // ── Never open another method's payment ──
+
+    it('never opens СБП when card is selected', async () => {
+        vi.mocked(axios.post).mockResolvedValue({
+            data: SBP_CHECKOUT_RESPONSE.data,
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        // No card→СБП substitution: no QR, no bank link, no redirect.
+        expect(window.location.href).toBe('');
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(
+            screen.queryByRole('link', { name: 'Открыть приложение банка' }),
+        ).toBeNull();
+        expect(screen.queryByText('Ожидаем подтверждение оплаты')).toBeNull();
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toContain(
+            'Есть незавершённый платёж другим способом',
+        );
+        expect(toast.error).toHaveBeenCalledWith(
+            'Есть незавершённый платёж другим способом. Сначала проверьте его статус',
+        );
+    });
+
+    it('never redirects to a card checkout when СБП is selected', async () => {
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                payment_method: 'card',
+                checkout_url: 'https://securepay.tinkoff.ru/pay?paymentId=9',
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        // No СБП→card substitution: we stay on the page.
+        expect(window.location.href).toBe('');
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toContain(
+            'Есть незавершённый платёж другим способом',
+        );
+    });
+
+    it('shows the controlled 422 message in an always-visible alert', async () => {
+        const message =
+            'Есть незавершённый платёж другим способом. Сначала проверьте его статус';
+        vi.mocked(axios.post).mockRejectedValue({
+            isAxiosError: true,
+            response: {
+                status: 422,
+                data: { errors: { payment_method: [message] } },
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toBe(message);
+        expect(toast.error).toHaveBeenCalledWith(message);
+
+        // Visible at every viewport: no responsive hiding on the alert.
+        expect(alert.className).not.toContain('hidden');
+        expect(alert.className).not.toContain('md:');
+    });
 });

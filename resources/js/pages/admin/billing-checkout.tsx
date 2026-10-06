@@ -54,6 +54,9 @@ const MONTHS_RU: Record<number, string> = {
 
 const fmt = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽';
 
+const METHOD_MISMATCH_ERROR =
+    'Есть незавершённый платёж другим способом. Сначала проверьте его статус';
+
 const RETURN_BTN_CLASS =
     'mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]';
 
@@ -80,6 +83,7 @@ export default function BillingCheckoutPage() {
     const [paymentMethod, setPaymentMethod] = useState<PaymentMethod>('sbp');
     const [autoRenew, setAutoRenew] = useState(false);
     const [loading, setLoading] = useState(false);
+    const [checkoutError, setCheckoutError] = useState<string | null>(null);
     const [sbpPayment, setSbpPayment] = useState<SbpPayment | null>(null);
     const [sbpStatus, setSbpStatus] = useState<SbpStatus>('waiting');
 
@@ -87,12 +91,23 @@ export default function BillingCheckoutPage() {
     const monthlyEquiv = Math.round(price.final / periodMonths);
     const saving = price.base - price.final;
 
+    function failCheckout(message: string) {
+        setCheckoutError(message);
+        toast.error(message);
+    }
+
+    function selectPaymentMethod(method: PaymentMethod) {
+        setPaymentMethod(method);
+        setCheckoutError(null);
+    }
+
     async function handleCheckout() {
         if (loading) {
             return;
         }
 
         setLoading(true);
+        setCheckoutError(null);
 
         try {
             const res = await axios.post('/admin/checkout', {
@@ -102,36 +117,53 @@ export default function BillingCheckoutPage() {
                 payment_method: paymentMethod,
             });
 
-            if (res.data?.sbp_payload) {
+            const data = res.data ?? {};
+
+            // The backend never answers this request with another method's
+            // initiation; if it ever does, fail closed instead of opening
+            // СБП under a card selection (or a card redirect under СБП).
+            if (data.sbp_payload && paymentMethod !== 'sbp') {
+                failCheckout(METHOD_MISMATCH_ERROR);
+
+                return;
+            }
+
+            if (data.checkout_url && paymentMethod !== 'card') {
+                failCheckout(METHOD_MISMATCH_ERROR);
+
+                return;
+            }
+
+            if (data.sbp_payload) {
                 setSbpPayment({
-                    payload: res.data.sbp_payload,
-                    paymentId: res.data.payment_id ?? null,
+                    payload: data.sbp_payload,
+                    paymentId: data.payment_id ?? null,
                 });
 
                 return;
             }
 
-            const url = res.data?.checkout_url;
+            if (data.checkout_url) {
+                window.location.href = data.checkout_url;
 
-            if (url) {
-                window.location.href = url;
-            } else {
-                toast.error('Не удалось получить ссылку на оплату');
+                return;
             }
+
+            failCheckout('Не удалось получить ссылку на оплату');
         } catch (err: unknown) {
             if (axios.isAxiosError(err) && err.response?.status === 422) {
                 const errors = err.response.data?.errors ?? {};
                 const first = Object.values(errors)[0];
-                toast.error(
+                failCheckout(
                     Array.isArray(first) ? first[0] : 'Ошибка валидации',
                 );
             } else if (
                 axios.isAxiosError(err) &&
                 err.response?.status === 403
             ) {
-                toast.error('Недостаточно прав');
+                failCheckout('Недостаточно прав');
             } else {
-                toast.error('Ошибка при создании платежа');
+                failCheckout('Ошибка при создании платежа');
             }
         } finally {
             setLoading(false);
@@ -375,7 +407,7 @@ export default function BillingCheckoutPage() {
                                             role="radio"
                                             aria-checked={isSbp}
                                             onClick={() =>
-                                                setPaymentMethod('sbp')
+                                                selectPaymentMethod('sbp')
                                             }
                                             className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left ${
                                                 isSbp
@@ -440,7 +472,7 @@ export default function BillingCheckoutPage() {
                                                 paymentMethod === 'card'
                                             }
                                             onClick={() =>
-                                                setPaymentMethod('card')
+                                                selectPaymentMethod('card')
                                             }
                                             className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left ${
                                                 paymentMethod === 'card'
@@ -531,6 +563,16 @@ export default function BillingCheckoutPage() {
                                         </a>
                                     )}
                                 </section>
+
+                                {/* ─── Checkout error (visible on any width) ─── */}
+                                {checkoutError && (
+                                    <div
+                                        role="alert"
+                                        className="rounded-[12px] bg-[var(--color-red-bg)] px-4 py-3 text-[13px] leading-[18px] font-semibold text-[var(--color-red)]"
+                                    >
+                                        {checkoutError}
+                                    </div>
+                                )}
 
                                 {/* ─── CTA ─── */}
                                 <button
