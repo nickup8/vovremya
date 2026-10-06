@@ -104,15 +104,23 @@ function pluralizePeriod(n: number): string {
 
 // Verdict stages of the return dialog. 'verifying' polls the read-only
 // status endpoint; 'success' is only reachable via a Billing Core
-// confirmed attempt. FailURL / network errors land in 'unconfirmed' —
-// never in 'failed' and never in 'success'.
+// confirmed attempt. FailURL / network errors / local age-release
+// (reconciliation_timeout) land in 'unconfirmed' — never in 'failed' and
+// never in 'success'.
 type PaymentCheckStage =
     | 'verifying'
     | 'success'
     | 'failed'
     | 'refunded'
+    | 'partially_refunded'
     | 'unconfirmed'
     | 'neutral';
+
+// Only what the success dialog renders from a refreshed reload payload —
+// a stale `current` prop must never be presented as updated.
+interface FreshCurrent {
+    expires_at?: string | null;
+}
 
 const PAYMENT_POLL_INTERVAL_MS = 2000;
 const PAYMENT_POLL_MAX_ATTEMPTS = 25;
@@ -155,6 +163,9 @@ export default function BillingPage() {
     const [paymentCheck, setPaymentCheck] = useState<PaymentCheckStage | null>(() =>
         initialPaymentCheck(props.payment_return === 'returned', paymentAttemptId),
     );
+    // Set only from the onSuccess payload of the post-success reload —
+    // stays null on delay/error so the old date is never shown as fresh.
+    const [freshCurrent, setFreshCurrent] = useState<FreshCurrent | null>(null);
     const renewSectionRef = useRef<HTMLElement | null>(null);
 
     const closePaymentCheck = useCallback(
@@ -249,27 +260,41 @@ export default function BillingPage() {
                 }
 
                 const status = res.data?.status;
+                // The one minimal flag from failure_category: a local
+                // age-release (reconciliation_timeout), not a bank decline.
+                const undefinedOutcome = res.data?.undefined_outcome === true;
 
                 if (status === 'succeeded') {
-                    // Success only after Billing Core confirmed it — refresh
-                    // the subscription data, then show the result.
-                    try {
-                        await router.reload({ only: ['current'] });
-                    } catch {
-                        // The confirmed status stays authoritative; a failed
-                        // refresh must not downgrade a real success.
-                    }
-
+                    // Success only after Billing Core confirmed it — show the
+                    // result right away and refresh the subscription data via
+                    // documented per-visit callbacks (reload() itself returns
+                    // void and signals nothing on its own).
                     if (!cancelled) {
+                        setFreshCurrent(null);
                         setPaymentCheck('success');
                     }
+
+                    router.reload({
+                        only: ['current'],
+                        // Deliberately NOT gated by the polling effect's
+                        // `cancelled` flag: the effect cleans up as soon as the
+                        // stage flips to 'success', while this reload must keep
+                        // delivering its payload afterwards.
+                        onSuccess: (page: {
+                            props?: { current?: FreshCurrent };
+                        }) => {
+                            setFreshCurrent(page.props?.current ?? null);
+                        },
+                    });
                 } else if (status === 'failed_terminal') {
-                    setPaymentCheck('failed');
-                } else if (
-                    status === 'refunded' ||
-                    status === 'partially_refunded'
-                ) {
+                    // Only a provider-confirmed decline is a failure; the local
+                    // age-release stays unconfirmed — «Проверить статус»
+                    // without a decline claim or a re-payment CTA.
+                    setPaymentCheck(undefinedOutcome ? 'unconfirmed' : 'failed');
+                } else if (status === 'refunded') {
                     setPaymentCheck('refunded');
+                } else if (status === 'partially_refunded') {
+                    setPaymentCheck('partially_refunded');
                 } else {
                     // created / processing / failed_retryable / unknown → wait
                     schedule();
@@ -426,8 +451,9 @@ export default function BillingPage() {
             );
             dialogLabel = 'Платёж не завершён';
             dialogTitle = 'Оплата не завершена';
-            dialogBody =
-                'Списание не завершено. Тариф и срок подписки остались без изменений.';
+            // No claim about the subscription state — this dialog only
+            // confirms what Billing Core reported about the payment itself.
+            dialogBody = 'Списание не завершено.';
             dialogNote = 'Вернитесь к выбору срока и попробуйте оплатить ещё раз.';
             dialogFooter = (
                 <>
@@ -458,8 +484,28 @@ export default function BillingPage() {
             );
             dialogLabel = 'Возврат платежа';
             dialogTitle = 'Платёж возвращён';
-            dialogBody =
-                'Деньги возвращены. Подписка и тариф остались без изменений.';
+            dialogBody = 'Деньги возвращены на счёт.';
+            dialogFooter = (
+                <button
+                    type="button"
+                    onClick={() => closePaymentCheck(false)}
+                    className={PAYMENT_BTN_SECONDARY}
+                >
+                    Закрыть
+                </button>
+            );
+            break;
+
+        case 'partially_refunded':
+            dialogIcon = (
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8" />
+                    <path d="M3 3v5h5" />
+                </svg>
+            );
+            dialogLabel = 'Частичный возврат';
+            dialogTitle = 'Возвращена часть платежа';
+            dialogBody = 'Банк вернул часть суммы этого платежа.';
             dialogFooter = (
                 <button
                     type="button"
@@ -775,11 +821,13 @@ export default function BillingPage() {
                                                     <span className="text-[var(--color-graphite)]">Тариф</span>
                                                     <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">Профи</strong>
                                                 </div>
-                                                {current.expires_at && (
+                                                {/* Date only from the refreshed reload payload — a stale
+                                                    current prop must never be presented as updated */}
+                                                {freshCurrent?.expires_at && (
                                                     <div className="flex items-center justify-between gap-5 text-[13px]">
                                                         <span className="text-[var(--color-graphite)]">Активен до</span>
                                                         <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">
-                                                            {formatExpiry(current.expires_at)}
+                                                            {formatExpiry(freshCurrent.expires_at)}
                                                         </strong>
                                                     </div>
                                                 )}

@@ -268,6 +268,12 @@ class PaymentController extends Controller
      * scoping is unchanged: an attempt of another workspace yields 404. The
      * response carries the status string only: no metadata, payload or
      * internal ids.
+     *
+     * `undefined_outcome` is the one minimal extra: failure_category
+     * "reconciliation_timeout" is a local age-release, not a bank decline,
+     * so the client must not present failed_terminal as a confirmed
+     * refusal. Absent otherwise — existing consumers keep reading
+     * `status` only (SBP polling stays compatible).
      */
     public function paymentStatus(Request $request, string $paymentId): JsonResponse
     {
@@ -286,9 +292,13 @@ class PaymentController extends Controller
 
         abort_if($attempt === null, 404);
 
-        return response()->json([
-            'status' => $attempt->status->value,
-        ]);
+        $response = ['status' => $attempt->status->value];
+
+        if ($attempt->failure_category === 'reconciliation_timeout') {
+            $response['undefined_outcome'] = true;
+        }
+
+        return response()->json($response);
     }
 
     /**

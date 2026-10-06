@@ -126,6 +126,68 @@ class SbpPaymentStatusTest extends TestCase
             ->assertExactJson(['status' => 'unknown']);
     }
 
+    // ── undefined_outcome flag: local age-release vs confirmed decline ──
+
+    public function test_local_timeout_is_flagged_as_undefined_outcome(): void
+    {
+        [$master] = $this->createMasterWithWorkspace();
+        $attempt = $this->attemptFromCheckout($master, 'card');
+        $attempt->update([
+            'status' => PaymentAttemptStatus::FailedTerminal,
+            'failure_category' => 'reconciliation_timeout',
+        ]);
+
+        // Minimal flag only — status + one boolean, no metadata leak
+        $this->actingAs($master)
+            ->get("/admin/billing/payment-status/{$attempt->provider_payment_id}")
+            ->assertOk()
+            ->assertExactJson([
+                'status' => 'failed_terminal',
+                'undefined_outcome' => true,
+            ]);
+    }
+
+    public function test_sbp_attempt_shares_the_same_undefined_outcome_contract(): void
+    {
+        [$master] = $this->createMasterWithWorkspace();
+        $attempt = $this->attemptFromCheckout($master, 'sbp');
+        $attempt->update([
+            'status' => PaymentAttemptStatus::FailedTerminal,
+            'failure_category' => 'reconciliation_timeout',
+        ]);
+
+        $this->actingAs($master)
+            ->get("/admin/billing/payment-status/{$attempt->provider_payment_id}")
+            ->assertOk()
+            ->assertExactJson([
+                'status' => 'failed_terminal',
+                'undefined_outcome' => true,
+            ]);
+    }
+
+    public function test_confirmed_failure_has_no_undefined_outcome_flag(): void
+    {
+        [$master] = $this->createMasterWithWorkspace();
+        $attempt = $this->attemptFromCheckout($master, 'card');
+
+        // Provider-confirmed decline (webhook classification)
+        $attempt->update([
+            'status' => PaymentAttemptStatus::FailedTerminal,
+            'failure_category' => 'provider_failed',
+        ]);
+        $this->actingAs($master)
+            ->get("/admin/billing/payment-status/{$attempt->provider_payment_id}")
+            ->assertOk()
+            ->assertExactJson(['status' => 'failed_terminal']);
+
+        // Confirmed failure without a category stays bare as well
+        $attempt->update(['failure_category' => null]);
+        $this->actingAs($master)
+            ->get("/admin/billing/payment-status/{$attempt->provider_payment_id}")
+            ->assertOk()
+            ->assertExactJson(['status' => 'failed_terminal']);
+    }
+
     public function test_unknown_payment_gets_404(): void
     {
         [$master] = $this->createMasterWithWorkspace();

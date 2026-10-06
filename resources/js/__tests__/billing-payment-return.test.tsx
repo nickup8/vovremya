@@ -158,11 +158,111 @@ describe('admin/billing.tsx — payment return verification', () => {
         await flush();
 
         expect(screen.getByText('Оплата прошла')).toBeTruthy();
-        expect(routerReload).toHaveBeenCalledWith({ only: ['current'] });
+        expect(routerReload).toHaveBeenCalledWith(
+            expect.objectContaining({ only: ['current'] }),
+        );
         expect(screen.queryByText('Проверяем оплату')).toBeNull();
 
         // Polling stopped after the confirmed verdict
         tick(10000);
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('stale current date is never shown as refreshed after success', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+        // reload() never signals completion by itself — no callbacks fire
+        vi.mocked(routerReload).mockImplementation(() => {});
+        mockUsePage.mockReturnValue(
+            makeProps(
+                { payment_return: 'returned', payment_attempt_id: 'pay_1' },
+                { tariff: 'pro', is_paid: true, expires_at: '2027-03-01T00:00:00.000Z' },
+            ),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        // Старая дата из props не выдаётся за обновлённую
+        expect(screen.queryByText('Активен до')).toBeNull();
+        expect(screen.queryByText('1 марта 2027')).toBeNull();
+
+        tick(10000);
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('refreshed date appears only after reload onSuccess payload', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+        const captured: {
+            only?: string[];
+            onSuccess?: (page: unknown) => void;
+        }[] = [];
+        vi.mocked(routerReload).mockImplementation((options: unknown) => {
+            captured.push(options as (typeof captured)[number]);
+        });
+        mockUsePage.mockReturnValue(
+            makeProps(
+                { payment_return: 'returned', payment_attempt_id: 'pay_1' },
+                { tariff: 'pro', is_paid: true, expires_at: '2027-03-01T00:00:00.000Z' },
+            ),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        expect(screen.queryByText('Активен до')).toBeNull();
+        expect(captured).toHaveLength(1);
+        expect(captured[0].only).toEqual(['current']);
+
+        // Задержанный ответ partial reload — дата берётся из его payload
+        await act(async () => {
+            captured[0].onSuccess?.({
+                props: { current: { expires_at: '2027-12-01T00:00:00.000Z' } },
+            });
+        });
+
+        expect(screen.getByText('Активен до')).toBeTruthy();
+        expect(screen.getByText('1 декабря 2027')).toBeTruthy();
+        expect(screen.queryByText('1 марта 2027')).toBeNull();
+    });
+
+    it('reload error keeps success without ever showing the stale date', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+        vi.mocked(routerReload).mockImplementation((options: unknown) => {
+            const opts = options as {
+                onError?: (errors: unknown) => void;
+                onFinish?: (visit: unknown) => void;
+            };
+            // Ошибка обновления: onError/onFinish без onSuccess
+            opts.onError?.({});
+            opts.onFinish?.({});
+        });
+        mockUsePage.mockReturnValue(
+            makeProps(
+                { payment_return: 'returned', payment_attempt_id: 'pay_1' },
+                { tariff: 'pro', is_paid: true, expires_at: '2027-03-01T00:00:00.000Z' },
+            ),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        // Подтверждённый успех не зависит от обновления данных…
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        // …но старая дата не выдаётся за обновлённую
+        tick(10000);
+        expect(screen.queryByText('Активен до')).toBeNull();
+        expect(screen.queryByText('1 марта 2027')).toBeNull();
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
     });
 
@@ -196,7 +296,7 @@ describe('admin/billing.tsx — payment return verification', () => {
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(3);
     });
 
-    it('failed_terminal from Billing Core shows failure, not success', async () => {
+    it('confirmed decline shows failure with a retry CTA and no subscription claims', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({
             data: { status: 'failed_terminal' },
@@ -213,12 +313,49 @@ describe('admin/billing.tsx — payment return verification', () => {
 
         expect(screen.getByText('Оплата не завершена')).toBeTruthy();
         expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(
+            screen.getByRole('button', { name: 'Попробовать ещё раз' }),
+        ).toBeTruthy();
+        // Неподтверждённые утверждения о неизменности подписки убраны
+        expect(screen.queryByText(/остались без изменений/)).toBeNull();
 
         tick(10000);
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
     });
 
-    it('refunded is never shown as success', async () => {
+    it('local age-release (undefined_outcome) stays unconfirmed without a retry CTA', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        expect(
+            screen.getByText('Пока не удалось подтвердить оплату'),
+        ).toBeTruthy();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+        // Ни утверждения об отказе банка, ни повторной оплаты
+        expect(screen.queryByText('Оплата не завершена')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: 'Попробовать ещё раз' }),
+        ).toBeNull();
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+
+        tick(10000);
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('refunded is never shown as success and claims nothing about the subscription', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({
             data: { status: 'refunded' },
@@ -235,6 +372,32 @@ describe('admin/billing.tsx — payment return verification', () => {
 
         expect(screen.getByText('Платёж возвращён')).toBeTruthy();
         expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.queryByText(/остались без изменений/)).toBeNull();
+
+        tick(10000);
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('partial refund is not presented as a full refund', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'partially_refunded' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        expect(screen.getByText('Возвращена часть платежа')).toBeTruthy();
+        expect(screen.getByText('Частичный возврат')).toBeTruthy();
+        expect(screen.queryByText('Платёж возвращён')).toBeNull();
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.queryByText(/остались без изменений/)).toBeNull();
 
         tick(10000);
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
