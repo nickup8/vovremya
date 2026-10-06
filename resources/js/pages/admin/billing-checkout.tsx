@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Head, Link, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
@@ -60,8 +60,35 @@ const METHOD_MISMATCH_ERROR =
 const RETURN_BTN_CLASS =
     'mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]';
 
+// Post-expiry verdict copy. The link is dead, the outcome is not confirmed:
+// never offer a new payment here (no Init, no «Попробуйте снова»).
+const EXPIRED_TITLE = 'Срок ссылки истёк. Проверяем результат оплаты';
+const EXPIRED_BODY =
+    'Если вы уже оплачивали — не запускайте оплату повторно. Результат появится после подтверждения платежа.';
+const UNCONFIRMED_TITLE = 'Пока не удалось подтвердить оплату';
+const UNCONFIRMED_BODY =
+    'Если вы уже оплачивали — не запускайте оплату повторно. Нажмите «Проверить статус» или вернитесь позже: результат появится после подтверждения платежа.';
+
 function pluralizePeriod(n: number): string {
     return `${n} ${MONTHS_RU[n] ?? 'месяцев'}`;
+}
+
+/** mm:ss остатка по абсолютному дедлайну (счёт вверх от 00:00 не бывает). */
+function formatRemaining(ms: number): string {
+    const total = Math.ceil(ms / 1000);
+
+    return `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+}
+
+/** Абсолютный дедлайн из ISO с timezone; null = срока нет или он не разобран. */
+function parseDeadline(iso: unknown): number | null {
+    if (typeof iso !== 'string' || iso === '') {
+        return null;
+    }
+
+    const deadline = Date.parse(iso);
+
+    return Number.isNaN(deadline) ? null : deadline;
 }
 
 /* ═══════════════ Main Page ═══════════════ */
@@ -73,6 +100,11 @@ type SbpStatus = 'waiting' | 'succeeded' | 'failed' | 'refunded';
 interface SbpPayment {
     payload: string;
     paymentId: string | null;
+    /**
+     * Абсолютный срок жизни ссылки (epoch ms) из sbp_expires_at.
+     * null = попытка создана до срока — таймер не показывается.
+     */
+    deadline: number | null;
 }
 
 export default function BillingCheckoutPage() {
@@ -86,10 +118,18 @@ export default function BillingCheckoutPage() {
     const [checkoutError, setCheckoutError] = useState<string | null>(null);
     const [sbpPayment, setSbpPayment] = useState<SbpPayment | null>(null);
     const [sbpStatus, setSbpStatus] = useState<SbpStatus>('waiting');
+    // Остаток до абсолютного дедлайна; null = срока нет (старый attempt).
+    const [remainingMs, setRemainingMs] = useState<number | null>(null);
+    // Исход после истечения срока не подтверждён — ручная проверка.
+    const [expiredUnconfirmed, setExpiredUnconfirmed] = useState(false);
+
+    const inFlightRef = useRef(false);
 
     const isSbp = paymentMethod === 'sbp';
     const monthlyEquiv = Math.round(price.final / periodMonths);
     const saving = price.base - price.final;
+    // Только отображение: часы браузера никогда не меняют статус платежа.
+    const linkExpired = remainingMs !== null && remainingMs <= 0;
 
     function failCheckout(message: string) {
         setCheckoutError(message);
@@ -135,10 +175,20 @@ export default function BillingCheckoutPage() {
             }
 
             if (data.sbp_payload) {
+                const deadline = parseDeadline(data.sbp_expires_at);
+
                 setSbpPayment({
                     payload: data.sbp_payload,
                     paymentId: data.payment_id ?? null,
+                    deadline,
                 });
+                // Остаток — от абсолютного срока ответа; без него (старый
+                // attempt) таймер не показывается вовсе.
+                setRemainingMs(
+                    deadline === null
+                        ? null
+                        : Math.max(0, deadline - Date.now()),
+                );
 
                 return;
             }
@@ -170,19 +220,55 @@ export default function BillingCheckoutPage() {
         }
     }
 
+    // ── Countdown: пересчёт от абсолютного дедлайна бэкенда ──
+    // Никогда не считаем «сейчас + 15 минут»: повторное открытие страницы
+    // (и reuse попытки) продолжают исходный срок, а не начинают новый.
+    // Первый расчёт делается в handleCheckout, здесь — только тики.
+    useEffect(() => {
+        const deadline = sbpPayment?.deadline ?? null;
+
+        if (deadline === null) {
+            return;
+        }
+
+        const tick = () => setRemainingMs(Math.max(0, deadline - Date.now()));
+
+        const timer = window.setInterval(tick, 1000);
+        // Возврат во вкладку: часы могли отстать (таймер спал) — считаем
+        // заново от того же абсолютного дедлайна.
+        const onVisibilityChange = () => tick();
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            window.clearInterval(timer);
+            document.removeEventListener(
+                'visibilitychange',
+                onVisibilityChange,
+            );
+        };
+    }, [sbpPayment?.deadline]);
+
     // ── SBP status polling: local Billing Core attempt only, never T-Bank ──
     useEffect(() => {
-        if (!sbpPayment?.paymentId || sbpStatus !== 'waiting') {
+        if (
+            !sbpPayment?.paymentId ||
+            sbpStatus !== 'waiting' ||
+            expiredUnconfirmed
+        ) {
             return;
         }
 
         const paymentId = sbpPayment.paymentId;
         let stopped = false;
+        let timer: number | null = null;
 
-        const timer = window.setInterval(async () => {
-            if (stopped) {
+        async function check() {
+            if (stopped || inFlightRef.current) {
                 return;
             }
+
+            inFlightRef.current = true;
 
             try {
                 const res = await axios.get(
@@ -194,28 +280,63 @@ export default function BillingCheckoutPage() {
                 }
 
                 const status = res.data?.status;
+                // Локальный age-release (reconciliation_timeout) — не отказ
+                // банка: после истечения срока это неизвестный исход.
+                const undefinedOutcome = res.data?.undefined_outcome === true;
 
                 if (status === 'succeeded') {
+                    // Успех имеет приоритет над истечением срока.
                     setSbpStatus('succeeded');
                 } else if (status === 'failed_terminal') {
-                    setSbpStatus('failed');
+                    if (linkExpired && undefinedOutcome) {
+                        setExpiredUnconfirmed(true);
+                    } else {
+                        setSbpStatus('failed');
+                    }
                 } else if (
                     status === 'refunded' ||
                     status === 'partially_refunded'
                 ) {
                     setSbpStatus('refunded');
+                } else if (linkExpired && status === 'unknown') {
+                    setExpiredUnconfirmed(true);
                 }
-                // processing / created / unknown / failed_retryable → ждём дальше
+                // processing / created / failed_retryable → ждём дальше
             } catch {
-                // Временный сбой polling — оплата не «упала», ждём следующий тик
+                if (stopped) {
+                    return;
+                }
+
+                if (linkExpired) {
+                    // Сеть недоступна после истечения срока — исход
+                    // не подтверждён, статус по часам не угадываем.
+                    setExpiredUnconfirmed(true);
+                }
+                // До истечения срока временный сбой polling — оплата не
+                // «упала», ждём следующий тик
+            } finally {
+                inFlightRef.current = false;
             }
+        }
+
+        // Истечение срока (и повторная проверка по кнопке) — немедленный
+        // запрос вместо ожидания следующего тика интервала.
+        if (linkExpired) {
+            void check();
+        }
+
+        timer = window.setInterval(() => {
+            void check();
         }, 2000);
 
         return () => {
             stopped = true;
-            window.clearInterval(timer);
+
+            if (timer !== null) {
+                window.clearInterval(timer);
+            }
         };
-    }, [sbpPayment?.paymentId, sbpStatus]);
+    }, [sbpPayment?.paymentId, sbpStatus, linkExpired, expiredUnconfirmed]);
 
     return (
         <>
@@ -337,6 +458,36 @@ export default function BillingCheckoutPage() {
                                             Вернуться к тарифам
                                         </Link>
                                     </>
+                                ) : linkExpired && expiredUnconfirmed ? (
+                                    /* Исход не подтверждён: без новой оплаты */
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            {UNCONFIRMED_TITLE}
+                                        </div>
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            {UNCONFIRMED_BODY}
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={() =>
+                                                setExpiredUnconfirmed(false)
+                                            }
+                                            className={RETURN_BTN_CLASS}
+                                        >
+                                            Проверить статус
+                                        </button>
+                                    </>
+                                ) : linkExpired ? (
+                                    /* Срок истёк: QR и ссылки в банк убраны,
+                                       но polling этого же payment_id идёт */
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            {EXPIRED_TITLE}
+                                        </div>
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            {EXPIRED_BODY}
+                                        </p>
+                                    </>
                                 ) : (
                                     <>
                                         <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
@@ -346,6 +497,16 @@ export default function BillingCheckoutPage() {
                                             Не закрывайте страницу до завершения
                                             оплаты
                                         </p>
+
+                                        {remainingMs !== null && (
+                                            <p
+                                                data-testid="sbp-countdown"
+                                                className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]"
+                                            >
+                                                Осталось{' '}
+                                                {formatRemaining(remainingMs)}
+                                            </p>
+                                        )}
 
                                         {/* Desktop (md+): QR rendered locally from sbp_payload */}
                                         <div className="mt-4 hidden md:block">

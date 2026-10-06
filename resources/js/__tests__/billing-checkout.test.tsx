@@ -100,6 +100,26 @@ async function startSbpCheckout() {
     return view;
 }
 
+const EXPIRED_TITLE = 'Срок ссылки истёк. Проверяем результат оплаты';
+const UNCONFIRMED_TITLE = 'Пока не удалось подтвердить оплату';
+
+/** ISO-дедлайн через ms от «сейчас» (отрицательный = уже истёк). */
+function isoIn(ms: number): string {
+    return new Date(Date.now() + ms).toISOString();
+}
+
+/** SBP checkout с ответом, несущим sbp_expires_at (бэкенд-контракт PR10.1). */
+async function startSbpCheckoutWithExpiry(expiresAt: string | null) {
+    vi.mocked(axios.post).mockResolvedValue({
+        data: { ...SBP_CHECKOUT_RESPONSE.data, sbp_expires_at: expiresAt },
+    });
+    const view = render(<BillingCheckoutPage />);
+    fireEvent.click(screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }));
+    await act(async () => {});
+
+    return view;
+}
+
 describe('admin/billing-checkout.tsx — own checkout page', () => {
     const originalLocation = window.location;
 
@@ -679,5 +699,247 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         // Visible at every viewport: no responsive hiding on the alert.
         expect(alert.className).not.toContain('hidden');
         expect(alert.className).not.toContain('md:');
+    });
+
+    // ── SBP link lifetime (RedirectDueDate) ──
+
+    it('countdown is computed from the absolute server deadline', async () => {
+        vi.useFakeTimers();
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+
+        const countdown = screen.getByTestId('sbp-countdown');
+        // 5 минут до дедлайна — а не «новые 15 минут» от открытия страницы.
+        expect(countdown.textContent).toContain('05:00');
+        expect(countdown.textContent).not.toContain('15:00');
+
+        act(() => {
+            vi.advanceTimersByTime(61_000);
+        });
+
+        expect(screen.getByTestId('sbp-countdown').textContent).toContain(
+            '03:59',
+        );
+        expect(screen.getByTestId('sbp-qr')).toBeTruthy();
+    });
+
+    it('expiry removes the QR and bank links and checks the same payment', async () => {
+        vi.useFakeTimers();
+
+        await startSbpCheckoutWithExpiry(isoIn(3000));
+        expect(screen.getByTestId('sbp-qr')).toBeTruthy();
+
+        act(() => {
+            vi.advanceTimersByTime(3000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.queryByTestId('sbp-countdown')).toBeNull();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(
+            screen.queryByRole('link', { name: 'Открыть приложение банка' }),
+        ).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Открыть СБП' })).toBeNull();
+        expect(screen.queryByText('Ожидаем подтверждение оплаты')).toBeNull();
+        // Новую оплату не запускаем
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        // Статус проверяется по этому же payment_id через существующий endpoint
+        expect(axios.get).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1',
+        );
+    });
+
+    it('returning to the tab after the deadline expires the link', async () => {
+        vi.useFakeTimers();
+
+        const deadline = isoIn(90_000);
+        await startSbpCheckoutWithExpiry(deadline);
+        expect(screen.getByTestId('sbp-countdown').textContent).toContain(
+            '01:30',
+        );
+
+        // Часы ушли, пока вкладка была скрыта: тики интервала не срабатывали
+        vi.setSystemTime(new Date(Date.parse(deadline) + 1000));
+        act(() => {
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Открыть СБП' })).toBeNull();
+    });
+
+    it('success wins over an expired link', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        expect(screen.queryByText(EXPIRED_TITLE)).toBeNull();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(
+            screen.getByRole('link', { name: 'Вернуться к тарифам' }),
+        ).toBeTruthy();
+    });
+
+    it('confirmed decline after expiry still shows the failure screen', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal' },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
+    });
+
+    it('network error after expiry → unconfirmed, «Проверить статус» re-checks', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValue(new Error('network down'));
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(screen.queryByText(EXPIRED_TITLE)).toBeNull();
+        // Без обещания новой оплаты без подтверждённого исхода
+        expect(screen.queryByText(/Попробуйте снова/)).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+
+        // Автоматический polling остановлен — запросов больше нет
+        const calls = vi.mocked(axios.get).mock.calls.length;
+        act(() => {
+            vi.advanceTimersByTime(10_000);
+        });
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(calls);
+
+        // Ручная проверка возобновляет опрос того же payment_id
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(vi.mocked(axios.get).mock.calls.length).toBeGreaterThan(calls);
+        expect(vi.mocked(axios.get).mock.calls.at(-1)).toEqual([
+            '/admin/billing/payment-status/pay_1',
+        ]);
+    });
+
+    it('unknown outcome after expiry stays unconfirmed', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'unknown' },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+    });
+
+    it('reconciliation_timeout after expiry is not a decline', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+    });
+
+    it('old attempt without a deadline shows no timer and never expires', async () => {
+        vi.useFakeTimers();
+
+        await startSbpCheckoutWithExpiry(null);
+
+        expect(screen.queryByTestId('sbp-countdown')).toBeNull();
+
+        act(() => {
+            vi.advanceTimersByTime(16 * 60_000);
+        });
+        await act(async () => {});
+
+        expect(screen.queryByText(EXPIRED_TITLE)).toBeNull();
+        expect(screen.getByTestId('sbp-qr')).toBeTruthy();
+        expect(
+            screen.getByRole('link', { name: 'Открыть приложение банка' }),
+        ).toBeTruthy();
+    });
+
+    it('an already-expired deadline never restarts the 15 minutes', async () => {
+        vi.useFakeTimers();
+
+        // Reuse попытки возвращает исходный (прошедший) срок
+        await startSbpCheckoutWithExpiry(isoIn(-1000));
+        await act(async () => {});
+
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.queryByTestId('sbp-countdown')).toBeNull();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+    });
+
+    it('unmount clears the countdown and polling timers and the listener', async () => {
+        vi.useFakeTimers();
+        const removeSpy = vi.spyOn(document, 'removeEventListener');
+
+        const { unmount } = await startSbpCheckoutWithExpiry(isoIn(60_000));
+
+        expect(screen.getByTestId('sbp-countdown')).toBeTruthy();
+        const callsBefore = vi.mocked(axios.get).mock.calls.length;
+
+        unmount();
+
+        expect(removeSpy).toHaveBeenCalledWith(
+            'visibilitychange',
+            expect.any(Function),
+        );
+        expect(vi.getTimerCount()).toBe(0);
+
+        act(() => {
+            vi.advanceTimersByTime(60_000);
+        });
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(callsBefore);
+
+        removeSpy.mockRestore();
     });
 });
