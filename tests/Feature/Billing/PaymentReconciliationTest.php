@@ -13,7 +13,9 @@ use App\Models\PlanPrice;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\Billing\EntitlementService;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
+use App\Services\Payment\PaymentGatewayManager;
 use App\Services\Payment\PaymentReconciliationService;
 use App\Services\Payment\PaymentTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
@@ -452,6 +454,116 @@ class PaymentReconciliationTest extends TestCase
 
         $attempt->refresh();
         $this->assertSame(PaymentAttemptStatus::Unknown, $attempt->status);
+    }
+
+    // ── DEADLINE_EXPIRED: bank-reported SBP timeout ──
+
+    /**
+     * Official test scenario «Платеж — отказ по таймауту»
+     * (developer.tbank.ru/eacq/intro/errors/test-sbp): GetState answers with
+     * Status=DEADLINE_EXPIRED. The refusal comes FROM THE BANK through the
+     * existing GetState → normalizeWebhook → transition path, so it is a
+     * provider verdict: failed_terminal with failure_category=provider_failed,
+     * cycle Failed, no paid entitlement, and no undefined_outcome flag (that
+     * flag is reserved for the local reconciliation_timeout age-release).
+     */
+    public function test_deadline_expired_from_getstate_fails_sbp_attempt_as_provider_verdict(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+        $attempt->update(['metadata' => ['payment_method' => 'sbp']]);
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'DEADLINE_EXPIRED',
+                'Amount' => 49000,
+                'ErrorCode' => '0',
+            ], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+        Http::assertSent(fn ($request) => str_ends_with($request->url(), '/v2/GetState'));
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        // Bank verdict — never the local age-release category.
+        $this->assertSame('provider_failed', $attempt->failure_category);
+        $this->assertNotSame('reconciliation_timeout', $attempt->failure_category);
+        $this->assertNotNull($attempt->finished_at);
+
+        // The provider event was journaled through the transition service.
+        $this->assertDatabaseCount('provider_events', 1);
+
+        $attempt->billingCycle->refresh();
+        $this->assertSame(BillingCycleStatus::Failed, $attempt->billingCycle->status);
+
+        // No paid access is granted for a terminally failed payment.
+        $this->assertFalse(app(EntitlementService::class)
+            ->hasPlan($this->workspace, 'pro'));
+
+        // A confirmed decline is reported verbatim: no undefined_outcome flag.
+        $this->actingAs($this->master)
+            ->get("/admin/billing/payment-status/{$attempt->provider_payment_id}")
+            ->assertOk()
+            ->assertExactJson(['status' => 'failed_terminal']);
+    }
+
+    /**
+     * A confirmed success is never downgraded by a late DEADLINE_EXPIRED:
+     * succeeded → failed_terminal is outside the state machine, the event is
+     * journaled as invalid_transition and both attempt and cycle keep the
+     * paid outcome.
+     */
+    public function test_late_deadline_expired_does_not_downgrade_confirmed_success(): void
+    {
+        $attempt = $this->createAttempt(PaymentAttemptStatus::Processing, 490, 'tbank');
+
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'CONFIRMED',
+                'Amount' => 49000,
+            ], 200),
+        ]);
+
+        $result = app(PaymentReconciliationService::class)->reconcile();
+        $this->assertSame(0, $result['errors']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+        $attempt->billingCycle->refresh();
+        $this->assertSame(BillingCycleStatus::Paid, $attempt->billingCycle->status);
+
+        // The bank reports DEADLINE_EXPIRED too late — through the very same
+        // normalizeWebhook / transition path a webhook would take.
+        $late = app(PaymentGatewayManager::class)
+            ->getGateway('tbank')
+            ->normalizeWebhook([
+                'PaymentId' => $attempt->provider_payment_id,
+                'OrderId' => $attempt->internal_order_id,
+                'Status' => 'DEADLINE_EXPIRED',
+                'Amount' => 49000,
+            ]);
+
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $late->normalizedStatus);
+
+        $transition = app(PaymentTransitionService::class)->transition($late);
+
+        $this->assertFalse($transition['success']);
+        $this->assertSame('invalid_transition', $transition['error']);
+
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->status);
+        $this->assertNull($attempt->failure_category);
+
+        $attempt->billingCycle->refresh();
+        $this->assertSame(BillingCycleStatus::Paid, $attempt->billingCycle->status);
     }
 
     // ── Helpers ──

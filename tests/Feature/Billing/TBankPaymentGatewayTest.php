@@ -1201,6 +1201,77 @@ class TBankPaymentGatewayTest extends TestCase
         $this->assertSame(PaymentAttemptStatus::Processing, $update->normalizedStatus);
     }
 
+    // ── DEADLINE_EXPIRED: bank-reported SBP timeout ──
+
+    /**
+     * Official test scenario «Платеж — отказ по таймауту»
+     * (developer.tbank.ru/eacq/intro/errors/test-sbp): GetState returns
+     * DEADLINE_EXPIRED — a provider verdict, so the attempt fails terminally
+     * without any failure classification of its own (no ErrorCode in that
+     * response → failure_category stays null here and becomes
+     * provider_failed on transition — never reconciliation_timeout).
+     */
+    public function test_normalize_webhook_deadline_expired_maps_to_failed_terminal(): void
+    {
+        $update = $this->gateway()->normalizeWebhook([
+            'PaymentId' => '700123456',
+            'OrderId' => 'order-sbp-timeout',
+            'Status' => 'DEADLINE_EXPIRED',
+            'Amount' => 49000,
+        ]);
+
+        $this->assertSame('tbank', $update->provider);
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $update->normalizedStatus);
+        $this->assertSame('700123456', $update->providerPaymentId);
+        $this->assertSame('order-sbp-timeout', $update->internalOrderId);
+        $this->assertSame('DEADLINE_EXPIRED', $update->raw['Status']);
+        $this->assertNull($update->failureCode);
+        $this->assertNull($update->failureCategory);
+        $this->assertNull($update->failureMessage);
+    }
+
+    public function test_get_state_deadline_expired_returns_failed_terminal_via_http(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/v2/GetState' => Http::response([
+                'Success' => true,
+                'PaymentId' => '700123456',
+                'OrderId' => 'order-sbp-timeout',
+                'Status' => 'DEADLINE_EXPIRED',
+                'Amount' => 49000,
+                'ErrorCode' => '0',
+            ], 200),
+        ]);
+
+        $update = $this->gateway()->getPaymentStatus('700123456', 'order-sbp-timeout');
+
+        $this->assertNotNull($update);
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $update->normalizedStatus);
+        $this->assertNull($update->failureCode);
+    }
+
+    /**
+     * Regression matrix around the new arm: pending/unknown statuses stay
+     * undefined, CONFIRMED still succeeds — DEADLINE_EXPIRED changed nothing
+     * but its own mapping.
+     */
+    public function test_deadline_expired_does_not_disturb_new_unknown_or_confirmed_mapping(): void
+    {
+        $gateway = $this->gateway();
+
+        $new = $gateway->normalizeWebhook(['Status' => 'NEW']);
+        $this->assertSame(PaymentAttemptStatus::Unknown, $new->normalizedStatus);
+
+        $unrecognized = $gateway->normalizeWebhook(['Status' => 'STATUS_FROM_THE_FUTURE']);
+        $this->assertSame(PaymentAttemptStatus::Unknown, $unrecognized->normalizedStatus);
+
+        $missing = $gateway->normalizeWebhook([]);
+        $this->assertSame(PaymentAttemptStatus::Unknown, $missing->normalizedStatus);
+
+        $confirmed = $gateway->normalizeWebhook(['Status' => 'CONFIRMED', 'Amount' => 49000]);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $confirmed->normalizedStatus);
+    }
+
     public function test_amount_converted_from_kopecks(): void
     {
         $gateway = $this->gateway();

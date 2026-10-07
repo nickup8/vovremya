@@ -466,12 +466,19 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         return hash('sha256', implode('', $scalars));
     }
 
+    /**
+     * DEADLINE_EXPIRED — bank-reported SBP timeout (official test scenario
+     * «Платеж — отказ по таймауту», developer.tbank.ru/eacq/intro/errors/test-sbp:
+     * GetState returns DEADLINE_EXPIRED). A provider verdict, not a local
+     * age-release: failure_category stays provider_failed, never
+     * reconciliation_timeout, so the outcome is never flagged undefined.
+     */
     private function mapStatus(mixed $status): PaymentAttemptStatus
     {
         return match ($status) {
             'AUTHORIZED' => PaymentAttemptStatus::Processing,
             'CONFIRMED' => PaymentAttemptStatus::Succeeded,
-            'REJECTED', 'CANCELED', 'REVERSED' => PaymentAttemptStatus::FailedTerminal,
+            'REJECTED', 'CANCELED', 'REVERSED', 'DEADLINE_EXPIRED' => PaymentAttemptStatus::FailedTerminal,
             'REFUNDED' => PaymentAttemptStatus::Refunded,
             default => PaymentAttemptStatus::Unknown,
         };
