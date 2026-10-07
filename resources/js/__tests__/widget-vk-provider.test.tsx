@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { describe, it, expect, vi, beforeEach, beforeAll } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
 import React from 'react';
 
@@ -34,6 +34,13 @@ function makePageProps(overrides: Record<string, unknown> = {}) {
     };
 }
 
+let Widget: typeof import('@/pages/booking/widget').default;
+
+beforeAll(async () => {
+    const mod = await import('@/pages/booking/widget');
+    Widget = mod.default;
+});
+
 async function navigateToProviderStep() {
     mockUsePage.mockReturnValue(makePageProps({
         selectedServiceId: 'svc-1',
@@ -45,7 +52,6 @@ async function navigateToProviderStep() {
         opts.onFinish?.();
     });
 
-    const { default: Widget } = await import('@/pages/booking/widget');
     render(React.createElement(Widget));
 
     // Widget starts on step 2 (preselected service) → click "Выбрать время"
