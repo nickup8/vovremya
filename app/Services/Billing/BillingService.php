@@ -269,6 +269,11 @@ class BillingService
      * совпадает с запрошенным. Несовпадение, отсутствующие или
      * противоречивые данные способа → controlled 422: без нового attempt,
      * без Init, без отмены старого платежа.
+     *
+     * Локальный age-release (failed_terminal + reconciliation_timeout +
+     * provider_payment_id) — исход всё ещё неизвестен банку, поэтому тот же
+     * controlled 422 «уточняется» уходит независимо от выбранного способа:
+     * ни resume чужой initiation, ни нового Init.
      */
     private function handleInFlightAttempt(
         PaymentAttempt $inFlight,
@@ -279,6 +284,14 @@ class BillingService
         $checkoutUrl = $metadata['checkout_url'] ?? null;
         $sbpPayload = $metadata['sbp_payload'] ?? null;
         $storedMethod = $this->storedPaymentMethod($metadata);
+
+        // Возрастной релиз с provider_payment_id: это не подтверждённый
+        // отказ, а неотвеченный вопрос — метод оплаты тут не при чём.
+        if ($inFlight->status === PaymentAttemptStatus::FailedTerminal) {
+            throw ValidationException::withMessages([
+                'plan' => 'Статус предыдущего платежа уточняется. Попробуйте позже.',
+            ]);
+        }
 
         // Не подменять выбранный способ: чужой initiation не выдаём,
         // новый attempt/Init не создаём, старый не отменяем.

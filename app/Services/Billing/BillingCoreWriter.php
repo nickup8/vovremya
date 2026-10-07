@@ -291,10 +291,19 @@ class BillingCoreWriter
     /**
      * Find an existing in-flight attempt for the same workspace + plan.
      *
-     * In-flight = created, processing, or unknown.
+     * In-flight = created, processing, or unknown — plus one bounded
+     * exception: failed_terminal with failure_category=reconciliation_timeout
+     * and a non-empty provider_payment_id. That outcome came from the LOCAL
+     * age-release, not from the bank: with a provider payment id the real
+     * verdict may still arrive, so a new checkout must wait instead of
+     * stacking a second payment on an unresolved one. A timeout WITHOUT a
+     * provider payment id stays outside the block (unchanged behavior).
+     *
      * Searches by workspace + plan only (NOT by period) — a double-click
      * may produce slightly different period timestamps but the previous
-     * payment must still block a new provider call.
+     * payment must still block a new provider call. The two conditions are
+     * grouped in one AND-ed closure: the workspace+plan scope applies to
+     * the OR branch too, foreign rows never leak in.
      *
      * @see §3 — processing+checkout_url returns existing; otherwise 422
      */
@@ -312,7 +321,15 @@ class BillingCoreWriter
             $q->where('workspace_id', $workspaceId)
                 ->where('tariff_plan_id', $planId);
         })
-            ->whereIn('status', $inFlightStatuses)
+            ->where(function ($query) use ($inFlightStatuses) {
+                $query->whereIn('status', $inFlightStatuses)
+                    ->orWhere(function ($q) {
+                        $q->where('status', PaymentAttemptStatus::FailedTerminal)
+                            ->where('failure_category', 'reconciliation_timeout')
+                            ->whereNotNull('provider_payment_id')
+                            ->where('provider_payment_id', '!=', '');
+                    });
+            })
             ->orderByDesc('attempt_number')
             ->first();
     }
