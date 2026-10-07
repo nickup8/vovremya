@@ -16,8 +16,18 @@ const mockUsePage = vi.fn();
 vi.mock('@inertiajs/react', () => ({
     Head: () => null,
     usePage: () => mockUsePage(),
-    Link: ({ href, children }: { href: string; children: React.ReactNode }) => (
-        <a href={href}>{children}</a>
+    Link: ({
+        href,
+        children,
+        className,
+    }: {
+        href: string;
+        children: React.ReactNode;
+        className?: string;
+    }) => (
+        <a href={href} className={className}>
+            {children}
+        </a>
     ),
 }));
 
@@ -1108,5 +1118,273 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(vi.mocked(axios.get).mock.calls.length).toBe(callsBefore);
 
         removeSpy.mockRestore();
+    });
+
+    // ── Confirmed failure → «Выбрать способ оплаты» ──
+
+    const CHOOSE_METHOD = 'Выбрать способ оплаты';
+
+    /** Подтверждённый failed: GET pay_1 → экран отказа. */
+    async function reachConfirmedFailure() {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal' },
+        });
+
+        await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+    }
+
+    it('confirmed failure shows the primary method button with a secondary return link', async () => {
+        await reachConfirmedFailure();
+
+        const primary = screen.getByRole('button', {
+            name: CHOOSE_METHOD,
+        });
+        expect(primary.className).toContain('bg-[var(--color-orange)]');
+
+        // Ссылка возврата остаётся вторичной (обводка, не заливка)
+        const back = screen.getByRole('link', {
+            name: 'Вернуться к тарифам',
+        });
+        expect(back.getAttribute('href')).toBe('/admin/billing');
+        expect(back.className).toContain('border-[var(--color-line)]');
+        expect(back.className).not.toContain('bg-[var(--color-orange)]');
+    });
+
+    it('choosing a method after failure restores the form without POST', async () => {
+        await reachConfirmedFailure();
+
+        const postsBefore = vi.mocked(axios.post).mock.calls.length;
+        expect(postsBefore).toBe(1);
+        const getsBefore = vi.mocked(axios.get).mock.calls.length;
+
+        fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
+        await act(async () => {});
+
+        // Форма на этой же странице: тариф/период/цена сохранены
+        expect(screen.getByText('Оплата Профи')).toBeTruthy();
+        expect(screen.getByText('3 месяца')).toBeTruthy();
+        expect(screen.getByText('1 323 ₽')).toBeTruthy();
+
+        // СБП по умолчанию, autoRenew=false
+        expect(
+            screen
+                .getByRole('radio', { name: /СБП/ })
+                .getAttribute('aria-checked'),
+        ).toBe('true');
+        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+        expect(checkbox.checked).toBe(false);
+        expect(checkbox.disabled).toBe(true);
+
+        // Состояние старой попытки сброшено: ни экрана, ни ошибки, ни QR/таймера
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(screen.queryByRole('alert')).toBeNull();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(screen.queryByTestId('sbp-countdown')).toBeNull();
+
+        // Клик не делал POST / Init / автоплатёж и не трогал статус-опрос
+        expect(vi.mocked(axios.post).mock.calls.length).toBe(postsBefore);
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(getsBefore);
+        expect(window.location.href).toBe('');
+
+        // Следующий явный клик «Оплатить» использует существующий handleCheckout
+        vi.mocked(axios.post).mockResolvedValue(SBP_CHECKOUT_RESPONSE);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        expect(vi.mocked(axios.post)).toHaveBeenLastCalledWith(
+            '/admin/checkout',
+            {
+                tariff_plan_id: 1,
+                period_months: 3,
+                auto_renew: false,
+                payment_method: 'sbp',
+            },
+        );
+        expect(screen.getByTestId('sbp-qr')).toBeTruthy();
+    });
+
+    it('a fresh SBP attempt after failure gets a new paymentId, QR and timer', async () => {
+        await reachConfirmedFailure();
+
+        fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
+        await act(async () => {});
+
+        // Все GET после сброса относятся только к новой попытке
+        const callsAtReset = vi.mocked(axios.get).mock.calls.length;
+        const oldPollingCalls = vi.mocked(axios.get).mock.calls.slice();
+        expect(
+            oldPollingCalls.every((call) => String(call[0]).includes('pay_1')),
+        ).toBe(true);
+
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                ...SBP_CHECKOUT_RESPONSE.data,
+                payment_id: 'pay_2',
+                sbp_payload: 'https://qr.nspk.ru/NEWATTEMPT',
+                sbp_expires_at: isoIn(60_000),
+            },
+        });
+
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        expect(vi.mocked(axios.post).mock.calls.length).toBe(2);
+
+        // Новый QR
+        expect(screen.getByTestId('sbp-qr').getAttribute('data-value')).toBe(
+            'https://qr.nspk.ru/NEWATTEMPT',
+        );
+
+        // Новый таймер начинается от нового ответа
+        expect(screen.getByTestId('sbp-countdown').textContent).toContain(
+            '01:00',
+        );
+
+        // Новый paymentId опрашивается, старый — больше нет
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        const newCalls = vi.mocked(axios.get).mock.calls.slice(callsAtReset);
+        expect(newCalls.length).toBeGreaterThan(0);
+        expect(newCalls.at(-1)).toEqual([
+            '/admin/billing/payment-status/pay_2',
+        ]);
+        expect(newCalls.some((call) => String(call[0]).includes('pay_1'))).toBe(
+            false,
+        );
+    });
+
+    it('choosing card after failure posts card and opens checkout_url', async () => {
+        await reachConfirmedFailure();
+
+        fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
+        await act(async () => {});
+
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                checkout_url: 'https://securepay.tinkoff.ru/pay?paymentId=9',
+            },
+        });
+
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        expect(vi.mocked(axios.post)).toHaveBeenLastCalledWith(
+            '/admin/checkout',
+            {
+                tariff_plan_id: 1,
+                period_months: 3,
+                auto_renew: false,
+                payment_method: 'card',
+            },
+        );
+        // handleCheckout сам уводит на checkout_url
+        expect(window.location.href).toBe(
+            'https://securepay.tinkoff.ru/pay?paymentId=9',
+        );
+    });
+
+    it('unconfirmed outcome never offers a new payment', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(
+            screen.queryByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+    });
+
+    it('local link expiry never offers a new payment', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(1000));
+
+        act(() => {
+            vi.advanceTimersByTime(1000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(
+            screen.queryByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+    });
+
+    it('reset stops the old polling and a late old answer never flips the screen', async () => {
+        await reachConfirmedFailure();
+
+        fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
+        await act(async () => {});
+
+        const callsAfterReset = vi.mocked(axios.get).mock.calls.length;
+        expect(callsAfterReset).toBe(1);
+
+        // Старый интервал мёртв: время идёт, GET не уходит
+        act(() => {
+            vi.advanceTimersByTime(60_000);
+        });
+        await act(async () => {});
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(callsAfterReset);
+
+        // «Поздний» ответ старой попытки (так бы ответил сервер pay_1) не
+        // доходит и не меняет форму: polling остановлен, состояние сброшено.
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+        act(() => {
+            vi.advanceTimersByTime(60_000);
+        });
+        await act(async () => {});
+
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(callsAfterReset);
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeTruthy();
     });
 });

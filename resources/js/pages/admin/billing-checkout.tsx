@@ -57,8 +57,15 @@ const fmt = (n: number) => new Intl.NumberFormat('ru-RU').format(n) + ' ₽';
 const METHOD_MISMATCH_ERROR =
     'Есть незавершённый платёж другим способом. Сначала проверьте его статус';
 
-const RETURN_BTN_CLASS =
+// Основной оранжевый CTA полной ширины: действия на терминальных
+// экранах и главная кнопка экрана подтверждённого отказа.
+const PRIMARY_BTN_CLASS =
     'mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)]';
+
+// Вторичное действие того же размера: уход к тарифам с экрана отказа,
+// когда рядом стоит основная кнопка новой оплаты.
+const SECONDARY_BTN_CLASS =
+    'mt-3 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] text-[15px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-orange)] hover:text-[var(--color-orange)]';
 
 // Unconfirmed verdict copy: the outcome is not confirmed — never offer a
 // new payment here (no Init, no «Попробуйте снова»).
@@ -148,6 +155,28 @@ export default function BillingCheckoutPage() {
     function selectPaymentMethod(method: PaymentMethod) {
         setPaymentMethod(method);
         setCheckoutError(null);
+    }
+
+    /**
+     * Подтверждённый отказ → снова форма выбора на этой же странице.
+     *
+     * Сбрасывает всё состояние старой попытки: экран СБП, статус, таймер,
+     * unconfirmed, ошибку checkout'а и флаг ручной проверки. Способ — СБП
+     * по умолчанию, автопродление выключено; тариф/период/цена живут в
+     * props и не меняются. Никаких запросов: следующий явный клик
+     * «Оплатить» идёт через существующий handleCheckout. inFlightRef не
+     * трогаем — незавершённый запрос старой попытки снимет флаг сам в
+     * finally, а её поздний ответ гасится cleanup-флагом polling'а.
+     */
+    function resetToPaymentForm() {
+        setSbpPayment(null);
+        setSbpStatus('waiting');
+        setRemainingMs(null);
+        setUnconfirmed(false);
+        setCheckoutError(null);
+        retryRequestedRef.current = false;
+        setPaymentMethod('sbp');
+        setAutoRenew(false);
     }
 
     async function handleCheckout() {
@@ -455,7 +484,7 @@ export default function BillingCheckoutPage() {
                                         </p>
                                         <Link
                                             href="/admin/billing"
-                                            className={RETURN_BTN_CLASS}
+                                            className={PRIMARY_BTN_CLASS}
                                         >
                                             Вернуться к тарифам
                                         </Link>
@@ -469,9 +498,20 @@ export default function BillingCheckoutPage() {
                                             Попробуйте снова или выберите другой
                                             способ оплаты
                                         </p>
+                                        {/* Подтверждённый отказ банка — новая
+                                            оплата возможна; unconfirmed /
+                                            локальное истечение сюда не
+                                            попадают (другие ветки ниже). */}
+                                        <button
+                                            type="button"
+                                            onClick={resetToPaymentForm}
+                                            className={PRIMARY_BTN_CLASS}
+                                        >
+                                            Выбрать способ оплаты
+                                        </button>
                                         <Link
                                             href="/admin/billing"
-                                            className={RETURN_BTN_CLASS}
+                                            className={SECONDARY_BTN_CLASS}
                                         >
                                             Вернуться к тарифам
                                         </Link>
@@ -483,7 +523,7 @@ export default function BillingCheckoutPage() {
                                         </div>
                                         <Link
                                             href="/admin/billing"
-                                            className={RETURN_BTN_CLASS}
+                                            className={PRIMARY_BTN_CLASS}
                                         >
                                             Вернуться к тарифам
                                         </Link>
@@ -503,7 +543,7 @@ export default function BillingCheckoutPage() {
                                                 retryRequestedRef.current = true;
                                                 setUnconfirmed(false);
                                             }}
-                                            className={RETURN_BTN_CLASS}
+                                            className={PRIMARY_BTN_CLASS}
                                         >
                                             Проверить статус
                                         </button>
