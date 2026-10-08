@@ -54,6 +54,11 @@ return [
      */
     'reconciliation' => [
         'batch_size' => 50,
+        // Separate, bounded queue for attempts already age-released to
+        // failed_terminal + reconciliation_timeout that still await a
+        // provider verdict. Own budget, so it never displaces the ordinary
+        // in-flight batch above.
+        'timeout_batch_size' => 10,
         'fresh_grace_seconds' => 60,
         'backoff' => [60, 120, 300, 900, 1800, 3600],
         'max_age_with_provider_id' => 86400, // 24 hours

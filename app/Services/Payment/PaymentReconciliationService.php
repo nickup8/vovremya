@@ -7,11 +7,24 @@ use App\Enums\PaymentAttemptStatus;
 use App\Models\BillingCycle;
 use App\Models\PaymentAttempt;
 use Carbon\Carbon;
+use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class PaymentReconciliationService
 {
+    /**
+     * Statuses that are an actual provider verdict: only these are handed to
+     * the state machine for a locally timed-out attempt. Anything else
+     * (NEW → Unknown, AUTHORIZED → Processing) is still in flight at the
+     * bank, so the local timeout and the checkout block built on it survive.
+     */
+    private const FINAL_VERDICTS = [
+        PaymentAttemptStatus::Succeeded,
+        PaymentAttemptStatus::FailedTerminal,
+        PaymentAttemptStatus::Refunded,
+    ];
+
     public function __construct(
         private PaymentGatewayManager $gatewayManager,
         private PaymentTransitionService $transitionService,
@@ -26,6 +39,7 @@ class PaymentReconciliationService
     {
         $config = config('billing.reconciliation');
         $batchSize = $config['batch_size'] ?? 50;
+        $timeoutBatchSize = $config['timeout_batch_size'] ?? 10;
         $freshGraceSeconds = $config['fresh_grace_seconds'] ?? 60;
         $backoff = $config['backoff'] ?? [60, 120, 300, 900, 1800, 3600];
         $maxAgeWithProviderId = $config['max_age_with_provider_id'] ?? 86400;
@@ -44,12 +58,31 @@ class PaymentReconciliationService
             ->limit($batchSize)
             ->get();
 
+        // Separate, bounded queue for local timeouts awaiting a verdict —
+        // its own budget, so it never displaces the ordinary batch above.
+        // Snapshotted BEFORE this run's age-releases: a row released below
+        // is only polled from the next pass onwards.
+        $timeoutAttempts = $this->selectUnresolvedTimeouts($timeoutBatchSize);
+
         $processed = 0;
         $errors = 0;
 
         foreach ($attempts as $attempt) {
             try {
                 $this->reconcileAttempt($attempt, $backoff, $maxAgeWithProviderId, $maxAgeWithoutProviderId);
+                $processed++;
+            } catch (\Throwable $e) {
+                $errors++;
+                Log::error('Reconciliation failed for attempt', [
+                    'attempt_id' => $attempt->id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        }
+
+        foreach ($timeoutAttempts as $attempt) {
+            try {
+                $this->reconcileTimeoutAttempt($attempt, $backoff);
                 $processed++;
             } catch (\Throwable $e) {
                 $errors++;
@@ -142,6 +175,137 @@ class PaymentReconciliationService
             // Provider returned null - update metadata with backoff
             $this->updatePollMetadata($attempt);
         }
+    }
+
+    /**
+     * Attempt metadata as an array.
+     *
+     * The 'array' cast is invisible to static analysis here (larastan falls
+     * back to the json column type), so the shape is declared once at this
+     * boundary instead of guessed at every offset read.
+     *
+     * @return array<string, mixed>
+     */
+    private function attemptMetadata(PaymentAttempt $attempt): array
+    {
+        $metadata = $attempt->metadata ?? [];
+
+        return is_array($metadata) ? $metadata : [];
+    }
+
+    /**
+     * GetState for an attempt that was already age-released to
+     * failed_terminal + reconciliation_timeout and still carries a provider
+     * payment id.
+     *
+     * No age-release here — it has already run and must not run again — and
+     * no transaction wraps the HTTP call: backoff is evaluated first, the
+     * provider is queried outside any transaction, and only then is the
+     * poll metadata merged under the usual row lock.
+     *
+     * @param  array<int, int>  $backoff
+     */
+    private function reconcileTimeoutAttempt(
+        PaymentAttempt $attempt,
+        array $backoff,
+    ): void {
+        $metadata = $this->attemptMetadata($attempt);
+        $pollCount = $metadata['poll_count'] ?? 0;
+        $lastPolledAt = $this->parseLastPolledAt($metadata['last_polled_at'] ?? null);
+
+        // Same backoff as the ordinary queue — a row still waiting out its
+        // window costs no HTTP at all.
+        if ($pollCount > 0 && $lastPolledAt !== null) {
+            $backoffSeconds = $backoff[min($pollCount - 1, count($backoff) - 1)];
+
+            if (now()->lt($lastPolledAt->addSeconds($backoffSeconds))) {
+                return; // Not yet time to poll
+            }
+        }
+
+        if (! $this->gatewayManager->hasGateway($attempt->provider)) {
+            Log::warning('Unknown gateway for reconciliation', [
+                'attempt_id' => $attempt->id,
+                'provider' => $attempt->provider,
+            ]);
+
+            return;
+        }
+
+        $gateway = $this->gatewayManager->getGateway($attempt->provider);
+
+        try {
+            $statusUpdate = $gateway->getPaymentStatus(
+                $attempt->provider_payment_id,
+                $attempt->internal_order_id,
+            );
+        } catch (\Throwable $e) {
+            // The GetState call really happened: advance the backoff before
+            // handing the failure back, so the caller still records it in
+            // errors and the next pass waits out its window.
+            $this->updatePollMetadata($attempt);
+
+            throw $e;
+        }
+
+        // Exactly one poll write per actual GetState — the null answer and
+        // the exception path above included, never twice for one call.
+        $this->updatePollMetadata($attempt);
+
+        if ($statusUpdate === null) {
+            // No verdict: the local timeout, its checkout block and the
+            // undefined_outcome flag all stay untouched.
+            return;
+        }
+
+        if (! in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
+            // Still in flight at the bank (NEW / AUTHORIZED): a non-terminal
+            // status is never sent to transition() — the attempt keeps its
+            // timeout until a real verdict arrives.
+            return;
+        }
+
+        // Confirmed success or refusal — the existing transition path, which
+        // resolves the local timeout in place under its own lock/validation.
+        $result = $this->transitionService->transition($statusUpdate);
+
+        if ($result['success']) {
+            Log::info('Reconciliation resolved attempt', [
+                'attempt_id' => $attempt->id,
+                'new_status' => $statusUpdate->normalizedStatus->value,
+            ]);
+        } else {
+            Log::warning('Reconciliation transition failed', [
+                'attempt_id' => $attempt->id,
+                'error' => $result['error'] ?? null,
+            ]);
+        }
+    }
+
+    /**
+     * Attempts age-released to failed_terminal + failure_category
+     * reconciliation_timeout with a non-empty provider payment id — the bank
+     * may well have decided already.
+     *
+     * Fair queue: rows are served least-recently-polled first (never polled
+     * first), so a row waiting out its backoff sorts to the tail instead of
+     * holding the head of the batch, and every served row rotates behind the
+     * ones it just jumped. Bounded by its own limit — the ordinary batch
+     * above keeps its full batch_size.
+     *
+     * @return Collection<int, PaymentAttempt>
+     */
+    private function selectUnresolvedTimeouts(int $limit): Collection
+    {
+        return PaymentAttempt::where('status', PaymentAttemptStatus::FailedTerminal)
+            ->where('failure_category', 'reconciliation_timeout')
+            ->whereNotNull('provider_payment_id')
+            ->where('provider_payment_id', '!=', '')
+            ->orderByRaw("metadata->>'last_polled_at' ASC NULLS FIRST")
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->limit($limit)
+            ->get();
     }
 
     /**
