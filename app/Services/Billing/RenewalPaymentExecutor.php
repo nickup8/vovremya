@@ -76,6 +76,8 @@ class RenewalPaymentExecutor
 
     /**
      * Fresh path: no bank payment exists — Init → attach → Charge → transition.
+     *
+     * @return array{success: bool, noop?: bool, error?: string}
      */
     private function executeFresh(
         PaymentAttempt $attempt,
@@ -113,6 +115,8 @@ class RenewalPaymentExecutor
      *
      * The PaymentId goes through the same locked Phase B attach first; only
      * then does the bank-side status decide whether a Charge is allowed.
+     *
+     * @return array{success: bool, noop?: bool, error?: string}
      */
     private function resumeExisting(
         PaymentAttempt $attempt,
@@ -158,6 +162,8 @@ class RenewalPaymentExecutor
 
     /**
      * Recovery for in-flight attempts (Processing + provider_payment_id).
+     *
+     * @return array{success: bool, noop?: bool, error?: string}
      */
     private function resumeInFlight(
         PaymentAttempt $attempt,
