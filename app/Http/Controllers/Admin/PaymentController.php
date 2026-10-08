@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\BillingSubscriptionStatus;
+use App\Enums\PaymentAttemptStatus;
 use App\Http\Controllers\Controller;
 use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
@@ -321,8 +322,12 @@ class PaymentController extends Controller
      * `undefined_outcome` is the one minimal extra: failure_category
      * "reconciliation_timeout" is a local age-release, not a bank decline,
      * so the client must not present failed_terminal as a confirmed
-     * refusal. Absent otherwise — existing consumers keep reading
-     * `status` only (SBP polling stays compatible).
+     * refusal. Flagged only while the attempt is still failed_terminal
+     * with that category — a resolved (provider-confirmed) decline or a
+     * succeeded attempt never carries it, including legacy rows that still
+     * hold a stale timeout category after a late success. Absent otherwise
+     * — existing consumers keep reading `status` only (SBP polling stays
+     * compatible).
      */
     public function paymentStatus(Request $request, string $paymentId): JsonResponse
     {
@@ -343,7 +348,8 @@ class PaymentController extends Controller
 
         $response = ['status' => $attempt->status->value];
 
-        if ($attempt->failure_category === 'reconciliation_timeout') {
+        if ($attempt->status === PaymentAttemptStatus::FailedTerminal
+            && $attempt->failure_category === 'reconciliation_timeout') {
             $response['undefined_outcome'] = true;
         }
 

@@ -103,6 +103,14 @@ class PaymentTransitionService
 
             // 6. State-machine validation
             if (! $this->isTransitionAllowed($attempt->status, $update->normalizedStatus)) {
+                // A local reconciliation_timeout is not a bank verdict: a
+                // confirmed provider decline resolves it in place (same
+                // status) by replacing the timeout failure fields with the
+                // provider's own — before the ordinary same-status no-op.
+                if ($this->isReconciliationTimeoutResolution($attempt, $update)) {
+                    return $this->resolveReconciliationTimeout($event, $attempt, $update);
+                }
+
                 // Idempotent no-op for same status
                 if ($attempt->status === $update->normalizedStatus) {
                     return $this->markEventProcessed($event, $attempt);
@@ -373,6 +381,40 @@ class PaymentTransitionService
     }
 
     /**
+     * A confirmed provider decline (FailedTerminal event from webhook or
+     * reconciliation — the local age-release never enters transition())
+     * may resolve an attempt still carrying the local reconciliation_timeout.
+     */
+    private function isReconciliationTimeoutResolution(
+        PaymentAttempt $attempt,
+        ProviderStatusUpdate $update,
+    ): bool {
+        return $attempt->status === PaymentAttemptStatus::FailedTerminal
+            && $attempt->failure_category === 'reconciliation_timeout'
+            && $update->normalizedStatus === PaymentAttemptStatus::FailedTerminal;
+    }
+
+    /**
+     * Resolve a local reconciliation_timeout in place: the provider's
+     * confirmed decline replaces the timeout failure fields while the status
+     * stays failed_terminal. Deliberately skips steps 8–9d of the core path:
+     * horizon, renewal markers, grace and notifications already ran when the
+     * timeout was released, so re-running them would repeat side effects and
+     * re-open or extend the grace window. Attempt metadata and the auto-renew
+     * dispatch marker stay untouched. The timeout category itself is never
+     * treated as a bank confirmation — only this provider verdict replaces it.
+     */
+    private function resolveReconciliationTimeout(
+        ProviderEvent $event,
+        PaymentAttempt $attempt,
+        ProviderStatusUpdate $update,
+    ): array {
+        $this->updateAttempt($attempt, $update);
+
+        return $this->markEventProcessed($event, $attempt);
+    }
+
+    /**
      * Update PaymentAttempt with new status.
      */
     private function updateAttempt(
@@ -394,6 +436,14 @@ class PaymentTransitionService
             $updateData['failure_code'] = $update->failureCode;
             $updateData['failure_category'] = $update->failureCategory ?? 'provider_failed';
             $updateData['failure_message'] = $update->failureMessage;
+        }
+
+        // A confirmed success supersedes any earlier local timeout or
+        // decline: stale failure fields must not survive on a Paid attempt.
+        if ($update->normalizedStatus === PaymentAttemptStatus::Succeeded) {
+            $updateData['failure_code'] = null;
+            $updateData['failure_category'] = null;
+            $updateData['failure_message'] = null;
         }
 
         $attempt->update($updateData);
