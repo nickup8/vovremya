@@ -387,7 +387,62 @@ class ReconciliationTimeoutResolutionTest extends TestCase
         $this->assertDatabaseCount('provider_events', 1);
     }
 
-    // ── 5. Renewal: grace, dispatch marker, metadata и notification сохранены ──
+    // ── 5. Incoming reconciliation_timeout is not a provider verdict ──
+
+    public function test_update_claiming_timeout_category_does_not_resolve_local_timeout(): void
+    {
+        Http::fake();
+        [$master, $workspace] = $this->createMasterWithWorkspace();
+        $attempt = $this->createTimeoutAttempt($workspace, $this->proPlan);
+        $originalMetadata = $attempt->metadata;
+
+        // Update, который САМ заявляет локальную категорию: провайдер её не
+        // присылает, вердикта здесь нет — разрешать локальный timeout нельзя.
+        $update = new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerEventId: 'evt_timeout_echo',
+            providerPaymentId: $attempt->provider_payment_id,
+            internalOrderId: $attempt->internal_order_id,
+            normalizedStatus: PaymentAttemptStatus::FailedTerminal,
+            raw: ['Status' => 'REJECTED', 'PaymentId' => $attempt->provider_payment_id],
+            failureCode: '9999',
+            failureCategory: 'reconciliation_timeout',
+            failureMessage: self::TIMEOUT_MESSAGE,
+        );
+
+        $this->assertTrue($this->transitionService->transition($update)['success']);
+
+        // Обычный same-status no-op: поля не тронуты, timeout на месте.
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertSame('reconciliation_timeout', $attempt->failure_category);
+        $this->assertNull($attempt->failure_code);
+        $this->assertSame($originalMetadata, $attempt->metadata);
+
+        // Блокировка checkout сохраняется.
+        $this->assertNotNull(app(BillingCoreWriter::class)->findExistingInFlightAttempt($workspace->id, $this->proPlan->id));
+        try {
+            app(BillingService::class)->subscribe($master, $this->proPlan, 1, false, 'card');
+            $this->fail('Expected ValidationException while the timeout is unresolved');
+        } catch (ValidationException $e) {
+            $this->assertSame(self::TIMEOUT_MESSAGE, $e->errors()['plan'][0]);
+        }
+
+        // undefined_outcome сохраняется.
+        $this->assertPaymentStatusJson($master, $attempt, [
+            'status' => 'failed_terminal',
+            'undefined_outcome' => true,
+        ]);
+
+        // Событие обработано как no-op, без ошибки.
+        $event = ProviderEvent::where('provider_event_id', 'evt_timeout_echo')->firstOrFail();
+        $this->assertSame($attempt->id, $event->payment_attempt_id);
+        $this->assertNull($event->processing_error);
+        $this->assertNotNull($event->processed_at);
+        $this->assertDatabaseCount('provider_events', 1);
+    }
+
+    // ── 6. Renewal: grace, dispatch marker, metadata и notification сохранены ──
 
     public function test_renewal_grace_marker_and_notifications_survive_resolution(): void
     {

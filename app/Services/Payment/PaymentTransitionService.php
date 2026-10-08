@@ -384,6 +384,11 @@ class PaymentTransitionService
      * A confirmed provider decline (FailedTerminal event from webhook or
      * reconciliation — the local age-release never enters transition())
      * may resolve an attempt still carrying the local reconciliation_timeout.
+     *
+     * An incoming update that itself claims `reconciliation_timeout` is not
+     * excluded by accident: that category is local-only (no provider status
+     * carries it), so such an update is not a verdict and falls through to
+     * the ordinary same-status no-op with the timeout still in place.
      */
     private function isReconciliationTimeoutResolution(
         PaymentAttempt $attempt,
@@ -391,7 +396,8 @@ class PaymentTransitionService
     ): bool {
         return $attempt->status === PaymentAttemptStatus::FailedTerminal
             && $attempt->failure_category === 'reconciliation_timeout'
-            && $update->normalizedStatus === PaymentAttemptStatus::FailedTerminal;
+            && $update->normalizedStatus === PaymentAttemptStatus::FailedTerminal
+            && $update->failureCategory !== 'reconciliation_timeout';
     }
 
     /**
@@ -403,6 +409,8 @@ class PaymentTransitionService
      * re-open or extend the grace window. Attempt metadata and the auto-renew
      * dispatch marker stay untouched. The timeout category itself is never
      * treated as a bank confirmation — only this provider verdict replaces it.
+     *
+     * @return array{success: bool, error?: string}
      */
     private function resolveReconciliationTimeout(
         ProviderEvent $event,
@@ -666,6 +674,8 @@ class PaymentTransitionService
 
     /**
      * Mark event as processed.
+     *
+     * @return array{success: bool, error?: string}
      */
     private function markEventProcessed(
         ProviderEvent $event,

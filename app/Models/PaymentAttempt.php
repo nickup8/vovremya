@@ -7,6 +7,13 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * Declared explicitly: larastan reads casts() only with parseModelCastsMethod
+ * enabled and otherwise falls back to the migration column type (string),
+ * which hides the enum this attribute actually is at runtime.
+ *
+ * @property PaymentAttemptStatus $status
+ */
 class PaymentAttempt extends Model
 {
     use HasUuids;
