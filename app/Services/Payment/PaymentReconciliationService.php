@@ -61,8 +61,9 @@ class PaymentReconciliationService
         // Separate, bounded queue for local timeouts awaiting a verdict —
         // its own budget, so it never displaces the ordinary batch above.
         // Snapshotted BEFORE this run's age-releases: a row released below
-        // is only polled from the next pass onwards.
-        $timeoutAttempts = $this->selectUnresolvedTimeouts($timeoutBatchSize);
+        // is only polled from the next pass onwards. Only rows due under
+        // the backoff take one of its slots (see selectUnresolvedTimeouts).
+        $timeoutAttempts = $this->selectUnresolvedTimeouts($timeoutBatchSize, $backoff);
 
         $processed = 0;
         $errors = 0;
@@ -209,18 +210,12 @@ class PaymentReconciliationService
         PaymentAttempt $attempt,
         array $backoff,
     ): void {
-        $metadata = $this->attemptMetadata($attempt);
-        $pollCount = $metadata['poll_count'] ?? 0;
-        $lastPolledAt = $this->parseLastPolledAt($metadata['last_polled_at'] ?? null);
-
         // Same backoff as the ordinary queue — a row still waiting out its
-        // window costs no HTTP at all.
-        if ($pollCount > 0 && $lastPolledAt !== null) {
-            $backoffSeconds = $backoff[min($pollCount - 1, count($backoff) - 1)];
-
-            if (now()->lt($lastPolledAt->addSeconds($backoffSeconds))) {
-                return; // Not yet time to poll
-            }
+        // window costs no HTTP at all. Selection already applied this when
+        // the batch was filled; it is re-checked here so a stale snapshot
+        // can never fire an early GetState.
+        if (! $this->isPollDue($attempt, $backoff)) {
+            return; // Not yet time to poll
         }
 
         if (! $this->gatewayManager->hasGateway($attempt->provider)) {
@@ -288,24 +283,59 @@ class PaymentReconciliationService
      * may well have decided already.
      *
      * Fair queue: rows are served least-recently-polled first (never polled
-     * first), so a row waiting out its backoff sorts to the tail instead of
-     * holding the head of the batch, and every served row rotates behind the
-     * ones it just jumped. Bounded by its own limit — the ordinary batch
-     * above keeps its full batch_size.
+     * first). Readiness is applied WHILE the batch is filled, not after it:
+     * a row still waiting out its backoff is passed over without taking one
+     * of the $limit slots, so an older row with a long window can no longer
+     * crowd out a fresher row that is due right now. Skipped rows are never
+     * written to — their poll metadata stays exactly as it was.
      *
+     * The queue is walked one page at a time (max($limit, 100) candidates
+     * in memory, never a full-queue get()) and the walk stops at $limit due
+     * rows. Bounded by its own limit — the ordinary batch above keeps its
+     * full batch_size.
+     *
+     * @param  array<int, int>  $backoff
      * @return Collection<int, PaymentAttempt>
      */
-    private function selectUnresolvedTimeouts(int $limit): Collection
+    private function selectUnresolvedTimeouts(int $limit, array $backoff): Collection
     {
-        return PaymentAttempt::where('status', PaymentAttemptStatus::FailedTerminal)
+        $due = PaymentAttempt::where('status', PaymentAttemptStatus::FailedTerminal)
             ->where('failure_category', 'reconciliation_timeout')
             ->whereNotNull('provider_payment_id')
             ->where('provider_payment_id', '!=', '')
             ->orderByRaw("metadata->>'last_polled_at' ASC NULLS FIRST")
             ->orderBy('created_at')
             ->orderBy('id')
-            ->limit($limit)
-            ->get();
+            ->lazy(max($limit, 100))
+            ->filter(fn (PaymentAttempt $attempt): bool => $this->isPollDue($attempt, $backoff))
+            ->take($limit)
+            ->values();
+
+        return new Collection($due->all());
+    }
+
+    /**
+     * Whether a timeout attempt may be polled right now.
+     *
+     * A row never polled, or one whose poll metadata cannot be read, is due
+     * (the same fail-open the poll itself relies on); otherwise the existing
+     * backoff indexed by poll_count must have elapsed since last_polled_at.
+     *
+     * @param  array<int, int>  $backoff
+     */
+    private function isPollDue(PaymentAttempt $attempt, array $backoff): bool
+    {
+        $metadata = $this->attemptMetadata($attempt);
+        $pollCount = $metadata['poll_count'] ?? 0;
+        $lastPolledAt = $this->parseLastPolledAt($metadata['last_polled_at'] ?? null);
+
+        if ($pollCount > 0 && $lastPolledAt !== null) {
+            $backoffSeconds = $backoff[min($pollCount - 1, count($backoff) - 1)];
+
+            return now()->gte($lastPolledAt->addSeconds($backoffSeconds));
+        }
+
+        return true;
     }
 
     /**

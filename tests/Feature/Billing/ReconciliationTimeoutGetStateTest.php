@@ -565,4 +565,120 @@ class ReconciliationTimeoutGetStateTest extends TestCase
         $this->assertSame('reconciliation_timeout', $timeoutY->failure_category);
         $this->assertDatabaseCount('provider_events', 0);
     }
+
+    // ── 10. Readiness gates the batch fill: blocked rows never take the slot ──
+
+    public function test_row_inside_long_backoff_never_takes_the_single_slot_of_a_due_row(): void
+    {
+        config([
+            'billing.reconciliation.timeout_batch_size' => 1,
+            'billing.reconciliation.backoff' => [60, 120, 300, 900, 1800, 3600],
+        ]);
+
+        // Three rows ahead of the due one in fair-queue order (older
+        // last_polled_at): poll_count 6 → backoff 3600s, and their last poll
+        // is only 10 minutes old, so none of them is due.
+        $blocked = [];
+        $blockedMetadataBefore = [];
+        foreach ([1, 2, 3] as $n) {
+            $row = $this->createTimeoutAttempt(180, [
+                'poll_count' => 6,
+                'last_polled_at' => now()->subMinutes(10)->toIso8601String(),
+            ], 'tbank_blocked_'.$n);
+
+            $blocked[] = $row;
+            $blockedMetadataBefore[$row->id] = $row->metadata;
+        }
+
+        // Fresher last_polled_at, so it sorts BEHIND the blocked rows —
+        // poll_count 1 with backoff 60s means its five-minute-old poll is
+        // long due.
+        $due = $this->createTimeoutAttempt(60, [
+            'poll_count' => 1,
+            'last_polled_at' => now()->subMinutes(5)->toIso8601String(),
+        ], 'tbank_due_now');
+        $duePolledAtBefore = $due->metadata['last_polled_at'];
+
+        $this->fakeGetState('NEW', $due);
+
+        $result = $this->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+        $this->assertSame(1, $result['processed']);
+
+        // The single batch slot and the single HTTP call go to the due row:
+        // the blocked rows ahead of it neither consume the limit nor fire a
+        // premature GetState.
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => $request['PaymentId'] === 'tbank_due_now');
+
+        $due->refresh();
+        $this->assertSame(2, $due->metadata['poll_count']);
+        $this->assertNotSame($duePolledAtBefore, $due->metadata['last_polled_at']);
+
+        foreach ($blocked as $row) {
+            $row->refresh();
+            // Passed over without a single write: poll metadata byte for
+            // byte identical, and the local timeout still in place.
+            $this->assertSame($blockedMetadataBefore[$row->id], $row->metadata);
+            $this->assertSame(6, $row->metadata['poll_count']);
+            $this->assertSame(PaymentAttemptStatus::FailedTerminal, $row->status);
+            $this->assertSame('reconciliation_timeout', $row->failure_category);
+        }
+    }
+
+    // ── 11. Bounded walk: a due row behind a full page of blocked rows ──
+
+    public function test_due_row_behind_a_full_page_of_blocked_rows_is_still_polled(): void
+    {
+        config([
+            'billing.reconciliation.timeout_batch_size' => 1,
+            'billing.reconciliation.backoff' => [60, 120, 300, 900, 1800, 3600],
+        ]);
+
+        // One full scan page (max(limit, 100) candidates in memory) of rows
+        // all still inside their 3600s window …
+        $blocked = [];
+        $blockedMetadataBefore = [];
+        for ($n = 1; $n <= 100; $n++) {
+            $row = $this->createTimeoutAttempt(180, [
+                'poll_count' => 6,
+                'last_polled_at' => now()->subMinutes(10)->toIso8601String(),
+            ], 'tbank_blocked_'.$n);
+
+            $blocked[] = $row;
+            $blockedMetadataBefore[$row->id] = $row->metadata;
+        }
+
+        // … and the due row right behind that page: the queue must be walked
+        // page by page instead of stopping at an empty first page, without
+        // ever materialising all 101 candidates at once.
+        $due = $this->createTimeoutAttempt(60, [
+            'poll_count' => 1,
+            'last_polled_at' => now()->subMinutes(5)->toIso8601String(),
+        ], 'tbank_due_paged');
+
+        // The due row really sits behind a full page, not inside page one.
+        $this->assertSame(101, PaymentAttempt::where('status', PaymentAttemptStatus::FailedTerminal)
+            ->where('failure_category', 'reconciliation_timeout')
+            ->count());
+
+        $this->fakeGetState('NEW', $due);
+
+        $result = $this->reconcile();
+
+        $this->assertSame(0, $result['errors']);
+        $this->assertSame(1, $result['processed']);
+
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => $request['PaymentId'] === 'tbank_due_paged');
+
+        $due->refresh();
+        $this->assertSame(2, $due->metadata['poll_count']);
+
+        foreach ($blocked as $row) {
+            $row->refresh();
+            $this->assertSame($blockedMetadataBefore[$row->id], $row->metadata);
+        }
+    }
 }
