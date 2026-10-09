@@ -15,6 +15,24 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 {
     private const DEFAULT_BASE_URL = 'https://securepay.tinkoff.ru';
 
+    private const INIT_PATH = '/v2/Init';
+
+    private const CHARGE_PATH = '/v2/Charge';
+
+    /**
+     * Endpoints the global Guzzle retry decider (AppServiceProvider) must
+     * never transport-retry: Init and Charge create/trigger money movement,
+     * and a ConnectException may arrive AFTER the request reached the bank
+     * (e.g. a response timeout), so an automatic re-send could hit the bank
+     * a second time. One Init/Charge call = one HTTP attempt; an undefined
+     * outcome is owned by CheckOrder recovery, the charge dispatch marker
+     * and reconciliation — never by an automatic re-send.
+     *
+     * Built from the path constants every Init call site (card, SBP,
+     * recurring) and Charge use below, so rule and URLs cannot drift apart.
+     */
+    public const SINGLE_ATTEMPT_PATHS = [self::INIT_PATH, self::CHARGE_PATH];
+
     /**
      * ErrorCode set returned by T-Bank for "insufficient funds" on Charge.
      * Only these are classified as a user-level decline; every other
@@ -68,7 +86,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         $payload['FailURL'] = $this->signedReturnUrl('admin.billing.payment.failed', $context);
         $payload['Token'] = $this->computeToken($payload);
 
-        $response = Http::post($this->url('/v2/Init'), $payload);
+        $response = Http::post($this->url(self::INIT_PATH), $payload);
         $data = $response->successful() ? $response->json() : null;
 
         if (! is_array($data) || empty($data['Success'])) {
@@ -139,7 +157,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
         $initPayload['Token'] = $this->computeToken($initPayload);
 
-        $data = $this->post($this->url('/v2/Init'), $initPayload, 'Init');
+        $data = $this->post($this->url(self::INIT_PATH), $initPayload, 'Init');
 
         if (empty($data['PaymentId'])) {
             throw new RuntimeException('T-Bank Init response missing PaymentId');
@@ -198,7 +216,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         ];
         $payload['Token'] = $this->computeToken($payload);
 
-        $data = $this->post($this->url('/v2/Init'), $payload, 'Init');
+        $data = $this->post($this->url(self::INIT_PATH), $payload, 'Init');
 
         if (empty($data['PaymentId'])) {
             throw new RuntimeException('T-Bank recurring Init response missing PaymentId');
@@ -234,7 +252,7 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         $payload['Token'] = $this->computeToken($payload);
 
         try {
-            $response = Http::post($this->url('/v2/Charge'), $payload);
+            $response = Http::post($this->url(self::CHARGE_PATH), $payload);
         } catch (HttpClientException $e) {
             throw new RuntimeException('T-Bank Charge request failed', 0, $e);
         }

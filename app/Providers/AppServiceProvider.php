@@ -20,6 +20,7 @@ use App\Observers\WorkingHourObserver;
 use App\Services\Payment\MockPaymentGateway;
 use App\Services\Payment\PaymentGatewayInterface;
 use App\Services\Payment\PaymentGatewayManager;
+use App\Services\Payment\TBankPaymentGateway;
 use Carbon\CarbonImmutable;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
@@ -59,6 +60,20 @@ class AppServiceProvider extends ServiceProvider
 
         Http::globalMiddleware(Middleware::retry(
             function (int $retries, RequestInterface $request, $response = null, ?\Throwable $exception = null): bool {
+                // T-Bank Init/Charge are single-attempt: a ConnectException can
+                // arrive AFTER the request was sent (response timeout), so a
+                // transport retry here could hit the bank with a second
+                // Init/Charge. The undefined outcome stays with CheckOrder
+                // recovery, the charge dispatch marker and reconciliation —
+                // never with an automatic re-send. Every other request keeps
+                // the retry budget below.
+                $singleAttempt = $exception instanceof ConnectException
+                    && in_array($request->getUri()->getPath(), TBankPaymentGateway::SINGLE_ATTEMPT_PATHS, true);
+
+                if ($singleAttempt) {
+                    return false;
+                }
+
                 return $retries < 5 && $exception instanceof ConnectException;
             },
             function (int $retries): int {

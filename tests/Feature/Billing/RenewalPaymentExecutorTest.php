@@ -22,7 +22,7 @@ use Tests\TestCase;
 
 class RenewalPaymentExecutorTest extends TestCase
 {
-    use RefreshDatabase;
+    use MakesFailingHttpTransport, RefreshDatabase;
 
     private const TERMINAL_KEY = 'TestTerminal';
 
@@ -254,6 +254,89 @@ class RenewalPaymentExecutorTest extends TestCase
 
         $cycle->refresh();
         $this->assertSame(BillingCycleStatus::Pending, $cycle->status);
+    }
+
+    // ── Transport retry policy: Init/Charge are single-attempt ──
+
+    public function test_fresh_renewal_init_transport_failure_is_attempted_exactly_once(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+
+        $this->failTransportOnPaths('/v2/Init');
+
+        Http::fake(function ($request) {
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return Http::response($this->checkOrderEmptyBody(), 200);
+            }
+
+            return Http::response(['Success' => false], 500);
+        });
+
+        $caught = null;
+        try {
+            $this->executor->execute($attempt);
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught, 'Init transport failure must propagate');
+        $this->assertSame(
+            1,
+            $this->attemptsFor('/v2/Init'),
+            'A renewal Init must be dispatched exactly once — never transport-retried'
+        );
+        $this->assertSame(['/v2/CheckOrder', '/v2/Init'], $this->dispatchedPaths);
+
+        // Existing undefined-outcome handling: attempt stays Created with no
+        // PaymentId — recovery (CheckOrder on the next run) owns it, not an
+        // automatic re-Init.
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Created, $attempt->status);
+        $this->assertNull($attempt->provider_payment_id);
+    }
+
+    public function test_check_order_recovery_charge_transport_failure_is_attempted_exactly_once(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+
+        $this->failTransportOnPaths('/v2/Charge');
+
+        Http::fake(function ($request) use ($attempt) {
+            if (str_ends_with($request->url(), '/v2/CheckOrder')) {
+                return Http::response($this->checkOrderPaymentsBody([[
+                    'PaymentId' => self::PAYMENT_ID,
+                    'OrderId' => $attempt->internal_order_id,
+                    'Status' => 'NEW',
+                    'Amount' => 49000,
+                ]]), 200);
+            }
+
+            return Http::response(['Success' => false], 500);
+        });
+
+        $caught = null;
+        try {
+            $this->executor->execute($attempt);
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught, 'Charge transport failure must propagate');
+        $this->assertSame(
+            1,
+            $this->attemptsFor('/v2/Charge'),
+            'A recovered renewal Charge must be dispatched exactly once — never transport-retried'
+        );
+        $this->assertSame(['/v2/CheckOrder', '/v2/Charge'], $this->dispatchedPaths);
+
+        // Recovery chain intact: CheckOrder found the lost Init, PaymentId was
+        // attached and the dispatch marker committed before the single Charge.
+        // The attempt stays Processing with the marker — reconciliation owns
+        // the undefined outcome, not a re-Charge.
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $attempt->status);
+        $this->assertSame(self::PAYMENT_ID, $attempt->provider_payment_id);
+        $this->assertNotNull($attempt->metadata['charge_dispatch_started_at'], 'dispatch marker must be written before Charge');
     }
 
     // ── Idempotency / no-op ──
