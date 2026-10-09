@@ -883,7 +883,7 @@ class TBankPaymentGatewayTest extends TestCase
 
     // ── CheckOrder (recovery) ──
 
-    public function test_check_order_empty_payments_returns_null(): void
+    public function test_check_order_empty_payments_is_ambiguous_and_throws(): void
     {
         Http::fake([
             'securepay.tinkoff.ru/*' => Http::response([
@@ -892,7 +892,16 @@ class TBankPaymentGatewayTest extends TestCase
             ], 200),
         ]);
 
-        $this->assertNull($this->gateway()->findPaymentByOrderId('renew_order_1'));
+        $caught = null;
+
+        try {
+            $this->gateway()->findPaymentByOrderId('renew_order_1');
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught, 'Empty Payments is ambiguous, never "no payment"');
+        $this->assertStringContainsString('ambiguous', $caught->getMessage());
 
         Http::assertSent(function ($request) {
             if ($request->url() !== 'https://securepay.tinkoff.ru/v2/CheckOrder') {
@@ -906,6 +915,73 @@ class TBankPaymentGatewayTest extends TestCase
                 && isset($data['Token'])
                 && hash_equals($this->tokenFor($data), $data['Token']);
         });
+    }
+
+    public function test_check_order_missing_payments_is_ambiguous_and_throws(): void
+    {
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                // No Payments key at all.
+            ], 200),
+        ]);
+
+        $caught = null;
+
+        try {
+            $this->gateway()->findPaymentByOrderId('renew_order_1');
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught, 'Missing Payments is ambiguous, never "no payment"');
+        $this->assertStringContainsString('ambiguous', $caught->getMessage());
+    }
+
+    public function test_check_order_invalid_payments_entries_are_ambiguous_and_throws(): void
+    {
+        // A malformed entry next to a valid one poisons the whole answer.
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'Payments' => [
+                    ['PaymentId' => '700123456', 'Status' => 'NEW'],
+                    'not-an-array',
+                ],
+            ], 200),
+        ]);
+
+        $caught = null;
+
+        try {
+            $this->gateway()->findPaymentByOrderId('renew_order_1');
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught);
+        $this->assertStringContainsString('ambiguous', $caught->getMessage());
+
+        // Entries without a PaymentId at all.
+        Http::fake([
+            'securepay.tinkoff.ru/*' => Http::response([
+                'Success' => true,
+                'Payments' => [
+                    ['Status' => 'NEW'],
+                ],
+            ], 200),
+        ]);
+
+        $caught = null;
+
+        try {
+            $this->gateway()->findPaymentByOrderId('renew_order_1');
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught);
+        $this->assertStringContainsString('ambiguous', $caught->getMessage());
     }
 
     public function test_check_order_single_new_payment_returns_update(): void
@@ -1080,10 +1156,11 @@ class TBankPaymentGatewayTest extends TestCase
                 ], 200);
             }
 
-            // CheckOrder and everything else
+            // CheckOrder and everything else: ErrorCode 335 — the only
+            // documented "no payment yet" answer.
             return Http::response([
-                'Success' => true,
-                'Payments' => [],
+                'Success' => false,
+                'ErrorCode' => '335',
             ], 200);
         });
 

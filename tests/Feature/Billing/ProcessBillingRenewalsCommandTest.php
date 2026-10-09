@@ -402,7 +402,7 @@ class ProcessBillingRenewalsCommandTest extends TestCase
             if (str_ends_with($request->url(), '/v2/CheckOrder')) {
                 return $failCheckOrder
                     ? Http::response(['Success' => false], 500)
-                    : Http::response(['Success' => true, 'Payments' => []], 200);
+                    : Http::response(['Success' => false, 'ErrorCode' => '335'], 200);
             }
 
             if (str_ends_with($request->url(), '/v2/Charge')) {
@@ -418,7 +418,8 @@ class ProcessBillingRenewalsCommandTest extends TestCase
                 return Http::response(['Success' => true, 'PaymentId' => self::PAYMENT_ID], 200);
             }
 
-            return Http::response(['Success' => true, 'Payments' => []], 200);
+            // CheckOrder — no payment yet (ErrorCode 335)
+            return Http::response(['Success' => false, 'ErrorCode' => '335'], 200);
         });
 
         $this->artisan('billing:process-renewals --retry-technical --execute')
@@ -476,8 +477,8 @@ class ProcessBillingRenewalsCommandTest extends TestCase
                 ], 200);
             }
 
-            // CheckOrder — no payment yet
-            return Http::response(['Success' => true, 'Payments' => []], 200);
+            // CheckOrder — no payment yet (ErrorCode 335)
+            return Http::response(['Success' => false, 'ErrorCode' => '335'], 200);
         });
 
         $this->artisan('billing:process-renewals --retry-technical --execute')
@@ -743,8 +744,8 @@ class ProcessBillingRenewalsCommandTest extends TestCase
                 ], 200);
             }
 
-            // CheckOrder — no payment yet
-            return Http::response(['Success' => true, 'Payments' => []], 200);
+            // CheckOrder — no payment yet (ErrorCode 335)
+            return Http::response(['Success' => false, 'ErrorCode' => '335'], 200);
         });
     }
 }

@@ -367,12 +367,17 @@ class TBankPaymentGateway implements PaymentGatewayInterface
      * Look up a payment by OrderId (CheckOrder) — recovery entry point for a
      * possibly-lost Init.
      *
-     * Returns null when no payments exist, and also when the provider reports
-     * ErrorCode 335 ("OrderId not found"): for a fresh renewal OrderId there is
-     * legitimately no payment yet, so the caller may proceed with a fresh Init.
-     * Every other failure (transport, non-2xx, invalid body, other error codes)
-     * fails closed. Multiple distinct PaymentIds also fail closed: never pick
-     * one automatically.
+     * Returns null ONLY for the documented ErrorCode 335 ("OrderId not
+     * found"): for a fresh renewal OrderId there is legitimately no payment
+     * yet, so the caller may proceed with a fresh Init.
+     *
+     * A Success=true body with a missing, empty or malformed Payments list is
+     * an AMBIGUOUS answer — the provider may or may not know the order — and
+     * fails closed with RuntimeException: never a fresh Init on top of an
+     * unknown provider state. Multiple distinct PaymentIds also fail closed:
+     * never pick one automatically. Transport errors, non-2xx, invalid bodies
+     * and every other error code fail closed as well — none of them counts as
+     * "no payment exists".
      */
     public function findPaymentByOrderId(string $internalOrderId): ?ProviderStatusUpdate
     {
@@ -404,22 +409,22 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
         $payments = $data['Payments'] ?? null;
         if (! is_array($payments) || $payments === []) {
-            return null;
+            // Success=true without a usable Payments list: the answer cannot
+            // be trusted as "no payment exists" — fail closed instead of
+            // letting the caller Init again on top of an unknown state.
+            throw new RuntimeException('T-Bank CheckOrder returned an ambiguous response: Payments missing or empty');
         }
 
-        // Keep the first item per distinct PaymentId, dropping empty ones.
+        // Keep the first item per distinct PaymentId; any malformed entry
+        // makes the whole answer ambiguous.
         $byPaymentId = [];
         foreach ($payments as $payment) {
             if (! is_array($payment) || empty($payment['PaymentId'])) {
-                continue;
+                throw new RuntimeException('T-Bank CheckOrder returned an ambiguous response: invalid Payments entry');
             }
 
             $paymentId = (string) $payment['PaymentId'];
             $byPaymentId[$paymentId] ??= $payment;
-        }
-
-        if ($byPaymentId === []) {
-            return null;
         }
 
         if (count($byPaymentId) > 1) {

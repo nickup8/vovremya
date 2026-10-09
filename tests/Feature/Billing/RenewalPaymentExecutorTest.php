@@ -135,7 +135,7 @@ class RenewalPaymentExecutorTest extends TestCase
             }
 
             if (str_ends_with($request->url(), '/v2/CheckOrder')) {
-                return Http::response($this->checkOrderEmptyBody(), 200);
+                return Http::response($this->checkOrderNoPaymentBody(), 200);
             }
 
             return Http::response([
@@ -184,7 +184,7 @@ class RenewalPaymentExecutorTest extends TestCase
 
         Http::fake(function ($request) {
             if (str_ends_with($request->url(), '/v2/CheckOrder')) {
-                return Http::response($this->checkOrderEmptyBody(), 200);
+                return Http::response($this->checkOrderNoPaymentBody(), 200);
             }
 
             if (str_ends_with($request->url(), '/v2/Init')) {
@@ -221,7 +221,7 @@ class RenewalPaymentExecutorTest extends TestCase
 
         Http::fake(function ($request) {
             if (str_ends_with($request->url(), '/v2/CheckOrder')) {
-                return Http::response($this->checkOrderEmptyBody(), 200);
+                return Http::response($this->checkOrderNoPaymentBody(), 200);
             }
 
             if (str_ends_with($request->url(), '/v2/Init')) {
@@ -256,6 +256,39 @@ class RenewalPaymentExecutorTest extends TestCase
         $this->assertSame(BillingCycleStatus::Pending, $cycle->status);
     }
 
+    // ── CheckOrder contract: only ErrorCode 335 unlocks the fresh flow ──
+
+    public function test_ambiguous_check_order_blocks_init_and_charge(): void
+    {
+        $attempt = $this->preparedRenewalAttempt();
+
+        // Success=true with an empty Payments list — the bank may or may not
+        // know the order; this is NOT an established "no payment exists".
+        Http::fake(function ($request) {
+            return Http::response(['Success' => true, 'Payments' => []], 200);
+        });
+
+        $caught = null;
+        try {
+            $this->executor->execute($attempt);
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught);
+        $this->assertStringContainsString('ambiguous', $caught->getMessage());
+
+        // CheckOrder only — neither Init nor Charge may be dispatched.
+        $this->assertSame(['/v2/CheckOrder'], $this->sentPaths());
+
+        // Attempt untouched: no Init means no PaymentId and no dispatch
+        // marker; the ambiguity must be resolved outside this executor.
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Created, $attempt->status);
+        $this->assertNull($attempt->provider_payment_id);
+        $this->assertNull($attempt->metadata['charge_dispatch_started_at'] ?? null);
+    }
+
     // ── Transport retry policy: Init/Charge are single-attempt ──
 
     public function test_fresh_renewal_init_transport_failure_is_attempted_exactly_once(): void
@@ -266,7 +299,7 @@ class RenewalPaymentExecutorTest extends TestCase
 
         Http::fake(function ($request) {
             if (str_ends_with($request->url(), '/v2/CheckOrder')) {
-                return Http::response($this->checkOrderEmptyBody(), 200);
+                return Http::response($this->checkOrderNoPaymentBody(), 200);
             }
 
             return Http::response(['Success' => false], 500);
@@ -368,7 +401,7 @@ class RenewalPaymentExecutorTest extends TestCase
 
         Http::fake(function ($request) {
             if (str_ends_with($request->url(), '/v2/CheckOrder')) {
-                return Http::response($this->checkOrderEmptyBody(), 200);
+                return Http::response($this->checkOrderNoPaymentBody(), 200);
             }
 
             if (str_ends_with($request->url(), '/v2/Init')) {
@@ -828,7 +861,7 @@ class RenewalPaymentExecutorTest extends TestCase
     {
         Http::fake(function ($request) use ($chargeStatus, $orderId) {
             if (str_ends_with($request->url(), '/v2/CheckOrder')) {
-                return Http::response($this->checkOrderEmptyBody(), 200);
+                return Http::response($this->checkOrderNoPaymentBody(), 200);
             }
 
             if (str_ends_with($request->url(), '/v2/Charge')) {
@@ -842,9 +875,14 @@ class RenewalPaymentExecutorTest extends TestCase
         });
     }
 
-    private function checkOrderEmptyBody(): array
+    /**
+     * The only documented "no payment yet" CheckOrder answer (ErrorCode
+     * 335): lets the fresh flow proceed with Init. Anything else — empty or
+     * malformed Payments on Success=true — is ambiguous and must not.
+     */
+    private function checkOrderNoPaymentBody(): array
     {
-        return ['Success' => true, 'Payments' => []];
+        return ['Success' => false, 'ErrorCode' => '335', 'ErrorMessage' => 'Order not found'];
     }
 
     private function checkOrderPaymentsBody(array $payments): array
