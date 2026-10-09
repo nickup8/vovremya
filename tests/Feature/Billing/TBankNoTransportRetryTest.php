@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Services\Payment\PaymentGatewayManager;
 use App\Services\Payment\TBankPaymentGateway;
 use App\Services\VkApiClient;
 use Illuminate\Http\Client\ConnectionException;
@@ -167,6 +168,115 @@ class TBankNoTransportRetryTest extends TestCase
             $this->attemptsFor('/method/messages.send'),
             'Non-T-Bank integrations must keep the original retry budget'
         );
+    }
+
+    // ── The exception is scoped to the CONFIGURED gateway URLs ──
+
+    public function test_foreign_host_with_tbank_paths_keeps_transport_retries(): void
+    {
+        $this->failTransportOnPaths('/v2/Init', '/v2/Charge');
+
+        // Same paths as T-Bank, but a foreign origin — must not be excepted.
+        $this->postIgnoringFailure('https://evil.example.com/v2/Init');
+        $this->postIgnoringFailure('https://evil.example.com/v2/Charge');
+
+        $this->assertSame(self::RETRY_BUDGET_ATTEMPTS, $this->attemptsForUrl('https://evil.example.com/v2/Init'));
+        $this->assertSame(self::RETRY_BUDGET_ATTEMPTS, $this->attemptsForUrl('https://evil.example.com/v2/Charge'));
+    }
+
+    public function test_configured_tbank_base_url_is_single_attempt(): void
+    {
+        config(['billing.gateways.tbank' => [
+            'driver' => 'tbank',
+            'terminal_key' => self::TERMINAL_KEY,
+            'password' => self::PASSWORD,
+            'base_url' => 'https://acquiring.tbank-test.example',
+        ]]);
+
+        $this->failTransportOnPaths('/v2/Init');
+
+        // The manager builds the gateway from the same config the retry
+        // decider reads — the whole chain config → gateway → URL is under test.
+        $gateway = app(PaymentGatewayManager::class)->getGateway('tbank');
+        $this->assertInstanceOf(TBankPaymentGateway::class, $gateway);
+
+        $caught = null;
+
+        try {
+            $gateway->initRecurringPayment(490, 'RUB', 'order-1');
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught);
+        $this->assertSame(
+            1,
+            $this->attemptsForUrl('https://acquiring.tbank-test.example/v2/Init'),
+            'The configured gateway base URL must be single-attempt'
+        );
+    }
+
+    public function test_other_scheme_or_port_is_not_excepted(): void
+    {
+        $this->failTransportOnPaths('/v2/Init', '/v2/Charge');
+
+        // Same host and paths, but http:// instead of https:// …
+        $this->postIgnoringFailure('http://securepay.tinkoff.ru/v2/Init');
+        // … and a non-default port.
+        $this->postIgnoringFailure('https://securepay.tinkoff.ru:8443/v2/Charge');
+
+        $this->assertSame(self::RETRY_BUDGET_ATTEMPTS, $this->attemptsForUrl('http://securepay.tinkoff.ru/v2/Init'));
+        $this->assertSame(self::RETRY_BUDGET_ATTEMPTS, $this->attemptsForUrl('https://securepay.tinkoff.ru:8443/v2/Charge'));
+
+        // An explicit scheme-default port is the SAME origin (effective
+        // port). psr7 normalizes ":443" away before the request reaches the
+        // retry layer — the configured "https://host" still matches it.
+        $this->postIgnoringFailure('https://securepay.tinkoff.ru:443/v2/Init');
+        $this->assertSame(1, $this->attemptsForUrl('https://securepay.tinkoff.ru/v2/Init'));
+    }
+
+    public function test_base_url_with_path_prefix_is_recognized(): void
+    {
+        config(['billing.gateways.tbank' => [
+            'driver' => 'tbank',
+            'terminal_key' => self::TERMINAL_KEY,
+            'password' => self::PASSWORD,
+            'base_url' => 'https://acquiring.example.com/tbank-proxy/',
+        ]]);
+
+        $this->failTransportOnPaths('/v2/Init');
+
+        $gateway = app(PaymentGatewayManager::class)->getGateway('tbank');
+        $this->assertInstanceOf(TBankPaymentGateway::class, $gateway);
+
+        $caught = null;
+
+        try {
+            $gateway->initRecurringPayment(490, 'RUB', 'order-1');
+        } catch (RuntimeException $e) {
+            $caught = $e;
+        }
+
+        $this->assertInstanceOf(RuntimeException::class, $caught);
+        $this->assertSame(
+            1,
+            $this->attemptsForUrl('https://acquiring.example.com/tbank-proxy/v2/Init'),
+            'A TBANK_BASE_URL path prefix must be part of the recognized URL'
+        );
+
+        // Same origin WITHOUT the configured prefix is not a gateway URL.
+        $this->postIgnoringFailure('https://acquiring.example.com/v2/Init');
+        $this->assertSame(self::RETRY_BUDGET_ATTEMPTS, $this->attemptsForUrl('https://acquiring.example.com/v2/Init'));
+    }
+
+    private function postIgnoringFailure(string $url): void
+    {
+        try {
+            Http::post($url, []);
+        } catch (ConnectionException) {
+            // Expected: the fake transport rejects every attempt; the attempt
+            // count is what the assertions below observe.
+        }
     }
 
     // ── Preserved HTTP policy ──

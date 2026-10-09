@@ -73,7 +73,10 @@ class PaymentGatewayManager extends Manager
         return new TBankPaymentGateway(
             terminalKey: $config['terminal_key'] ?? null,
             password: $config['password'] ?? null,
-            baseUrl: ($config['base_url'] ?? '') ?: 'https://securepay.tinkoff.ru',
+            // Same base-URL resolution the retry decider uses.
+            baseUrl: TBankPaymentGateway::resolveBaseUrl(
+                is_string($config['base_url'] ?? null) ? $config['base_url'] : null,
+            ),
         );
     }
 }

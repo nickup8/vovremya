@@ -30,6 +30,9 @@ trait MakesFailingHttpTransport
     /** @var list<string> Path of every attempt dispatched by the retry chain. */
     protected array $dispatchedPaths = [];
 
+    /** @var list<string> Full URI of every attempt dispatched by the retry chain. */
+    protected array $dispatchedUrls = [];
+
     /**
      * Reject the given paths with a transport failure on every attempt and
      * count all dispatched attempts. Every other path still passes through to
@@ -45,6 +48,7 @@ trait MakesFailingHttpTransport
             return function (RequestInterface $request, array $options) use ($handler, $paths) {
                 $path = $request->getUri()->getPath();
                 $this->dispatchedPaths[] = $path;
+                $this->dispatchedUrls[] = (string) $request->getUri();
 
                 if (! in_array($path, $paths, true)) {
                     return $handler($request, $options);
@@ -64,5 +68,10 @@ trait MakesFailingHttpTransport
     protected function attemptsFor(string $path): int
     {
         return count(array_filter($this->dispatchedPaths, fn (string $dispatched) => $dispatched === $path));
+    }
+
+    protected function attemptsForUrl(string $url): int
+    {
+        return count(array_filter($this->dispatchedUrls, fn (string $dispatched) => $dispatched === $url));
     }
 }

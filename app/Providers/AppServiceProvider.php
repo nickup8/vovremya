@@ -60,15 +60,17 @@ class AppServiceProvider extends ServiceProvider
 
         Http::globalMiddleware(Middleware::retry(
             function (int $retries, RequestInterface $request, $response = null, ?\Throwable $exception = null): bool {
-                // T-Bank Init/Charge are single-attempt: a ConnectException can
-                // arrive AFTER the request was sent (response timeout), so a
-                // transport retry here could hit the bank with a second
-                // Init/Charge. The undefined outcome stays with CheckOrder
-                // recovery, the charge dispatch marker and reconciliation —
-                // never with an automatic re-send. Every other request keeps
-                // the retry budget below.
+                // T-Bank Init/Charge of the configured gateway (same origin
+                // and path as the gateway builds them, incl. any
+                // TBANK_BASE_URL prefix) are single-attempt: a
+                // ConnectException can arrive AFTER the request was sent
+                // (response timeout), so a transport retry here could hit
+                // the bank with a second Init/Charge. The undefined outcome
+                // stays with CheckOrder recovery, the charge dispatch marker
+                // and reconciliation — never with an automatic re-send.
+                // Every other request keeps the retry budget below.
                 $singleAttempt = $exception instanceof ConnectException
-                    && in_array($request->getUri()->getPath(), TBankPaymentGateway::SINGLE_ATTEMPT_PATHS, true);
+                    && TBankPaymentGateway::isSingleAttemptUrl((string) $request->getUri());
 
                 if ($singleAttempt) {
                     return false;

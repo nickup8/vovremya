@@ -20,20 +20,6 @@ class TBankPaymentGateway implements PaymentGatewayInterface
     private const CHARGE_PATH = '/v2/Charge';
 
     /**
-     * Endpoints the global Guzzle retry decider (AppServiceProvider) must
-     * never transport-retry: Init and Charge create/trigger money movement,
-     * and a ConnectException may arrive AFTER the request reached the bank
-     * (e.g. a response timeout), so an automatic re-send could hit the bank
-     * a second time. One Init/Charge call = one HTTP attempt; an undefined
-     * outcome is owned by CheckOrder recovery, the charge dispatch marker
-     * and reconciliation — never by an automatic re-send.
-     *
-     * Built from the path constants every Init call site (card, SBP,
-     * recurring) and Charge use below, so rule and URLs cannot drift apart.
-     */
-    public const SINGLE_ATTEMPT_PATHS = [self::INIT_PATH, self::CHARGE_PATH];
-
-    /**
      * ErrorCode set returned by T-Bank for "insufficient funds" on Charge.
      * Only these are classified as a user-level decline; every other
      * Success=false stays fail closed.
@@ -45,6 +31,78 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         private readonly ?string $password,
         private readonly string $baseUrl = self::DEFAULT_BASE_URL,
     ) {}
+
+    /**
+     * Base URL of the T-Bank gateway: the value PaymentGatewayManager injects
+     * into every gateway instance (billing.gateways.tbank.base_url /
+     * TBANK_BASE_URL), falling back to the gateway default. One resolution
+     * shared by the manager and the retry decider, so the URLs the gateway
+     * calls and the URLs the decider exempts can never diverge.
+     */
+    public static function resolveBaseUrl(?string $baseUrl = null): string
+    {
+        if ($baseUrl === null || trim($baseUrl) === '') {
+            $configured = config('billing.gateways.tbank.base_url');
+            $baseUrl = is_string($configured) ? $configured : '';
+        }
+
+        $baseUrl = trim($baseUrl);
+
+        return $baseUrl !== '' ? $baseUrl : self::DEFAULT_BASE_URL;
+    }
+
+    /**
+     * Absolute Init/Charge URLs of the CONFIGURED gateway — origin
+     * (scheme/host/effective port) plus path, including any path prefix in
+     * TBANK_BASE_URL. The global Guzzle retry decider
+     * (AppServiceProvider) must never transport-retry them: Init and Charge
+     * create/trigger money movement, and a ConnectException may arrive AFTER
+     * the request reached the bank (e.g. a response timeout), so an
+     * automatic re-send could hit the bank a second time. One Init/Charge
+     * call = one HTTP attempt; an undefined outcome is owned by CheckOrder
+     * recovery, the charge dispatch marker and reconciliation — never by an
+     * automatic re-send.
+     *
+     * Built through the same base-URL resolution and URL joining the gateway
+     * itself uses below, from the path constants every Init call site (card,
+     * SBP, recurring) and Charge build their URLs from.
+     *
+     * @return list<string>
+     */
+    public static function singleAttemptUrls(): array
+    {
+        $baseUrl = self::resolveBaseUrl();
+
+        return [
+            self::joinUrl($baseUrl, self::INIT_PATH),
+            self::joinUrl($baseUrl, self::CHARGE_PATH),
+        ];
+    }
+
+    /**
+     * True when a request URL is one of the configured single-attempt
+     * Init/Charge URLs: same origin (scheme, host and effective port — an
+     * explicit default port such as :443 equals the scheme default) and the
+     * exact path including any TBANK_BASE_URL path prefix. Everything else —
+     * other hosts, ports, schemes or endpoints — keeps the normal retry
+     * behaviour.
+     */
+    public static function isSingleAttemptUrl(string $url): bool
+    {
+        $target = self::originAndPath($url);
+
+        if ($target === null) {
+            return false;
+        }
+
+        foreach (self::singleAttemptUrls() as $candidate) {
+            if (self::originAndPath($candidate) === $target) {
+                return true;
+            }
+        }
+
+        return false;
+    }
 
     public function name(): string
     {
@@ -617,6 +675,50 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
     private function url(string $path): string
     {
-        return rtrim($this->baseUrl, '/').$path;
+        return self::joinUrl($this->baseUrl, $path);
+    }
+
+    /**
+     * Single URL join for the gateway and singleAttemptUrls(): base URL
+     * (possibly with a path prefix, possibly trailing slash) + endpoint path.
+     */
+    private static function joinUrl(string $baseUrl, string $path): string
+    {
+        return rtrim($baseUrl, '/').$path;
+    }
+
+    /**
+     * Normalized "scheme://host:effectivePort/path" of a URL — the identity
+     * the single-attempt rule compares. Query and fragment are ignored;
+     * a missing port becomes the scheme default (443/80) so that an explicit
+     * ":443" and no port at all compare equal. Null when the URL has no
+     * scheme or host (not a target the rule can recognize).
+     */
+    private static function originAndPath(string $url): ?string
+    {
+        $parts = parse_url($url);
+
+        if ($parts === false || ! isset($parts['scheme'], $parts['host'])) {
+            return null;
+        }
+
+        $scheme = strtolower((string) $parts['scheme']);
+        $port = isset($parts['port'])
+            ? (int) $parts['port']
+            : self::defaultPortForScheme($scheme);
+
+        return $scheme
+            .'://'.strtolower((string) $parts['host'])
+            .($port !== null ? ':'.$port : '')
+            .($parts['path'] ?? '');
+    }
+
+    private static function defaultPortForScheme(string $scheme): ?int
+    {
+        return match ($scheme) {
+            'http' => 80,
+            'https' => 443,
+            default => null,
+        };
     }
 }
