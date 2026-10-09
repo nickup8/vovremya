@@ -285,8 +285,10 @@ class BillingService
         $sbpPayload = $metadata['sbp_payload'] ?? null;
         $storedMethod = $this->storedPaymentMethod($metadata);
 
-        // Возрастной релиз с provider_payment_id: это не подтверждённый
-        // отказ, а неотвеченный вопрос — метод оплаты тут не при чём.
+        // Возрастной релиз reconciliation_timeout (с provider_payment_id или
+        // без): это не подтверждённый отказ банка — потерянный ответ Init не
+        // доказывает отсутствия платежа — а неотвеченный вопрос; метод оплаты
+        // тут не при чём.
         if ($inFlight->status === PaymentAttemptStatus::FailedTerminal) {
             throw ValidationException::withMessages([
                 'plan' => 'Статус предыдущего платежа уточняется. Попробуйте позже.',

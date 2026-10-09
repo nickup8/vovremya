@@ -26,11 +26,12 @@ use Illuminate\Validation\ValidationException;
 use Tests\TestCase;
 
 /**
- * Локальный age-release (failed_terminal + reconciliation_timeout) с
- * provider_payment_id — исход оплаты неизвестен банку, поэтому повторный
- * checkout блокируется controlled 422 «уточняется» до выяснения. Подтверждённый
- * отказ (включая DEADLINE_EXPIRED → provider_failed) по-прежнему разрешает
- * новый checkout.
+ * Локальный age-release (failed_terminal + reconciliation_timeout) — с
+ * provider_payment_id или без: исход оплаты неизвестен банку, а потерянный
+ * ответ Init не доказывает отсутствия платежа, поэтому повторный checkout
+ * блокируется controlled 422 «уточняется» до выяснения. Подтверждённый отказ
+ * (включая DEADLINE_EXPIRED → provider_failed) по-прежнему разрешает новый
+ * checkout.
  */
 class CheckoutReconciliationTimeoutBlockTest extends TestCase
 {
@@ -117,6 +118,7 @@ class CheckoutReconciliationTimeoutBlockTest extends TestCase
         TariffPlan $plan,
         ?string $providerPaymentId = 'tbank_700123456',
         array $metadata = ['payment_method' => 'card', 'checkout_url' => 'https://example.test/pay'],
+        string $failureCategory = 'reconciliation_timeout',
     ): PaymentAttempt {
         $subscription = BillingSubscription::create([
             'workspace_id' => $workspace->id,
@@ -145,7 +147,7 @@ class CheckoutReconciliationTimeoutBlockTest extends TestCase
             'internal_order_id' => 'core_'.bin2hex(random_bytes(16)),
             'provider_payment_id' => $providerPaymentId,
             'status' => PaymentAttemptStatus::FailedTerminal,
-            'failure_category' => 'reconciliation_timeout',
+            'failure_category' => $failureCategory,
             'initiated_at' => now()->subHour(),
             'finished_at' => now()->subMinutes(30),
             'metadata' => $metadata,
@@ -365,14 +367,107 @@ class CheckoutReconciliationTimeoutBlockTest extends TestCase
         Http::assertSentCount(1);
     }
 
-    // ── Timeout без provider_payment_id: поведение сохранено ──
+    // ── 4. Timeout без provider_payment_id: карта и СБП → 422 ──
 
-    public function test_timeout_without_provider_id_still_allows_checkout(): void
+    public function test_timeout_without_provider_id_blocks_card_and_sbp_checkout(): void
     {
         Http::fake();
         [$master, $workspace] = $this->createMasterWithWorkspace();
-        $this->createTimeoutAttempt($workspace, $this->proPlan, providerPaymentId: null);
+        $attempt = $this->createTimeoutAttempt($workspace, $this->proPlan, providerPaymentId: null);
 
+        $gateway = $this->countingGateway();
+        $this->app->instance(PaymentGatewayInterface::class, $gateway);
+        $service = app(BillingService::class);
+
+        // Потерянный ответ Init не доказывает отсутствия платежа у банка.
+        // Хранится card-инициация: SBP-запрос обязан получить тот же
+        // «уточняется», а не ошибку несовпадения способа.
+        $this->expectTimeout422($service, $master, 'card');
+        $this->expectTimeout422($service, $master, 'sbp');
+
+        // Без нового attempt, без вызовов gateway, без HTTP.
+        $this->assertSame(0, $gateway->calls);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('payment_attempts', 1);
+
+        // Старая попытка неизменна.
+        $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::FailedTerminal, $attempt->status);
+        $this->assertSame('reconciliation_timeout', $attempt->failure_category);
+        $this->assertNull($attempt->provider_payment_id);
+        $this->assertSame(1, $attempt->attempt_number);
+    }
+
+    public function test_timeout_with_empty_provider_id_is_blocked(): void
+    {
+        Http::fake();
+        [$master, $workspace] = $this->createMasterWithWorkspace();
+        $attempt = $this->createTimeoutAttempt($workspace, $this->proPlan, providerPaymentId: '');
+
+        $gateway = $this->countingGateway();
+        $this->app->instance(PaymentGatewayInterface::class, $gateway);
+        $service = app(BillingService::class);
+
+        $this->expectTimeout422($service, $master, 'card');
+
+        $this->assertSame(0, $gateway->calls);
+        Http::assertNothingSent();
+        $this->assertDatabaseCount('payment_attempts', 1);
+
+        $attempt->refresh();
+        $this->assertSame('', $attempt->provider_payment_id);
+    }
+
+    // ── 5. Scope и подтверждённый отказ сохранены ──
+
+    public function test_timeout_block_without_provider_id_is_scoped_to_workspace_and_plan(): void
+    {
+        [$masterA, $workspaceA] = $this->createMasterWithWorkspace();
+        [, $workspaceB] = $this->createMasterWithWorkspace();
+
+        $blocked = $this->createTimeoutAttempt($workspaceA, $this->proPlan, providerPaymentId: null);
+
+        $writer = app(BillingCoreWriter::class);
+
+        // Свой workspace + свой план → блокируется.
+        $this->assertSame(
+            $blocked->id,
+            $writer->findExistingInFlightAttempt($workspaceA->id, $this->proPlan->id)?->id,
+        );
+
+        // Чужой workspace и чужой план не попадают в выборку.
+        $this->assertNull($writer->findExistingInFlightAttempt($workspaceB->id, $this->proPlan->id));
+        $this->assertNull($writer->findExistingInFlightAttempt($workspaceA->id, $this->altPlan->id));
+    }
+
+    public function test_confirmed_provider_failure_is_never_in_flight(): void
+    {
+        Http::fake();
+        [$master, $workspace] = $this->createMasterWithWorkspace();
+        [, $workspaceNoId] = $this->createMasterWithWorkspace();
+
+        // Блокирует категория reconciliation_timeout, а не сам статус
+        // failed_terminal: подтверждённый отказ (provider_failed, в том
+        // числе DEADLINE_EXPIRED) не блокирует — ни с provider_payment_id,
+        // ни без него.
+        $this->createTimeoutAttempt(
+            $workspace,
+            $this->proPlan,
+            providerPaymentId: 'tbank_1',
+            failureCategory: 'provider_failed',
+        );
+        $this->createTimeoutAttempt(
+            $workspaceNoId,
+            $this->proPlan,
+            providerPaymentId: null,
+            failureCategory: 'provider_failed',
+        );
+
+        $writer = app(BillingCoreWriter::class);
+        $this->assertNull($writer->findExistingInFlightAttempt($workspace->id, $this->proPlan->id));
+        $this->assertNull($writer->findExistingInFlightAttempt($workspaceNoId->id, $this->proPlan->id));
+
+        // И новый checkout спокойно проходит.
         $gateway = $this->countingGateway();
         $this->app->instance(PaymentGatewayInterface::class, $gateway);
         $service = app(BillingService::class);
@@ -381,7 +476,6 @@ class CheckoutReconciliationTimeoutBlockTest extends TestCase
 
         $this->assertSame(1, $gateway->calls);
         $this->assertNotNull($result['payment_id']);
-        $this->assertDatabaseCount('payment_attempts', 2);
-        Http::assertNothingSent();
+        $this->assertDatabaseCount('payment_attempts', 3);
     }
 }

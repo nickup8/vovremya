@@ -292,12 +292,12 @@ class BillingCoreWriter
      * Find an existing in-flight attempt for the same workspace + plan.
      *
      * In-flight = created, processing, or unknown — plus one bounded
-     * exception: failed_terminal with failure_category=reconciliation_timeout
-     * and a non-empty provider_payment_id. That outcome came from the LOCAL
-     * age-release, not from the bank: with a provider payment id the real
-     * verdict may still arrive, so a new checkout must wait instead of
-     * stacking a second payment on an unresolved one. A timeout WITHOUT a
-     * provider payment id stays outside the block (unchanged behavior).
+     * exception: failed_terminal with failure_category=reconciliation_timeout,
+     * with or without provider_payment_id. That outcome came from the LOCAL
+     * age-release, not from the bank: a lost Init response never proves the
+     * bank has no payment, so a new checkout must wait instead of stacking a
+     * second payment on an unresolved one. A confirmed provider decline
+     * (failure_category=provider_failed or none at all) never blocks.
      *
      * Searches by workspace + plan only (NOT by period) — a double-click
      * may produce slightly different period timestamps but the previous
@@ -325,9 +325,7 @@ class BillingCoreWriter
                 $query->whereIn('status', $inFlightStatuses)
                     ->orWhere(function ($q) {
                         $q->where('status', PaymentAttemptStatus::FailedTerminal)
-                            ->where('failure_category', 'reconciliation_timeout')
-                            ->whereNotNull('provider_payment_id')
-                            ->where('provider_payment_id', '!=', '');
+                            ->where('failure_category', 'reconciliation_timeout');
                     });
             })
             ->orderByDesc('attempt_number')
