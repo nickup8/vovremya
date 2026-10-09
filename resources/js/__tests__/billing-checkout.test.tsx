@@ -485,10 +485,71 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         await act(async () => {});
 
         expect(screen.getByText('Платёж возвращён')).toBeTruthy();
+        // Полный возврат отличим от частичного
+        expect(screen.queryByText('Частичный возврат')).toBeNull();
+        expect(screen.queryByText('Возвращена часть платежа')).toBeNull();
         expect(
             screen.getByRole('link', { name: 'Вернуться к тарифам' }),
         ).toBeTruthy();
 
+        // Не success-экран и без кнопок новой оплаты
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.queryByText('Профи активирован')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: 'Выбрать способ оплаты' }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: 'Проверить статус' }),
+        ).toBeNull();
+        // Ни о подписке, ни об активации ничего не утверждаем
+        expect(screen.queryByText(/подписк/i)).toBeNull();
+
+        act(() => {
+            vi.advanceTimersByTime(10000);
+        });
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+    });
+
+    it('partially_refunded shows its own copy and stops polling', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'partially_refunded' },
+        });
+
+        await startSbpCheckout();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Частичный возврат')).toBeTruthy();
+        expect(screen.getByText('Возвращена часть платежа')).toBeTruthy();
+        // Частичный возврат отличим от полного
+        expect(screen.queryByText('Платёж возвращён')).toBeNull();
+        expect(
+            screen.getByRole('link', { name: 'Вернуться к тарифам' }),
+        ).toBeTruthy();
+
+        // Не success-экран и без кнопок новой оплаты
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.queryByText('Профи активирован')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: 'Выбрать способ оплаты' }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: 'Проверить статус' }),
+        ).toBeNull();
+        // Ни о подписке, ни об активации ничего не утверждаем
+        expect(screen.queryByText(/подписк/i)).toBeNull();
+
+        // polling остановлен
         act(() => {
             vi.advanceTimersByTime(10000);
         });

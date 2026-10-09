@@ -108,7 +108,12 @@ function parseDeadline(iso: unknown): number | null {
 
 type PaymentMethod = 'sbp' | 'card';
 
-type SbpStatus = 'waiting' | 'succeeded' | 'failed' | 'refunded';
+type SbpStatus =
+    | 'waiting'
+    | 'succeeded'
+    | 'failed'
+    | 'refunded'
+    | 'partially_refunded';
 
 interface SbpPayment {
     payload: string;
@@ -341,11 +346,12 @@ export default function BillingCheckoutPage() {
                     } else {
                         setSbpStatus('failed');
                     }
-                } else if (
-                    status === 'refunded' ||
-                    status === 'partially_refunded'
-                ) {
+                } else if (status === 'refunded') {
+                    // Полный возврат — терминальный экран, polling остановлен
                     setSbpStatus('refunded');
+                } else if (status === 'partially_refunded') {
+                    // Частичный возврат — свой экран, polling тоже остановлен
+                    setSbpStatus('partially_refunded');
                 } else if (linkExpired) {
                     if (
                         status === 'unknown' ||
@@ -517,10 +523,32 @@ export default function BillingCheckoutPage() {
                                         </Link>
                                     </>
                                 ) : sbpStatus === 'refunded' ? (
+                                    /* Возврат: polling уже остановлен, экран
+                                       не обещает ни успеха, ни новой оплаты и
+                                       ничего не утверждает о подписке. */
                                     <>
                                         <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
                                             Платёж возвращён
                                         </div>
+                                        <Link
+                                            href="/admin/billing"
+                                            className={PRIMARY_BTN_CLASS}
+                                        >
+                                            Вернуться к тарифам
+                                        </Link>
+                                    </>
+                                ) : sbpStatus === 'partially_refunded' ? (
+                                    /* Частичный возврат — отличим от полного
+                                       тем же спокойным тоном: без success и
+                                       без новой оплаты, без утверждений о
+                                       подписке. */
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            Частичный возврат
+                                        </div>
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            Возвращена часть платежа
+                                        </p>
                                         <Link
                                             href="/admin/billing"
                                             className={PRIMARY_BTN_CLASS}
