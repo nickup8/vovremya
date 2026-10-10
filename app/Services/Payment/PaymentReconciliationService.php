@@ -6,6 +6,7 @@ use App\Enums\BillingCycleStatus;
 use App\Enums\PaymentAttemptStatus;
 use App\Models\BillingCycle;
 use App\Models\PaymentAttempt;
+use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Support\Facades\Cache;
@@ -27,11 +28,16 @@ class PaymentReconciliationService
     ];
 
     /**
-     * TTL of the per-attempt check lock: long enough to cover one GetState
-     * HTTP call, short enough to never wedge the attempt if the process dies
-     * mid-check.
+     * TTL of the per-attempt status-check lock: it has to cover the WHOLE
+     * GetState call with a margin, because one call may legally spend the
+     * entire global HTTP retry budget — up to 6 attempts of 20s response
+     * timeout plus 9.3s of retry delays (AppServiceProvider), ≈ 130s. Half
+     * of that wedges the attempt for another party while a check is still
+     * running; 180s leaves ~50s of headroom and still frees an attempt
+     * within minutes if the process dies mid-check. The retry policy itself
+     * is not owned here and stays untouched.
      */
-    private const CHECK_LOCK_TTL_SECONDS = 30;
+    private const CHECK_LOCK_TTL_SECONDS = 180;
 
     public function __construct(
         private PaymentGatewayManager $gatewayManager,
@@ -106,17 +112,16 @@ class PaymentReconciliationService
     }
 
     /**
-     * One coordinated GetState for a SINGLE attempt — the shared mechanism
-     * behind the manual POST check and the post-expiry reconciliation
-     * bypass.
+     * Manual GetState for a SINGLE attempt — the shared mechanism behind the
+     * POST check button. It asks the very same per-attempt lock, cooldown and
+     * fresh-row re-read as both automatic queues, so a click, a tab and a cron
+     * pass can never produce two GetState calls for one attempt.
      *
-     * Per-attempt lock + cooldown: parallel clicks / tabs / cron passes
-     * never duplicate the provider HTTP. The GetState call itself always
-     * runs outside any DB transaction; poll_count is never reset (this path
-     * does not write the automatic queue's poll metadata at all). Null,
-     * transport errors and non-final bank answers (NEW / AUTHORIZED) keep
-     * the attempt waiting exactly as it was — only a final verdict goes
-     * through the existing PaymentTransitionService.
+     * This path never writes the automatic queue's poll metadata: poll_count
+     * is neither advanced nor reset by a manual request. Null, transport
+     * errors and non-final bank answers (NEW / AUTHORIZED) keep the attempt
+     * waiting exactly as it was — only a final verdict goes through the
+     * existing PaymentTransitionService.
      *
      * @return array{attempt: PaymentAttempt, checked: bool}
      *                                                       `checked` = an actual GetState happened (false =
@@ -132,6 +137,51 @@ class PaymentReconciliationService
             return ['attempt' => $attempt, 'checked' => false];
         }
 
+        return $this->runStatusCheck(
+            $attempt,
+            due: fn (PaymentAttempt $fresh): bool => $this->isStatusCheckEligible($fresh)
+                && $fresh->provider_payment_id !== null
+                && $fresh->provider_payment_id !== ''
+                && $this->statusCheckCooldownExpired($fresh),
+            handle: function (PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void {
+                $this->applyVerdictOnly($statusUpdate);
+            },
+        );
+    }
+
+    /**
+     * One coordinated status check for a SINGLE attempt: the ONLY place in
+     * this service that talks to a gateway, shared by the manual POST check,
+     * the post-expiry bypass and both automatic queues.
+     *
+     * Everything runs under the per-attempt lock, in this order:
+     *
+     * 1. re-read the attempt from the database — the caller's conditions are
+     *    re-checked against that FRESH row, so a stale batch snapshot or a
+     *    stale manual request can neither start a second check nor poll an
+     *    attempt another actor has just resolved or just checked;
+     * 2. provider HTTP, outside every DB transaction;
+     * 3. every write this check owes — cooldown marker, poll metadata, the
+     *    SBP expiry one-shot — committed BEFORE the lock is released;
+     * 4. the caller's status handling, under the same lock, so a concurrent
+     *    check never meets a half-finished one.
+     *
+     * A skip (lock held, cooldown still running, row no longer eligible)
+     * performs no HTTP and consumes nothing — the one-shot marker included.
+     *
+     * @param  callable(PaymentAttempt): bool  $due  path conditions, always evaluated on the fresh row
+     * @param  callable(PaymentAttempt, ?ProviderStatusUpdate): void  $handle  what an answer means for this path
+     * @return array{attempt: PaymentAttempt, checked: bool}
+     *                                                       `checked` = an actual GetState happened.
+     */
+    private function runStatusCheck(
+        PaymentAttempt $attempt,
+        callable $due,
+        callable $handle,
+        bool $advancePollMetadata = false,
+        bool $consumeSbpExpiry = false,
+        bool $rethrow = false,
+    ): array {
         $lock = Cache::lock(
             'billing:payment-status-check:'.$attempt->getKey(),
             self::CHECK_LOCK_TTL_SECONDS,
@@ -143,44 +193,157 @@ class PaymentReconciliationService
         }
 
         try {
-            if (! $this->statusCheckCooldownExpired($attempt)) {
-                return ['attempt' => $attempt->refresh(), 'checked' => false];
+            $fresh = PaymentAttempt::query()->whereKey($attempt->getKey())->first();
+
+            if ($fresh === null) {
+                return ['attempt' => $attempt, 'checked' => false];
             }
 
-            $gateway = $this->gatewayManager->getGateway($attempt->provider);
+            if (! $due($fresh) || ! $this->gatewayManager->hasGateway($fresh->provider)) {
+                // The snapshot the caller held is no longer actionable
+                return ['attempt' => $fresh, 'checked' => false];
+            }
+
+            $gateway = $this->gatewayManager->getGateway($fresh->provider);
 
             try {
                 // Provider HTTP — outside any DB transaction
                 $statusUpdate = $gateway->getPaymentStatus(
-                    $attempt->provider_payment_id,
-                    $attempt->internal_order_id,
+                    $fresh->provider_payment_id,
+                    $fresh->internal_order_id,
                 );
-            } catch (\Throwable) {
-                // The GetState really happened: the cooldown still applies,
-                // and the attempt keeps waiting — an error is never a verdict.
-                $this->markStatusChecked($attempt);
+            } catch (\Throwable $e) {
+                // The GetState really happened: what this call owes is still
+                // written before the lock goes, and an error is never a
+                // verdict — the attempt keeps waiting.
+                $this->recordStatusCheck($fresh, $advancePollMetadata, $consumeSbpExpiry);
 
-                return ['attempt' => $attempt->refresh(), 'checked' => true];
+                if ($rethrow) {
+                    throw $e;
+                }
+
+                return ['attempt' => $fresh->refresh(), 'checked' => true];
             }
 
-            // Exactly one cooldown write per actual GetState, whatever it said
-            $this->markStatusChecked($attempt);
+            // Exactly one set of writes per actual GetState, whatever it said
+            $this->recordStatusCheck($fresh, $advancePollMetadata, $consumeSbpExpiry);
 
-            if ($statusUpdate !== null
-                && in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
-                $this->transitionService->transition($statusUpdate);
-            }
+            $handle($fresh, $statusUpdate);
 
-            // Null / NEW / AUTHORIZED → the attempt keeps its status, its
-            // checkout block and its waiting state untouched.
-            return ['attempt' => $attempt->refresh(), 'checked' => true];
+            return ['attempt' => $fresh->refresh(), 'checked' => true];
         } finally {
             $lock->release();
         }
     }
 
     /**
-     * Reconcile a single payment attempt.
+     * Every metadata write an ACTUAL GetState owes, in one short
+     * transaction, always before the shared lock is released:
+     *
+     * - `last_status_check_at` — the cooldown marker shared by every path;
+     * - `poll_count` / `last_polled_at` — the automatic queue's backoff,
+     *   incremented exactly once per actual call and never reset;
+     * - `sbp_expiry_polled_at` — the post-expiry one-shot, consumed only by
+     *   the bypass that really reached the bank.
+     *
+     * The row is re-read under a lock and only these keys are rewritten, so
+     * a marker or flag written in the meantime (charge_dispatch_started_at,
+     * technical_retry, …) survives, the stale snapshot is never written back
+     * and metadata is merged rather than replaced.
+     */
+    private function recordStatusCheck(
+        PaymentAttempt $attempt,
+        bool $advancePollMetadata,
+        bool $consumeSbpExpiry,
+    ): void {
+        DB::transaction(function () use ($attempt, $advancePollMetadata, $consumeSbpExpiry) {
+            $fresh = PaymentAttempt::lockForUpdate()
+                ->whereKey($attempt->getKey())
+                ->first();
+
+            if ($fresh === null) {
+                return;
+            }
+
+            $metadata = $this->attemptMetadata($fresh);
+            $metadata['last_status_check_at'] = now()->toIso8601String();
+
+            if ($advancePollMetadata) {
+                $metadata['poll_count'] = (int) ($metadata['poll_count'] ?? 0) + 1;
+                $metadata['last_polled_at'] = now()->toIso8601String();
+            }
+
+            if ($consumeSbpExpiry) {
+                $metadata['sbp_expiry_polled_at'] = now()->toIso8601String();
+            }
+
+            $fresh->update(['metadata' => $metadata]);
+        });
+    }
+
+    /**
+     * What an answer means for the manual check and for the post-expiry
+     * bypass: ONLY a final bank verdict goes through the existing
+     * PaymentTransitionService. Null, transport errors and in-flight
+     * answers leave the status, the checkout block and the waiting state
+     * untouched — a local expiry is never mistaken for a bank refusal.
+     */
+    private function applyVerdictOnly(?ProviderStatusUpdate $statusUpdate): void
+    {
+        if ($statusUpdate !== null
+            && in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
+            $this->transitionService->transition($statusUpdate);
+        }
+    }
+
+    /**
+     * Whether the bank may still be asked about this attempt at all: either
+     * the ordinary queue owns it (still in flight) or the timeout queue does
+     * (age-released, but with a provider payment id to ask about). A
+     * resolved attempt — Succeeded, Refunded, a confirmed refusal — is never
+     * re-checked, whatever snapshot the caller still holds.
+     */
+    private function isStatusCheckEligible(PaymentAttempt $attempt): bool
+    {
+        return $this->isOrdinaryQueueAttempt($attempt)
+            || $this->isTimeoutQueueAttempt($attempt);
+    }
+
+    /**
+     * A row of the ordinary queue: still in flight at the bank.
+     */
+    private function isOrdinaryQueueAttempt(PaymentAttempt $attempt): bool
+    {
+        return in_array($attempt->status, [
+            PaymentAttemptStatus::Created,
+            PaymentAttemptStatus::Processing,
+            PaymentAttemptStatus::Unknown,
+        ], true);
+    }
+
+    /**
+     * A row of the timeout queue: age-released to failed_terminal with the
+     * local reconciliation_timeout category, still carrying a provider
+     * payment id the bank can be asked about.
+     */
+    private function isTimeoutQueueAttempt(PaymentAttempt $attempt): bool
+    {
+        return $attempt->status === PaymentAttemptStatus::FailedTerminal
+            && $attempt->failure_category === 'reconciliation_timeout'
+            && $attempt->provider_payment_id !== null
+            && $attempt->provider_payment_id !== '';
+    }
+
+    /**
+     * Reconcile a single payment attempt of the ordinary queue.
+     *
+     * The batch snapshot only decides whether the row is worth a closer
+     * look — age release, the post-expiry bypass and the backoff window are
+     * cheap pre-checks. The GetState itself goes through runStatusCheck,
+     * which re-reads the row and repeats those conditions under the shared
+     * lock, so a snapshot that has aged out meanwhile fires no HTTP at all.
+     *
+     * @param  array<int, int>  $backoff
      */
     private function reconcileAttempt(
         PaymentAttempt $attempt,
@@ -188,10 +351,6 @@ class PaymentReconciliationService
         int $maxAgeWithProviderId,
         int $maxAgeWithoutProviderId,
     ): void {
-        $metadata = $attempt->metadata ?? [];
-        $pollCount = $metadata['poll_count'] ?? 0;
-        $lastPolledAt = $this->parseLastPolledAt($metadata['last_polled_at'] ?? null);
-
         // Check age release
         if ($this->shouldAgeRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId)) {
             $this->ageRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId);
@@ -206,25 +365,27 @@ class PaymentReconciliationService
         // waiting, even with the browser closed. poll_count is never reset:
         // after this poll the ordinary backoff continues from the advanced
         // metadata, and the consumed one-shot marker keeps every following
-        // pass out of the bank.
+        // pass out of the bank. A skip (lock held / cooldown still running)
+        // reaches no HTTP and therefore consumes no marker.
         if ($this->isSbpExpiryBypassDue($attempt)) {
-            $result = $this->checkAttemptNow($attempt);
-
-            if ($result['checked']) {
-                $this->recordSbpExpiryBypassPoll($attempt);
-            }
+            $this->runStatusCheck(
+                $attempt,
+                due: fn (PaymentAttempt $fresh): bool => $this->isOrdinaryQueueAttempt($fresh)
+                    && $this->isSbpExpiryBypassDue($fresh)
+                    && $this->statusCheckCooldownExpired($fresh),
+                handle: function (PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void {
+                    $this->applyVerdictOnly($statusUpdate);
+                },
+                advancePollMetadata: true,
+                consumeSbpExpiry: true,
+            );
 
             return;
         }
 
         // Check backoff - skip if not yet time
-        if ($pollCount > 0 && $lastPolledAt !== null) {
-            $backoffSeconds = $backoff[min($pollCount - 1, count($backoff) - 1)];
-            $nextPollAt = $lastPolledAt->addSeconds($backoffSeconds);
-
-            if (now()->lt($nextPollAt)) {
-                return; // Not yet time to poll
-            }
+        if (! $this->isPollDue($attempt, $backoff)) {
+            return; // Not yet time to poll
         }
 
         // Resolve gateway
@@ -237,45 +398,49 @@ class PaymentReconciliationService
             return;
         }
 
-        $gateway = $this->gatewayManager->getGateway($attempt->provider);
+        $this->runStatusCheck(
+            $attempt,
+            due: fn (PaymentAttempt $fresh): bool => $this->isOrdinaryQueueAttempt($fresh)
+                && $this->statusCheckCooldownExpired($fresh)
+                && $this->isPollDue($fresh, $backoff),
+            handle: function (PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void {
+                if ($statusUpdate === null) {
+                    // No answer: the backoff above already advanced, the
+                    // attempt keeps waiting exactly as it was.
+                    return;
+                }
 
-        // Query provider status (outside DB transaction)
-        $statusUpdate = $gateway->getPaymentStatus(
-            $attempt->provider_payment_id,
-            $attempt->internal_order_id,
+                // T-Bank GetState for an in-flight recurring payment (Status=NEW)
+                // normalizes as Unknown while the local attempt is Processing.
+                // processing -> unknown is not an allowed transition, so skip the
+                // state machine entirely: keep Processing, the poll metadata is
+                // already advanced, and create no provider event.
+                if ($fresh->status === PaymentAttemptStatus::Processing
+                    && $statusUpdate->normalizedStatus === PaymentAttemptStatus::Unknown) {
+                    return;
+                }
+
+                // Provider returned a status - transition
+                $result = $this->transitionService->transition($statusUpdate);
+
+                if ($result['success']) {
+                    Log::info('Reconciliation resolved attempt', [
+                        'attempt_id' => $fresh->id,
+                        'new_status' => $statusUpdate->normalizedStatus->value,
+                    ]);
+                } else {
+                    Log::warning('Reconciliation transition failed', [
+                        'attempt_id' => $fresh->id,
+                        'error' => $result['error'],
+                    ]);
+                }
+            },
+            advancePollMetadata: true,
+            // As before: the transport failure is handed back to reconcile(),
+            // which counts it in errors and logs it — the backoff has already
+            // moved on by then.
+            rethrow: true,
         );
-
-        if ($statusUpdate !== null) {
-            // T-Bank GetState for an in-flight recurring payment (Status=NEW)
-            // normalizes as Unknown while the local attempt is Processing.
-            // processing -> unknown is not an allowed transition, so skip the
-            // state machine entirely: keep Processing, advance backoff poll
-            // metadata, and create no provider event.
-            if ($attempt->status === PaymentAttemptStatus::Processing
-                && $statusUpdate->normalizedStatus === PaymentAttemptStatus::Unknown) {
-                $this->updatePollMetadata($attempt);
-
-                return;
-            }
-
-            // Provider returned a status - transition
-            $result = $this->transitionService->transition($statusUpdate);
-
-            if ($result['success']) {
-                Log::info('Reconciliation resolved attempt', [
-                    'attempt_id' => $attempt->id,
-                    'new_status' => $statusUpdate->normalizedStatus->value,
-                ]);
-            } else {
-                Log::warning('Reconciliation transition failed', [
-                    'attempt_id' => $attempt->id,
-                    'error' => $result['error'],
-                ]);
-            }
-        } else {
-            // Provider returned null - update metadata with backoff
-            $this->updatePollMetadata($attempt);
-        }
     }
 
     /**
@@ -320,35 +485,13 @@ class PaymentReconciliationService
     }
 
     /**
-     * Record that an actual GetState happened for this attempt (cooldown
-     * marker only — the automatic queue's poll_count / last_polled_at are
-     * never touched here, never reset).
-     */
-    private function markStatusChecked(PaymentAttempt $attempt): void
-    {
-        DB::transaction(function () use ($attempt) {
-            $fresh = PaymentAttempt::lockForUpdate()
-                ->whereKey($attempt->getKey())
-                ->first();
-
-            if ($fresh === null) {
-                return;
-            }
-
-            $metadata = $this->attemptMetadata($fresh);
-            $metadata['last_status_check_at'] = now()->toIso8601String();
-
-            $fresh->update(['metadata' => $metadata]);
-        });
-    }
-
-    /**
      * The post-expiry bypass is a ONE-SHOT per attempt: due once the stored
      * absolute sbp_expires_at has passed and the consuming marker
      * (sbp_expiry_polled_at) is still absent. In-flight SBP attempts with a
      * provider payment id only — a released attempt lives in the timeout
      * queue, and an attempt without a provider id has nothing to ask the
-     * bank about.
+     * bank about. Re-checked on the fresh row under the lock, so a marker
+     * consumed meanwhile ends the bypass for this pass.
      */
     private function isSbpExpiryBypassDue(PaymentAttempt $attempt): bool
     {
@@ -383,39 +526,17 @@ class PaymentReconciliationService
     }
 
     /**
-     * One write after the post-expiry bypass poll: advance the ordinary
-     * backoff (poll_count is never reset, only incremented) and consume the
-     * one-shot marker, so following passes stay on the normal backoff.
-     */
-    private function recordSbpExpiryBypassPoll(PaymentAttempt $attempt): void
-    {
-        DB::transaction(function () use ($attempt) {
-            $fresh = PaymentAttempt::lockForUpdate()
-                ->whereKey($attempt->getKey())
-                ->first();
-
-            if ($fresh === null) {
-                return;
-            }
-
-            $metadata = $this->attemptMetadata($fresh);
-            $metadata['poll_count'] = (int) ($metadata['poll_count'] ?? 0) + 1;
-            $metadata['last_polled_at'] = now()->toIso8601String();
-            $metadata['sbp_expiry_polled_at'] = now()->toIso8601String();
-
-            $fresh->update(['metadata' => $metadata]);
-        });
-    }
-
-    /**
      * GetState for an attempt that was already age-released to
      * failed_terminal + reconciliation_timeout and still carries a provider
      * payment id.
      *
      * No age-release here — it has already run and must not run again — and
-     * no transaction wraps the HTTP call: backoff is evaluated first, the
-     * provider is queried outside any transaction, and only then is the
-     * poll metadata merged under the usual row lock.
+     * the answer handling is its own: only a final bank verdict leaves the
+     * local timeout, everything else keeps it and its checkout block. The
+     * call itself goes through runStatusCheck: backoff and row state are
+     * re-checked under the shared lock, the HTTP stays outside any
+     * transaction and the poll metadata is merged (one increment per actual
+     * call, exception included) before the lock is released.
      *
      * @param  array<int, int>  $backoff
      */
@@ -440,54 +561,48 @@ class PaymentReconciliationService
             return;
         }
 
-        $gateway = $this->gatewayManager->getGateway($attempt->provider);
+        $this->runStatusCheck(
+            $attempt,
+            due: fn (PaymentAttempt $fresh): bool => $this->isTimeoutQueueAttempt($fresh)
+                && $this->statusCheckCooldownExpired($fresh)
+                && $this->isPollDue($fresh, $backoff),
+            handle: function (PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void {
+                if ($statusUpdate === null) {
+                    // No verdict: the local timeout, its checkout block and
+                    // the undefined_outcome flag all stay untouched.
+                    return;
+                }
 
-        try {
-            $statusUpdate = $gateway->getPaymentStatus(
-                $attempt->provider_payment_id,
-                $attempt->internal_order_id,
-            );
-        } catch (\Throwable $e) {
-            // The GetState call really happened: advance the backoff before
-            // handing the failure back, so the caller still records it in
-            // errors and the next pass waits out its window.
-            $this->updatePollMetadata($attempt);
+                if (! in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
+                    // Still in flight at the bank (NEW / AUTHORIZED): a
+                    // non-terminal status is never sent to transition() —
+                    // the attempt keeps its timeout until a real verdict
+                    // arrives.
+                    return;
+                }
 
-            throw $e;
-        }
+                // Confirmed success or refusal — the existing transition
+                // path, which resolves the local timeout in place under its
+                // own lock/validation.
+                $result = $this->transitionService->transition($statusUpdate);
 
-        // Exactly one poll write per actual GetState — the null answer and
-        // the exception path above included, never twice for one call.
-        $this->updatePollMetadata($attempt);
-
-        if ($statusUpdate === null) {
-            // No verdict: the local timeout, its checkout block and the
-            // undefined_outcome flag all stay untouched.
-            return;
-        }
-
-        if (! in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
-            // Still in flight at the bank (NEW / AUTHORIZED): a non-terminal
-            // status is never sent to transition() — the attempt keeps its
-            // timeout until a real verdict arrives.
-            return;
-        }
-
-        // Confirmed success or refusal — the existing transition path, which
-        // resolves the local timeout in place under its own lock/validation.
-        $result = $this->transitionService->transition($statusUpdate);
-
-        if ($result['success']) {
-            Log::info('Reconciliation resolved attempt', [
-                'attempt_id' => $attempt->id,
-                'new_status' => $statusUpdate->normalizedStatus->value,
-            ]);
-        } else {
-            Log::warning('Reconciliation transition failed', [
-                'attempt_id' => $attempt->id,
-                'error' => $result['error'] ?? null,
-            ]);
-        }
+                if ($result['success']) {
+                    Log::info('Reconciliation resolved attempt', [
+                        'attempt_id' => $fresh->id,
+                        'new_status' => $statusUpdate->normalizedStatus->value,
+                    ]);
+                } else {
+                    Log::warning('Reconciliation transition failed', [
+                        'attempt_id' => $fresh->id,
+                        'error' => $result['error'] ?? null,
+                    ]);
+                }
+            },
+            advancePollMetadata: true,
+            // The failure stays visible to the caller (errors counter) and
+            // the backoff has already moved on before it is handed back.
+            rethrow: true,
+        );
     }
 
     /**
@@ -528,11 +643,14 @@ class PaymentReconciliationService
     }
 
     /**
-     * Whether a timeout attempt may be polled right now.
+     * Whether an attempt of either automatic queue may be polled right now.
      *
      * A row never polled, or one whose poll metadata cannot be read, is due
      * (the same fail-open the poll itself relies on); otherwise the existing
      * backoff indexed by poll_count must have elapsed since last_polled_at.
+     * Evaluated on the batch snapshot as a cheap pre-check and again on the
+     * fresh row under the shared lock, so a row polled in the meantime never
+     * fires an early GetState.
      *
      * @param  array<int, int>  $backoff
      */
@@ -659,42 +777,10 @@ class PaymentReconciliationService
         int $maxAgeWithProviderId,
         int $maxAgeWithoutProviderId,
     ): bool {
-        if (! in_array($attempt->status, [
-            PaymentAttemptStatus::Created,
-            PaymentAttemptStatus::Processing,
-            PaymentAttemptStatus::Unknown,
-        ], true)) {
+        if (! $this->isOrdinaryQueueAttempt($attempt)) {
             return false;
         }
 
         return $this->shouldAgeRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId);
-    }
-
-    /**
-     * Update poll metadata with backoff info.
-     *
-     * Runs after the provider HTTP call, never during it: the row is
-     * re-read under a lock inside a short transaction and only the two
-     * polling-owned keys are rewritten, so a marker or flag written in the
-     * meantime (charge_dispatch_started_at, technical_retry, …) survives
-     * and the stale batch snapshot is not written back.
-     */
-    private function updatePollMetadata(PaymentAttempt $attempt): void
-    {
-        DB::transaction(function () use ($attempt) {
-            $fresh = PaymentAttempt::lockForUpdate()
-                ->whereKey($attempt->getKey())
-                ->first();
-
-            if ($fresh === null) {
-                return;
-            }
-
-            $metadata = $fresh->metadata ?? [];
-            $metadata['poll_count'] = (int) ($metadata['poll_count'] ?? 0) + 1;
-            $metadata['last_polled_at'] = now()->toIso8601String();
-
-            $fresh->update(['metadata' => $metadata]);
-        });
     }
 }
