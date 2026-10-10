@@ -1832,6 +1832,125 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         );
     });
 
+    // ── Ручная проверка: POST /check, не GET ──
+
+    it('unconfirmed «Проверить статус» POSTs /check once and blocks double clicks', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+        // Считаем только ручную проверку, не исходный SBP checkout POST
+        vi.mocked(axios.post).mockClear();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1/check',
+        );
+
+        // Loading блокирует повторный клик
+        const busy = screen.getByRole('button', { name: 'Проверка…' });
+        expect(busy.hasAttribute('disabled')).toBe(true);
+        fireEvent.click(busy);
+        expect(axios.post).toHaveBeenCalledTimes(1);
+
+        // Подтверждённый отказ из ответа → экран отказа с выбором способа
+        await act(async () => {
+            resolveCheck({
+                data: { status: 'failed_terminal', checked: true },
+            });
+        });
+
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+        expect(
+            screen.getByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeTruthy();
+    });
+
+    it('manual check without a verdict returns to waiting and never offers new payment', async () => {
+        vi.useFakeTimers();
+        // Локальное истечение с неизвестным исходом → unconfirmed
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+
+        // После ручной проверки: банк вердикта не дал, локально processing
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'processing', checked: true },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        // Вердикта нет → снова ожидание, без новой оплаты
+        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
+        expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeNull();
+    });
+
+    it('manual check network error keeps the unconfirmed outcome without new payment', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        vi.mocked(axios.post).mockRejectedValue(new Error('network down'));
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeNull();
+    });
+
     it('an attempt of an unknown method never shows a payable SBP link', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({

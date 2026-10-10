@@ -109,6 +109,7 @@ describe('admin/billing.tsx — payment return verification', () => {
         vi.mocked(axios.get).mockReset().mockResolvedValue({
             data: { status: 'processing' },
         });
+        vi.mocked(axios.post).mockReset().mockResolvedValue({ data: {} });
         routerReload.mockReset().mockResolvedValue(undefined);
         routerGet.mockReset();
         vi.spyOn(window.history, 'replaceState').mockImplementation(() => {});
@@ -571,9 +572,12 @@ describe('admin/billing.tsx — payment return verification', () => {
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(25);
     });
 
-    it('«Проверить статус» resumes the bounded polling', async () => {
+    it('«Проверить статус» POSTs a coordinated check and applies a waiting answer via polling', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'processing', checked: true },
+        });
         mockUsePage.mockReturnValue(
             makeProps({
                 payment_return: 'returned',
@@ -596,8 +600,134 @@ describe('admin/billing.tsx — payment return verification', () => {
         );
         await flush();
 
+        // Ручная проверка идёт через POST /check (банк), не через GET
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1/check',
+        );
+        // Вердикта нет → обычный локальный polling продолжает и доводит до успеха
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(2);
         expect(screen.getByText('Оплата прошла')).toBeTruthy();
+    });
+
+    it('manual check applies a confirmed decline as the failure screen', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'failed_terminal', checked: true },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+                payment_attempt_period_months: 3,
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        expect(
+            screen.getByRole('button', { name: 'Выбрать способ оплаты' }),
+        ).toBeTruthy();
+        expect(screen.queryByText('Пока не удалось подтвердить оплату')).toBeNull();
+    });
+
+    it('manual check network error keeps the unconfirmed outcome', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        vi.mocked(axios.post).mockRejectedValue(new Error('network down'));
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+
+        // Ошибка проверки — исход не подтверждён, без утверждений об отказе
+        expect(
+            screen.getByText('Пока не удалось подтвердить оплату'),
+        ).toBeTruthy();
+        expect(screen.queryByText('Оплата не завершена')).toBeNull();
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+    });
+
+    it('manual check success shows the success dialog and reloads current', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'succeeded', checked: true },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        expect(routerReload).toHaveBeenCalledWith(
+            expect.objectContaining({ only: ['current'] }),
+        );
+    });
+
+    it('manual check double click sends a single POST and disables the button', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        let resolveCheck: (value: { data: Record<string, unknown> }) => void =
+            () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        const button = screen.getByRole('button', {
+            name: 'Проверить статус',
+        });
+        fireEvent.click(button);
+        await flush();
+
+        // Loading: кнопка заблокирована, повторный клик не уходит
+        const busy = screen.getByRole('button', { name: 'Проверка…' });
+        expect(busy.hasAttribute('disabled')).toBe(true);
+        fireEvent.click(busy);
+        expect(axios.post).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            resolveCheck({ data: { status: 'processing', checked: true } });
+        });
     });
 
     // ── No id: neutral result ──

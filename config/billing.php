@@ -63,6 +63,10 @@ return [
         'backoff' => [60, 120, 300, 900, 1800, 3600],
         'max_age_with_provider_id' => 86400, // 24 hours
         'max_age_without_provider_id' => 1800, // 30 minutes
+        // Per-attempt cooldown shared by the manual POST check and the
+        // post-expiry reconciliation bypass: at most one GetState per
+        // attempt per window, no matter how many clicks/tabs/cron runs.
+        'status_check_cooldown_seconds' => 60,
     ],
 
     /*

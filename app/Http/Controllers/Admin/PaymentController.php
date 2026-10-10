@@ -13,6 +13,7 @@ use App\Models\TariffPlan;
 use App\Services\Billing\BillingCoreWriter;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\EntitlementService;
+use App\Services\Payment\PaymentReconciliationService;
 use App\Support\PlanDefaults;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
@@ -424,6 +425,14 @@ class PaymentController extends Controller
     }
 
     /**
+     * Billing-capable caller guard shared by the payment-status endpoints.
+     */
+    private function authorizeBilling(Request $request): void
+    {
+        abort_unless($request->user()->role->canManageBilling(), 403);
+    }
+
+    /**
      * Read-only checkout status for return-page polling (SBP and card).
      *
      * Source of truth is the local PaymentAttempt (webhook/reconciliation
@@ -444,7 +453,7 @@ class PaymentController extends Controller
      */
     public function paymentStatus(Request $request, string $paymentId): JsonResponse
     {
-        abort_unless($request->user()->role->canManageBilling(), 403);
+        $this->authorizeBilling($request);
 
         $workspaceId = $request->user()->workspace_id;
         abort_unless($workspaceId !== null, 404);
@@ -463,6 +472,51 @@ class PaymentController extends Controller
 
         if ($attempt->status === PaymentAttemptStatus::FailedTerminal
             && $attempt->failure_category === 'reconciliation_timeout') {
+            $response['undefined_outcome'] = true;
+        }
+
+        return response()->json($response);
+    }
+
+    /**
+     * Manual status check for ONE attempt (POST): a coordinated GetState
+     * through the reconciliation service's shared lock+cooldown — the GET
+     * status endpoint above stays strictly read-only and local.
+     *
+     * Role, workspace scoping and provider=tbank are all verified BEFORE any
+     * HTTP happens; a foreign attempt, a mock-provider attempt or a user
+     * without billing rights never reaches a gateway. The response mirrors
+     * the GET contract (status + optional undefined_outcome) with one extra
+     * `checked` flag: false means the cooldown/lock skipped the provider
+     * call and the local status was simply re-read.
+     */
+    public function paymentStatusCheck(Request $request, string $paymentId): JsonResponse
+    {
+        $this->authorizeBilling($request);
+
+        $workspaceId = $request->user()->workspace_id;
+        abort_unless($workspaceId !== null, 404);
+
+        $attempt = PaymentAttempt::query()
+            ->where('provider', 'tbank')
+            ->where('provider_payment_id', $paymentId)
+            ->whereHas('billingCycle', function ($query) use ($workspaceId) {
+                $query->where('workspace_id', $workspaceId);
+            })
+            ->first();
+
+        abort_if($attempt === null, 404);
+
+        $result = app(PaymentReconciliationService::class)->checkAttemptNow($attempt);
+        $fresh = $result['attempt'];
+
+        $response = [
+            'status' => $fresh->status->value,
+            'checked' => $result['checked'],
+        ];
+
+        if ($fresh->status === PaymentAttemptStatus::FailedTerminal
+            && $fresh->failure_category === 'reconciliation_timeout') {
             $response['undefined_outcome'] = true;
         }
 

@@ -200,6 +200,9 @@ export default function BillingPage() {
     // Set only from the onSuccess payload of the post-success reload —
     // stays null on delay/error so the old date is never shown as fresh.
     const [freshCurrent, setFreshCurrent] = useState<FreshCurrentState | null>(null);
+    // Ручная проверка через POST /check: блокирует повторный клик, пока
+    // координационный lock+cooldown на сервере обслуживает запрос.
+    const [manualChecking, setManualChecking] = useState(false);
     const renewSectionRef = useRef<HTMLElement | null>(null);
 
     const closePaymentCheck = useCallback(
@@ -251,6 +254,74 @@ export default function BillingPage() {
         );
         setPaymentCheck('verifying');
     }, [paymentAttemptId]);
+
+    // Успех после возврата: свежий current из partial reload. Вызывается и
+    // polling'ом, и ручной POST-проверкой — один и тот же reload-контракт.
+    const reloadCurrentAfterSuccess = useCallback(() => {
+        router.reload({
+            only: ['current'],
+            onSuccess: (page: { props?: { current?: FreshCurrent } }) => {
+                const current = page.props?.current ?? null;
+
+                setFreshCurrent(
+                    current === null ? { status: 'error' } : { status: 'ready', current },
+                );
+            },
+            onError: () => {
+                setFreshCurrent({ status: 'error' });
+            },
+            onFinish: () => {
+                // A reload that signals nothing (network cut) must not leave
+                // a perpetual "loading" caption.
+                setFreshCurrent((prev) =>
+                    prev?.status === 'loading' ? { status: 'error' } : prev,
+                );
+            },
+        });
+    }, []);
+
+    // Ручная проверка из диалога: POST /check спрашивает банк (GetState)
+    // через общий lock+cooldown на сервере — обычный polling GET остаётся
+    // строго локальным. Показывает loading, блокирует повторный клик,
+    // затем применяет результат теми же правилами, что и polling.
+    async function manualPaymentCheck() {
+        if (paymentAttemptId === null || manualChecking) {
+            return;
+        }
+
+        setManualChecking(true);
+
+        try {
+            const res = await axios.post(
+                `/admin/billing/payment-status/${paymentAttemptId}/check`,
+            );
+            const status = res.data?.status;
+            const undefinedOutcome = res.data?.undefined_outcome === true;
+
+            if (status === 'succeeded') {
+                setFreshCurrent({ status: 'loading' });
+                setPaymentCheck('success');
+                reloadCurrentAfterSuccess();
+            } else if (status === 'failed_terminal') {
+                // Только подтверждённый отказ — в 'failed'; локальное
+                // истечение (undefined_outcome) остаётся неподтверждённым.
+                setPaymentCheck(undefinedOutcome ? 'unconfirmed' : 'failed');
+            } else if (status === 'refunded') {
+                setPaymentCheck('refunded');
+            } else if (status === 'partially_refunded') {
+                setPaymentCheck('partially_refunded');
+            } else {
+                // created / processing / failed_retryable / unknown — вердикта
+                // нет: продолжаем ждать обычным polling'ом
+                setPaymentCheck('verifying');
+            }
+        } catch {
+            // Сеть/5xx — исход не подтверждён, никогда не угадываем
+            setPaymentCheck('unconfirmed');
+        } finally {
+            setManualChecking(false);
+        }
+    }
 
     useEffect(() => {
         if (paymentCheck === null) {
@@ -334,36 +405,11 @@ export default function BillingPage() {
                         setPaymentCheck('success');
                     }
 
-                    router.reload({
-                        only: ['current'],
-                        // Deliberately NOT gated by the polling effect's
-                        // `cancelled` flag: the effect cleans up as soon as the
-                        // stage flips to 'success', while this reload must keep
-                        // delivering its payload afterwards.
-                        onSuccess: (page: {
-                            props?: { current?: FreshCurrent };
-                        }) => {
-                            const current = page.props?.current ?? null;
-
-                            setFreshCurrent(
-                                current === null
-                                    ? { status: 'error' }
-                                    : { status: 'ready', current },
-                            );
-                        },
-                        onError: () => {
-                            setFreshCurrent({ status: 'error' });
-                        },
-                        onFinish: () => {
-                            // A reload that signals nothing (network cut)
-                            // must not leave a perpetual "loading" caption.
-                            setFreshCurrent((prev) =>
-                                prev?.status === 'loading'
-                                    ? { status: 'error' }
-                                    : prev,
-                            );
-                        },
-                    });
+                    // Deliberately NOT gated by the polling effect's
+                    // `cancelled` flag: the effect cleans up as soon as the
+                    // stage flips to 'success', while this reload must keep
+                    // delivering its payload afterwards.
+                    reloadCurrentAfterSuccess();
                 } else if (status === 'failed_terminal') {
                     // Only a provider-confirmed decline is a failure; the local
                     // age-release stays unconfirmed — «Проверить статус»
@@ -418,7 +464,7 @@ export default function BillingPage() {
 
             document.removeEventListener('visibilitychange', onVisibilityChange);
         };
-    }, [paymentCheck, paymentAttemptId]);
+    }, [paymentCheck, paymentAttemptId, reloadCurrentAfterSuccess]);
 
     const selectedPrice = proPlan?.prices.find((p) => p.period_months === selectedPeriod);
     const monthlyEquiv = selectedPrice ? Math.round(selectedPrice.final / selectedPeriod) : 0;
@@ -622,10 +668,13 @@ export default function BillingPage() {
                 <>
                     <button
                         type="button"
-                        onClick={() => setPaymentCheck('verifying')}
-                        className={PAYMENT_BTN_PRIMARY}
+                        onClick={() => {
+                            void manualPaymentCheck();
+                        }}
+                        disabled={manualChecking}
+                        className={`${PAYMENT_BTN_PRIMARY} disabled:cursor-not-allowed disabled:opacity-60`}
                     >
-                        Проверить статус
+                        {manualChecking ? 'Проверка…' : 'Проверить статус'}
                     </button>
                     <button
                         type="button"

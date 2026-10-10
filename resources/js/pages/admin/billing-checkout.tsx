@@ -166,6 +166,9 @@ export default function BillingCheckoutPage() {
     // Исход не подтверждён (сеть/unknown/reconciliation_timeout) — ручная
     // проверка. Независимо от дедлайна, включая attempts без срока.
     const [unconfirmed, setUnconfirmed] = useState(false);
+    // Ручная проверка через POST /check (координационный lock+cooldown на
+    // сервере): блокирует повторный клик, пока запрос в полёте.
+    const [manualChecking, setManualChecking] = useState(false);
 
     // Reload/Back с незавершённой попыткой сервера: показываем вход к её
     // проверке, а не новую готовую к оплате форму.
@@ -262,6 +265,54 @@ export default function BillingCheckoutPage() {
         setRemainingMs(
             deadline === null ? null : Math.max(0, deadline - Date.now()),
         );
+    }
+
+    /**
+     * Ручная проверка статуса: POST /check спрашивает банк (GetState) через
+     * общий lock+cooldown — в отличие от обычного polling GET, который
+     * читает только локальный статус. Локальный результат применяется теми
+     * же правилами, что и polling: только подтверждённый отказ/успех
+     * меняют экран, всё остальное возвращает ожидание.
+     */
+    async function manualStatusCheck() {
+        const paymentId = sbpPayment?.paymentId ?? null;
+
+        if (paymentId === null || manualChecking) {
+            return;
+        }
+
+        setManualChecking(true);
+
+        try {
+            const res = await axios.post(
+                `/admin/billing/payment-status/${paymentId}/check`,
+            );
+            const status = res.data?.status;
+            const undefinedOutcome = res.data?.undefined_outcome === true;
+
+            if (status === 'succeeded') {
+                setSbpStatus('succeeded');
+            } else if (status === 'failed_terminal') {
+                if (undefinedOutcome) {
+                    setUnconfirmed(true);
+                } else {
+                    setSbpStatus('failed');
+                }
+            } else if (status === 'refunded') {
+                setSbpStatus('refunded');
+            } else if (status === 'partially_refunded') {
+                setSbpStatus('partially_refunded');
+            } else {
+                // Вердикта нет — ждём дальше обычным polling'ом
+                retryRequestedRef.current = true;
+                setUnconfirmed(false);
+            }
+        } catch {
+            // Сеть/5xx — исход не подтверждён, ничего не утверждаем
+            setUnconfirmed(true);
+        } finally {
+            setManualChecking(false);
+        }
     }
 
     /**
@@ -684,12 +735,14 @@ export default function BillingCheckoutPage() {
                                         <button
                                             type="button"
                                             onClick={() => {
-                                                retryRequestedRef.current = true;
-                                                setUnconfirmed(false);
+                                                void manualStatusCheck();
                                             }}
-                                            className={PRIMARY_BTN_CLASS}
+                                            disabled={manualChecking}
+                                            className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
                                         >
-                                            Проверить статус
+                                            {manualChecking
+                                                ? 'Проверка…'
+                                                : 'Проверить статус'}
                                         </button>
                                     </>
                                 ) : linkExpired ? (

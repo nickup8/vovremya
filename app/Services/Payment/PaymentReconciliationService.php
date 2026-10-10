@@ -8,6 +8,7 @@ use App\Models\BillingCycle;
 use App\Models\PaymentAttempt;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
@@ -24,6 +25,13 @@ class PaymentReconciliationService
         PaymentAttemptStatus::FailedTerminal,
         PaymentAttemptStatus::Refunded,
     ];
+
+    /**
+     * TTL of the per-attempt check lock: long enough to cover one GetState
+     * HTTP call, short enough to never wedge the attempt if the process dies
+     * mid-check.
+     */
+    private const CHECK_LOCK_TTL_SECONDS = 30;
 
     public function __construct(
         private PaymentGatewayManager $gatewayManager,
@@ -98,6 +106,80 @@ class PaymentReconciliationService
     }
 
     /**
+     * One coordinated GetState for a SINGLE attempt — the shared mechanism
+     * behind the manual POST check and the post-expiry reconciliation
+     * bypass.
+     *
+     * Per-attempt lock + cooldown: parallel clicks / tabs / cron passes
+     * never duplicate the provider HTTP. The GetState call itself always
+     * runs outside any DB transaction; poll_count is never reset (this path
+     * does not write the automatic queue's poll metadata at all). Null,
+     * transport errors and non-final bank answers (NEW / AUTHORIZED) keep
+     * the attempt waiting exactly as it was — only a final verdict goes
+     * through the existing PaymentTransitionService.
+     *
+     * @return array{attempt: PaymentAttempt, checked: bool}
+     *                                                       `checked` = an actual GetState happened (false =
+     *                                                       lock held, cooldown active, or nothing to check).
+     */
+    public function checkAttemptNow(PaymentAttempt $attempt): array
+    {
+        if ($attempt->provider_payment_id === null || $attempt->provider_payment_id === '') {
+            return ['attempt' => $attempt, 'checked' => false];
+        }
+
+        if (! $this->gatewayManager->hasGateway($attempt->provider)) {
+            return ['attempt' => $attempt, 'checked' => false];
+        }
+
+        $lock = Cache::lock(
+            'billing:payment-status-check:'.$attempt->getKey(),
+            self::CHECK_LOCK_TTL_SECONDS,
+        );
+
+        if (! $lock->get()) {
+            // Another check of this attempt is in flight right now
+            return ['attempt' => $attempt->refresh(), 'checked' => false];
+        }
+
+        try {
+            if (! $this->statusCheckCooldownExpired($attempt)) {
+                return ['attempt' => $attempt->refresh(), 'checked' => false];
+            }
+
+            $gateway = $this->gatewayManager->getGateway($attempt->provider);
+
+            try {
+                // Provider HTTP — outside any DB transaction
+                $statusUpdate = $gateway->getPaymentStatus(
+                    $attempt->provider_payment_id,
+                    $attempt->internal_order_id,
+                );
+            } catch (\Throwable) {
+                // The GetState really happened: the cooldown still applies,
+                // and the attempt keeps waiting — an error is never a verdict.
+                $this->markStatusChecked($attempt);
+
+                return ['attempt' => $attempt->refresh(), 'checked' => true];
+            }
+
+            // Exactly one cooldown write per actual GetState, whatever it said
+            $this->markStatusChecked($attempt);
+
+            if ($statusUpdate !== null
+                && in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
+                $this->transitionService->transition($statusUpdate);
+            }
+
+            // Null / NEW / AUTHORIZED → the attempt keeps its status, its
+            // checkout block and its waiting state untouched.
+            return ['attempt' => $attempt->refresh(), 'checked' => true];
+        } finally {
+            $lock->release();
+        }
+    }
+
+    /**
      * Reconcile a single payment attempt.
      */
     private function reconcileAttempt(
@@ -113,6 +195,24 @@ class PaymentReconciliationService
         // Check age release
         if ($this->shouldAgeRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId)) {
             $this->ageRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId);
+
+            return;
+        }
+
+        // ── Post-expiry one-shot ──
+        // An SBP attempt whose link has already expired gets ONE timely
+        // GetState through the shared lock+cooldown, whatever the old
+        // backoff says — the bank's answer arrives while the user is still
+        // waiting, even with the browser closed. poll_count is never reset:
+        // after this poll the ordinary backoff continues from the advanced
+        // metadata, and the consumed one-shot marker keeps every following
+        // pass out of the bank.
+        if ($this->isSbpExpiryBypassDue($attempt)) {
+            $result = $this->checkAttemptNow($attempt);
+
+            if ($result['checked']) {
+                $this->recordSbpExpiryBypassPoll($attempt);
+            }
 
             return;
         }
@@ -192,6 +292,119 @@ class PaymentReconciliationService
         $metadata = $attempt->metadata ?? [];
 
         return is_array($metadata) ? $metadata : [];
+    }
+
+    /**
+     * Whether the per-attempt status-check cooldown has elapsed.
+     *
+     * Missing or malformed metadata → allowed (fail-open, same as the
+     * backoff parser). The cooldown is measured from the last ACTUAL
+     * GetState of this attempt, manual or background alike.
+     */
+    private function statusCheckCooldownExpired(PaymentAttempt $attempt): bool
+    {
+        $cooldownSeconds = (int) config(
+            'billing.reconciliation.status_check_cooldown_seconds',
+            60,
+        );
+
+        $lastCheckedAt = $this->parseLastPolledAt(
+            $this->attemptMetadata($attempt)['last_status_check_at'] ?? null,
+        );
+
+        if ($lastCheckedAt === null) {
+            return true;
+        }
+
+        return now()->gte($lastCheckedAt->addSeconds($cooldownSeconds));
+    }
+
+    /**
+     * Record that an actual GetState happened for this attempt (cooldown
+     * marker only — the automatic queue's poll_count / last_polled_at are
+     * never touched here, never reset).
+     */
+    private function markStatusChecked(PaymentAttempt $attempt): void
+    {
+        DB::transaction(function () use ($attempt) {
+            $fresh = PaymentAttempt::lockForUpdate()
+                ->whereKey($attempt->getKey())
+                ->first();
+
+            if ($fresh === null) {
+                return;
+            }
+
+            $metadata = $this->attemptMetadata($fresh);
+            $metadata['last_status_check_at'] = now()->toIso8601String();
+
+            $fresh->update(['metadata' => $metadata]);
+        });
+    }
+
+    /**
+     * The post-expiry bypass is a ONE-SHOT per attempt: due once the stored
+     * absolute sbp_expires_at has passed and the consuming marker
+     * (sbp_expiry_polled_at) is still absent. In-flight SBP attempts with a
+     * provider payment id only — a released attempt lives in the timeout
+     * queue, and an attempt without a provider id has nothing to ask the
+     * bank about.
+     */
+    private function isSbpExpiryBypassDue(PaymentAttempt $attempt): bool
+    {
+        $metadata = $this->attemptMetadata($attempt);
+
+        if (($metadata['payment_method'] ?? null) !== 'sbp') {
+            return false;
+        }
+
+        if ($attempt->provider_payment_id === null || $attempt->provider_payment_id === '') {
+            return false;
+        }
+
+        if (array_key_exists('sbp_expiry_polled_at', $metadata)) {
+            // Already consumed — the ordinary backoff rules from here on
+            return false;
+        }
+
+        $expiresAt = $metadata['sbp_expires_at'] ?? null;
+
+        if (! is_string($expiresAt) || $expiresAt === '') {
+            return false;
+        }
+
+        try {
+            $deadline = Carbon::parse($expiresAt);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return now()->gte($deadline);
+    }
+
+    /**
+     * One write after the post-expiry bypass poll: advance the ordinary
+     * backoff (poll_count is never reset, only incremented) and consume the
+     * one-shot marker, so following passes stay on the normal backoff.
+     */
+    private function recordSbpExpiryBypassPoll(PaymentAttempt $attempt): void
+    {
+        DB::transaction(function () use ($attempt) {
+            $fresh = PaymentAttempt::lockForUpdate()
+                ->whereKey($attempt->getKey())
+                ->first();
+
+            if ($fresh === null) {
+                return;
+            }
+
+            $metadata = $this->attemptMetadata($fresh);
+            $metadata['poll_count'] = (int) ($metadata['poll_count'] ?? 0) + 1;
+            $metadata['last_polled_at'] = now()->toIso8601String();
+            $metadata['sbp_expiry_polled_at'] = now()->toIso8601String();
+
+            $fresh->update(['metadata' => $metadata]);
+        });
     }
 
     /**
