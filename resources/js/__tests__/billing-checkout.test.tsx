@@ -1595,6 +1595,10 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
             screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
         ).toBeNull();
         expect(screen.queryByRole('checkbox')).toBeNull();
+        // Без сохранённого SBP-payload продолжать нечего — только проверка
+        expect(
+            screen.queryByRole('button', { name: 'Продолжить оплату' }),
+        ).toBeNull();
         // И никаких автоматических проверок
         expect(axios.get).not.toHaveBeenCalled();
         expect(axios.post).not.toHaveBeenCalled();
@@ -1725,6 +1729,144 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
 
         expect(mockRouter.get).toHaveBeenCalledWith('/admin/billing');
+        expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    // ── Reload/Back: продолжение той же СБП-попытки ──
+
+    it('reload of an unpaid SBP attempt resumes the same link without POST/Init', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        const expiresAt = isoIn(5 * 60_000);
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 3,
+                    status: 'processing',
+                    method: 'sbp',
+                    sbp_payload: 'https://qr.nspk.ru/RESUMEATTEMPT',
+                    sbp_expires_at: expiresAt,
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+        expect(axios.post).not.toHaveBeenCalled();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Продолжить оплату' }),
+        );
+        await act(async () => {});
+
+        // Тот же payload и исходный абсолютный дедлайн — без нового Init
+        expect(screen.getByTestId('sbp-qr').getAttribute('data-value')).toBe(
+            'https://qr.nspk.ru/RESUMEATTEMPT',
+        );
+        expect(screen.getByTestId('sbp-countdown').textContent).toContain(
+            '05:00',
+        );
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(axios.post).not.toHaveBeenCalled();
+
+        // Тот же paymentId опрашивается
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(axios.get).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9',
+        );
+    });
+
+    it('an already-expired SBP link resumes as a status check without a live link', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 3,
+                    status: 'processing',
+                    method: 'sbp',
+                    sbp_payload: 'https://qr.nspk.ru/EXPIREDATTEMPT',
+                    sbp_expires_at: isoIn(-60_000),
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Продолжить оплату' }),
+        );
+        await act(async () => {});
+
+        // Истёкшая ссылка: без QR, без ссылок в банк, без новой оплаты —
+        // только проверка статуса той же попытки
+        expect(screen.getByText(EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Открыть СБП' })).toBeNull();
+        expect(
+            screen.queryByRole('link', { name: 'Открыть приложение банка' }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeNull();
+        expect(axios.post).not.toHaveBeenCalled();
+
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(axios.get).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9',
+        );
+    });
+
+    it('an attempt of an unknown method never shows a payable SBP link', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 3,
+                    status: 'processing',
+                    method: null,
+                    sbp_payload: null,
+                    sbp_expires_at: null,
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+
+        // Способ неизвестен — не угадываем СБП: только проверка статуса
+        expect(
+            screen.queryByRole('button', { name: 'Продолжить оплату' }),
+        ).toBeNull();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
         expect(axios.post).not.toHaveBeenCalled();
     });
 });

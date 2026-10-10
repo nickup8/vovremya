@@ -364,4 +364,122 @@ class BillingCheckoutPageTest extends TestCase
                 ->where('pending_attempt.status', 'failed_terminal')
             );
     }
+
+    public function test_unpaid_sbp_attempt_exposes_its_own_payload_and_deadline(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_sbp1',
+            PaymentAttemptStatus::Processing,
+            [
+                'payment_method' => 'sbp',
+                'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                'sbp_expires_at' => '2027-01-01T12:00:00+03:00',
+                'period_months' => 3,
+            ],
+        );
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=6')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                // Продолжение той же попытки: сохранённый payload и исходный
+                // абсолютный дедлайн, без нового Init и без периода URL
+                ->where('pending_attempt.method', 'sbp')
+                ->where('pending_attempt.sbp_payload', 'https://qr.nspk.ru/SAMEATTEMPT')
+                ->where('pending_attempt.sbp_expires_at', '2027-01-01T12:00:00+03:00')
+                ->where('pending_attempt.period_months', 3)
+            );
+    }
+
+    public function test_card_attempt_never_carries_a_payable_sbp_link(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_card1',
+            PaymentAttemptStatus::Processing,
+            [
+                'payment_method' => 'card',
+                'checkout_url' => 'https://example.test/pay',
+                'period_months' => 3,
+            ],
+        );
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.method', 'card')
+                ->where('pending_attempt.sbp_payload', null)
+                ->where('pending_attempt.sbp_expires_at', null)
+            );
+    }
+
+    public function test_unknown_method_is_never_guessed_as_sbp(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt($owner, 'tbank_x1', PaymentAttemptStatus::Processing, ['period_months' => 3]);
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.method', null)
+                ->where('pending_attempt.sbp_payload', null)
+            );
+    }
+
+    public function test_released_sbp_attempt_withholds_the_payable_link(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_sbp2',
+            PaymentAttemptStatus::FailedTerminal,
+            [
+                'payment_method' => 'sbp',
+                'sbp_payload' => 'https://qr.nspk.ru/RELEASED',
+                'sbp_expires_at' => '2027-01-01T12:00:00+03:00',
+            ],
+            'reconciliation_timeout',
+        );
+
+        // Локально отпущенная попытка: исход неизвестен — действующей ссылки
+        // оплаты и новой оплаты не показываем, только проверка статуса
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.status', 'failed_terminal')
+                ->where('pending_attempt.sbp_payload', null)
+                ->where('pending_attempt.sbp_expires_at', null)
+            );
+    }
+
+    public function test_billing_page_exposes_the_returned_attempt_period(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_ret1',
+            PaymentAttemptStatus::FailedTerminal,
+            ['period_months' => 6],
+            'provider_declined',
+        );
+
+        $this->actingAs($owner)
+            ->get('/admin/billing?payment_attempt=tbank_ret1')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing')
+                ->where('payment_attempt_id', 'tbank_ret1')
+                ->where('payment_attempt_period_months', 6)
+            );
+    }
 }

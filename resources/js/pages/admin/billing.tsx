@@ -45,6 +45,7 @@ interface PageProps {
     tariff_limits?: { total: number | null; used: number } | null;
     payment_return?: 'returned' | null;
     payment_attempt_id?: string | null;
+    payment_attempt_period_months?: number | null;
     [key: string]: unknown;
 }
 
@@ -181,6 +182,12 @@ export default function BillingPage() {
     // The return routes only signal "user came back from the bank" — the
     // verdict comes from Billing Core via the read-only status endpoint.
     const paymentAttemptId = props.payment_attempt_id ?? null;
+    // Период этой же попытки — для «Выбрать способ оплаты» после отказа.
+    // null = восстановить нельзя → выбор периода на этой странице.
+    const paymentAttemptPeriodMonths =
+        typeof props.payment_attempt_period_months === 'number'
+            ? props.payment_attempt_period_months
+            : null;
     const [paymentCheck, setPaymentCheck] = useState<PaymentCheckStage | null>(() => {
         // A closed dialog stays closed after a reload — but the attempt id
         // survives in the URL, so «Проверить статус» remains available.
@@ -525,15 +532,26 @@ export default function BillingPage() {
             // No claim about the subscription state — this dialog only
             // confirms what Billing Core reported about the payment itself.
             dialogBody = 'Списание не завершено.';
-            dialogNote = 'Вернитесь к выбору срока и попробуйте оплатить ещё раз.';
+            dialogNote = 'Выберите способ оплаты, чтобы повторить попытку.';
             dialogFooter = (
                 <>
                     <button
                         type="button"
-                        onClick={() => closePaymentCheck(true)}
+                        onClick={() => {
+                            // Checkout с периодом ИМЕННО этой попытки (СБП
+                            // по умолчанию, без автоплатежа). Период
+                            // неизвестен → выбор периода на этой странице.
+                            if (paymentAttemptPeriodMonths !== null) {
+                                router.get(
+                                    `/admin/billing/checkout?period_months=${paymentAttemptPeriodMonths}`,
+                                );
+                            } else {
+                                closePaymentCheck(true);
+                            }
+                        }}
                         className={PAYMENT_BTN_PRIMARY}
                     >
-                        Попробовать ещё раз
+                        Выбрать способ оплаты
                     </button>
                     <button
                         type="button"
@@ -685,11 +703,11 @@ export default function BillingPage() {
                             <div className="flex flex-wrap items-center justify-between gap-3">
                                 <div className="min-w-0">
                                     <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
-                                        Проверка оплаты не завершена
+                                        Статус платежа
                                     </div>
                                     <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                        Статус этого платежа можно проверить
-                                        позже — повторная оплата не нужна.
+                                        Результат этого платежа можно проверить
+                                        вручную.
                                     </div>
                                 </div>
                                 <button

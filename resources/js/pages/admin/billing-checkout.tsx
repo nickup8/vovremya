@@ -36,6 +36,15 @@ interface PendingAttempt {
     payment_id: string | null;
     period_months: number | null;
     status: string;
+    /** 'sbp' | 'card' | null; null = способ неизвестен — не угадываем. */
+    method?: string | null;
+    /**
+     * Сохранённый SBP-payload ЭТОЙ попытки (только пока она ждёт оплаты):
+     * продолжение без нового Init и без продления дедлайна.
+     */
+    sbp_payload?: string | null;
+    /** Абсолютный срок этой же ссылки; истёкший срок передаётся как есть. */
+    sbp_expires_at?: string | null;
 }
 
 interface PageProps {
@@ -226,8 +235,10 @@ export default function BillingCheckoutPage() {
 
     /**
      * Возобновление существующей попытки сервера (reload/back): тот же
-     * paymentId уходит в существующий polling, без нового POST/Init и без
-     * QR — payload этой попытки сервер в read-only props не отдаёт.
+     * paymentId уходит в существующий polling, без нового POST/Init. Если
+     * сервер отдал сохранённый SBP-payload с исходным абсолютным дедлайном —
+     * продолжаем ту же ссылку (QR и «Открыть банк»); payload null (карта,
+     * неизвестный способ, released попытка) — только проверка статуса.
      */
     function resumePendingAttempt() {
         const paymentId = pendingAttempt?.payment_id ?? null;
@@ -236,13 +247,21 @@ export default function BillingCheckoutPage() {
             return;
         }
 
+        const payload = pendingAttempt?.sbp_payload ?? null;
+        const deadline = parseDeadline(pendingAttempt?.sbp_expires_at ?? null);
+
         retryRequestedRef.current = true;
         setAttemptPeriodMonths(pendingAttempt?.period_months ?? null);
         setSbpPayment({
-            payload: null,
+            payload,
             paymentId,
-            deadline: null,
+            deadline,
         });
+        // Остаток — от исходного дедлайна попытки; истёкшая ссылка сразу
+        // показывается как истёкшая, без продления и без нового Init.
+        setRemainingMs(
+            deadline === null ? null : Math.max(0, deadline - Date.now()),
+        );
     }
 
     /**
@@ -779,18 +798,49 @@ export default function BillingCheckoutPage() {
                                         <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
                                             Незавершённый платёж
                                         </div>
-                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                            Есть платёж, статус которого ещё не
-                                            подтверждён. Проверьте его, прежде
-                                            чем запускать оплату заново.
-                                        </p>
-                                        <button
-                                            type="button"
-                                            onClick={resumePendingAttempt}
-                                            className={PRIMARY_BTN_CLASS}
-                                        >
-                                            Проверить статус
-                                        </button>
+                                        {pendingAttempt.sbp_payload ? (
+                                            /* Сохранённая SBP-ссылка этой же
+                                               попытки — продолжение без
+                                               нового Init и продления срока */
+                                            <>
+                                                <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                    Продолжите оплату по той же
+                                                    СБП-ссылке — отдельный
+                                                    платёж не создаётся.
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={
+                                                        resumePendingAttempt
+                                                    }
+                                                    className={
+                                                        PRIMARY_BTN_CLASS
+                                                    }
+                                                >
+                                                    Продолжить оплату
+                                                </button>
+                                            </>
+                                        ) : (
+                                            <>
+                                                <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                    Есть платёж, статус которого
+                                                    ещё не подтверждён.
+                                                    Проверьте его, прежде чем
+                                                    запускать оплату заново.
+                                                </p>
+                                                <button
+                                                    type="button"
+                                                    onClick={
+                                                        resumePendingAttempt
+                                                    }
+                                                    className={
+                                                        PRIMARY_BTN_CLASS
+                                                    }
+                                                >
+                                                    Проверить статус
+                                                </button>
+                                            </>
+                                        )}
                                         <Link
                                             href="/admin/billing"
                                             className={SECONDARY_BTN_CLASS}

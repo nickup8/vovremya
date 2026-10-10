@@ -79,6 +79,7 @@ class PaymentController extends Controller
                 ],
                 'payment_return' => $paymentReturn['signal'] ? 'returned' : null,
                 'payment_attempt_id' => $paymentReturn['attempt_id'],
+                'payment_attempt_period_months' => $paymentReturn['attempt_period_months'],
             ]);
         }
 
@@ -95,6 +96,7 @@ class PaymentController extends Controller
             ],
             'payment_return' => $paymentReturn['signal'] ? 'returned' : null,
             'payment_attempt_id' => $paymentReturn['attempt_id'],
+            'payment_attempt_period_months' => $paymentReturn['attempt_period_months'],
         ]);
     }
 
@@ -154,7 +156,14 @@ class PaymentController extends Controller
      * is null until the provider id is attached, in which case there is
      * nothing the client could verify yet.
      *
-     * @return array{payment_id: ?string, period_months: ?int, status: string}|null
+     * `sbp_payload` / `sbp_expires_at` let the client resume the SAME SBP
+     * attempt (existing initiation, no new Init, no deadline extension) —
+     * but only while the attempt is still awaiting payment: a released
+     * (failed_terminal) or unknown-outcome attempt, an unknown method, or a
+     * card attempt never carries a payable link. An already-past deadline is
+     * passed through untouched so the client can show the link as expired.
+     *
+     * @return array{payment_id: ?string, period_months: ?int, status: string, method: ?string, sbp_payload: ?string, sbp_expires_at: ?string}|null
      */
     private function pendingAttemptState(Request $request, string $planId): ?array
     {
@@ -171,10 +180,34 @@ class PaymentController extends Controller
             return null;
         }
 
+        $method = data_get($attempt->metadata, 'payment_method');
+        $method = is_string($method) ? $method : null;
+        $sbpPayloadRaw = data_get($attempt->metadata, 'sbp_payload');
+        $sbpExpiresAtRaw = data_get($attempt->metadata, 'sbp_expires_at');
+
+        $awaitingPayment = in_array($attempt->status, [
+            PaymentAttemptStatus::Created,
+            PaymentAttemptStatus::Processing,
+        ], true);
+
+        $sbpPayload = null;
+        $sbpExpiresAt = null;
+
+        if ($awaitingPayment
+            && $method === 'sbp'
+            && is_string($sbpPayloadRaw)
+            && $sbpPayloadRaw !== '') {
+            $sbpPayload = $sbpPayloadRaw;
+            $sbpExpiresAt = is_string($sbpExpiresAtRaw) ? $sbpExpiresAtRaw : null;
+        }
+
         return [
             'payment_id' => $attempt->provider_payment_id,
             'period_months' => $this->attemptPeriodMonths($attempt),
             'status' => $attempt->status->value,
+            'method' => $method,
+            'sbp_payload' => $sbpPayload,
+            'sbp_expires_at' => $sbpExpiresAt,
         ];
     }
 
@@ -292,7 +325,7 @@ class PaymentController extends Controller
     }
 
     /**
-     * @return array{signal: bool, attempt_id: ?string}
+     * @return array{signal: bool, attempt_id: ?string, attempt_period_months: ?int}
      */
     private function paymentReturnState(Request $request): array
     {
@@ -300,21 +333,27 @@ class PaymentController extends Controller
         $attemptParam = $request->query('payment_attempt');
 
         if (! is_string($attemptParam) || $attemptParam === '') {
-            return ['signal' => $signal, 'attempt_id' => null];
+            return ['signal' => $signal, 'attempt_id' => null, 'attempt_period_months' => null];
         }
 
         // The return URL carries the attempt id — the signal and the id stay
         // alive across reloads of the billing page, no flash needed.
         $workspaceId = $request->user()->workspace_id;
-        $belongsToWorkspace = $workspaceId !== null && PaymentAttempt::query()
+        $attempt = $workspaceId !== null ? PaymentAttempt::query()
             ->where('provider_payment_id', $attemptParam)
             ->whereHas('billingCycle', function ($query) use ($workspaceId) {
                 $query->where('workspace_id', $workspaceId);
             })
-            ->exists();
+            ->first() : null;
 
         // Foreign or unknown id → neutral (signal without id), never a verdict.
-        return ['signal' => true, 'attempt_id' => $belongsToWorkspace ? $attemptParam : null];
+        // The period of THIS attempt rides along so a confirmed decline can
+        // lead to its checkout instead of an invented one.
+        return [
+            'signal' => true,
+            'attempt_id' => $attempt?->provider_payment_id,
+            'attempt_period_months' => $attempt !== null ? $this->attemptPeriodMonths($attempt) : null,
+        ];
     }
 
     public function createCheckout(Request $request): JsonResponse
