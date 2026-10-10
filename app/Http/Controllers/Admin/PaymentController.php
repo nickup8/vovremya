@@ -5,9 +5,12 @@ namespace App\Http\Controllers\Admin;
 use App\Enums\BillingSubscriptionStatus;
 use App\Enums\PaymentAttemptStatus;
 use App\Http\Controllers\Controller;
+use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
+use App\Models\PlanPrice;
 use App\Models\TariffPlan;
+use App\Services\Billing\BillingCoreWriter;
 use App\Services\Billing\BillingService;
 use App\Services\Billing\EntitlementService;
 use App\Support\PlanDefaults;
@@ -133,7 +136,78 @@ class PaymentController extends Controller
                 'final' => $price['final'],
                 'currency' => $price['currency'] ?? 'RUB',
             ],
+            // Reload/Back must not look like a fresh ready-to-pay form: the
+            // in-flight attempt of THIS workspace+plan (if any) is handed over
+            // read-only so the page can offer status verification instead of a
+            // new Init. Identification only — no metadata, no payload, no verdict.
+            'pending_attempt' => $this->pendingAttemptState($request, $plan->id),
         ]);
+    }
+
+    /**
+     * Read-only identification of the workspace's in-flight attempt for the plan.
+     *
+     * `period_months` is restored from the attempt's own records (metadata,
+     * then plan price, then the cycle price snapshot) and only accepted from
+     * the allowed list — an unrecognisable period stays null so the client
+     * falls back to period selection instead of inventing one. `payment_id`
+     * is null until the provider id is attached, in which case there is
+     * nothing the client could verify yet.
+     *
+     * @return array{payment_id: ?string, period_months: ?int, status: string}|null
+     */
+    private function pendingAttemptState(Request $request, string $planId): ?array
+    {
+        $workspaceId = $request->user()->workspace_id;
+
+        if ($workspaceId === null) {
+            return null;
+        }
+
+        $attempt = app(BillingCoreWriter::class)
+            ->findExistingInFlightAttempt($workspaceId, $planId);
+
+        if ($attempt === null) {
+            return null;
+        }
+
+        return [
+            'payment_id' => $attempt->provider_payment_id,
+            'period_months' => $this->attemptPeriodMonths($attempt),
+            'status' => $attempt->status->value,
+        ];
+    }
+
+    /**
+     * The period this attempt was started for, or null when no record of it
+     * can be trusted. Never derived from the URL query — that period may
+     * belong to a different checkout than the unfinished attempt.
+     */
+    private function attemptPeriodMonths(PaymentAttempt $attempt): ?int
+    {
+        $cycle = BillingCycle::find($attempt->billing_cycle_id);
+        $planPricePeriod = null;
+
+        if ($cycle !== null && $cycle->plan_price_id !== null) {
+            $planPricePeriod = PlanPrice::whereKey($cycle->plan_price_id)
+                ->value('period_months');
+        }
+
+        // data_get: metadata / price_snapshot are json columns whose cast
+        // type is not visible to static analysis here.
+        $candidates = [
+            data_get($attempt->metadata, 'period_months'),
+            $planPricePeriod,
+            data_get($cycle?->price_snapshot, 'period_months'),
+        ];
+
+        foreach ($candidates as $candidate) {
+            if (is_numeric($candidate) && in_array((int) $candidate, [1, 3, 6, 12], true)) {
+                return (int) $candidate;
+            }
+        }
+
+        return null;
     }
 
     /**

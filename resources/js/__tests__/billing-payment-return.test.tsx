@@ -5,7 +5,12 @@ import axios from 'axios';
 import BillingPage from '@/pages/admin/billing';
 
 const mockUsePage = vi.fn();
-const { routerReload } = vi.hoisted(() => ({ routerReload: vi.fn() }));
+const { routerReload, realReplaceState } = vi.hoisted(() => ({
+    routerReload: vi.fn(),
+    // Настоящий history.replaceState: тесты выставляют URL до установки
+    // шпиона beforeEach
+    realReplaceState: window.history.replaceState.bind(window.history),
+}));
 
 vi.mock('@inertiajs/react', () => ({
     Head: () => null,
@@ -92,6 +97,9 @@ function tick(ms: number) {
 
 describe('admin/billing.tsx — payment return verification', () => {
     beforeEach(() => {
+        // URL — часть контракта возврата (payment_attempt / payment_check):
+        // каждый тест начинается с чистого адреса
+        realReplaceState(null, '', '/admin/billing');
         mockUsePage.mockReturnValue(makeProps());
         vi.mocked(axios.get).mockReset().mockResolvedValue({
             data: { status: 'processing' },
@@ -264,6 +272,59 @@ describe('admin/billing.tsx — payment return verification', () => {
         expect(screen.queryByText('Активен до')).toBeNull();
         expect(screen.queryByText('1 марта 2027')).toBeNull();
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+        // Ошибка обновления — явная подпись вместо старых данных
+        expect(
+            screen.getByText(/Не удалось обновить данные подписки/u),
+        ).toBeTruthy();
+        expect(screen.queryByText('Обновляем данные подписки…')).toBeNull();
+    });
+
+    it('details caption says «Обновляем данные подписки…» while the reload is pending', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+        const captured: {
+            only?: string[];
+            onSuccess?: (page: unknown) => void;
+        }[] = [];
+        vi.mocked(routerReload).mockImplementation((options: unknown) => {
+            captured.push(options as (typeof captured)[number]);
+        });
+        mockUsePage.mockReturnValue(
+            makeProps(
+                { payment_return: 'returned', payment_attempt_id: 'pay_1' },
+                { tariff: 'pro', tariff_name: 'Профи', is_paid: true, expires_at: '2027-03-01T00:00:00.000Z' },
+            ),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        // Ни тарифа, ни даты из старых props — только подпись ожидания
+        expect(
+            screen.getByText('Обновляем данные подписки…'),
+        ).toBeTruthy();
+        expect(screen.queryByText('Активен до')).toBeNull();
+        expect(screen.queryByText('1 марта 2027')).toBeNull();
+
+        // Тариф и срок появляются только из свежего payload'а onSuccess
+        await act(async () => {
+            captured[0].onSuccess?.({
+                props: {
+                    current: {
+                        tariff_name: 'Профи',
+                        expires_at: '2027-12-01T00:00:00.000Z',
+                    },
+                },
+            });
+        });
+
+        expect(screen.queryByText('Обновляем данные подписки…')).toBeNull();
+        expect(screen.getByText('Активен до')).toBeTruthy();
+        expect(screen.getByText('1 декабря 2027')).toBeTruthy();
+        expect(screen.getByText('Профи')).toBeTruthy();
     });
 
     it('return before webhook keeps verifying until Billing Core confirms', async () => {
@@ -614,7 +675,7 @@ describe('admin/billing.tsx — payment return verification', () => {
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
     });
 
-    it('closing the dialog stops polling and strips the attempt id from the URL', async () => {
+    it('closing the dialog stops polling and keeps the attempt for a manual re-check', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({
             data: { status: 'processing' },
@@ -632,15 +693,82 @@ describe('admin/billing.tsx — payment return verification', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
         expect(screen.queryByRole('dialog')).toBeNull();
+        // Диалог не переоткрывается, но попытка остаётся в URL — вход
+        // «Проверить статус» виден и переживёт reload
         expect(window.history.replaceState).toHaveBeenCalledTimes(1);
         expect(window.history.replaceState).toHaveBeenCalledWith(
             null,
             '',
-            window.location.pathname,
+            '/admin/billing?payment_attempt=pay_1&payment_check=closed',
         );
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+        expect(screen.queryByText('Проверяем оплату')).toBeNull();
 
         tick(10000);
         expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(1);
+
+        // Ручной вход возобновляет проверку той же попытки
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'succeeded' },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+
+        expect(vi.mocked(axios.get)).toHaveBeenCalledTimes(2);
+        expect(vi.mocked(axios.get)).toHaveBeenLastCalledWith(
+            '/admin/billing/payment-status/pay_1',
+        );
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+    });
+
+    it('reload with a closed dialog does not reopen it but keeps the re-check entry', async () => {
+        vi.useFakeTimers();
+        // Контракт URL после закрытия диалога: попытка + признак закрытия
+        realReplaceState(
+            null,
+            '',
+            '/admin/billing?payment_attempt=pay_1&payment_check=closed',
+        );
+        mockUsePage.mockReturnValue(
+            makeProps({ payment_return: null, payment_attempt_id: 'pay_1' }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+
+        // Ручная проверка после reload — та же попытка
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+
+        expect(axios.get).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1',
+        );
+        expect(
+            screen.getByText('Пока не удалось подтвердить оплату'),
+        ).toBeTruthy();
+    });
+
+    it('banner is absent when there is no attempt to re-check', () => {
+        render(<BillingPage />);
+
+        expect(
+            screen.queryByRole('button', { name: 'Проверить статус' }),
+        ).toBeNull();
     });
 
     it('dialog shell is scrollable on desktop and mobile', async () => {

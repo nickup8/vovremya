@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { Head, Link, usePage } from '@inertiajs/react';
+import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
 import { toast } from 'sonner';
@@ -27,10 +27,22 @@ interface CheckoutPrice {
     currency?: string;
 }
 
+/**
+ * Read-only identification of the workspace's in-flight attempt for this
+ * plan (server props on reload/back). Not a ready-to-pay form: no payload,
+ * no verdict; payment_id is null until the provider id is attached.
+ */
+interface PendingAttempt {
+    payment_id: string | null;
+    period_months: number | null;
+    status: string;
+}
+
 interface PageProps {
     plan: CheckoutPlan;
     period_months: number;
     price: CheckoutPrice;
+    pending_attempt?: PendingAttempt | null;
     auth?: { user?: AuthUser };
     [key: string]: unknown;
 }
@@ -116,7 +128,11 @@ type SbpStatus =
     | 'partially_refunded';
 
 interface SbpPayment {
-    payload: string;
+    /**
+     * null = попытка возобновлена без initiation (reload/back): проверяем
+     * статус существующего платежа, QR и ссылку в банк не показываем.
+     */
+    payload: string | null;
     paymentId: string | null;
     /**
      * Абсолютный срок жизни ссылки (epoch ms) из sbp_expires_at.
@@ -142,9 +158,25 @@ export default function BillingCheckoutPage() {
     // проверка. Независимо от дедлайна, включая attempts без срока.
     const [unconfirmed, setUnconfirmed] = useState(false);
 
+    // Reload/Back с незавершённой попыткой сервера: показываем вход к её
+    // проверке, а не новую готовую к оплате форму.
+    const pendingAttempt = props.pending_attempt ?? null;
+    const [resumedAttemptScreen, setResumedAttemptScreen] = useState(
+        pendingAttempt !== null,
+    );
+    // Период именно проверяемой попытки — кнопка после подтверждённого
+    // отказа ведёт на checkout с ним, а не с периодом URL. null = period
+    // восстановить нельзя → выбор периода на странице тарифов.
+    const [attemptPeriodMonths, setAttemptPeriodMonths] = useState<
+        number | null
+    >(null);
+
     const inFlightRef = useRef(false);
     // Клик по «Проверить статус»: начать новый цикл немедленным запросом.
     const retryRequestedRef = useRef(false);
+    // Синхронный guard повторного POST: состояние loading применяется
+    // следующим рендером, ref — сразу в этом же клике.
+    const submittingRef = useRef(false);
 
     const isSbp = paymentMethod === 'sbp';
     const monthlyEquiv = Math.round(price.final / periodMonths);
@@ -158,6 +190,11 @@ export default function BillingCheckoutPage() {
     }
 
     function selectPaymentMethod(method: PaymentMethod) {
+        // Пока POST/redirect в полёте способ зафиксирован
+        if (loading || submittingRef.current) {
+            return;
+        }
+
         setPaymentMethod(method);
         setCheckoutError(null);
     }
@@ -182,15 +219,68 @@ export default function BillingCheckoutPage() {
         retryRequestedRef.current = false;
         setPaymentMethod('sbp');
         setAutoRenew(false);
+        setAttemptPeriodMonths(null);
+        // Экран существующей попытки убран: форма выбора — вместо него
+        setResumedAttemptScreen(false);
     }
 
-    async function handleCheckout() {
-        if (loading) {
+    /**
+     * Возобновление существующей попытки сервера (reload/back): тот же
+     * paymentId уходит в существующий polling, без нового POST/Init и без
+     * QR — payload этой попытки сервер в read-only props не отдаёт.
+     */
+    function resumePendingAttempt() {
+        const paymentId = pendingAttempt?.payment_id ?? null;
+
+        if (paymentId === null) {
             return;
         }
 
+        retryRequestedRef.current = true;
+        setAttemptPeriodMonths(pendingAttempt?.period_months ?? null);
+        setSbpPayment({
+            payload: null,
+            paymentId,
+            deadline: null,
+        });
+    }
+
+    /**
+     * Путь после подтверждённого отказа: к форме выбора способа оплаты с
+     * периодом ЭТОЙ попытки. Период, который нельзя достоверно
+     * восстановить, не подставляется — уходим к выбору периода на странице
+     * тарифов. Тот же период, что уже на странице, — форма без переезда.
+     */
+    function chooseMethodAfterFailure() {
+        if (attemptPeriodMonths === null) {
+            router.get('/admin/billing');
+
+            return;
+        }
+
+        if (attemptPeriodMonths !== periodMonths) {
+            router.get(
+                `/admin/billing/checkout?period_months=${attemptPeriodMonths}`,
+            );
+
+            return;
+        }
+
+        resetToPaymentForm();
+    }
+
+    async function handleCheckout() {
+        if (submittingRef.current) {
+            return;
+        }
+
+        submittingRef.current = true;
         setLoading(true);
         setCheckoutError(null);
+
+        // После присвоения location.href страница уходит в банк: CTA
+        // остаётся «Перенаправление…» и disabled до самого ухода.
+        let redirecting = false;
 
         try {
             const res = await axios.post('/admin/checkout', {
@@ -220,6 +310,7 @@ export default function BillingCheckoutPage() {
             if (data.sbp_payload) {
                 const deadline = parseDeadline(data.sbp_expires_at);
 
+                setAttemptPeriodMonths(periodMonths);
                 setSbpPayment({
                     payload: data.sbp_payload,
                     paymentId: data.payment_id ?? null,
@@ -237,6 +328,7 @@ export default function BillingCheckoutPage() {
             }
 
             if (data.checkout_url) {
+                redirecting = true;
                 window.location.href = data.checkout_url;
 
                 return;
@@ -259,7 +351,10 @@ export default function BillingCheckoutPage() {
                 failCheckout('Ошибка при создании платежа');
             }
         } finally {
-            setLoading(false);
+            if (!redirecting) {
+                setLoading(false);
+                submittingRef.current = false;
+            }
         }
     }
 
@@ -507,10 +602,12 @@ export default function BillingCheckoutPage() {
                                         {/* Подтверждённый отказ банка — новая
                                             оплата возможна; unconfirmed /
                                             локальное истечение сюда не
-                                            попадают (другие ветки ниже). */}
+                                            попадают (другие ветки ниже). Кнопка
+                                            ведёт к форме выбора способа с
+                                            периодом этой попытки. */}
                                         <button
                                             type="button"
-                                            onClick={resetToPaymentForm}
+                                            onClick={chooseMethodAfterFailure}
                                             className={PRIMARY_BTN_CLASS}
                                         >
                                             Выбрать способ оплаты
@@ -590,11 +687,14 @@ export default function BillingCheckoutPage() {
                                 ) : (
                                     <>
                                         <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
-                                            Ожидаем подтверждение оплаты
+                                            {sbpPayment.payload === null
+                                                ? 'Проверяем статус платежа'
+                                                : 'Ожидаем подтверждение оплаты'}
                                         </div>
                                         <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                            Не закрывайте страницу до завершения
-                                            оплаты
+                                            {sbpPayment.payload === null
+                                                ? 'Подтверждаем, что платёж обработан. Не запускайте оплату повторно.'
+                                                : 'Не закрывайте страницу до завершения оплаты'}
                                         </p>
 
                                         {remainingMs !== null && (
@@ -607,45 +707,114 @@ export default function BillingCheckoutPage() {
                                             </p>
                                         )}
 
+                                        {/* Возобновлённая попытка без initiation
+                                            (reload/back): проверка статуса без
+                                            QR и ссылок в банк. */}
+                                        {sbpPayment.payload === null && (
+                                            <Link
+                                                href="/admin/billing"
+                                                className={SECONDARY_BTN_CLASS}
+                                            >
+                                                Вернуться к тарифам
+                                            </Link>
+                                        )}
+
                                         {/* Desktop (md+): QR rendered locally from sbp_payload */}
-                                        <div className="mt-4 hidden md:block">
-                                            <div className="inline-block rounded-[16px] border border-[var(--color-line)] bg-white p-4">
-                                                <QRCodeSVG
-                                                    value={sbpPayment.payload}
-                                                    size={232}
-                                                    bgColor="#ffffff"
-                                                    fgColor="#000000"
-                                                    level="M"
-                                                    marginSize={2}
-                                                    title="QR-код для оплаты через СБП"
-                                                />
+                                        {sbpPayment.payload !== null && (
+                                            <div className="mt-4 hidden md:block">
+                                                <div className="inline-block rounded-[16px] border border-[var(--color-line)] bg-white p-4">
+                                                    <QRCodeSVG
+                                                        value={
+                                                            sbpPayment.payload
+                                                        }
+                                                        size={232}
+                                                        bgColor="#ffffff"
+                                                        fgColor="#000000"
+                                                        level="M"
+                                                        marginSize={2}
+                                                        title="QR-код для оплаты через СБП"
+                                                    />
+                                                </div>
+                                                <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-ink)]">
+                                                    Отсканируйте QR-код камерой
+                                                    телефона или в приложении
+                                                    банка
+                                                </p>
+                                                <p className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]">
+                                                    Сумма: {fmt(price.final)}
+                                                </p>
+                                                <a
+                                                    href={sbpPayment.payload}
+                                                    target="_blank"
+                                                    rel="noopener noreferrer"
+                                                    className="mt-2 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
+                                                >
+                                                    Открыть СБП
+                                                </a>
                                             </div>
-                                            <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-ink)]">
-                                                Отсканируйте QR-код камерой
-                                                телефона или в приложении банка
-                                            </p>
-                                            <p className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]">
-                                                Сумма: {fmt(price.final)}
-                                            </p>
+                                        )}
+
+                                        {/* Mobile: open-bank action only, no QR */}
+                                        {sbpPayment.payload !== null && (
                                             <a
                                                 href={sbpPayment.payload}
                                                 target="_blank"
                                                 rel="noopener noreferrer"
-                                                className="mt-2 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
+                                                className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)] md:hidden"
                                             >
-                                                Открыть СБП
+                                                Открыть приложение банка
                                             </a>
+                                        )}
+                                    </>
+                                )}
+                            </section>
+                        ) : resumedAttemptScreen && pendingAttempt !== null ? (
+                            /* ─── Existing unfinished attempt of this
+                               workspace+plan (reload/back): an entry to its
+                               status check — never a fresh ready-to-pay form.
+                               No POST, no Init, no automatic check. ─── */
+                            <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
+                                {pendingAttempt.payment_id ? (
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            Незавершённый платёж
                                         </div>
-
-                                        {/* Mobile: open-bank action only, no QR */}
-                                        <a
-                                            href={sbpPayment.payload}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="mt-4 inline-flex h-[46px] w-full items-center justify-center rounded-[12px] bg-[var(--color-orange)] text-[15px] font-bold text-white transition-colors hover:bg-[var(--color-orange-600)] md:hidden"
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            Есть платёж, статус которого ещё не
+                                            подтверждён. Проверьте его, прежде
+                                            чем запускать оплату заново.
+                                        </p>
+                                        <button
+                                            type="button"
+                                            onClick={resumePendingAttempt}
+                                            className={PRIMARY_BTN_CLASS}
                                         >
-                                            Открыть приложение банка
-                                        </a>
+                                            Проверить статус
+                                        </button>
+                                        <Link
+                                            href="/admin/billing"
+                                            className={SECONDARY_BTN_CLASS}
+                                        >
+                                            Вернуться к тарифам
+                                        </Link>
+                                    </>
+                                ) : (
+                                    <>
+                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                            Статус уточняется
+                                        </div>
+                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                            Этот платёж ещё обрабатывается.
+                                            Проверка станет доступна после
+                                            подтверждения — не запускайте оплату
+                                            повторно.
+                                        </p>
+                                        <Link
+                                            href="/admin/billing"
+                                            className={SECONDARY_BTN_CLASS}
+                                        >
+                                            Вернуться к тарифам
+                                        </Link>
                                     </>
                                 )}
                             </section>
@@ -666,10 +835,11 @@ export default function BillingCheckoutPage() {
                                             type="button"
                                             role="radio"
                                             aria-checked={isSbp}
+                                            disabled={loading}
                                             onClick={() =>
                                                 selectPaymentMethod('sbp')
                                             }
-                                            className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left ${
+                                            className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left disabled:cursor-not-allowed disabled:opacity-60 ${
                                                 isSbp
                                                     ? 'border-[var(--color-orange)] bg-[var(--color-orange-100)] shadow-[inset_0_0_0_1px_var(--color-orange)]'
                                                     : 'border-[var(--color-line)] bg-[var(--color-surface)] transition-colors hover:border-[var(--color-orange)]'
@@ -731,10 +901,11 @@ export default function BillingCheckoutPage() {
                                             aria-checked={
                                                 paymentMethod === 'card'
                                             }
+                                            disabled={loading}
                                             onClick={() =>
                                                 selectPaymentMethod('card')
                                             }
-                                            className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left ${
+                                            className={`flex cursor-pointer items-center gap-3 rounded-[14px] border p-[14px] text-left disabled:cursor-not-allowed disabled:opacity-60 ${
                                                 paymentMethod === 'card'
                                                     ? 'border-[var(--color-orange)] bg-[var(--color-orange-100)] shadow-[inset_0_0_0_1px_var(--color-orange)]'
                                                     : 'border-[var(--color-line)] bg-[var(--color-surface)] transition-colors hover:border-[var(--color-orange)]'
@@ -783,7 +954,7 @@ export default function BillingCheckoutPage() {
                                         <input
                                             type="checkbox"
                                             checked={isSbp ? false : autoRenew}
-                                            disabled={isSbp}
+                                            disabled={isSbp || loading}
                                             onChange={(e) =>
                                                 setAutoRenew(e.target.checked)
                                             }

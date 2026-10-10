@@ -2,9 +2,18 @@
 
 namespace Tests\Feature\Billing;
 
+use App\Enums\BillingCycleOrigin;
+use App\Enums\BillingCycleStatus;
+use App\Enums\BillingSubscriptionStatus;
+use App\Enums\PaymentAttemptStatus;
 use App\Enums\UserRole;
+use App\Models\BillingCycle;
+use App\Models\BillingSubscription;
+use App\Models\PaymentAttempt;
+use App\Models\PlanPrice;
 use App\Models\TariffPlan;
 use App\Models\User;
+use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Http;
 use Inertia\Testing\AssertableInertia as Assert;
@@ -144,5 +153,215 @@ class BillingCheckoutPageTest extends TestCase
         $this->assertDatabaseCount('billing_cycles', 0);
         $this->assertDatabaseCount('payment_attempts', 0);
         $this->assertDatabaseCount('provider_events', 0);
+    }
+
+    // ── pending_attempt: read-only identification of an in-flight attempt ──
+
+    private function ownerWithWorkspace(): User
+    {
+        $owner = User::factory()->create(['role' => UserRole::Owner]);
+        $workspace = Workspace::create([
+            'name' => 'ws-'.$owner->id,
+            'owner_id' => $owner->id,
+        ]);
+        $workspace->ensureSlug();
+        $owner->update(['workspace_id' => $workspace->id]);
+
+        return $owner;
+    }
+
+    /**
+     * @param  array<string, mixed>  $metadata
+     */
+    private function seedAttempt(
+        User $owner,
+        ?string $providerPaymentId,
+        PaymentAttemptStatus $status,
+        array $metadata = [],
+        ?string $failureCategory = null,
+        ?int $planPricePeriodMonths = null,
+    ): PaymentAttempt {
+        $workspaceId = $owner->workspace_id;
+
+        $subscription = BillingSubscription::create([
+            'workspace_id' => $workspaceId,
+            'tariff_plan_id' => $this->proPlan->id,
+            'status' => BillingSubscriptionStatus::PendingInitial,
+        ]);
+
+        $planPriceId = null;
+
+        if ($planPricePeriodMonths !== null) {
+            $planPriceId = PlanPrice::create([
+                'tariff_plan_id' => $this->proPlan->id,
+                'period_months' => $planPricePeriodMonths,
+                'base_amount' => 490 * $planPricePeriodMonths,
+                'discount_percent' => 0,
+                'final_amount' => 490 * $planPricePeriodMonths,
+                'currency' => 'RUB',
+                'version' => 1,
+                'valid_from' => now(),
+                'is_active' => true,
+            ])->id;
+        }
+
+        $cycle = BillingCycle::create([
+            'billing_subscription_id' => $subscription->id,
+            'workspace_id' => $workspaceId,
+            'tariff_plan_id' => $this->proPlan->id,
+            'plan_price_id' => $planPriceId,
+            'period_start' => now(),
+            'period_end' => now()->addMonths($planPricePeriodMonths ?? 1),
+            'status' => BillingCycleStatus::Pending,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'origin' => BillingCycleOrigin::Payment,
+        ]);
+
+        $attempt = new PaymentAttempt([
+            'billing_cycle_id' => $cycle->id,
+            'provider' => 'tbank',
+            'attempt_number' => 1,
+            'amount' => 490,
+            'currency' => 'RUB',
+            'internal_order_id' => 'core_'.bin2hex(random_bytes(16)),
+            'provider_payment_id' => $providerPaymentId,
+            'status' => $status,
+            'failure_category' => $failureCategory,
+            'initiated_at' => now()->subHour(),
+            'metadata' => $metadata,
+        ]);
+        $attempt->save();
+
+        return $attempt;
+    }
+
+    public function test_checkout_exposes_null_pending_attempt_without_in_flight_rows(): void
+    {
+        $this->actingAs($this->owner())
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt', null)
+            );
+    }
+
+    public function test_checkout_exposes_in_flight_attempt_identification(): void
+    {
+        Http::fake();
+
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_777',
+            PaymentAttemptStatus::Processing,
+            ['period_months' => 6],
+        );
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                // Период попытки (6), а не период URL (3) — кнопка после
+                // отказа должна вести к попытке, а не к URL
+                ->where('pending_attempt.payment_id', 'tbank_777')
+                ->where('pending_attempt.period_months', 6)
+                ->where('pending_attempt.status', 'processing')
+            );
+
+        // Read-only: без provider-трафика и без новых записей
+        Http::assertNothingSent();
+    }
+
+    public function test_pending_attempt_period_falls_back_to_plan_price(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        // Metadata без period_months (старый attempt) — цикл несёт plan price
+        $this->seedAttempt($owner, null, PaymentAttemptStatus::Created, [], null, 12);
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.payment_id', null)
+                ->where('pending_attempt.period_months', 12)
+                ->where('pending_attempt.status', 'created')
+            );
+    }
+
+    public function test_pending_attempt_period_is_null_when_unrecoverable(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        // Ни metadata-периода, ни plan price — период не выдумывается
+        $this->seedAttempt($owner, 'tbank_888', PaymentAttemptStatus::Processing);
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.payment_id', 'tbank_888')
+                ->where('pending_attempt.period_months', null)
+            );
+    }
+
+    public function test_pending_attempt_of_another_workspace_is_never_exposed(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $other = $this->ownerWithWorkspace();
+        $this->seedAttempt($other, 'tbank_999', PaymentAttemptStatus::Processing, ['period_months' => 3]);
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt', null)
+            );
+    }
+
+    public function test_confirmed_terminal_failure_is_not_a_pending_attempt(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_111',
+            PaymentAttemptStatus::FailedTerminal,
+            ['period_months' => 3],
+            'provider_declined',
+        );
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt', null)
+            );
+    }
+
+    public function test_timeout_released_attempt_without_provider_id_is_exposed_unresolved(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            null,
+            PaymentAttemptStatus::FailedTerminal,
+            ['payment_method' => 'card'],
+            'reconciliation_timeout',
+        );
+
+        // Попытка «уточняется»: без payment_id клиенту нечего проверять
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.payment_id', null)
+                ->where('pending_attempt.status', 'failed_terminal')
+            );
     }
 }

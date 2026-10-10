@@ -12,10 +12,19 @@ import { toast } from 'sonner';
 import BillingCheckoutPage from '@/pages/admin/billing-checkout';
 
 const mockUsePage = vi.fn();
+const { mockRouter } = vi.hoisted(() => ({
+    mockRouter: {
+        get: vi.fn(),
+        reload: vi.fn(),
+        post: vi.fn(),
+        visit: vi.fn(),
+    },
+}));
 
 vi.mock('@inertiajs/react', () => ({
     Head: () => null,
     usePage: () => mockUsePage(),
+    router: mockRouter,
     Link: ({
         href,
         children,
@@ -74,7 +83,7 @@ vi.mock('qrcode.react', () => ({
     ),
 }));
 
-function makeProps() {
+function makeProps(overrides: Record<string, unknown> = {}) {
     return {
         props: {
             plan: { id: 1, code: 'pro', name: 'Профи', price_monthly: 490 },
@@ -86,6 +95,7 @@ function makeProps() {
                 currency: 'RUB',
             },
             auth: { user: { name: 'Test' } },
+            ...overrides,
         },
     };
 }
@@ -139,6 +149,7 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         vi.mocked(axios.get)
             .mockReset()
             .mockResolvedValue({ data: { status: 'processing' } });
+        vi.mocked(mockRouter.get).mockReset();
         vi.mocked(toast.error).mockClear();
         Object.defineProperty(window, 'location', {
             value: { href: '' },
@@ -1447,5 +1458,273 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(
             screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
         ).toBeTruthy();
+    });
+
+    // ── POST/redirect в полёте: форма зафиксирована ──
+
+    it('during POST method, auto-renew and CTA are locked and a second click sends no POST', async () => {
+        let resolvePost: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolvePost = resolve;
+                }),
+        );
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        // CTA disabled и в состоянии ожидания, способы и автопродление — тоже.
+        // Для карты CTA уже в состоянии «Перенаправление…».
+        const cta = screen.getByRole('button', { name: 'Перенаправление…' });
+        expect(cta.hasAttribute('disabled')).toBe(true);
+        expect(
+            screen.getByRole('radio', { name: /СБП/ }).hasAttribute('disabled'),
+        ).toBe(true);
+        expect(
+            screen
+                .getByRole('radio', { name: /Банковская карта/ })
+                .hasAttribute('disabled'),
+        ).toBe(true);
+        expect(
+            (screen.getByRole('checkbox') as HTMLInputElement).disabled,
+        ).toBe(true);
+
+        // Повторный клик по CTA и попытка сменить способ — без второго POST
+        fireEvent.click(cta);
+        fireEvent.click(screen.getByRole('radio', { name: /СБП/ }));
+        expect(vi.mocked(axios.post)).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            resolvePost({ data: SBP_CHECKOUT_RESPONSE.data });
+        });
+    });
+
+    it('card redirect holds «Перенаправление…» and the disabled CTA until the page leaves', async () => {
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                checkout_url: 'https://securepay.tinkoff.ru/pay?paymentId=1',
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+        await act(async () => {});
+
+        expect(window.location.href).toBe(
+            'https://securepay.tinkoff.ru/pay?paymentId=1',
+        );
+        // Уход в банк не возвращает управление форме
+        const cta = screen.getByRole('button', { name: 'Перенаправление…' });
+        expect(cta.hasAttribute('disabled')).toBe(true);
+        expect(
+            screen.getByRole('radio', { name: /СБП/ }).hasAttribute('disabled'),
+        ).toBe(true);
+    });
+
+    it('checkout error returns control: form controls and CTA are usable again', async () => {
+        vi.mocked(axios.post).mockRejectedValue({
+            isAxiosError: true,
+            response: {
+                status: 422,
+                data: { errors: { plan: ['Платёж уже обрабатывается'] } },
+            },
+        });
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+
+        const alert = await screen.findByRole('alert');
+        expect(alert.textContent).toContain('Платёж уже обрабатывается');
+
+        const cta = screen.getByRole('button', { name: /Оплатить 1.323 ₽/u });
+        expect(cta.hasAttribute('disabled')).toBe(false);
+        expect(
+            screen.getByRole('radio', { name: /СБП/ }).hasAttribute('disabled'),
+        ).toBe(false);
+        expect(
+            (screen.getByRole('checkbox') as HTMLInputElement).disabled,
+        ).toBe(true); // СБП по умолчанию — чекбокс disabled по способу, не по загрузке
+
+        // Повторная отправка после ошибки возможна
+        vi.mocked(axios.post).mockResolvedValue(SBP_CHECKOUT_RESPONSE);
+        fireEvent.click(cta);
+        await act(async () => {});
+        expect(vi.mocked(axios.post)).toHaveBeenCalledTimes(2);
+        expect(screen.getByTestId('sbp-qr')).toBeTruthy();
+    });
+
+    // ── Reload/Back: существующая незавершённая попытка ──
+
+    it('existing attempt with a payment id is shown as a check entry, not a payable form', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 3,
+                    status: 'processing',
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+
+        expect(screen.getByText('Незавершённый платёж')).toBeTruthy();
+        // Ни формы выбора способа, ни CTA новой оплаты, ни автопродления
+        expect(screen.queryByRole('radio')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(screen.queryByRole('checkbox')).toBeNull();
+        // И никаких автоматических проверок
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(axios.post).not.toHaveBeenCalled();
+
+        // Ручная проверка — тот же polling, без POST
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(axios.get).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9',
+        );
+        expect(axios.post).not.toHaveBeenCalled();
+        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
+        // QR и ссылки в банк у возобновлённой попытки нет
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(
+            screen.queryByRole('link', { name: 'Открыть приложение банка' }),
+        ).toBeNull();
+
+        // Подтверждённый отказ → кнопка выбора способа с периодом попытки
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal' },
+        });
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
+        await act(async () => {});
+
+        // Период попытки совпадает с URL — форма на месте, POST не уходил
+        expect(screen.getByRole('radio', { name: /СБП/ })).toBeTruthy();
+        expect(screen.queryByText('Незавершённый платёж')).toBeNull();
+        expect(screen.getByText('3 месяца')).toBeTruthy();
+        expect(axios.post).not.toHaveBeenCalled();
+        expect(mockRouter.get).not.toHaveBeenCalled();
+    });
+
+    it('existing attempt without a payment id shows «Статус уточняется» without any check or payment', () => {
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: null,
+                    period_months: 3,
+                    status: 'created',
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+
+        expect(screen.getByText('Статус уточняется')).toBeTruthy();
+        // Ни неработающей кнопки проверки, ни новой оплаты
+        expect(
+            screen.queryByRole('button', { name: 'Проверить статус' }),
+        ).toBeNull();
+        expect(screen.queryByRole('radio')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('«Выбрать способ оплаты» goes to checkout with the attempt period when it differs from the URL', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 6,
+                    status: 'processing',
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+        fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
+
+        expect(mockRouter.get).toHaveBeenCalledWith(
+            '/admin/billing/checkout?period_months=6',
+        );
+        expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('an unrecoverable attempt period leads to period selection, never to an invented one', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: null,
+                    status: 'processing',
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+
+        fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
+
+        expect(mockRouter.get).toHaveBeenCalledWith('/admin/billing');
+        expect(axios.post).not.toHaveBeenCalled();
     });
 });

@@ -117,10 +117,19 @@ type PaymentCheckStage =
     | 'neutral';
 
 // Only what the success dialog renders from a refreshed reload payload —
-// a stale `current` prop must never be presented as updated.
+// a stale `current` prop must never be presented as updated. Tariff name
+// and expiry come exclusively from this payload: while the reload is
+// pending (or has failed) the dialog shows an explicit caption instead of
+// old data.
 interface FreshCurrent {
+    tariff_name?: string | null;
     expires_at?: string | null;
 }
+
+type FreshCurrentState =
+    | { status: 'loading' }
+    | { status: 'ready'; current: FreshCurrent }
+    | { status: 'error' };
 
 const PAYMENT_POLL_INTERVAL_MS = 2000;
 const PAYMENT_POLL_MAX_ATTEMPTS = 25;
@@ -143,6 +152,18 @@ function initialPaymentCheck(
     return returned ? 'neutral' : null;
 }
 
+/**
+ * Closing the dialog writes ?payment_check=closed so a reload does not
+ * reopen it, while the attempt id itself stays in the URL — the manual
+ * «Проверить статус» entry keeps working across reloads.
+ */
+function paymentCheckClosedInUrl(): boolean {
+    return (
+        new URLSearchParams(window.location.search).get('payment_check') ===
+        'closed'
+    );
+}
+
 /* ═══════════════ Main Page ═══════════════ */
 
 export default function BillingPage() {
@@ -160,21 +181,37 @@ export default function BillingPage() {
     // The return routes only signal "user came back from the bank" — the
     // verdict comes from Billing Core via the read-only status endpoint.
     const paymentAttemptId = props.payment_attempt_id ?? null;
-    const [paymentCheck, setPaymentCheck] = useState<PaymentCheckStage | null>(() =>
-        initialPaymentCheck(props.payment_return === 'returned', paymentAttemptId),
-    );
+    const [paymentCheck, setPaymentCheck] = useState<PaymentCheckStage | null>(() => {
+        // A closed dialog stays closed after a reload — but the attempt id
+        // survives in the URL, so «Проверить статус» remains available.
+        if (paymentCheckClosedInUrl()) {
+            return null;
+        }
+
+        return initialPaymentCheck(props.payment_return === 'returned', paymentAttemptId);
+    });
     // Set only from the onSuccess payload of the post-success reload —
     // stays null on delay/error so the old date is never shown as fresh.
-    const [freshCurrent, setFreshCurrent] = useState<FreshCurrent | null>(null);
+    const [freshCurrent, setFreshCurrent] = useState<FreshCurrentState | null>(null);
     const renewSectionRef = useRef<HTMLElement | null>(null);
 
     const closePaymentCheck = useCallback(
         (focusRenew: boolean) => {
             setPaymentCheck(null);
 
-            // The bound attempt id lives in the URL — strip it so a reload
-            // after closing doesn't reopen the dialog.
+            // The bound attempt id must survive a reload (manual re-check
+            // stays possible) — the URL is only marked as closed.
             if (paymentAttemptId !== null) {
+                const params = new URLSearchParams();
+                params.set('payment_attempt', paymentAttemptId);
+                params.set('payment_check', 'closed');
+
+                window.history.replaceState(
+                    window.history.state,
+                    '',
+                    `${window.location.pathname}?${params.toString()}`,
+                );
+            } else {
                 window.history.replaceState(
                     window.history.state,
                     '',
@@ -191,6 +228,22 @@ export default function BillingPage() {
         },
         [paymentAttemptId],
     );
+
+    // Visible re-check entry for the same attempt after the dialog is
+    // closed. Manual, never automatic; the closed flag is removed from the
+    // URL so a reload during verification reopens the dialog again.
+    const reopenPaymentCheck = useCallback(() => {
+        if (paymentAttemptId === null) {
+            return;
+        }
+
+        window.history.replaceState(
+            window.history.state,
+            '',
+            `${window.location.pathname}?payment_attempt=${encodeURIComponent(paymentAttemptId)}`,
+        );
+        setPaymentCheck('verifying');
+    }, [paymentAttemptId]);
 
     useEffect(() => {
         if (paymentCheck === null) {
@@ -270,7 +323,7 @@ export default function BillingPage() {
                     // documented per-visit callbacks (reload() itself returns
                     // void and signals nothing on its own).
                     if (!cancelled) {
-                        setFreshCurrent(null);
+                        setFreshCurrent({ status: 'loading' });
                         setPaymentCheck('success');
                     }
 
@@ -283,7 +336,25 @@ export default function BillingPage() {
                         onSuccess: (page: {
                             props?: { current?: FreshCurrent };
                         }) => {
-                            setFreshCurrent(page.props?.current ?? null);
+                            const current = page.props?.current ?? null;
+
+                            setFreshCurrent(
+                                current === null
+                                    ? { status: 'error' }
+                                    : { status: 'ready', current },
+                            );
+                        },
+                        onError: () => {
+                            setFreshCurrent({ status: 'error' });
+                        },
+                        onFinish: () => {
+                            // A reload that signals nothing (network cut)
+                            // must not leave a perpetual "loading" caption.
+                            setFreshCurrent((prev) =>
+                                prev?.status === 'loading'
+                                    ? { status: 'error' }
+                                    : prev,
+                            );
                         },
                     });
                 } else if (status === 'failed_terminal') {
@@ -608,6 +679,30 @@ export default function BillingPage() {
                         </div>
                     </section>
 
+                    {/* ─── Manual re-check entry for a closed return dialog ─── */}
+                    {paymentAttemptId !== null && paymentCheck === null && (
+                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                                <div className="min-w-0">
+                                    <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
+                                        Проверка оплаты не завершена
+                                    </div>
+                                    <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                        Статус этого платежа можно проверить
+                                        позже — повторная оплата не нужна.
+                                    </div>
+                                </div>
+                                <button
+                                    type="button"
+                                    onClick={reopenPaymentCheck}
+                                    className="shrink-0 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-orange)] hover:text-[var(--color-orange)]"
+                                >
+                                    Проверить статус
+                                </button>
+                            </div>
+                        </section>
+                    )}
+
                     {/* ─── Auto renewal status (only while consented and active) ─── */}
                     {isPaid && autoRenewActive && (
                         <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
@@ -817,18 +912,52 @@ export default function BillingPage() {
 
                                         {dialogDetails && (
                                             <div className="mt-[22px] grid gap-[9px] border-y border-[var(--color-line)] py-[15px]">
-                                                <div className="flex items-center justify-between gap-5 text-[13px]">
-                                                    <span className="text-[var(--color-graphite)]">Тариф</span>
-                                                    <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">Профи</strong>
-                                                </div>
-                                                {/* Date only from the refreshed reload payload — a stale
-                                                    current prop must never be presented as updated */}
-                                                {freshCurrent?.expires_at && (
-                                                    <div className="flex items-center justify-between gap-5 text-[13px]">
-                                                        <span className="text-[var(--color-graphite)]">Активен до</span>
-                                                        <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">
-                                                            {formatExpiry(freshCurrent.expires_at)}
-                                                        </strong>
+                                                {/* Тариф и срок — только из
+                                                    свежего payload'а partial
+                                                    reload: пока обновление
+                                                    ждётся или сорвалось —
+                                                    явная подпись вместо старых
+                                                    данных. */}
+                                                {freshCurrent?.status ===
+                                                'ready' ? (
+                                                    <>
+                                                        {freshCurrent.current
+                                                            .tariff_name && (
+                                                            <div className="flex items-center justify-between gap-5 text-[13px]">
+                                                                <span className="text-[var(--color-graphite)]">
+                                                                    Тариф
+                                                                </span>
+                                                                <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">
+                                                                    {
+                                                                        freshCurrent
+                                                                            .current
+                                                                            .tariff_name
+                                                                    }
+                                                                </strong>
+                                                            </div>
+                                                        )}
+                                                        {freshCurrent.current
+                                                            .expires_at && (
+                                                            <div className="flex items-center justify-between gap-5 text-[13px]">
+                                                                <span className="text-[var(--color-graphite)]">
+                                                                    Активен до
+                                                                </span>
+                                                                <strong className="text-right text-[13px] font-semibold text-[var(--color-ink)]">
+                                                                    {formatExpiry(
+                                                                        freshCurrent
+                                                                            .current
+                                                                            .expires_at,
+                                                                    )}
+                                                                </strong>
+                                                            </div>
+                                                        )}
+                                                    </>
+                                                ) : (
+                                                    <div className="text-[12px] leading-[1.45] text-[var(--color-graphite)]">
+                                                        {freshCurrent?.status ===
+                                                        'error'
+                                                            ? 'Не удалось обновить данные подписки. Обновите страницу — тариф и дата окончания появятся после загрузки.'
+                                                            : 'Обновляем данные подписки…'}
                                                     </div>
                                                 )}
                                             </div>
