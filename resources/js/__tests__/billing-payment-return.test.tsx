@@ -730,6 +730,141 @@ describe('admin/billing.tsx — payment return verification', () => {
         });
     });
 
+    // ── Поздние ответы ручной проверки ──
+
+    it('closing the dialog while the check is in flight keeps it closed', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+        expect(axios.post).toHaveBeenCalledTimes(1);
+
+        // Диалог закрыт, пока POST /check ещё в полёте
+        fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
+        await flush();
+        expect(screen.queryByRole('dialog')).toBeNull();
+
+        // Поздний успех чужого поколения: диалог не переоткрывается и
+        // reload current не запускается
+        await act(async () => {
+            resolveCheck({ data: { status: 'succeeded', checked: true } });
+        });
+
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(routerReload).not.toHaveBeenCalled();
+    });
+
+    it('a check of a replaced attempt never applies to the new one', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        const { rerender } = render(<BillingPage />);
+        await flush();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1/check',
+        );
+
+        // Checkout-попытка сменена: Inertia обновляет props без remount
+        mockUsePage.mockReturnValue(
+            makeProps({ payment_return: null, payment_attempt_id: 'pay_2' }),
+        );
+        rerender(<BillingPage />);
+        await flush();
+
+        await act(async () => {
+            resolveCheck({ data: { status: 'succeeded', checked: true } });
+        });
+
+        // Ответ pay_1 не перекрашивает экран новой попытки и не дёргает
+        // reload current — диалог остаётся там, где был
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(routerReload).not.toHaveBeenCalled();
+        expect(
+            screen.getByText('Пока не удалось подтвердить оплату'),
+        ).toBeTruthy();
+    });
+
+    it('a late manual-check success after unmount never reloads current', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValueOnce(new Error('network down'));
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        const { unmount } = render(<BillingPage />);
+        await flush();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await flush();
+        expect(axios.post).toHaveBeenCalledTimes(1);
+
+        unmount();
+
+        await act(async () => {
+            resolveCheck({ data: { status: 'succeeded', checked: true } });
+        });
+
+        // reload current — единственный побочный эффект, который пережил бы
+        // unmount: поздний ответ не должен его запускать
+        expect(routerReload).not.toHaveBeenCalled();
+    });
+
     // ── No id: neutral result ──
 
     it('return without attempt id shows a neutral result and never polls', async () => {

@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { Head, Link, router, usePage } from '@inertiajs/react';
 import axios from 'axios';
 import { QRCodeSVG } from 'qrcode.react';
@@ -167,7 +167,8 @@ export default function BillingCheckoutPage() {
     // проверка. Независимо от дедлайна, включая attempts без срока.
     const [unconfirmed, setUnconfirmed] = useState(false);
     // Ручная проверка через POST /check (координационный lock+cooldown на
-    // сервере): блокирует повторный клик, пока запрос в полёте.
+    // сервере): ref-guard гасит повторный клик до ре-рендера, manualChecking
+    // остаётся только UI-флагом loading/disabled.
     const [manualChecking, setManualChecking] = useState(false);
 
     // Reload/Back с незавершённой попыткой сервера: показываем вход к её
@@ -189,6 +190,33 @@ export default function BillingCheckoutPage() {
     // Синхронный guard повторного POST: состояние loading применяется
     // следующим рендером, ref — сразу в этом же клике.
     const submittingRef = useRef(false);
+    // То же для ручной проверки: один POST на попытку, даже если два клика
+    // уложились в один тик, до перерисовки кнопки.
+    const manualCheckingRef = useRef(false);
+    // Поколение контекста попытки: сброс checkout'а, новый paymentId и
+    // unmount двигают счётчик — поздний ответ или ошибка чужого поколения
+    // не меняют экран и не возвращают старое ожидание.
+    const manualCheckEpochRef = useRef(0);
+
+    /**
+     * Ручная проверка устарела: сбросили checkout-попытку, сменили её
+     * paymentId, страница уходит. Поздний ответ или ошибка чужого
+     * поколения замолкают — экран остаётся тем, что видит пользователь.
+     * Ref-guard снимается сразу; UI-флаг loading сбрасывает тот вызывающий,
+     * чей экран продолжает жить (reset).
+     */
+    const invalidateManualStatusCheck = useCallback(() => {
+        manualCheckEpochRef.current += 1;
+        manualCheckingRef.current = false;
+    }, []);
+
+    // Unmount: поздний ответ не трогает размонтированный экран.
+    useEffect(
+        () => () => {
+            invalidateManualStatusCheck();
+        },
+        [invalidateManualStatusCheck],
+    );
 
     const isSbp = paymentMethod === 'sbp';
     const monthlyEquiv = Math.round(price.final / periodMonths);
@@ -220,9 +248,13 @@ export default function BillingCheckoutPage() {
      * props и не меняются. Никаких запросов: следующий явный клик
      * «Оплатить» идёт через существующий handleCheckout. inFlightRef не
      * трогаем — незавершённый запрос старой попытки снимет флаг сам в
-     * finally, а её поздний ответ гасится cleanup-флагом polling'а.
+     * finally, а её поздний ответ гасится cleanup-флагом polling'а. Ручная
+     * проверка в полёте инвалидируется: её поздний ответ не перекрашивает
+     * уже сброшенную форму.
      */
     function resetToPaymentForm() {
+        invalidateManualStatusCheck();
+        setManualChecking(false);
         setSbpPayment(null);
         setSbpStatus('waiting');
         setRemainingMs(null);
@@ -253,6 +285,8 @@ export default function BillingCheckoutPage() {
         const payload = pendingAttempt?.sbp_payload ?? null;
         const deadline = parseDeadline(pendingAttempt?.sbp_expires_at ?? null);
 
+        // Контекст попытки меняется: проверка, начатая раньше, чужая
+        invalidateManualStatusCheck();
         retryRequestedRef.current = true;
         setAttemptPeriodMonths(pendingAttempt?.period_months ?? null);
         setSbpPayment({
@@ -273,20 +307,35 @@ export default function BillingCheckoutPage() {
      * читает только локальный статус. Локальный результат применяется теми
      * же правилами, что и polling: только подтверждённый отказ/успех
      * меняют экран, всё остальное возвращает ожидание.
+     *
+     * Повторный клик гасит синхронный ref-guard — manualChecking остаётся
+     * только UI-флагом loading/disabled. Сброс checkout'а, смена paymentId
+     * и unmount двигают поколение: поздний ответ или ошибка чужой попытки
+     * не перекрашивают уже другой экран.
      */
     async function manualStatusCheck() {
         const paymentId = sbpPayment?.paymentId ?? null;
 
-        if (paymentId === null || manualChecking) {
+        if (paymentId === null || manualCheckingRef.current) {
             return;
         }
 
+        const epoch = manualCheckEpochRef.current;
+        const isCurrent = () => manualCheckEpochRef.current === epoch;
+
+        manualCheckingRef.current = true;
         setManualChecking(true);
 
         try {
             const res = await axios.post(
                 `/admin/billing/payment-status/${paymentId}/check`,
             );
+
+            if (!isCurrent()) {
+                // Поздний ответ уже чужой попытки — экран не меняем
+                return;
+            }
+
             const status = res.data?.status;
             const undefinedOutcome = res.data?.undefined_outcome === true;
 
@@ -308,10 +357,19 @@ export default function BillingCheckoutPage() {
                 setUnconfirmed(false);
             }
         } catch {
+            if (!isCurrent()) {
+                return;
+            }
+
             // Сеть/5xx — исход не подтверждён, ничего не утверждаем
             setUnconfirmed(true);
         } finally {
-            setManualChecking(false);
+            // Своё поколение — снимаем guard и loading; чужой (сброс/umount)
+            // уже сняты вызывающим, второй раз не трогаем.
+            if (isCurrent()) {
+                manualCheckingRef.current = false;
+                setManualChecking(false);
+            }
         }
     }
 
@@ -380,6 +438,9 @@ export default function BillingCheckoutPage() {
             if (data.sbp_payload) {
                 const deadline = parseDeadline(data.sbp_expires_at);
 
+                // Новая попытка = новый paymentId: проверка старой, если она
+                // ещё висит, чужая и экран уже про неё не спрашивает
+                invalidateManualStatusCheck();
                 setAttemptPeriodMonths(periodMonths);
                 setSbpPayment({
                     payload: data.sbp_payload,

@@ -1951,6 +1951,52 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         ).toBeNull();
     });
 
+    it('two clicks in the same tick send a single /check POST', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+        vi.mocked(axios.post).mockClear();
+
+        const button = screen.getByRole('button', {
+            name: 'Проверить статус',
+        });
+
+        // Оба клика — до ре-рендера: manualChecking ещё не применился,
+        // кнопка ещё не disabled — guard обязан держать ref
+        act(() => {
+            fireEvent.click(button);
+            fireEvent.click(button);
+        });
+        await act(async () => {});
+
+        expect(axios.post).toHaveBeenCalledTimes(1);
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1/check',
+        );
+
+        await act(async () => {
+            resolveCheck({ data: { status: 'processing', checked: true } });
+        });
+    });
+
     it('an attempt of an unknown method never shows a payable SBP link', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({

@@ -203,10 +203,49 @@ export default function BillingPage() {
     // Ручная проверка через POST /check: блокирует повторный клик, пока
     // координационный lock+cooldown на сервере обслуживает запрос.
     const [manualChecking, setManualChecking] = useState(false);
+    // Синхронный guard повторного POST: manualChecking применяется лишь
+    // следующим рендером, ref закрывает второй клик сразу в этом же тике.
+    // Состояние остаётся только UI-флагом loading/disabled кнопки.
+    const manualCheckingRef = useRef(false);
+    // Поколение контекста проверки: закрытие диалога и unmount двигают
+    // счётчик, поэтому поздний ответ или ошибка чужого поколения не меняют
+    // экран и не запускают reload current.
+    const manualCheckEpochRef = useRef(0);
+    // Привязка попытки на момент запроса: Inertia меняет props без remount,
+    // а обработчик держит замыкание старого рендера.
+    const paymentAttemptIdRef = useRef(paymentAttemptId);
     const renewSectionRef = useRef<HTMLElement | null>(null);
+
+    /**
+     * Ручная проверка устарела (закрыли диалог / сменили попытку / ушли со
+     * страницы): её поздний ответ и её ошибка замолкают, а guard снимается
+     * синхронно — следующая проверка не упирается в флаг чужого запроса.
+     * setState здесь не вызывается: экран сбрасывает сам вызывающий.
+     */
+    const invalidateManualPaymentCheck = useCallback(() => {
+        manualCheckEpochRef.current += 1;
+        manualCheckingRef.current = false;
+    }, []);
+
+    useEffect(() => {
+        paymentAttemptIdRef.current = paymentAttemptId;
+    }, [paymentAttemptId]);
+
+    // Unmount: поздний ответ не трогает размонтированный экран.
+    useEffect(
+        () => () => {
+            invalidateManualPaymentCheck();
+        },
+        [invalidateManualPaymentCheck],
+    );
 
     const closePaymentCheck = useCallback(
         (focusRenew: boolean) => {
+            // Диалог закрыт, пока POST /check ещё в полёте: поздний ответ
+            // не переоткрывает его и не запускает reload current, а guard и
+            // loading снимаются сразу — следующая проверка начинается чистой.
+            invalidateManualPaymentCheck();
+            setManualChecking(false);
             setPaymentCheck(null);
 
             // The bound attempt id must survive a reload (manual re-check
@@ -236,7 +275,7 @@ export default function BillingPage() {
                 });
             }
         },
-        [paymentAttemptId],
+        [paymentAttemptId, invalidateManualPaymentCheck],
     );
 
     // Visible re-check entry for the same attempt after the dialog is
@@ -282,19 +321,37 @@ export default function BillingPage() {
 
     // Ручная проверка из диалога: POST /check спрашивает банк (GetState)
     // через общий lock+cooldown на сервере — обычный polling GET остаётся
-    // строго локальным. Показывает loading, блокирует повторный клик,
-    // затем применяет результат теми же правилами, что и polling.
+    // строго локальным. Повторный клик гасит синхронный ref-guard,
+    // manualChecking остаётся только UI-флагом loading/disabled; результат
+    // применяется теми же правилами, что и polling, и только пока запрос
+    // всё ещё относится к открытому диалогу и привязанной попытке.
     async function manualPaymentCheck() {
-        if (paymentAttemptId === null || manualChecking) {
+        if (paymentAttemptId === null || manualCheckingRef.current) {
             return;
         }
 
+        const attemptId = paymentAttemptId;
+        const epoch = manualCheckEpochRef.current;
+        // Закрытие диалога и unmount двигают поколение; смену привязки в
+        // props ловит живой ref — замыкание держит id, с которого ушёл POST.
+        const isCurrent = () =>
+            manualCheckEpochRef.current === epoch &&
+            paymentAttemptIdRef.current === attemptId;
+
+        manualCheckingRef.current = true;
         setManualChecking(true);
 
         try {
             const res = await axios.post(
-                `/admin/billing/payment-status/${paymentAttemptId}/check`,
+                `/admin/billing/payment-status/${attemptId}/check`,
             );
+
+            if (!isCurrent()) {
+                // Поздний ответ уже чужой: экран не меняется, диалог не
+                // переоткрывается, reload current не запускается.
+                return;
+            }
+
             const status = res.data?.status;
             const undefinedOutcome = res.data?.undefined_outcome === true;
 
@@ -316,10 +373,20 @@ export default function BillingPage() {
                 setPaymentCheck('verifying');
             }
         } catch {
+            if (!isCurrent()) {
+                return;
+            }
+
             // Сеть/5xx — исход не подтверждён, никогда не угадываем
             setPaymentCheck('unconfirmed');
         } finally {
-            setManualChecking(false);
+            // Ref-guard и loading снимает только тот запрос, чьё поколение
+            // всё ещё текущее: закрытие/umount уже сняли своё, а чужой
+            // finally не трогает состояние новой проверки.
+            if (manualCheckEpochRef.current === epoch) {
+                manualCheckingRef.current = false;
+                setManualChecking(false);
+            }
         }
     }
 
