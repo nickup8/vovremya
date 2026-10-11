@@ -161,10 +161,17 @@ class PaymentController extends Controller
      * attempt (existing initiation, no new Init, no deadline extension) —
      * but only while the attempt is still awaiting payment: a released
      * (failed_terminal) or unknown-outcome attempt, an unknown method, or a
-     * card attempt never carries a payable link. An already-past deadline is
+     * card attempt never carries an SBP link. An already-past deadline is
      * passed through untouched so the client can show the link as expired.
      *
-     * @return array{payment_id: ?string, period_months: ?int, status: string, method: ?string, sbp_payload: ?string, sbp_expires_at: ?string}|null
+     * `checkout_url` is the card counterpart: the SAME attempt's saved
+     * confirmation link, handed over only for method=card while the attempt
+     * is still created/processing and the stored link is a non-empty
+     * string — the client resumes payment without POST /admin/checkout and
+     * without a new Init. A released (failed_terminal) or unknown-status
+     * attempt, an unknown method or an SBP attempt never carries it.
+     *
+     * @return array{payment_id: ?string, period_months: ?int, status: string, method: ?string, sbp_payload: ?string, sbp_expires_at: ?string, checkout_url: ?string}|null
      */
     private function pendingAttemptState(Request $request, string $planId): ?array
     {
@@ -185,6 +192,7 @@ class PaymentController extends Controller
         $method = is_string($method) ? $method : null;
         $sbpPayloadRaw = data_get($attempt->metadata, 'sbp_payload');
         $sbpExpiresAtRaw = data_get($attempt->metadata, 'sbp_expires_at');
+        $checkoutUrlRaw = data_get($attempt->metadata, 'checkout_url');
 
         $awaitingPayment = in_array($attempt->status, [
             PaymentAttemptStatus::Created,
@@ -193,6 +201,7 @@ class PaymentController extends Controller
 
         $sbpPayload = null;
         $sbpExpiresAt = null;
+        $checkoutUrl = null;
 
         if ($awaitingPayment
             && $method === 'sbp'
@@ -202,6 +211,13 @@ class PaymentController extends Controller
             $sbpExpiresAt = is_string($sbpExpiresAtRaw) ? $sbpExpiresAtRaw : null;
         }
 
+        if ($awaitingPayment
+            && $method === 'card'
+            && is_string($checkoutUrlRaw)
+            && $checkoutUrlRaw !== '') {
+            $checkoutUrl = $checkoutUrlRaw;
+        }
+
         return [
             'payment_id' => $attempt->provider_payment_id,
             'period_months' => $this->attemptPeriodMonths($attempt),
@@ -209,6 +225,7 @@ class PaymentController extends Controller
             'method' => $method,
             'sbp_payload' => $sbpPayload,
             'sbp_expires_at' => $sbpExpiresAt,
+            'checkout_url' => $checkoutUrl,
         ];
     }
 

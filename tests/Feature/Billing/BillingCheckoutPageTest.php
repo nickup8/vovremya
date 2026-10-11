@@ -312,7 +312,11 @@ class BillingCheckoutPageTest extends TestCase
     {
         $owner = $this->ownerWithWorkspace();
         $other = $this->ownerWithWorkspace();
-        $this->seedAttempt($other, 'tbank_999', PaymentAttemptStatus::Processing, ['period_months' => 3]);
+        $this->seedAttempt($other, 'tbank_999', PaymentAttemptStatus::Processing, [
+            'period_months' => 3,
+            'payment_method' => 'card',
+            'checkout_url' => 'https://example.test/foreign-pay',
+        ]);
 
         $this->actingAs($owner)
             ->get('/admin/billing/checkout?period_months=3')
@@ -362,6 +366,7 @@ class BillingCheckoutPageTest extends TestCase
                 ->component('admin/billing-checkout')
                 ->where('pending_attempt.payment_id', null)
                 ->where('pending_attempt.status', 'failed_terminal')
+                ->where('pending_attempt.checkout_url', null)
             );
     }
 
@@ -390,6 +395,7 @@ class BillingCheckoutPageTest extends TestCase
                 ->where('pending_attempt.method', 'sbp')
                 ->where('pending_attempt.sbp_payload', 'https://qr.nspk.ru/SAMEATTEMPT')
                 ->where('pending_attempt.sbp_expires_at', '2027-01-01T12:00:00+03:00')
+                ->where('pending_attempt.checkout_url', null)
                 ->where('pending_attempt.period_months', 3)
             );
     }
@@ -419,6 +425,34 @@ class BillingCheckoutPageTest extends TestCase
             );
     }
 
+    public function test_card_created_attempt_exposes_its_own_checkout_url(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_card2',
+            PaymentAttemptStatus::Created,
+            [
+                'payment_method' => 'card',
+                'checkout_url' => 'https://example.test/same-attempt-pay',
+                'period_months' => 3,
+            ],
+        );
+
+        // Продолжение карточной оплаты: та же сохранённая ссылка ЭТОЙ
+        // попытки, без POST /admin/checkout и без нового Init
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=6')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.method', 'card')
+                ->where('pending_attempt.status', 'created')
+                ->where('pending_attempt.checkout_url', 'https://example.test/same-attempt-pay')
+                ->where('pending_attempt.sbp_payload', null)
+            );
+    }
+
     public function test_unknown_method_is_never_guessed_as_sbp(): void
     {
         $owner = $this->ownerWithWorkspace();
@@ -431,6 +465,56 @@ class BillingCheckoutPageTest extends TestCase
                 ->component('admin/billing-checkout')
                 ->where('pending_attempt.method', null)
                 ->where('pending_attempt.sbp_payload', null)
+                ->where('pending_attempt.checkout_url', null)
+            );
+    }
+
+    public function test_unknown_status_attempt_withholds_the_checkout_url(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_unk1',
+            PaymentAttemptStatus::Unknown,
+            [
+                'payment_method' => 'card',
+                'checkout_url' => 'https://example.test/unknown-status',
+                'period_months' => 3,
+            ],
+        );
+
+        // Статус не created/processing — возобновлять оплату нельзя
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.status', 'unknown')
+                ->where('pending_attempt.checkout_url', null)
+            );
+    }
+
+    public function test_empty_card_checkout_url_is_not_exposed(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_card3',
+            PaymentAttemptStatus::Processing,
+            [
+                'payment_method' => 'card',
+                'checkout_url' => '',
+                'period_months' => 3,
+            ],
+        );
+
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.method', 'card')
+                ->where('pending_attempt.checkout_url', null)
             );
     }
 
@@ -445,6 +529,7 @@ class BillingCheckoutPageTest extends TestCase
                 'payment_method' => 'sbp',
                 'sbp_payload' => 'https://qr.nspk.ru/RELEASED',
                 'sbp_expires_at' => '2027-01-01T12:00:00+03:00',
+                'checkout_url' => 'https://example.test/released-sbp',
             ],
             'reconciliation_timeout',
         );
@@ -459,6 +544,35 @@ class BillingCheckoutPageTest extends TestCase
                 ->where('pending_attempt.status', 'failed_terminal')
                 ->where('pending_attempt.sbp_payload', null)
                 ->where('pending_attempt.sbp_expires_at', null)
+                ->where('pending_attempt.checkout_url', null)
+            );
+    }
+
+    public function test_released_card_attempt_withholds_the_checkout_url(): void
+    {
+        $owner = $this->ownerWithWorkspace();
+        $this->seedAttempt(
+            $owner,
+            'tbank_card4',
+            PaymentAttemptStatus::FailedTerminal,
+            [
+                'payment_method' => 'card',
+                'checkout_url' => 'https://example.test/released-card',
+                'period_months' => 3,
+            ],
+            'reconciliation_timeout',
+        );
+
+        // Локально отпущенная карточная попытка: исход неизвестен —
+        // возобновлять оплату по старой ссылке нельзя
+        $this->actingAs($owner)
+            ->get('/admin/billing/checkout?period_months=3')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.status', 'failed_terminal')
+                ->where('pending_attempt.method', 'card')
+                ->where('pending_attempt.checkout_url', null)
             );
     }
 
