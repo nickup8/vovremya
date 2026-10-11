@@ -105,9 +105,9 @@ const UNCONFIRMED_BODY =
 // Наш UX-бюджет авто-проверки (как в PR9), а не требование банка:
 // максимум 25 запросов раз в 2 секунды, затем — неподтверждённый исход.
 // Бюджет действует после истечения срока ссылки и в ожидании без
-// платёжной ссылки (payload === null, например возобновлённая карта,
-// где дедлайн не наступит и linkExpired никогда не сработает). Ручная
-// проверка начинает новый ограниченный цикл.
+// платёжной ссылки (payload === null). Ручная проверка SBP-потока
+// начинает новый ограниченный цикл. Возобновлённая карта бюджетом не
+// опрашивается вообще: её проверка — только POST /check по кнопке.
 const EXPIRED_CHECK_BUDGET = 25;
 const STATUS_POLL_INTERVAL_MS = 2000;
 
@@ -178,6 +178,12 @@ export default function BillingCheckoutPage() {
     // сервере): ref-guard гасит повторный клик до ре-рендера, manualChecking
     // остаётся только UI-флагом loading/disabled.
     const [manualChecking, setManualChecking] = useState(false);
+    // Подпись последней POST-проверки карточной попытки на её же экране:
+    // 'none' — ещё не проверяли; 'cooldown' — checked=false при
+    // нетерминальном статусе (локальный перечит, не свежий ответ банка).
+    const [cardCheckNotice, setCardCheckNotice] = useState<
+        'none' | 'unconfirmed' | 'request_error' | 'cooldown'
+    >('none');
 
     // Reload/Back с незавершённой попыткой сервера: показываем вход к её
     // проверке, а не новую готовую к оплате форму.
@@ -205,12 +211,6 @@ export default function BillingCheckoutPage() {
     // unmount двигают счётчик — поздний ответ или ошибка чужого поколения
     // не меняют экран и не возвращают старое ожидание.
     const manualCheckEpochRef = useRef(0);
-    // Явная приостановка GET-polling на время первого POST-«Проверить
-    // статус» с карточного pending-экрана: интервал этого же payment_id
-    // уже в полёте контекста, но спрашивать банк разрешён только POST.
-    // Отсутствия retryRequestedRef мало — тик интервала всё равно сработал
-    // бы во время отложенного POST.
-    const manualPollingSuspendedRef = useRef(false);
 
     /**
      * Ручная проверка устарела: сбросили checkout-попытку, сменили её
@@ -222,7 +222,6 @@ export default function BillingCheckoutPage() {
     const invalidateManualStatusCheck = useCallback(() => {
         manualCheckEpochRef.current += 1;
         manualCheckingRef.current = false;
-        manualPollingSuspendedRef.current = false;
     }, []);
 
     // Unmount: поздний ответ не трогает размонтированный экран.
@@ -275,6 +274,7 @@ export default function BillingCheckoutPage() {
         setRemainingMs(null);
         setUnconfirmed(false);
         setCheckoutError(null);
+        setCardCheckNotice('none');
         retryRequestedRef.current = false;
         setPaymentMethod('sbp');
         setAutoRenew(false);
@@ -333,13 +333,23 @@ export default function BillingCheckoutPage() {
     }
 
     /**
-     * «Проверить статус» на карточном pending-экране: открывается контекст
-     * той же попытки, а первый запрос — существующий POST /check, без
-     * предварительных GET и без нового Init. GET-polling этого payment_id
-     * на время POST приостановлен явно; ответ без терминального вердикта
-     * (включая undefined_outcome и ошибку сети) сразу уводит в unconfirmed.
+     * «Проверить оплату» на карточном pending-экране: единственный запрос —
+     * существующий POST /check той же попытки, без предварительных GET и
+     * без нового Init. Экран на всё время запроса не меняется: кнопки
+     * disabled, кнопка проверки показывает «Проверяем…». Ответ без
+     * финального вердикта, ошибка сети и cooldown (checked=false) дают
+     * подпись на этом же экране, а сохранённая ссылка продолжения оплаты
+     * остаётся доступной. GET-polling не запускается ни во время, ни
+     * после проверки.
+     *
+     * Финальный вердикт (успех, подтверждённый отказ, возвраты) применяется
+     * независимо от checked и уводит на существующие терминальные экраны.
+     * Терминальный экран убирает ссылку продолжения.
+     *
+     * Повторный клик гасит ref-guard до ре-рендера; сброс checkout'а и
+     * unmount двигают поколение — поздний ответ чужой попытки замолкает.
      */
-    function startCardPendingStatusCheck() {
+    async function startCardPendingStatusCheck() {
         const paymentId = pendingAttempt?.payment_id ?? null;
 
         // Ref-guard до invalidate: тот снимает manualCheckingRef, и двойной
@@ -350,39 +360,93 @@ export default function BillingCheckoutPage() {
 
         // Контекст попытки меняется: проверка, начатая раньше, чужая
         invalidateManualStatusCheck();
-        // Первый запрос этой проверки — POST /check, а не GET-опрос
-        retryRequestedRef.current = false;
+        const epoch = manualCheckEpochRef.current;
+        const isCurrent = () => manualCheckEpochRef.current === epoch;
+
+        manualCheckingRef.current = true;
+        setManualChecking(true);
+        setCardCheckNotice('none');
         setAttemptPeriodMonths(pendingAttempt?.period_months ?? null);
-        setSbpPayment({
-            payload: null,
-            paymentId,
-            deadline: null,
-        });
-        setRemainingMs(null);
-        void manualStatusCheck(paymentId, true);
+
+        try {
+            const res = await axios.post(
+                `/admin/billing/payment-status/${paymentId}/check`,
+            );
+
+            if (!isCurrent()) {
+                // Поздний ответ уже чужой попытки — экран не меняем
+                return;
+            }
+
+            const status = res.data?.status;
+            const checked = res.data?.checked !== false;
+            const undefinedOutcome = res.data?.undefined_outcome === true;
+
+            if (status === 'succeeded') {
+                enterCardTerminalScreen(paymentId, 'succeeded');
+            } else if (status === 'refunded') {
+                enterCardTerminalScreen(paymentId, 'refunded');
+            } else if (status === 'partially_refunded') {
+                enterCardTerminalScreen(paymentId, 'partially_refunded');
+            } else if (status === 'failed_terminal' && !undefinedOutcome) {
+                // Подтверждённый отказ банка — терминальный экран; undefined
+                // — локальный age-release, не вердикт, падает ниже
+                enterCardTerminalScreen(paymentId, 'failed');
+            } else if (!checked) {
+                // Lock/cooldown пропустили провайдера: это не свежий ответ
+                // банка, а просто перечитанный локальный статус
+                setCardCheckNotice('cooldown');
+            } else {
+                // Вердикта нет (processing, undefined_outcome, unknown…):
+                // экран и продолжение оплаты сохраняются
+                setCardCheckNotice('unconfirmed');
+            }
+        } catch {
+            if (!isCurrent()) {
+                return;
+            }
+
+            // Сеть/5xx — ничего не утверждаем, экран остаётся с продолжением
+            setCardCheckNotice('request_error');
+        } finally {
+            if (isCurrent()) {
+                manualCheckingRef.current = false;
+                setManualChecking(false);
+            }
+        }
     }
 
     /**
-     * Ручная проверка статуса: POST /check спрашивает банк (GetState) через
-     * общий lock+cooldown — в отличие от обычного polling GET, который
-     * читает только локальный статус. Локальный результат применяется теми
-     * же правилами, что и polling: только подтверждённый отказ/успех
-     * меняют экран, всё остальное возвращает ожидание.
+     * Карточный терминальный вердикт переиспользует существующие финальные
+     * экраны ветки sbpPayment: payload null — QR и ссылок в банк нет,
+     * deadline null — таймера нет, sbpStatus терминален — polling не
+     * стартует. Ссылка продолжения на терминальных экранах не показывается.
+     */
+    function enterCardTerminalScreen(
+        paymentId: string,
+        status: Extract<
+            SbpStatus,
+            'succeeded' | 'failed' | 'refunded' | 'partially_refunded'
+        >,
+    ) {
+        setSbpPayment({ payload: null, paymentId, deadline: null });
+        setRemainingMs(null);
+        setSbpStatus(status);
+    }
+
+    /**
+     * Ручная проверка статуса (SBP-поток): POST /check спрашивает банк
+     * (GetState) через общий lock+cooldown — в отличие от обычного polling
+     * GET, который читает только локальный статус. Локальный результат
+     * применяется теми же правилами, что и polling: только подтверждённый
+     * отказ/успех меняют экран, всё остальное возвращает ожидание.
      *
      * Повторный клик гасит синхронный ref-guard — manualChecking остаётся
      * только UI-флагом loading/disabled. Сброс checkout'а, смена paymentId
      * и unmount двигают поколение: поздний ответ или ошибка чужой попытки
      * не перекрашивают уже другой экран.
-     *
-     * `fromPendingScreen` — первый POST с карточного pending-экрана: GET-
-     * polling явно приостановлен, пока POST в полёте, а ответ без
-     * терминального вердикта сразу уводит в unconfirmed — без нового
-     * GET-цикла. Повторная ручная проверка и SBP-поток не меняются.
      */
-    async function manualStatusCheck(
-        paymentId: string | null,
-        fromPendingScreen = false,
-    ) {
+    async function manualStatusCheck(paymentId: string | null) {
         if (paymentId === null || manualCheckingRef.current) {
             return;
         }
@@ -391,11 +455,6 @@ export default function BillingCheckoutPage() {
         const isCurrent = () => manualCheckEpochRef.current === epoch;
 
         manualCheckingRef.current = true;
-
-        if (fromPendingScreen) {
-            manualPollingSuspendedRef.current = true;
-        }
-
         setManualChecking(true);
 
         try {
@@ -423,10 +482,6 @@ export default function BillingCheckoutPage() {
                 setSbpStatus('refunded');
             } else if (status === 'partially_refunded') {
                 setSbpStatus('partially_refunded');
-            } else if (fromPendingScreen) {
-                // Вердикта нет — сразу неподтверждённый исход с ручной
-                // кнопкой, без нового GET-цикла
-                setUnconfirmed(true);
             } else {
                 // Вердикта нет — ждём дальше обычным polling'ом
                 retryRequestedRef.current = true;
@@ -444,7 +499,6 @@ export default function BillingCheckoutPage() {
             // уже сняты вызывающим, второй раз не трогаем.
             if (isCurrent()) {
                 manualCheckingRef.current = false;
-                manualPollingSuspendedRef.current = false;
                 setManualChecking(false);
             }
         }
@@ -601,31 +655,21 @@ export default function BillingCheckoutPage() {
             return;
         }
 
-        // Первый POST с карточного pending-экрана держит опрос этого же
-        // payment_id приостановленным — спрашивает банк только его POST.
-        if (manualPollingSuspendedRef.current) {
-            return;
-        }
-
         const paymentId = sbpPayment.paymentId;
         let stopped = false;
         let timer: number | null = null;
         // Ожидание ограничено бюджетом, когда срок истёк ИЛИ платёжной
-        // ссылки вовсе нет (payload === null: возобновлённая карта —
-        // дедлайн не наступит и linkExpired никогда не сработает).
+        // ссылки вовсе нет (payload === null: возобновлённая попытка без
+        // SBP-payload — дедлайн не наступит и linkExpired не сработает).
         const budgetedWait = linkExpired || sbpPayment.payload === null;
         // Бюджет считает запросы только этого цикла; новый цикл
         // (истечение, исчерпание или «Проверить статус») — снова с нуля.
         let expiredChecks = 0;
 
         async function check() {
-            // Приостановка первого POST: тик интервала во время полёта
-            // не спрашивает статус и не расходует бюджет цикла
-            if (
-                stopped ||
-                inFlightRef.current ||
-                manualPollingSuspendedRef.current
-            ) {
+            // Тик интервала во время другого запроса не спрашивает статус
+            // и не расходует бюджет цикла
+            if (stopped || inFlightRef.current) {
                 return;
             }
 
@@ -1011,111 +1055,169 @@ export default function BillingCheckoutPage() {
                                No POST, no Init, no automatic check. ─── */
                             <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
                                 {pendingAttempt.payment_id ? (
-                                    <>
-                                        <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
-                                            Незавершённый платёж
-                                        </div>
-                                        {pendingAttempt.sbp_payload ? (
-                                            /* Сохранённая SBP-ссылка этой же
-                                               попытки — продолжение без
-                                               нового Init и продления срока */
-                                            <>
-                                                <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                                    Продолжите оплату по той же
-                                                    СБП-ссылке — отдельный
-                                                    платёж не создаётся.
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    onClick={
-                                                        resumePendingAttempt
-                                                    }
-                                                    className={
-                                                        PRIMARY_BTN_CLASS
-                                                    }
-                                                >
-                                                    Продолжить оплату
-                                                </button>
-                                            </>
-                                        ) : pendingAttempt.checkout_url ? (
-                                            /* Сохранённый card-checkout_url
-                                               этой же попытки — та же
-                                               защищённая страница T-Bank
-                                               без нового Init; проверка
-                                               статуса — сразу POST /check */
-                                            <>
-                                                <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                                    Продолжите оплату на той же
-                                                    защищённой странице —
-                                                    отдельный платёж не
-                                                    создаётся.
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    onClick={resumeCardCheckout}
-                                                    className={
-                                                        PRIMARY_BTN_CLASS
-                                                    }
-                                                >
-                                                    Продолжить оплату
-                                                </button>
-                                                <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                                    Уже оплатили? Проверьте
-                                                    статус, прежде чем запускать
-                                                    оплату заново.
-                                                </p>
-                                                <button
-                                                    type="button"
-                                                    onClick={
-                                                        startCardPendingStatusCheck
-                                                    }
-                                                    disabled={manualChecking}
-                                                    className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
-                                                >
-                                                    {manualChecking
-                                                        ? 'Проверка…'
-                                                        : 'Проверить статус'}
-                                                </button>
-                                            </>
-                                        ) : (
-                                            <>
+                                    pendingAttempt.method === 'card' ||
+                                    pendingAttempt.checkout_url ? (
+                                        /* Карточная попытка: один экран на
+                                           всю жизнь возобновления —
+                                           продолжение по сохранённой ссылке
+                                           и ручная POST-проверка. Экран не
+                                           меняется ни во время проверки, ни
+                                           после ответа без вердикта; новые
+                                           оплаты отсюда не стартуют. */
+                                        <>
+                                            <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                                Оплата не завершена
+                                            </div>
+                                            {pendingAttempt.checkout_url ? (
+                                                <>
+                                                    <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                        Продолжите оплату на той
+                                                        же защищённой странице —
+                                                        отдельный платёж не
+                                                        создаётся.
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={
+                                                            resumeCardCheckout
+                                                        }
+                                                        disabled={
+                                                            manualChecking
+                                                        }
+                                                        className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
+                                                    >
+                                                        Продолжить оплату
+                                                    </button>
+                                                    <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                        Уже оплатили? Проверьте
+                                                        статус, прежде чем
+                                                        запускать оплату заново.
+                                                    </p>
+                                                </>
+                                            ) : (
                                                 <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
                                                     Есть платёж, статус которого
                                                     ещё не подтверждён.
                                                     Проверьте его, прежде чем
                                                     запускать оплату заново.
                                                 </p>
-                                                {/* Карта без сохранённой
-                                                    ссылки: та же прямая
-                                                    POST-проверка, что и на
-                                                    экране с checkout_url —
-                                                    без GET-опроса. Остальные
-                                                    способы — прежний
-                                                    возобновляемый polling. */}
-                                                <button
-                                                    type="button"
-                                                    onClick={
-                                                        pendingAttempt.method ===
-                                                        'card'
-                                                            ? startCardPendingStatusCheck
-                                                            : resumePendingAttempt
-                                                    }
-                                                    disabled={manualChecking}
-                                                    className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
-                                                >
-                                                    {manualChecking
-                                                        ? 'Проверка…'
-                                                        : 'Проверить статус'}
-                                                </button>
-                                            </>
-                                        )}
-                                        <Link
-                                            href="/admin/billing"
-                                            className={SECONDARY_BTN_CLASS}
-                                        >
-                                            Вернуться к тарифам
-                                        </Link>
-                                    </>
+                                            )}
+                                            {/* Проверка — всегда POST /check
+                                                той же попытки: ни во время
+                                                запроса, ни после ответа без
+                                                вердикта GET-цикла нет. */}
+                                            <button
+                                                type="button"
+                                                onClick={() => {
+                                                    void startCardPendingStatusCheck();
+                                                }}
+                                                disabled={manualChecking}
+                                                className={`${pendingAttempt.checkout_url ? SECONDARY_BTN_CLASS : PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
+                                            >
+                                                {manualChecking
+                                                    ? 'Проверяем…'
+                                                    : 'Проверить оплату'}
+                                            </button>
+                                            {cardCheckNotice ===
+                                                'unconfirmed' && (
+                                                <>
+                                                    <div className="mt-3 text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                                        Оплата пока не
+                                                        подтверждена
+                                                    </div>
+                                                    <p className="mt-1.5 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                        Если вы уже оплачивали —
+                                                        не запускайте оплату
+                                                        повторно.
+                                                    </p>
+                                                </>
+                                            )}
+                                            {cardCheckNotice ===
+                                                'request_error' && (
+                                                <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                    Не удалось проверить оплату.
+                                                    Попробуйте ещё раз
+                                                </p>
+                                            )}
+                                            {cardCheckNotice === 'cooldown' && (
+                                                <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                    Новая проверка пока
+                                                    недоступна. Попробуйте через
+                                                    минуту
+                                                </p>
+                                            )}
+                                            <Link
+                                                href="/admin/billing"
+                                                className={SECONDARY_BTN_CLASS}
+                                            >
+                                                Вернуться к тарифам
+                                            </Link>
+                                        </>
+                                    ) : (
+                                        <>
+                                            <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                                Незавершённый платёж
+                                            </div>
+                                            {pendingAttempt.sbp_payload ? (
+                                                /* Сохранённая SBP-ссылка этой же
+                                                   попытки — продолжение без
+                                                   нового Init и продления срока */
+                                                <>
+                                                    <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                        Продолжите оплату по той
+                                                        же СБП-ссылке —
+                                                        отдельный платёж не
+                                                        создаётся.
+                                                    </p>
+                                                    <button
+                                                        type="button"
+                                                        onClick={
+                                                            resumePendingAttempt
+                                                        }
+                                                        className={
+                                                            PRIMARY_BTN_CLASS
+                                                        }
+                                                    >
+                                                        Продолжить оплату
+                                                    </button>
+                                                </>
+                                            ) : (
+                                                <>
+                                                    <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                        Есть платёж, статус
+                                                        которого ещё не
+                                                        подтверждён. Проверьте
+                                                        его, прежде чем
+                                                        запускать оплату заново.
+                                                    </p>
+                                                    {/* Не-карта (неизвестный
+                                                        способ): прежний
+                                                        возобновляемый polling
+                                                        той же попытки. */}
+                                                    <button
+                                                        type="button"
+                                                        onClick={
+                                                            resumePendingAttempt
+                                                        }
+                                                        disabled={
+                                                            manualChecking
+                                                        }
+                                                        className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
+                                                    >
+                                                        {manualChecking
+                                                            ? 'Проверка…'
+                                                            : 'Проверить статус'}
+                                                    </button>
+                                                </>
+                                            )}
+                                            <Link
+                                                href="/admin/billing"
+                                                className={SECONDARY_BTN_CLASS}
+                                            >
+                                                Вернуться к тарифам
+                                            </Link>
+                                        </>
+                                    )
                                 ) : (
                                     <>
                                         <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
