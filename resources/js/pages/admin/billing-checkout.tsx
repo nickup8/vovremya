@@ -97,9 +97,12 @@ const UNCONFIRMED_TITLE = 'Пока не удалось подтвердить �
 const UNCONFIRMED_BODY =
     'Если вы уже оплачивали — не запускайте оплату повторно. Нажмите «Проверить статус» или вернитесь позже: результат появится после подтверждения платежа.';
 
-// Наш UX-бюджет авто-проверки после истечения срока (как в PR9), а не
-// требование банка: максимум 25 запросов раз в 2 секунды, затем —
-// неподтверждённый исход. Ручная проверка начинает новый цикл.
+// Наш UX-бюджет авто-проверки (как в PR9), а не требование банка:
+// максимум 25 запросов раз в 2 секунды, затем — неподтверждённый исход.
+// Бюджет действует после истечения срока ссылки и в ожидании без
+// платёжной ссылки (payload === null, например возобновлённая карта,
+// где дедлайн не наступит и linkExpired никогда не сработает). Ручная
+// проверка начинает новый ограниченный цикл.
 const EXPIRED_CHECK_BUDGET = 25;
 const STATUS_POLL_INTERVAL_MS = 2000;
 
@@ -527,8 +530,12 @@ export default function BillingCheckoutPage() {
         const paymentId = sbpPayment.paymentId;
         let stopped = false;
         let timer: number | null = null;
-        // Бюджет считает только запросы после истечения срока; новый цикл
-        // (истечение или «Проверить статус») начинается снова с нуля.
+        // Ожидание ограничено бюджетом, когда срок истёк ИЛИ платёжной
+        // ссылки вовсе нет (payload === null: возобновлённая карта —
+        // дедлайн не наступит и linkExpired никогда не сработает).
+        const budgetedWait = linkExpired || sbpPayment.payload === null;
+        // Бюджет считает запросы только этого цикла; новый цикл
+        // (истечение, исчерпание или «Проверить статус») — снова с нуля.
         let expiredChecks = 0;
 
         async function check() {
@@ -536,7 +543,7 @@ export default function BillingCheckoutPage() {
                 return;
             }
 
-            if (linkExpired) {
+            if (budgetedWait) {
                 if (expiredChecks >= EXPIRED_CHECK_BUDGET) {
                     setUnconfirmed(true);
 
@@ -578,7 +585,7 @@ export default function BillingCheckoutPage() {
                 } else if (status === 'partially_refunded') {
                     // Частичный возврат — свой экран, polling тоже остановлен
                     setSbpStatus('partially_refunded');
-                } else if (linkExpired) {
+                } else if (budgetedWait) {
                     if (
                         status === 'unknown' ||
                         expiredChecks >= EXPIRED_CHECK_BUDGET
@@ -589,20 +596,21 @@ export default function BillingCheckoutPage() {
                     }
                     // created / processing / failed_retryable → ждём дальше
                 }
-                // До истечения срока (и без срока): created / processing /
-                // failed_retryable / unknown → ждём дальше, бюджет не нужен
+                // Свободное ожидание с платёжной ссылкой до её срока:
+                // created / processing / failed_retryable / unknown →
+                // ждём дальше, бюджет не нужен
             } catch {
                 if (stopped) {
                     return;
                 }
 
-                if (linkExpired) {
-                    // Сеть недоступна после истечения срока — исход
+                if (budgetedWait) {
+                    // Сеть недоступна в ограниченном ожидании — исход
                     // не подтверждён, статус по часам не угадываем.
                     setUnconfirmed(true);
                 }
-                // До истечения срока временный сбой polling — оплата не
-                // «упала», ждём следующий тик
+                // Свободное ожидание с ссылкой до срока: временный сбой
+                // polling — оплата не «упала», ждём следующий тик
             } finally {
                 inFlightRef.current = false;
             }
@@ -627,7 +635,13 @@ export default function BillingCheckoutPage() {
                 window.clearInterval(timer);
             }
         };
-    }, [sbpPayment?.paymentId, sbpStatus, linkExpired, unconfirmed]);
+    }, [
+        sbpPayment?.paymentId,
+        sbpPayment?.payload,
+        sbpStatus,
+        linkExpired,
+        unconfirmed,
+    ]);
 
     return (
         <>
