@@ -1085,16 +1085,27 @@ export default function BillingCheckoutPage() {
                                                     Проверьте его, прежде чем
                                                     запускать оплату заново.
                                                 </p>
+                                                {/* Карта без сохранённой
+                                                    ссылки: та же прямая
+                                                    POST-проверка, что и на
+                                                    экране с checkout_url —
+                                                    без GET-опроса. Остальные
+                                                    способы — прежний
+                                                    возобновляемый polling. */}
                                                 <button
                                                     type="button"
                                                     onClick={
-                                                        resumePendingAttempt
+                                                        pendingAttempt.method ===
+                                                        'card'
+                                                            ? startCardPendingStatusCheck
+                                                            : resumePendingAttempt
                                                     }
-                                                    className={
-                                                        PRIMARY_BTN_CLASS
-                                                    }
+                                                    disabled={manualChecking}
+                                                    className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
                                                 >
-                                                    Проверить статус
+                                                    {manualChecking
+                                                        ? 'Проверка…'
+                                                        : 'Проверить статус'}
                                                 </button>
                                             </>
                                         )}

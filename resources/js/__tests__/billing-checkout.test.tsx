@@ -2035,243 +2035,6 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(axios.post).not.toHaveBeenCalled();
     });
 
-    // ── Возобновление без платёжной ссылки (карта): ограниченный цикл ──
-
-    /** Рендер возобновления карточной попытки: payload=null, deadline=null. */
-    function renderCardResume() {
-        mockUsePage.mockReturnValue(
-            makeProps({
-                pending_attempt: {
-                    payment_id: 'pay_9',
-                    period_months: 3,
-                    status: 'processing',
-                    method: 'card',
-                    sbp_payload: null,
-                    sbp_expires_at: null,
-                },
-            }),
-        );
-
-        render(<BillingCheckoutPage />);
-        fireEvent.click(
-            screen.getByRole('button', { name: 'Проверить статус' }),
-        );
-    }
-
-    it('card resume without payload/deadline: immediate check, max 25 GETs, then unconfirmed', async () => {
-        vi.useFakeTimers();
-        vi.mocked(axios.get).mockResolvedValue({
-            data: { status: 'processing' },
-        });
-
-        renderCardResume();
-        await act(async () => {});
-
-        // Немедленный GET того же payment_id, без ожидания тика интервала
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(1);
-        expect(vi.mocked(axios.get).mock.calls[0]).toEqual([
-            '/admin/billing/payment-status/pay_9',
-        ]);
-        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
-        expect(axios.post).not.toHaveBeenCalled();
-
-        // 24 тика интервала по 2 c → всего 25 запросов бюджета
-        for (let i = 0; i < 24; i++) {
-            act(() => {
-                vi.advanceTimersByTime(2000);
-            });
-            await act(async () => {});
-        }
-
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(25);
-        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
-        // Исчерпание бюджета — только UI: не отказ и не новая оплата
-        expect(screen.queryByText('Оплата не прошла')).toBeNull();
-        expect(screen.queryByText(/Попробуйте снова/)).toBeNull();
-        expect(screen.queryByRole('radio')).toBeNull();
-        expect(
-            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
-        ).toBeNull();
-        expect(
-            screen.queryByRole('button', { name: CHOOSE_METHOD }),
-        ).toBeNull();
-
-        // 26-го автоматического запроса не уходит
-        act(() => {
-            vi.advanceTimersByTime(60_000);
-        });
-        await act(async () => {});
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(25);
-    });
-
-    it('the manual button after the card budget POSTs /check once and blocks double clicks', async () => {
-        vi.useFakeTimers();
-        vi.mocked(axios.get).mockResolvedValue({
-            data: { status: 'processing' },
-        });
-
-        renderCardResume();
-        await act(async () => {});
-
-        for (let i = 0; i < 24; i++) {
-            act(() => {
-                vi.advanceTimersByTime(2000);
-            });
-            await act(async () => {});
-        }
-
-        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
-
-        let resolveCheck: (value: {
-            data: Record<string, unknown>;
-        }) => void = () => {};
-        vi.mocked(axios.post).mockImplementation(
-            () =>
-                new Promise((resolve) => {
-                    resolveCheck = resolve;
-                }),
-        );
-
-        fireEvent.click(
-            screen.getByRole('button', { name: 'Проверить статус' }),
-        );
-        await act(async () => {});
-
-        // Существующий POST /check уходит ровно один раз
-        expect(axios.post).toHaveBeenCalledTimes(1);
-        expect(axios.post).toHaveBeenCalledWith(
-            '/admin/billing/payment-status/pay_9/check',
-        );
-
-        // Во время запроса кнопка disabled, повторные клики не дублируют POST
-        const busy = screen.getByRole('button', { name: 'Проверка…' });
-        expect(busy.hasAttribute('disabled')).toBe(true);
-        fireEvent.click(busy);
-        fireEvent.click(busy);
-        expect(axios.post).toHaveBeenCalledTimes(1);
-
-        await act(async () => {
-            resolveCheck({ data: { status: 'processing', checked: true } });
-        });
-
-        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
-    });
-
-    it('a new cycle after a no-verdict manual check is bounded again', async () => {
-        vi.useFakeTimers();
-        vi.mocked(axios.get).mockResolvedValue({
-            data: { status: 'processing' },
-        });
-        vi.mocked(axios.post).mockResolvedValue({
-            data: { status: 'processing', checked: true },
-        });
-
-        renderCardResume();
-        await act(async () => {});
-
-        for (let i = 0; i < 24; i++) {
-            act(() => {
-                vi.advanceTimersByTime(2000);
-            });
-            await act(async () => {});
-        }
-
-        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(25);
-
-        // Ответ без финального вердикта → новый цикл с немедленным GET
-        fireEvent.click(
-            screen.getByRole('button', { name: 'Проверить статус' }),
-        );
-        await act(async () => {});
-
-        expect(axios.post).toHaveBeenCalledTimes(1);
-        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
-        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(26);
-
-        // И этот цикл ограничен тем же бюджетом: GET 26…50
-        for (let i = 0; i < 24; i++) {
-            act(() => {
-                vi.advanceTimersByTime(2000);
-            });
-            await act(async () => {});
-        }
-
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(50);
-        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
-
-        act(() => {
-            vi.advanceTimersByTime(60_000);
-        });
-        await act(async () => {});
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(50);
-    });
-
-    it('final success stops the card wait before the budget', async () => {
-        vi.useFakeTimers();
-        vi.mocked(axios.get)
-            .mockResolvedValueOnce({ data: { status: 'processing' } })
-            .mockResolvedValueOnce({ data: { status: 'processing' } })
-            .mockResolvedValue({ data: { status: 'succeeded' } });
-
-        renderCardResume();
-        await act(async () => {});
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(1);
-
-        act(() => {
-            vi.advanceTimersByTime(2000);
-        });
-        await act(async () => {});
-        act(() => {
-            vi.advanceTimersByTime(2000);
-        });
-        await act(async () => {});
-
-        expect(screen.getByText('Оплата прошла')).toBeTruthy();
-        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(3);
-
-        act(() => {
-            vi.advanceTimersByTime(60_000);
-        });
-        await act(async () => {});
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(3);
-    });
-
-    it('final confirmed decline stops the card wait before the budget', async () => {
-        vi.useFakeTimers();
-        vi.mocked(axios.get)
-            .mockResolvedValueOnce({ data: { status: 'processing' } })
-            .mockResolvedValueOnce({ data: { status: 'processing' } })
-            .mockResolvedValue({ data: { status: 'failed_terminal' } });
-
-        renderCardResume();
-        await act(async () => {});
-
-        act(() => {
-            vi.advanceTimersByTime(2000);
-        });
-        await act(async () => {});
-        act(() => {
-            vi.advanceTimersByTime(2000);
-        });
-        await act(async () => {});
-
-        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
-        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
-        expect(
-            screen.getByRole('button', { name: CHOOSE_METHOD }),
-        ).toBeTruthy();
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(3);
-
-        act(() => {
-            vi.advanceTimersByTime(60_000);
-        });
-        await act(async () => {});
-        expect(vi.mocked(axios.get).mock.calls.length).toBe(3);
-    });
-
     it('SBP resume with payload and no deadline is not bounded by the budget', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({
@@ -2343,6 +2106,236 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
 
         return render(<BillingCheckoutPage />);
     }
+
+    // ── Reload/Back: карта без сохранённой ссылки (checkout_url=null) ──
+
+    /** Рендер карточного pending-экрана без сохранённого checkout_url. */
+    function renderCardPendingScreenWithoutUrl() {
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 3,
+                    status: 'processing',
+                    method: 'card',
+                    checkout_url: null,
+                    sbp_payload: null,
+                    sbp_expires_at: null,
+                },
+            }),
+        );
+
+        return render(<BillingCheckoutPage />);
+    }
+
+    it('card pending without a checkout_url: first click is 1 POST /check and 0 GET — even while deferred', async () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithoutUrl();
+
+        // Fallback без ссылки: кнопка есть и до клика не запускает опросов
+        expect(screen.getByText('Незавершённый платёж')).toBeTruthy();
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(axios.post).not.toHaveBeenCalled();
+
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        // Первый клик — POST /check той же попытки, без 25 GET
+        expect(axios.post).toHaveBeenCalledTimes(1);
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
+        expect(axios.get).not.toHaveBeenCalled();
+
+        // Всё время отложенного POST GET-polling приостановлен явно
+        act(() => {
+            vi.advanceTimersByTime(30_000);
+        });
+        await act(async () => {});
+        expect(axios.get).not.toHaveBeenCalled();
+
+        // Экран ожидания без QR, ссылок в банк и новой оплаты
+        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(screen.queryByRole('radio')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+
+        // processing — вердикта нет: сразу unconfirmed с ручной кнопкой
+        await act(async () => {
+            resolveCheck({ data: { status: 'processing', checked: true } });
+        });
+
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+        // Исход не подтверждён: ни новой оплаты, ни выбора способа
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(screen.queryByText(/Попробуйте снова/)).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeNull();
+
+        // И после ответа — без нового GET-цикла
+        act(() => {
+            vi.advanceTimersByTime(60_000);
+        });
+        await act(async () => {});
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(axios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('double click on the link-less card «Проверить статус» sends a single POST', async () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithoutUrl();
+
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+
+        const button = screen.getByRole('button', {
+            name: 'Проверить статус',
+        });
+
+        // Оба клика — до ре-рендера: guard обязан держать ref
+        act(() => {
+            fireEvent.click(button);
+            fireEvent.click(button);
+        });
+        await act(async () => {});
+
+        expect(axios.post).toHaveBeenCalledTimes(1);
+        expect(axios.get).not.toHaveBeenCalled();
+
+        await act(async () => {
+            resolveCheck({ data: { status: 'processing', checked: true } });
+        });
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(axios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('the repeat manual check from the link-less card unconfirmed screen shows «Проверка…» and blocks double clicks', async () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithoutUrl();
+
+        // Первый клик: POST без вердикта → unconfirmed
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'processing', checked: true },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        vi.mocked(axios.post).mockClear();
+
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        // Существующий POST /check уходит ровно один раз
+        expect(axios.post).toHaveBeenCalledTimes(1);
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
+
+        // Во время запроса кнопка disabled, повторные клики не дублируют POST
+        const busy = screen.getByRole('button', { name: 'Проверка…' });
+        expect(busy.hasAttribute('disabled')).toBe(true);
+        fireEvent.click(busy);
+        fireEvent.click(busy);
+        expect(axios.post).toHaveBeenCalledTimes(1);
+
+        // Без вердикта — прежнее поведение ручной проверки: снова ожидание
+        await act(async () => {
+            resolveCheck({ data: { status: 'processing', checked: true } });
+        });
+
+        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
+        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
+        expect(axios.get).toHaveBeenCalledTimes(1);
+    });
+
+    it('a new bounded cycle after the link-less card repeat check stops at 25 GETs', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'processing', checked: true },
+        });
+
+        renderCardPendingScreenWithoutUrl();
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(axios.get).not.toHaveBeenCalled();
+
+        // Повторная ручная проверка без вердикта начинает новый цикл
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(axios.post).toHaveBeenCalledTimes(2);
+        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
+        expect(axios.get).toHaveBeenCalledTimes(1);
+
+        // И этот цикл ограничен тем же бюджетом: GET 2…25
+        for (let i = 0; i < 24; i++) {
+            act(() => {
+                vi.advanceTimersByTime(2000);
+            });
+            await act(async () => {});
+        }
+
+        expect(axios.get).toHaveBeenCalledTimes(25);
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeNull();
+
+        // 26-го автоматического запроса не уходит
+        act(() => {
+            vi.advanceTimersByTime(60_000);
+        });
+        await act(async () => {});
+        expect(axios.get).toHaveBeenCalledTimes(25);
+    });
 
     it('card pending: «Продолжить оплату» opens the saved checkout_url without POST/Init', async () => {
         renderCardPendingScreen();
