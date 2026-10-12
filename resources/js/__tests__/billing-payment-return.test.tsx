@@ -421,12 +421,15 @@ describe('admin/billing.tsx — payment return verification', () => {
         );
         await flush();
 
-        // Период не выдуман: диалог закрыт, выбор периода на этой странице
+        // Период не выдуман: диалог закрыт, выбор периода на этой странице.
+        // Подтверждённый отказ — финальный вердикт попытки: баннер повторной
+        // проверки после закрытия больше не показывается.
         expect(routerGet).not.toHaveBeenCalled();
         expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.queryByText('Статус платежа')).toBeNull();
         expect(
-            screen.getByRole('button', { name: 'Проверить статус' }),
-        ).toBeTruthy();
+            screen.queryByRole('button', { name: 'Проверить статус' }),
+        ).toBeNull();
     });
 
     it('local age-release (undefined_outcome) stays unconfirmed without a retry CTA', async () => {
@@ -1034,13 +1037,19 @@ describe('admin/billing.tsx — payment return verification', () => {
         expect(screen.getByText('Оплата прошла')).toBeTruthy();
     });
 
-    it('closing a terminal result shows a neutral banner without false claims', async () => {
-        vi.useFakeTimers();
+    // ── Closing final results: URL + banner cleanup ──
 
-        // ── Закрытие после подтверждённого успеха ──
+    it('closing a confirmed success clears the payment URL params and the re-check banner', async () => {
+        vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({
             data: { status: 'succeeded' },
         });
+        // Посторонние параметры адреса переживают очистку платёжных ключей
+        realReplaceState(
+            null,
+            '',
+            '/admin/billing?utm_source=mail&payment_attempt=pay_1',
+        );
         mockUsePage.mockReturnValue(
             makeProps({
                 payment_return: 'returned',
@@ -1048,23 +1057,42 @@ describe('admin/billing.tsx — payment return verification', () => {
             }),
         );
 
-        render(<BillingPage />);
+        const { unmount } = render(<BillingPage />);
         await flush();
         expect(screen.getByText('Оплата прошла')).toBeTruthy();
 
         fireEvent.click(screen.getByRole('button', { name: 'Продолжить' }));
         expect(screen.queryByRole('dialog')).toBeNull();
-
-        // Нейтральный баннер: без «не завершена» и без запрета повторной оплаты
-        expect(screen.getByText('Статус платежа')).toBeTruthy();
-        expect(screen.queryByText(/Проверка оплаты не завершена/u)).toBeNull();
-        expect(screen.queryByText(/повторная оплата не нужна/u)).toBeNull();
+        // Финальный успех этой попытки: баннер повторной проверки убран
+        expect(screen.queryByText('Статус платежа')).toBeNull();
         expect(
-            screen.getByRole('button', { name: 'Проверить статус' }),
-        ).toBeTruthy();
+            screen.queryByRole('button', { name: 'Проверить статус' }),
+        ).toBeNull();
+
+        // Из URL ушли только платёжные ключи, utm_source сохранён
+        expect(window.history.replaceState).toHaveBeenCalledTimes(1);
+        expect(window.history.replaceState).toHaveBeenCalledWith(
+            null,
+            '',
+            '/admin/billing?utm_source=mail',
+        );
+
+        // Reload по очищенному адресу: сервер не отдаёт попытку — ни
+        // диалога, ни баннера
+        unmount();
+        vi.mocked(axios.get).mockClear();
+        realReplaceState(null, '', '/admin/billing?utm_source=mail');
+        mockUsePage.mockReturnValue(makeProps());
+
+        render(<BillingPage />);
+        await flush();
+
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.queryByText('Статус платежа')).toBeNull();
+        expect(axios.get).not.toHaveBeenCalled();
     });
 
-    it('closing a confirmed decline also shows the neutral banner', async () => {
+    it('closing a confirmed decline clears the payment URL params and the re-check banner', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({
             data: { status: 'failed_terminal' },
@@ -1083,9 +1111,109 @@ describe('admin/billing.tsx — payment return verification', () => {
 
         fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
         expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.queryByText('Статус платежа')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: 'Проверить статус' }),
+        ).toBeNull();
+        expect(window.history.replaceState).toHaveBeenCalledWith(
+            null,
+            '',
+            '/admin/billing',
+        );
+    });
+
+    it('closing refunded / partially_refunded also clears the URL and the banner', async () => {
+        vi.useFakeTimers();
+
+        for (const status of ['refunded', 'partially_refunded']) {
+            vi.mocked(axios.get).mockResolvedValue({ data: { status } });
+            mockUsePage.mockReturnValue(
+                makeProps({
+                    payment_return: 'returned',
+                    payment_attempt_id: 'pay_1',
+                }),
+            );
+
+            const { unmount } = render(<BillingPage />);
+            await flush();
+
+            fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
+            expect(screen.queryByRole('dialog')).toBeNull();
+            expect(screen.queryByText('Статус платежа')).toBeNull();
+            expect(
+                screen.queryByRole('button', { name: 'Проверить статус' }),
+            ).toBeNull();
+            expect(window.history.replaceState).toHaveBeenLastCalledWith(
+                null,
+                '',
+                '/admin/billing',
+            );
+
+            unmount();
+            realReplaceState(null, '', '/admin/billing');
+        }
+    });
+
+    it('closing an unconfirmed result keeps the URL attempt and the re-check banner', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValue(new Error('network down'));
+        mockUsePage.mockReturnValue(
+            makeProps({
+                payment_return: 'returned',
+                payment_attempt_id: 'pay_1',
+            }),
+        );
+
+        render(<BillingPage />);
+        await flush();
+        expect(
+            screen.getByText('Пока не удалось подтвердить оплату'),
+        ).toBeTruthy();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
+        expect(screen.queryByRole('dialog')).toBeNull();
+        // Нерешённая попытка: баннер и вход к проверке сохраняются, диалог
+        // не переоткрывается автоматически
         expect(screen.getByText('Статус платежа')).toBeTruthy();
-        expect(screen.queryByText(/Проверка оплаты не завершена/u)).toBeNull();
-        expect(screen.queryByText(/повторная оплата не нужна/u)).toBeNull();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
+        expect(screen.queryByText('Проверяем оплату')).toBeNull();
+        expect(window.history.replaceState).toHaveBeenCalledWith(
+            null,
+            '',
+            '/admin/billing?payment_attempt=pay_1&payment_check=closed',
+        );
+    });
+
+    it('an active tariff by itself does not hide an unresolved payment', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockRejectedValue(new Error('network down'));
+        mockUsePage.mockReturnValue(
+            makeProps(
+                {
+                    payment_return: 'returned',
+                    payment_attempt_id: 'pay_1',
+                },
+                {
+                    tariff: 'pro',
+                    tariff_name: 'Профи',
+                    is_paid: true,
+                    expires_at: '2027-06-01T00:00:00.000Z',
+                },
+            ),
+        );
+
+        render(<BillingPage />);
+        await flush();
+
+        fireEvent.click(screen.getByRole('button', { name: 'Закрыть' }));
+        expect(screen.queryByRole('dialog')).toBeNull();
+        // Решение принимается по исходу попытки, а не по активному Профи
+        expect(screen.getByText('Статус платежа')).toBeTruthy();
+        expect(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        ).toBeTruthy();
     });
 
     it('reload with a closed dialog does not reopen it but keeps the re-check entry', async () => {

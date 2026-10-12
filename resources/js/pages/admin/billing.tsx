@@ -153,10 +153,23 @@ function initialPaymentCheck(
     return returned ? 'neutral' : null;
 }
 
+// A final verdict of THIS attempt ends its re-check lifecycle: closing
+// such a dialog drops the banner and the URL params that would bring it
+// back after a reload. The decision is made from the attempt's stage only
+// — an active Pro plan never hides an unresolved payment.
+function isFinalPaymentStage(stage: PaymentCheckStage | null): boolean {
+    return (
+        stage === 'success' ||
+        stage === 'failed' ||
+        stage === 'refunded' ||
+        stage === 'partially_refunded'
+    );
+}
+
 /**
- * Closing the dialog writes ?payment_check=closed so a reload does not
- * reopen it, while the attempt id itself stays in the URL — the manual
- * «Проверить статус» entry keeps working across reloads.
+ * Closing an unresolved dialog writes ?payment_check=closed so a reload
+ * does not reopen it, while the attempt id itself stays in the URL — the
+ * manual «Проверить статус» entry keeps working across reloads.
  */
 function paymentCheckClosedInUrl(): boolean {
     return (
@@ -200,6 +213,10 @@ export default function BillingPage() {
     // Set only from the onSuccess payload of the post-success reload —
     // stays null on delay/error so the old date is never shown as fresh.
     const [freshCurrent, setFreshCurrent] = useState<FreshCurrentState | null>(null);
+    // Попытка с закрытым финальным вердиктом: её баннер повторной проверки
+    // убран до reload, а URL уже без её параметров. Сравнивается с id
+    // попытки, а не с тарифом — новая попытка снова получает баннер.
+    const [finalizedPaymentAttemptId, setFinalizedPaymentAttemptId] = useState<string | null>(null);
     // Ручная проверка через POST /check: блокирует повторный клик, пока
     // координационный lock+cooldown на сервере обслуживает запрос.
     const [manualChecking, setManualChecking] = useState(false);
@@ -246,27 +263,38 @@ export default function BillingPage() {
             // loading снимаются сразу — следующая проверка начинается чистой.
             invalidateManualPaymentCheck();
             setManualChecking(false);
+
+            // Финальный вердикт этой попытки (а не активный тариф) решает:
+            // после него ручная проверка больше не нужна. Unresolved
+            // (verifying/unconfirmed) наоборот — попытка остаётся в URL с
+            // признаком closed, reload не переоткрывает диалог, а вход
+            // «Проверить статус» переживает перезагрузку.
+            const finalOutcome = isFinalPaymentStage(paymentCheck);
             setPaymentCheck(null);
 
-            // The bound attempt id must survive a reload (manual re-check
-            // stays possible) — the URL is only marked as closed.
-            if (paymentAttemptId !== null) {
-                const params = new URLSearchParams();
+            if (finalOutcome && paymentAttemptId !== null) {
+                setFinalizedPaymentAttemptId(paymentAttemptId);
+            }
+
+            // Из адреса уходят только платёжные ключи — остальные параметры
+            // (например, utm) сохраняются.
+            const params = new URLSearchParams(window.location.search);
+            params.delete('payment_attempt');
+            params.delete('payment_check');
+
+            if (!finalOutcome && paymentAttemptId !== null) {
                 params.set('payment_attempt', paymentAttemptId);
                 params.set('payment_check', 'closed');
-
-                window.history.replaceState(
-                    window.history.state,
-                    '',
-                    `${window.location.pathname}?${params.toString()}`,
-                );
-            } else {
-                window.history.replaceState(
-                    window.history.state,
-                    '',
-                    window.location.pathname,
-                );
             }
+
+            const query = params.toString();
+            window.history.replaceState(
+                window.history.state,
+                '',
+                query === ''
+                    ? window.location.pathname
+                    : `${window.location.pathname}?${query}`,
+            );
 
             if (focusRenew) {
                 requestAnimationFrame(() => {
@@ -275,7 +303,7 @@ export default function BillingPage() {
                 });
             }
         },
-        [paymentAttemptId, invalidateManualPaymentCheck],
+        [paymentAttemptId, paymentCheck, invalidateManualPaymentCheck],
     );
 
     // Visible re-check entry for the same attempt after the dialog is
@@ -286,10 +314,14 @@ export default function BillingPage() {
             return;
         }
 
+        const params = new URLSearchParams(window.location.search);
+        params.set('payment_attempt', paymentAttemptId);
+        params.delete('payment_check');
+
         window.history.replaceState(
             window.history.state,
             '',
-            `${window.location.pathname}?payment_attempt=${encodeURIComponent(paymentAttemptId)}`,
+            `${window.location.pathname}?${params.toString()}`,
         );
         setPaymentCheck('verifying');
     }, [paymentAttemptId]);
@@ -814,28 +846,33 @@ export default function BillingPage() {
                     </section>
 
                     {/* ─── Manual re-check entry for a closed return dialog ─── */}
-                    {paymentAttemptId !== null && paymentCheck === null && (
-                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                                <div className="min-w-0">
-                                    <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
-                                        Статус платежа
+                    {/* Показывается только для нерешённой попытки: финальный
+                        вердикт её уже закрыл, активный тариф ничего не
+                        скрывает и не показывает. */}
+                    {paymentAttemptId !== null &&
+                        paymentCheck === null &&
+                        finalizedPaymentAttemptId !== paymentAttemptId && (
+                            <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
+                                <div className="flex flex-wrap items-center justify-between gap-3">
+                                    <div className="min-w-0">
+                                        <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
+                                            Статус платежа
+                                        </div>
+                                        <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                            Результат этого платежа можно проверить
+                                            вручную.
+                                        </div>
                                     </div>
-                                    <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                        Результат этого платежа можно проверить
-                                        вручную.
-                                    </div>
+                                    <button
+                                        type="button"
+                                        onClick={reopenPaymentCheck}
+                                        className="shrink-0 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-orange)] hover:text-[var(--color-orange)]"
+                                    >
+                                        Проверить статус
+                                    </button>
                                 </div>
-                                <button
-                                    type="button"
-                                    onClick={reopenPaymentCheck}
-                                    className="shrink-0 cursor-pointer rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-orange)] hover:text-[var(--color-orange)]"
-                                >
-                                    Проверить статус
-                                </button>
-                            </div>
-                        </section>
-                    )}
+                            </section>
+                        )}
 
                     {/* ─── Auto renewal status (only while consented and active) ─── */}
                     {isPaid && autoRenewActive && (
