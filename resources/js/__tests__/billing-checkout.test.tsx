@@ -2144,10 +2144,15 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         // Продолжение — основная оранжевая, проверка — вторичная
         expect(resume.className).toContain('bg-[var(--color-orange)]');
         expect(check.className).not.toContain('bg-[var(--color-orange)]');
-        // «Вернуться к тарифам» — обычная ссылка, не кнопка оплаты
-        expect(
-            screen.getByRole('link', { name: 'Вернуться к тарифам' }),
-        ).toBeTruthy();
+        // «Вернуться к тарифам» — обычная текстовая ссылка: без рамки и
+        // полноширинного кнопочного вида, но с видимым фокусом для
+        // клавиатуры
+        const tariffs = screen.getByRole('link', {
+            name: 'Вернуться к тарифам',
+        });
+        expect(tariffs.className).not.toContain('border');
+        expect(tariffs.className).not.toContain('w-full');
+        expect(tariffs.className).toContain('focus-visible:outline-2');
         // Ни формы новой оплаты, ни автоматических запросов
         expect(screen.queryByRole('radio')).toBeNull();
         expect(

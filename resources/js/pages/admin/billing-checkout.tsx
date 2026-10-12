@@ -1146,9 +1146,13 @@ export default function BillingCheckoutPage() {
                                                     минуту
                                                 </p>
                                             )}
+                                            {/* Текстовая ссылка, не кнопка:
+                                                рамок и полноширинного вида не
+                                                нужно, но фокус для клавиатуры
+                                                остаётся заметным. */}
                                             <Link
                                                 href="/admin/billing"
-                                                className={SECONDARY_BTN_CLASS}
+                                                className="mt-3 inline-block rounded-[4px] text-[13px] font-semibold text-[var(--color-graphite)] transition-colors hover:text-[var(--color-ink)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)]"
                                             >
                                                 Вернуться к тарифам
                                             </Link>
