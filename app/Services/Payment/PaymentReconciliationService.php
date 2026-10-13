@@ -9,6 +9,7 @@ use App\Models\PaymentAttempt;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use Carbon\Carbon;
 use Illuminate\Database\Eloquent\Collection;
+use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
@@ -160,7 +161,9 @@ class PaymentReconciliationService
      *    re-checked against that FRESH row, so a stale batch snapshot or a
      *    stale manual request can neither start a second check nor poll an
      *    attempt another actor has just resolved or just checked;
-     * 2. provider HTTP, outside every DB transaction;
+     * 2. provider HTTP, outside every DB transaction — GetState for an
+     *    attempt that already carries a PaymentId, CheckOrder recovery for
+     *    a tbank checkout attempt that still waits without one;
      * 3. every write this check owes — cooldown marker, poll metadata, the
      *    SBP expiry one-shot — committed BEFORE the lock is released;
      * 4. the caller's status handling, under the same lock, so a concurrent
@@ -204,14 +207,12 @@ class PaymentReconciliationService
                 return ['attempt' => $fresh, 'checked' => false];
             }
 
-            $gateway = $this->gatewayManager->getGateway($fresh->provider);
-
             try {
-                // Provider HTTP — outside any DB transaction
-                $statusUpdate = $gateway->getPaymentStatus(
-                    $fresh->provider_payment_id,
-                    $fresh->internal_order_id,
-                );
+                // Provider HTTP — outside any DB transaction. An attempt
+                // still waiting WITHOUT a PaymentId is asked about through
+                // CheckOrder (PaymentId recovery); one that already carries
+                // an id keeps the ordinary GetState.
+                $statusUpdate = $this->fetchProviderStatus($fresh);
             } catch (\Throwable $e) {
                 // The GetState really happened: what this call owes is still
                 // written before the lock goes, and an error is never a
@@ -297,6 +298,128 @@ class PaymentReconciliationService
     }
 
     /**
+     * Apply a CheckOrder recovery answer to an attempt that was polled
+     * without a PaymentId.
+     *
+     * The answer must prove its identity first (same provider, same
+     * OrderId, non-empty PaymentId). The id is then bound under a row
+     * lock with a fresh re-read — never overwriting an id another actor
+     * bound meanwhile. Only after a successful or idempotent bind does a
+     * FINAL bank verdict continue into the existing
+     * PaymentTransitionService (amount validation, state machine and
+     * event dedup all stay hers), and a refused transition is never
+     * logged as a successful recovery. NEW / AUTHORIZED stop at the bind:
+     * the bank merely confirmed the payment exists, so status, failure
+     * fields, finished_at and non-poll metadata stay untouched and the
+     * checkout block survives.
+     */
+    private function handleRecoveredPaymentIdAnswer(PaymentAttempt $fresh, ProviderStatusUpdate $statusUpdate): void
+    {
+        $answerPaymentId = $statusUpdate->providerPaymentId;
+
+        if ($statusUpdate->provider !== $fresh->provider
+            || $statusUpdate->internalOrderId !== $fresh->internal_order_id
+            || $answerPaymentId === null
+            || $answerPaymentId === '') {
+            Log::warning('PaymentId recovery answer rejected', [
+                'attempt_id' => $fresh->id,
+                'answer_provider' => $statusUpdate->provider,
+                'answer_order_id' => $statusUpdate->internalOrderId,
+                'answer_has_payment_id' => $answerPaymentId !== null && $answerPaymentId !== '',
+            ]);
+
+            return;
+        }
+
+        $bind = $this->bindRecoveredPaymentId($fresh, $answerPaymentId);
+
+        if ($bind === 'conflict' || $bind === 'unique') {
+            // Another attempt already owns this PaymentId (a webhook bound
+            // a different id, or the very same id is committed elsewhere).
+            // The bind transaction has already rolled back — no transition
+            // of a foreign attempt, no partial write, just diagnostics.
+            Log::warning('PaymentId recovery conflict', [
+                'attempt_id' => $fresh->id,
+                'provider_payment_id' => $answerPaymentId,
+                'outcome' => $bind,
+            ]);
+
+            return;
+        }
+
+        if ($bind !== 'bound' && $bind !== 'already') {
+            return;
+        }
+
+        if (! in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
+            Log::info('PaymentId recovered for payment attempt', [
+                'attempt_id' => $fresh->id,
+                'provider_payment_id' => $answerPaymentId,
+                'bank_status' => $statusUpdate->normalizedStatus->value,
+            ]);
+
+            return;
+        }
+
+        // Confirmed success or refusal — handed to the existing state
+        // machine in this very run, after the id is safely bound.
+        $result = $this->transitionService->transition($statusUpdate);
+
+        if ($result['success']) {
+            Log::info('PaymentId recovery resolved attempt', [
+                'attempt_id' => $fresh->id,
+                'provider_payment_id' => $answerPaymentId,
+                'new_status' => $statusUpdate->normalizedStatus->value,
+            ]);
+        } else {
+            Log::warning('PaymentId recovery transition failed', [
+                'attempt_id' => $fresh->id,
+                'error' => $result['error'] ?? null,
+            ]);
+        }
+    }
+
+    /**
+     * Bind a recovered PaymentId under a row lock with a fresh re-read.
+     *
+     * Only the provider_payment_id column is written — status, failure
+     * fields, finished_at and metadata (poll keys included) are owned by
+     * their own writers. An id already present is never overwritten: the
+     * same id is an idempotent 'already', a different one a 'conflict'.
+     * The existing UNIQUE (provider, provider_payment_id) index is the
+     * final word: its violation aborts the transaction and surfaces only
+     * AFTER the rollback as 'unique'.
+     *
+     * @return string 'bound' | 'already' | 'conflict' | 'unique' | 'missing'
+     */
+    private function bindRecoveredPaymentId(PaymentAttempt $attempt, string $providerPaymentId): string
+    {
+        try {
+            return DB::transaction(function () use ($attempt, $providerPaymentId) {
+                $locked = PaymentAttempt::lockForUpdate()
+                    ->whereKey($attempt->getKey())
+                    ->first();
+
+                if ($locked === null) {
+                    return 'missing';
+                }
+
+                $current = $locked->provider_payment_id;
+
+                if ($current !== null && $current !== '') {
+                    return $current === $providerPaymentId ? 'already' : 'conflict';
+                }
+
+                $locked->update(['provider_payment_id' => $providerPaymentId]);
+
+                return 'bound';
+            });
+        } catch (UniqueConstraintViolationException) {
+            return 'unique';
+        }
+    }
+
+    /**
      * Whether the bank may still be asked about this attempt at all: either
      * the ordinary queue owns it (still in flight) or the timeout queue does
      * (age-released, but with a provider payment id to ask about). A
@@ -323,15 +446,101 @@ class PaymentReconciliationService
 
     /**
      * A row of the timeout queue: age-released to failed_terminal with the
-     * local reconciliation_timeout category, still carrying a provider
-     * payment id the bank can be asked about.
+     * local reconciliation_timeout category, still askable at the bank —
+     * either through its provider payment id (GetState) or, for a tbank
+     * checkout attempt that lost its Init response and never got an id,
+     * through CheckOrder recovery.
      */
     private function isTimeoutQueueAttempt(PaymentAttempt $attempt): bool
     {
-        return $attempt->status === PaymentAttemptStatus::FailedTerminal
-            && $attempt->failure_category === 'reconciliation_timeout'
-            && $attempt->provider_payment_id !== null
+        if ($attempt->status !== PaymentAttemptStatus::FailedTerminal
+            || $attempt->failure_category !== 'reconciliation_timeout') {
+            return false;
+        }
+
+        return $this->hasProviderPaymentId($attempt)
+            || $this->isPaymentIdRecoveryCandidate($attempt);
+    }
+
+    /**
+     * Whether the attempt still waits for its provider payment id at all.
+     */
+    private function hasProviderPaymentId(PaymentAttempt $attempt): bool
+    {
+        return $attempt->provider_payment_id !== null
             && $attempt->provider_payment_id !== '';
+    }
+
+    /**
+     * Whether this attempt may recover its PaymentId via CheckOrder:
+     * tbank, still NULL or '' in provider_payment_id, and NOT a renewal —
+     * a renewal attempt without an id is owned by RenewalPaymentExecutor
+     * (its Phase R CheckOrder for the same OrderId), so reconciliation
+     * must never fire a second concurrent lookup for it.
+     */
+    private function isPaymentIdRecoveryCandidate(PaymentAttempt $attempt): bool
+    {
+        if ($this->hasProviderPaymentId($attempt)) {
+            return false;
+        }
+
+        if ($attempt->provider !== 'tbank') {
+            return false;
+        }
+
+        return ! $this->isRenewalAttempt($attempt);
+    }
+
+    /**
+     * A renewal attempt, per the real marker the renewal chain writes:
+     * metadata.renewal === true — the very flag the executor guard, the
+     * grace window and the insufficient-funds flow all key on. The executor
+     * refuses to run an attempt without it, so an attempt that lacks it is
+     * never double-owned even if its cycle origin says Renewal.
+     */
+    private function isRenewalAttempt(PaymentAttempt $attempt): bool
+    {
+        return ($this->attemptMetadata($attempt)['renewal'] ?? null) === true;
+    }
+
+    /**
+     * The one provider call for the fresh row: GetState when a PaymentId
+     * is already bound, CheckOrder recovery otherwise. Returns null for
+     * rows that must not be asked about at all (non-tbank without an id,
+     * renewal without an id, foreign gateway driver) — no HTTP happens.
+     */
+    private function fetchProviderStatus(PaymentAttempt $fresh): ?ProviderStatusUpdate
+    {
+        if ($this->hasProviderPaymentId($fresh)) {
+            return $this->gatewayManager
+                ->getGateway($fresh->provider)
+                ->getPaymentStatus($fresh->provider_payment_id, $fresh->internal_order_id);
+        }
+
+        return $this->recoverPaymentIdViaCheckOrder($fresh);
+    }
+
+    /**
+     * CheckOrder recovery for a tbank checkout attempt that never received
+     * its PaymentId (lost Init response). ErrorCode 335 ("no payment yet")
+     * comes back as null — the attempt keeps waiting, the local timeout
+     * and its checkout block stay untouched; every ambiguous or failing
+     * answer throws from the gateway and is counted as an error by the
+     * caller. Nothing here ever Inits, reclassifies or Cancels.
+     */
+    private function recoverPaymentIdViaCheckOrder(PaymentAttempt $fresh): ?ProviderStatusUpdate
+    {
+        if (! $this->isPaymentIdRecoveryCandidate($fresh)) {
+            return null;
+        }
+
+        $gateway = $this->gatewayManager->getGateway($fresh->provider);
+
+        if (! $gateway instanceof TBankPaymentGateway) {
+            return null;
+        }
+
+        return $gateway->findPaymentByOrderId($fresh->internal_order_id);
     }
 
     /**
@@ -407,6 +616,14 @@ class PaymentReconciliationService
                 if ($statusUpdate === null) {
                     // No answer: the backoff above already advanced, the
                     // attempt keeps waiting exactly as it was.
+                    return;
+                }
+
+                // This answer was asked for WITHOUT a PaymentId — a CheckOrder
+                // recovery. Bind the id first; only a final verdict continues.
+                if (! $this->hasProviderPaymentId($fresh)) {
+                    $this->handleRecoveredPaymentIdAnswer($fresh, $statusUpdate);
+
                     return;
                 }
 
@@ -527,8 +744,9 @@ class PaymentReconciliationService
 
     /**
      * GetState for an attempt that was already age-released to
-     * failed_terminal + reconciliation_timeout and still carries a provider
-     * payment id.
+     * failed_terminal + reconciliation_timeout and can still be asked
+     * about: with a provider payment id, or via CheckOrder recovery when
+     * a tbank checkout attempt never received one.
      *
      * No age-release here — it has already run and must not run again — and
      * the answer handling is its own: only a final bank verdict leaves the
@@ -573,6 +791,16 @@ class PaymentReconciliationService
                     return;
                 }
 
+                // Released WITHOUT a PaymentId — this answer came from a
+                // CheckOrder recovery. Bind the id first; a NEW/AUTHORIZED
+                // answer stops there (the timeout and its block survive,
+                // the next pass may GetState the now-bound id).
+                if (! $this->hasProviderPaymentId($fresh)) {
+                    $this->handleRecoveredPaymentIdAnswer($fresh, $statusUpdate);
+
+                    return;
+                }
+
                 if (! in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
                     // Still in flight at the bank (NEW / AUTHORIZED): a
                     // non-terminal status is never sent to transition() —
@@ -607,8 +835,11 @@ class PaymentReconciliationService
 
     /**
      * Attempts age-released to failed_terminal + failure_category
-     * reconciliation_timeout with a non-empty provider payment id — the bank
-     * may well have decided already.
+     * reconciliation_timeout that the bank may still be asked about: with a
+     * provider payment id (GetState), or a tbank checkout attempt without
+     * one (CheckOrder recovery — released attempts without an id join this
+     * queue too). Rows that are neither (mock, renewal without an id) are
+     * passed over in the walk without taking a slot.
      *
      * Fair queue: rows are served least-recently-polled first (never polled
      * first). Readiness is applied WHILE the batch is filled, not after it:
@@ -629,17 +860,27 @@ class PaymentReconciliationService
     {
         $due = PaymentAttempt::where('status', PaymentAttemptStatus::FailedTerminal)
             ->where('failure_category', 'reconciliation_timeout')
-            ->whereNotNull('provider_payment_id')
-            ->where('provider_payment_id', '!=', '')
             ->orderByRaw("metadata->>'last_polled_at' ASC NULLS FIRST")
             ->orderBy('created_at')
             ->orderBy('id')
             ->lazy(max($limit, 100))
-            ->filter(fn (PaymentAttempt $attempt): bool => $this->isPollDue($attempt, $backoff))
+            ->filter(fn (PaymentAttempt $attempt): bool => $this->isPollableTimeoutRow($attempt)
+                && $this->isPollDue($attempt, $backoff))
             ->take($limit)
             ->values();
 
         return new Collection($due->all());
+    }
+
+    /**
+     * A released row the bank can still be asked about: an id for GetState,
+     * or a CheckOrder recovery candidate. Everything else (mock, renewal
+     * without an id) never takes a timeout-queue slot.
+     */
+    private function isPollableTimeoutRow(PaymentAttempt $attempt): bool
+    {
+        return $this->hasProviderPaymentId($attempt)
+            || $this->isPaymentIdRecoveryCandidate($attempt);
     }
 
     /**
