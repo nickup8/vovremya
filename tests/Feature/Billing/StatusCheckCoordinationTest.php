@@ -308,13 +308,15 @@ class StatusCheckCoordinationTest extends TestCase
         $this->assertSame(1, $this->getStateRequestCount());
 
         // GetState легально занимает весь бюджет ретраев: 6 транспортных
-        // попыток × 20s таймаута + 9.3s задержек ≈ 129.3s — TTL обязан
-        // покрывать вызов целиком с запасом (retry-policy здесь не трогаем).
+        // попыток × 20s таймаута + 9.3s задержек ≈ 129.3s. Recovery-проверка
+        // держит lock на ПОСЛЕДОВАТЕЛЬНУЮ пару методов (status lookup +
+        // GetQr), поэтому TTL обязан покрывать двойной бюджет ≈ 258.6s с
+        // запасом (retry-policy здесь не трогаем).
         $ttl = (new ReflectionClass(PaymentReconciliationService::class))
             ->getConstant('CHECK_LOCK_TTL_SECONDS');
 
         $this->assertIsInt($ttl);
-        $this->assertGreaterThan(129.3, $ttl);
+        $this->assertGreaterThan(2 * 129.3, $ttl);
     }
 
     // ── 2. Все записи до освобождения lock ──

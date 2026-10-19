@@ -441,6 +441,12 @@ export default function BillingCheckoutPage() {
      * применяется теми же правилами, что и polling: только подтверждённый
      * отказ/успех меняют экран, всё остальное возвращает ожидание.
      *
+     * Ответ без финального вердикта может нести sbp_payload/sbp_expires_at
+     * ЭТОЙ же попытки (восстановленная ссылка, в том числе при
+     * cooldown-skip): QR и таймер от исходного абсолютного срока
+     * показываются без нового Init. Если экран возобновлённой попытки ещё
+     * не перешёл в ожидание — переход происходит здесь.
+     *
      * Повторный клик гасит синхронный ref-guard — manualChecking остаётся
      * только UI-флагом loading/disabled. Сброс checkout'а, смена paymentId
      * и unmount двигают поколение: поздний ответ или ошибка чужой попытки
@@ -470,6 +476,17 @@ export default function BillingCheckoutPage() {
             const status = res.data?.status;
             const undefinedOutcome = res.data?.undefined_outcome === true;
 
+            // Возобновлённая попытка ещё не в секции ожидания: все
+            // вердикт-экраны живут в ней — входим в контекст той же
+            // попытки (payload приложится ниже, если ответ его принёс)
+            if (sbpPayment === null) {
+                setSbpPayment({
+                    payload: null,
+                    paymentId,
+                    deadline: null,
+                });
+            }
+
             if (status === 'succeeded') {
                 setSbpStatus('succeeded');
             } else if (status === 'failed_terminal') {
@@ -483,7 +500,30 @@ export default function BillingCheckoutPage() {
             } else if (status === 'partially_refunded') {
                 setSbpStatus('partially_refunded');
             } else {
-                // Вердикта нет — ждём дальше обычным polling'ом
+                // Вердикта нет — ждём дальше обычным polling'ом. Ответ мог
+                // принести восстановленную ссылку этой же попытки: QR и
+                // таймер от исходного срока, без нового Init.
+                const responsePayload =
+                    typeof res.data?.sbp_payload === 'string' &&
+                    res.data.sbp_payload !== ''
+                        ? res.data.sbp_payload
+                        : null;
+
+                if (responsePayload !== null) {
+                    const deadline = parseDeadline(res.data?.sbp_expires_at);
+
+                    setSbpPayment({
+                        payload: responsePayload,
+                        paymentId,
+                        deadline,
+                    });
+                    setRemainingMs(
+                        deadline === null
+                            ? null
+                            : Math.max(0, deadline - Date.now()),
+                    );
+                }
+
                 retryRequestedRef.current = true;
                 setUnconfirmed(false);
             }
@@ -1194,15 +1234,25 @@ export default function BillingCheckoutPage() {
                                                         его, прежде чем
                                                         запускать оплату заново.
                                                     </p>
-                                                    {/* Не-карта (неизвестный
-                                                        способ): прежний
-                                                        возобновляемый polling
-                                                        той же попытки. */}
+                                                    {/* POST /check той же
+                                                        попытки: проверка
+                                                        статуса и точечное
+                                                        обновление состояния —
+                                                        ответ может принести
+                                                        восстановленную
+                                                        SBP-ссылку; GET-цикла
+                                                        нет. */}
                                                     <button
                                                         type="button"
-                                                        onClick={
-                                                            resumePendingAttempt
-                                                        }
+                                                        onClick={() => {
+                                                            setAttemptPeriodMonths(
+                                                                pendingAttempt.period_months ??
+                                                                    null,
+                                                            );
+                                                            void manualStatusCheck(
+                                                                pendingAttempt.payment_id,
+                                                            );
+                                                        }}
                                                         disabled={
                                                             manualChecking
                                                         }

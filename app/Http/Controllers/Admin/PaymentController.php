@@ -15,6 +15,7 @@ use App\Services\Billing\BillingService;
 use App\Services\Billing\EntitlementService;
 use App\Services\Payment\PaymentReconciliationService;
 use App\Support\PlanDefaults;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -163,6 +164,10 @@ class PaymentController extends Controller
      * (failed_terminal) or unknown-outcome attempt, an unknown method, or a
      * card attempt never carries an SBP link. An already-past deadline is
      * passed through untouched so the client can show the link as expired.
+     * The one exception is an Unknown-status attempt: it may carry ONLY a
+     * verified recovered SBP payload — a non-empty sbp_payload of method
+     * sbp whose original sbp_expires_at is still in the future (the Phase A
+     * contract). Anything else on Unknown stays withheld.
      *
      * `checkout_url` is the card counterpart: the SAME attempt's saved
      * confirmation link, handed over only for method=card while the attempt
@@ -199,11 +204,20 @@ class PaymentController extends Controller
             PaymentAttemptStatus::Processing,
         ], true);
 
+        // Unknown отдаёт только проверенный восстановленный SBP-payload:
+        // непустой sbp_payload способа sbp с ещё будущим исходным
+        // sbp_expires_at. Карточные правила ниже не меняются.
+        $verifiedUnknownSbpLink = $attempt->status === PaymentAttemptStatus::Unknown
+            && $method === 'sbp'
+            && is_string($sbpPayloadRaw)
+            && $sbpPayloadRaw !== ''
+            && $this->sbpDeadlineIsFuture($sbpExpiresAtRaw);
+
         $sbpPayload = null;
         $sbpExpiresAt = null;
         $checkoutUrl = null;
 
-        if ($awaitingPayment
+        if (($awaitingPayment || $verifiedUnknownSbpLink)
             && $method === 'sbp'
             && is_string($sbpPayloadRaw)
             && $sbpPayloadRaw !== '') {
@@ -506,6 +520,14 @@ class PaymentController extends Controller
      * the GET contract (status + optional undefined_outcome) with one extra
      * `checked` flag: false means the cooldown/lock skipped the provider
      * call and the local status was simply re-read.
+     *
+     * `sbp_payload` / `sbp_expires_at` come from the FRESH row — including
+     * on a cooldown skip — so the client receives an available link of this
+     * very attempt, not only one created in this request. A final status
+     * always outranks the payload: it is then withheld entirely. An
+     * Unknown-status attempt carries the payload only with its original
+     * still-future deadline (verified recovered link), mirroring the GET
+     * pending-attempt contract above.
      */
     public function paymentStatusCheck(Request $request, string $paymentId): JsonResponse
     {
@@ -532,12 +554,51 @@ class PaymentController extends Controller
             'checked' => $result['checked'],
         ];
 
+        $method = data_get($fresh->metadata, 'payment_method');
+        $sbpPayload = data_get($fresh->metadata, 'sbp_payload');
+        $sbpExpiresAt = data_get($fresh->metadata, 'sbp_expires_at');
+
+        $nonFinalStatus = in_array($fresh->status, [
+            PaymentAttemptStatus::Created,
+            PaymentAttemptStatus::Processing,
+            PaymentAttemptStatus::Unknown,
+        ], true);
+
+        if ($nonFinalStatus
+            && $method === 'sbp'
+            && is_string($sbpPayload)
+            && $sbpPayload !== ''
+            && ($fresh->status !== PaymentAttemptStatus::Unknown
+                || $this->sbpDeadlineIsFuture($sbpExpiresAt))) {
+            $response['sbp_payload'] = $sbpPayload;
+            $response['sbp_expires_at'] = is_string($sbpExpiresAt) ? $sbpExpiresAt : null;
+        }
+
         if ($fresh->status === PaymentAttemptStatus::FailedTerminal
             && $fresh->failure_category === 'reconciliation_timeout') {
             $response['undefined_outcome'] = true;
         }
 
         return response()->json($response);
+    }
+
+    /**
+     * Исходный абсолютный срок SBP-ссылки разобран и ещё в будущем —
+     * признак проверенной восстановленной ссылки для Unknown-статуса.
+     */
+    private function sbpDeadlineIsFuture(mixed $expiresAt): bool
+    {
+        if (! is_string($expiresAt) || $expiresAt === '') {
+            return false;
+        }
+
+        try {
+            $deadline = Carbon::parse($expiresAt);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return now()->lt($deadline);
     }
 
     /**

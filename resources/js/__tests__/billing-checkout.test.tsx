@@ -1603,16 +1603,19 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(axios.get).not.toHaveBeenCalled();
         expect(axios.post).not.toHaveBeenCalled();
 
-        // Ручная проверка — тот же polling, без POST
+        // Ручная проверка — POST /check той же попытки (точечное
+        // обновление состояния), затем GET-polling ожидания
         fireEvent.click(
             screen.getByRole('button', { name: 'Проверить статус' }),
         );
         await act(async () => {});
 
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
         expect(axios.get).toHaveBeenCalledWith(
             '/admin/billing/payment-status/pay_9',
         );
-        expect(axios.post).not.toHaveBeenCalled();
         expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
         // QR и ссылки в банк у возобновлённой попытки нет
         expect(screen.queryByTestId('sbp-qr')).toBeNull();
@@ -1633,11 +1636,16 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
         await act(async () => {});
 
-        // Период попытки совпадает с URL — форма на месте, POST не уходил
+        // Период попытки совпадает с URL — форма на месте; новый Init не
+        // уходил (единственный POST — /check проверки)
         expect(screen.getByRole('radio', { name: /СБП/ })).toBeTruthy();
         expect(screen.queryByText('Незавершённый платёж')).toBeNull();
         expect(screen.getByText('3 месяца')).toBeTruthy();
-        expect(axios.post).not.toHaveBeenCalled();
+        expect(
+            vi.mocked(axios.post).mock.calls.some(
+                (call) => String(call[0]).includes('/admin/checkout'),
+            ),
+        ).toBe(false);
         expect(mockRouter.get).not.toHaveBeenCalled();
     });
 
@@ -1669,8 +1677,8 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
 
     it('«Выбрать способ оплаты» goes to checkout with the attempt period when it differs from the URL', async () => {
         vi.useFakeTimers();
-        vi.mocked(axios.get).mockResolvedValue({
-            data: { status: 'failed_terminal' },
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'failed_terminal', checked: true },
         });
         mockUsePage.mockReturnValue(
             makeProps({
@@ -1687,10 +1695,6 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
             screen.getByRole('button', { name: 'Проверить статус' }),
         );
         await act(async () => {});
-        act(() => {
-            vi.advanceTimersByTime(2000);
-        });
-        await act(async () => {});
 
         expect(screen.getByText('Оплата не прошла')).toBeTruthy();
         fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
@@ -1698,13 +1702,15 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(mockRouter.get).toHaveBeenCalledWith(
             '/admin/billing/checkout?period_months=6',
         );
-        expect(axios.post).not.toHaveBeenCalled();
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
     });
 
     it('an unrecoverable attempt period leads to period selection, never to an invented one', async () => {
         vi.useFakeTimers();
-        vi.mocked(axios.get).mockResolvedValue({
-            data: { status: 'failed_terminal' },
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'failed_terminal', checked: true },
         });
         mockUsePage.mockReturnValue(
             makeProps({
@@ -1721,15 +1727,13 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
             screen.getByRole('button', { name: 'Проверить статус' }),
         );
         await act(async () => {});
-        act(() => {
-            vi.advanceTimersByTime(2000);
-        });
-        await act(async () => {});
 
         fireEvent.click(screen.getByRole('button', { name: CHOOSE_METHOD }));
 
         expect(mockRouter.get).toHaveBeenCalledWith('/admin/billing');
-        expect(axios.post).not.toHaveBeenCalled();
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
     });
 
     // ── Reload/Back: продолжение той же СБП-попытки ──
@@ -1997,6 +2001,169 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         });
     });
 
+    // ── Восстановление SBP-ссылки: payload из /check без нового Init ──
+
+    it('manual check that returns a recovered SBP payload shows the same-attempt QR', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+
+        // Банк NEW + восстановленный GetQr: /check несёт payload и исходный
+        // абсолютный срок ЭТОЙ попытки. Локально попытка снова processing —
+        // возобновлённый polling не должен вернуть unconfirmed.
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        const deadline = isoIn(4 * 60_000);
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                status: 'processing',
+                checked: true,
+                sbp_payload: 'https://qr.nspk.ru/RECOVERED',
+                sbp_expires_at: deadline,
+            },
+        });
+        vi.mocked(axios.post).mockClear();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        // QR той же попытки и таймер от исходного дедлайна, без нового Init
+        expect(screen.getByTestId('sbp-qr').getAttribute('data-value')).toBe(
+            'https://qr.nspk.ru/RECOVERED',
+        );
+        expect(screen.getByTestId('sbp-countdown').textContent).toContain(
+            '04:00',
+        );
+        expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
+        expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
+        expect(
+            vi.mocked(axios.post).mock.calls.some(
+                (call) => String(call[0]).includes('/admin/checkout'),
+            ),
+        ).toBe(false);
+        expect(vi.mocked(axios.post)).toHaveBeenCalledTimes(1);
+        expect(vi.mocked(axios.post)).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_1/check',
+        );
+    });
+
+    it('resumed attempt check adopts the recovered payload without a new Init', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 3,
+                    status: 'unknown',
+                    method: 'sbp',
+                    sbp_payload: null,
+                    sbp_expires_at: null,
+                },
+            }),
+        );
+
+        render(<BillingCheckoutPage />);
+
+        // Recovery завершился фоном, пока пользователя не было на странице —
+        // точечное обновление через POST /check отдаёт восстановленную ссылку
+        vi.mocked(axios.post).mockResolvedValue({
+            data: {
+                status: 'processing',
+                checked: true,
+                sbp_payload: 'https://qr.nspk.ru/RECOVERED',
+                sbp_expires_at: isoIn(7 * 60_000),
+            },
+        });
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        expect(screen.getByTestId('sbp-qr').getAttribute('data-value')).toBe(
+            'https://qr.nspk.ru/RECOVERED',
+        );
+        expect(screen.getByTestId('sbp-countdown').textContent).toContain(
+            '07:00',
+        );
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
+        expect(
+            vi.mocked(axios.post).mock.calls.some(
+                (call) => String(call[0]).includes('/admin/checkout'),
+            ),
+        ).toBe(false);
+    });
+
+    it('a late recovered-payload answer after unmount is ignored', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'failed_terminal', undefined_outcome: true },
+        });
+
+        const { unmount } = await startSbpCheckoutWithExpiry(
+            isoIn(5 * 60_000),
+        );
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(screen.getByText(UNCONFIRMED_TITLE)).toBeTruthy();
+
+        let resolveCheck: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveCheck = resolve;
+                }),
+        );
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+
+        const getCallsBeforeUnmount = vi.mocked(axios.get).mock.calls.length;
+        unmount();
+
+        // Поздний ответ с восстановленным payload — ушедший экран не
+        // перекрашивается: ни QR, ни новых GET, ни таймеров, ни краша
+        await act(async () => {
+            resolveCheck({
+                data: {
+                    status: 'processing',
+                    checked: true,
+                    sbp_payload: 'https://qr.nspk.ru/LATE',
+                    sbp_expires_at: isoIn(4 * 60_000),
+                },
+            });
+        });
+
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(
+            getCallsBeforeUnmount,
+        );
+        expect(vi.getTimerCount()).toBe(0);
+        expect(screen.queryByTestId('sbp-qr')).toBeNull();
+        expect(screen.queryByText('Ожидаем подтверждение оплаты')).toBeNull();
+    });
+
     it('an attempt of an unknown method never shows a payable SBP link', async () => {
         vi.useFakeTimers();
         vi.mocked(axios.get).mockResolvedValue({
@@ -2032,7 +2199,10 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
 
         expect(screen.queryByTestId('sbp-qr')).toBeNull();
         expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
-        expect(axios.post).not.toHaveBeenCalled();
+        // Проверка — POST /check той же попытки; способ не угадывается
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
     });
 
     it('SBP resume with payload and no deadline is not bounded by the budget', async () => {

@@ -233,14 +233,26 @@ class SbpExpiryStatusCheckTest extends TestCase
         $first = $this->actingAs($this->owner)
             ->post("/admin/billing/payment-status/{$attempt->provider_payment_id}/check")
             ->assertOk()
-            ->assertExactJson(['status' => 'processing', 'checked' => true]);
+            ->assertExactJson([
+                'status' => 'processing',
+                'checked' => true,
+                // Контракт /check: доступный SBP-payload этой же попытки
+                'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                'sbp_expires_at' => $attempt->metadata['sbp_expires_at'],
+            ]);
         $this->assertSame(1, $this->getStateRequestCount());
 
-        // Повторный клик/вкладка в пределах cooldown — без HTTP
+        // Повторный клик/вкладка в пределах cooldown — без HTTP, но payload
+        // свежей строки по-прежнему отдаётся
         $this->actingAs($this->owner)
             ->post("/admin/billing/payment-status/{$attempt->provider_payment_id}/check")
             ->assertOk()
-            ->assertExactJson(['status' => 'processing', 'checked' => false]);
+            ->assertExactJson([
+                'status' => 'processing',
+                'checked' => false,
+                'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                'sbp_expires_at' => $attempt->metadata['sbp_expires_at'],
+            ]);
         $this->assertSame(1, $this->getStateRequestCount());
 
         // По истечении cooldown (60s) следующая проверка снова доходит до банка
@@ -248,7 +260,12 @@ class SbpExpiryStatusCheckTest extends TestCase
         $this->actingAs($this->owner)
             ->post("/admin/billing/payment-status/{$attempt->provider_payment_id}/check")
             ->assertOk()
-            ->assertExactJson(['status' => 'processing', 'checked' => true]);
+            ->assertExactJson([
+                'status' => 'processing',
+                'checked' => true,
+                'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                'sbp_expires_at' => $attempt->metadata['sbp_expires_at'],
+            ]);
         $this->assertSame(2, $this->getStateRequestCount());
         $this->travelBack();
 
@@ -268,7 +285,13 @@ class SbpExpiryStatusCheckTest extends TestCase
             $this->actingAs($this->owner)
                 ->post("/admin/billing/payment-status/{$attempt->provider_payment_id}/check")
                 ->assertOk()
-                ->assertExactJson(['status' => 'processing', 'checked' => false]);
+                ->assertExactJson([
+                    'status' => 'processing',
+                    'checked' => false,
+                    // Lock-held skip не мешает отдать payload свежей строки
+                    'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                    'sbp_expires_at' => $attempt->metadata['sbp_expires_at'],
+                ]);
         } finally {
             $lock->release();
         }
@@ -416,7 +439,12 @@ class SbpExpiryStatusCheckTest extends TestCase
         $this->actingAs($this->owner)
             ->post("/admin/billing/payment-status/{$attempt->provider_payment_id}/check")
             ->assertOk()
-            ->assertExactJson(['status' => 'processing', 'checked' => true]);
+            ->assertExactJson([
+                'status' => 'processing',
+                'checked' => true,
+                'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                'sbp_expires_at' => $attempt->metadata['sbp_expires_at'],
+            ]);
 
         $this->assertSame(PaymentAttemptStatus::Processing, $attempt->refresh()->status);
 
@@ -436,8 +464,14 @@ class SbpExpiryStatusCheckTest extends TestCase
         $this->actingAs($this->owner)
             ->post("/admin/billing/payment-status/{$attempt->provider_payment_id}/check")
             ->assertOk()
-            // Ошибка транспорта — не вердикт: ожидание сохраняется
-            ->assertExactJson(['status' => 'processing', 'checked' => true]);
+            // Ошибка транспорта — не вердикт: ожидание сохраняется, а
+            // payload свежей строки отдаётся
+            ->assertExactJson([
+                'status' => 'processing',
+                'checked' => true,
+                'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                'sbp_expires_at' => $attempt->metadata['sbp_expires_at'],
+            ]);
 
         $this->assertSame(PaymentAttemptStatus::Processing, $attempt->refresh()->status);
     }
@@ -453,7 +487,12 @@ class SbpExpiryStatusCheckTest extends TestCase
         $this->actingAs($this->owner)
             ->post("/admin/billing/payment-status/{$attempt->provider_payment_id}/check")
             ->assertOk()
-            ->assertExactJson(['status' => 'processing', 'checked' => true]);
+            ->assertExactJson([
+                'status' => 'processing',
+                'checked' => true,
+                'sbp_payload' => 'https://qr.nspk.ru/SAMEATTEMPT',
+                'sbp_expires_at' => $attempt->metadata['sbp_expires_at'],
+            ]);
 
         $this->assertSame(PaymentAttemptStatus::Processing, $attempt->refresh()->status);
         // NEW не порождает provider-события — переход не применялся

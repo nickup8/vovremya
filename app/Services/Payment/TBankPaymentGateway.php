@@ -19,6 +19,8 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
     private const CHARGE_PATH = '/v2/Charge';
 
+    private const GET_QR_PATH = '/v2/GetQr';
+
     /**
      * ErrorCode set returned by T-Bank for "insufficient funds" on Charge.
      * Only these are classified as a user-level decline; every other
@@ -223,32 +225,55 @@ class TBankPaymentGateway implements PaymentGatewayInterface
 
         $paymentId = (string) $data['PaymentId'];
 
-        $qrPayload = [
-            'TerminalKey' => $this->terminalKey,
-            'PaymentId' => $paymentId,
-            'DataType' => 'PAYLOAD',
-            'PaymentMethod' => 'SBP',
-        ];
-        $qrPayload['Token'] = $this->computeToken($qrPayload);
-
-        $qrData = $this->post($this->url('/v2/GetQr'), $qrPayload, 'GetQr');
-
-        if (! isset($qrData['Data']) || ! is_string($qrData['Data']) || $qrData['Data'] === '') {
-            throw new RuntimeException('T-Bank GetQr response missing Data');
-        }
+        $qr = $this->fetchSbpQrPayload($paymentId);
 
         $metadata = [];
 
-        if (isset($qrData['RequestKey']) && is_string($qrData['RequestKey']) && $qrData['RequestKey'] !== '') {
-            $metadata['request_key'] = $qrData['RequestKey'];
+        if ($qr['request_key'] !== null) {
+            $metadata['request_key'] = $qr['request_key'];
         }
 
         return new PaymentInitiation(
             providerPaymentId: $paymentId,
             method: PaymentInitiation::METHOD_SBP,
-            payload: $qrData['Data'],
+            payload: $qr['payload'],
             metadata: $metadata,
         );
+    }
+
+    /**
+     * Повторный GetQr для УЖЕ существующего PaymentId — без Init и без
+     * продления RedirectDueDate. Тот же контракт запроса (TerminalKey,
+     * PaymentId, DataType=PAYLOAD, PaymentMethod=SBP, Token) и та же
+     * проверка ответа, что и при первичном SBP checkout: Data — непустая
+     * строка. Transport-retries у метода остаются такими же, как у
+     * первичного GetQr (retry-policy не меняется).
+     *
+     * @return array{payload: string, request_key: string|null}
+     */
+    public function fetchSbpQrPayload(string $providerPaymentId): array
+    {
+        $qrPayload = [
+            'TerminalKey' => $this->terminalKey,
+            'PaymentId' => $providerPaymentId,
+            'DataType' => 'PAYLOAD',
+            'PaymentMethod' => 'SBP',
+        ];
+        $qrPayload['Token'] = $this->computeToken($qrPayload);
+
+        $qrData = $this->post($this->url(self::GET_QR_PATH), $qrPayload, 'GetQr');
+
+        if (! isset($qrData['Data']) || ! is_string($qrData['Data']) || $qrData['Data'] === '') {
+            throw new RuntimeException('T-Bank GetQr response missing Data');
+        }
+
+        $requestKey = isset($qrData['RequestKey'])
+            && is_string($qrData['RequestKey'])
+            && $qrData['RequestKey'] !== ''
+            ? $qrData['RequestKey']
+            : null;
+
+        return ['payload' => $qrData['Data'], 'request_key' => $requestKey];
     }
 
     /**

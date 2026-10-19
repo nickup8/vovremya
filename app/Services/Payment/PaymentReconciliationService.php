@@ -30,15 +30,17 @@ class PaymentReconciliationService
 
     /**
      * TTL of the per-attempt status-check lock: it has to cover the WHOLE
-     * GetState call with a margin, because one call may legally spend the
-     * entire global HTTP retry budget — up to 6 attempts of 20s response
-     * timeout plus 9.3s of retry delays (AppServiceProvider), ≈ 130s. Half
-     * of that wedges the attempt for another party while a check is still
-     * running; 180s leaves ~50s of headroom and still frees an attempt
-     * within minutes if the process dies mid-check. The retry policy itself
-     * is not owned here and stays untouched.
+     * coordinated check with a margin. One bank method may legally spend
+     * the entire global HTTP retry budget — up to 6 attempts of 20s
+     * response timeout plus 9.3s of retry delays (AppServiceProvider),
+     * ≈ 130s. A recovery-enabled check may run TWO such methods
+     * sequentially under the same lock (the status lookup — GetState or
+     * CheckOrder — followed by GetQr for a lost SBP link), so the TTL
+     * must outlive ≈ 260s; 300s leaves ~40s of headroom and still frees
+     * an attempt within minutes if the process dies mid-check. The retry
+     * policy itself is not owned here and stays untouched.
      */
-    private const CHECK_LOCK_TTL_SECONDS = 180;
+    private const CHECK_LOCK_TTL_SECONDS = 300;
 
     public function __construct(
         private PaymentGatewayManager $gatewayManager,
@@ -122,7 +124,9 @@ class PaymentReconciliationService
      * is neither advanced nor reset by a manual request. Null, transport
      * errors and non-final bank answers (NEW / AUTHORIZED) keep the attempt
      * waiting exactly as it was — only a final verdict goes through the
-     * existing PaymentTransitionService.
+     * existing PaymentTransitionService. A NEW / AUTHORIZED answer may also
+     * restore this attempt's lost SBP link via a repeated GetQr (see
+     * maybeRecoverSbpQrLink) — same lock, never a new Init.
      *
      * @return array{attempt: PaymentAttempt, checked: bool}
      *                                                       `checked` = an actual GetState happened (false =
@@ -147,6 +151,7 @@ class PaymentReconciliationService
             handle: function (PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void {
                 $this->applyVerdictOnly($statusUpdate);
             },
+            recoverSbpLink: true,
         );
     }
 
@@ -167,7 +172,12 @@ class PaymentReconciliationService
      * 3. every write this check owes — cooldown marker, poll metadata, the
      *    SBP expiry one-shot — committed BEFORE the lock is released;
      * 4. the caller's status handling, under the same lock, so a concurrent
-     *    check never meets a half-finished one.
+     *    check never meets a half-finished one;
+     * 5. optionally ($recoverSbpLink) the repeated GetQr that restores a
+     *    lost SBP link of THIS attempt — still under the same lock, which
+     *    is why its TTL covers two sequential bank methods (see
+     *    CHECK_LOCK_TTL_SECONDS). A GetQr failure is never a verdict and
+     *    never touches the attempt's status or PaymentId.
      *
      * A skip (lock held, cooldown still running, row no longer eligible)
      * performs no HTTP and consumes nothing — the one-shot marker included.
@@ -184,6 +194,7 @@ class PaymentReconciliationService
         bool $advancePollMetadata = false,
         bool $consumeSbpExpiry = false,
         bool $rethrow = false,
+        bool $recoverSbpLink = false,
     ): array {
         $lock = Cache::lock(
             'billing:payment-status-check:'.$attempt->getKey(),
@@ -230,6 +241,14 @@ class PaymentReconciliationService
             $this->recordStatusCheck($fresh, $advancePollMetadata, $consumeSbpExpiry);
 
             $handle($fresh, $statusUpdate);
+
+            if ($recoverSbpLink && $statusUpdate !== null) {
+                // Восстановление SBP-ссылки повторным GetQr — после handle,
+                // чтобы CheckOrder-путь успел привязать PaymentId; под тем
+                // же lock, что и вся проверка. Ошибка GetQr здесь никогда
+                // не вердикт: попытка и её PaymentId остаются как есть.
+                $this->maybeRecoverSbpQrLink($fresh, $statusUpdate);
+            }
 
             return ['attempt' => $fresh->refresh(), 'checked' => true];
         } finally {
@@ -417,6 +436,191 @@ class PaymentReconciliationService
         } catch (UniqueConstraintViolationException) {
             return 'unique';
         }
+    }
+
+    /**
+     * Восстановление SBP-ссылки СУЩЕСТВУЮЩЕЙ попытки повторным GetQr.
+     *
+     * Никакого нового Init и никакого продления RedirectDueDate: банк
+     * спрашивается только о QR уже привязанного PaymentId. Порядок:
+     * свежее перечитывание строки → GetQr вне DB-транзакций → короткая
+     * row-lock-транзакция с повторной проверкой условий (см.
+     * storeRecoveredSbpQrLink). Вызывается под общим status-check lock'ом.
+     *
+     * Основание для GetQr — ТОЛЬКО фактический ответ банка NEW или
+     * AUTHORIZED в этой же проверке: null, транспортная ошибка и
+     * нераспознанный статус основанием не являются. Нормализованный статус
+     * для этой цели не годится — NEW нормализуется в Unknown так же, как и
+     * любые неизвестные статусы. Любая ошибка здесь — warning без влияния
+     * на статус попытки или её PaymentId.
+     */
+    private function maybeRecoverSbpQrLink(PaymentAttempt $attempt, ProviderStatusUpdate $statusUpdate): void
+    {
+        $rawStatus = $statusUpdate->raw['Status'] ?? null;
+
+        if (! is_string($rawStatus) || ! in_array($rawStatus, ['NEW', 'AUTHORIZED'], true)) {
+            return;
+        }
+
+        $fresh = PaymentAttempt::query()
+            ->whereKey($attempt->getKey())
+            ->first();
+
+        if ($fresh === null || ! $this->sbpQrRecoveryRowGates($fresh)) {
+            return;
+        }
+
+        $gateway = $this->gatewayManager->getGateway($fresh->provider);
+
+        if (! $gateway instanceof TBankPaymentGateway) {
+            return;
+        }
+
+        $paymentId = (string) $fresh->provider_payment_id;
+
+        try {
+            $qr = $gateway->fetchSbpQrPayload($paymentId);
+        } catch (\Throwable $e) {
+            Log::warning('SBP link recovery: GetQr failed', [
+                'attempt_id' => $fresh->id,
+                'error' => $e->getMessage(),
+            ]);
+
+            return;
+        }
+
+        $this->storeRecoveredSbpQrLink($fresh->getKey(), $paymentId, $qr);
+    }
+
+    /**
+     * Условия восстановления SBP-ссылки по строке попытки (все обязательны):
+     *
+     * - tbank-checkout со способом sbp — без checkout_url и любых
+     *   противоречивых способов;
+     * - попытка всё ещё в полёте (ordinary-очередь): не terminal, не
+     *   reconciliation_timeout, не финальный вердикт;
+     * - PaymentId привязан (уже известен или восстановлен через CheckOrder);
+     * - не renewal;
+     * - sbp_payload ещё отсутствует;
+     * - исходный sbp_expires_at разобран и ещё в будущем. Контракт Phase A:
+     *   ключ пишется в metadata только для sbp-попыток при создании
+     *   checkout и никогда не продлевается; попытки старее этой записи ключа
+     *   не имеют вовсе — для них восстановление закрыто (срок/способ
+     *   неизвестны).
+     */
+    private function sbpQrRecoveryRowGates(PaymentAttempt $fresh): bool
+    {
+        if ($fresh->provider !== 'tbank') {
+            return false;
+        }
+
+        if (! $this->isOrdinaryQueueAttempt($fresh)) {
+            return false;
+        }
+
+        if (! $this->hasProviderPaymentId($fresh)) {
+            return false;
+        }
+
+        if ($this->isRenewalAttempt($fresh)) {
+            return false;
+        }
+
+        $metadata = $this->attemptMetadata($fresh);
+
+        if (($metadata['payment_method'] ?? null) !== 'sbp') {
+            return false;
+        }
+
+        $checkoutUrl = $metadata['checkout_url'] ?? null;
+        if (is_string($checkoutUrl) && $checkoutUrl !== '') {
+            return false;
+        }
+
+        $payload = $metadata['sbp_payload'] ?? null;
+        if (is_string($payload) && $payload !== '') {
+            return false;
+        }
+
+        return $this->sbpLinkDeadlineIsFuture($metadata['sbp_expires_at'] ?? null);
+    }
+
+    /**
+     * Исходный абсолютный срок SBP-ссылки разобран и ещё в будущем.
+     */
+    private function sbpLinkDeadlineIsFuture(mixed $expiresAt): bool
+    {
+        if (! is_string($expiresAt) || $expiresAt === '') {
+            return false;
+        }
+
+        try {
+            $deadline = Carbon::parse($expiresAt);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return now()->lt($deadline);
+    }
+
+    /**
+     * Сохранение восстановленного SBP-payload под row lock с повторной
+     * проверкой: тот же PaymentId, допустимый статус, срок ещё в будущем,
+     * payload всё ещё отсутствует, способ не изменился. Мержатся ТОЛЬКО
+     * sbp_payload и request_key — webhook-маркеры, poll metadata и
+     * исходный sbp_expires_at не затираются. Если другой процесс успел
+     * сохранить payload раньше — его ссылка остаётся нетронутой ('kept');
+     * истёкший срок или изменившийся статус во время GetQr не дают
+     * сохранить ссылку вовсе ('skipped').
+     *
+     * @param  array{payload: string, request_key: string|null}  $qr
+     * @return string 'saved' | 'kept' | 'skipped' | 'missing'
+     */
+    private function storeRecoveredSbpQrLink(int|string $attemptId, string $paymentId, array $qr): string
+    {
+        $outcome = DB::transaction(function () use ($attemptId, $paymentId, $qr) {
+            $locked = PaymentAttempt::lockForUpdate()
+                ->whereKey($attemptId)
+                ->first();
+
+            if ($locked === null) {
+                return 'missing';
+            }
+
+            if ($locked->provider_payment_id !== $paymentId) {
+                return 'skipped';
+            }
+
+            $metadata = $this->attemptMetadata($locked);
+
+            $existingPayload = $metadata['sbp_payload'] ?? null;
+            if (is_string($existingPayload) && $existingPayload !== '') {
+                // Кто-то уже сохранил ссылку этой попытки — его и оставляем
+                return 'kept';
+            }
+
+            if (! $this->sbpQrRecoveryRowGates($locked)) {
+                return 'skipped';
+            }
+
+            $metadata['sbp_payload'] = $qr['payload'];
+
+            if ($qr['request_key'] !== null) {
+                $metadata['request_key'] = $qr['request_key'];
+            }
+
+            $locked->update(['metadata' => $metadata]);
+
+            return 'saved';
+        });
+
+        if ($outcome === 'saved') {
+            Log::info('SBP link recovered for payment attempt', [
+                'attempt_id' => $attemptId,
+            ]);
+        }
+
+        return $outcome;
     }
 
     /**
@@ -657,6 +861,10 @@ class PaymentReconciliationService
             // which counts it in errors and logs it — the backoff has already
             // moved on by then.
             rethrow: true,
+            // Обычная очередь — единственный автоматический путь, где SBP
+            // ещё в полёте и восстановление ссылки уместно; post-expiry
+            // bypass (срок уже истёк) и timeout-очередь (terminal) — нет.
+            recoverSbpLink: true,
         );
     }
 
