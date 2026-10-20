@@ -56,13 +56,20 @@ class PaymentReceiptService
     }
 
     /**
-     * A refund (full or partial, when it reaches this service) marks an
-     * existing receipt for manual review. The link and history are kept;
-     * the FNS receipt itself is never annulled by ИРСИ.
+     * A real refund transition (full or partial, when it reaches this
+     * service) marks an existing receipt for manual review. The link and
+     * history are kept; the FNS receipt itself is never annulled by ИРСИ.
+     *
+     * Runs inside the transition transaction; the row lock keeps the read
+     * consistent with a concurrent markRefundReviewed (same lock order).
+     * Callers must not invoke this on a repeat same-status refund event —
+     * that would re-open a review the superadmin already closed.
      */
     public function markRefundReview(PaymentAttempt $attempt): void
     {
-        $receipt = PaymentReceipt::where('payment_attempt_id', $attempt->id)->first();
+        $receipt = PaymentReceipt::where('payment_attempt_id', $attempt->id)
+            ->lockForUpdate()
+            ->first();
 
         if ($receipt === null || $receipt->refund_review_required) {
             return;
@@ -125,11 +132,18 @@ class PaymentReceiptService
 
     /**
      * Superadmin «Проверено»: clears the manual refund review flag.
+     *
+     * A repeat press on an already closed review is a no-op: the reviewed
+     * timestamp, the reviewing admin and the audit trail stay untouched.
      */
     public function markRefundReviewed(PaymentReceipt $receipt, User $admin): PaymentReceipt
     {
         return DB::transaction(function () use ($receipt, $admin) {
             $fresh = PaymentReceipt::whereKey($receipt->getKey())->lockForUpdate()->firstOrFail();
+
+            if (! $fresh->refund_review_required) {
+                return $fresh;
+            }
 
             $before = [
                 'refund_review_required' => $fresh->refund_review_required,

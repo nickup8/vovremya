@@ -120,7 +120,10 @@ class PaymentTransitionService
                 return $this->handleValidationError($event, $attempt, 'invalid_transition');
             }
 
-            // 7. Update PaymentAttempt
+            // 7. Update PaymentAttempt — keep the pre-transition status for
+            // the receipt sync below (repeat same-status events must not
+            // re-open a closed manual refund review).
+            $previousStatus = $attempt->status;
             $this->updateAttempt($attempt, $update);
 
             // 8. Update BillingCycle
@@ -128,9 +131,9 @@ class PaymentTransitionService
 
             // 8a. Manual NPD receipt bookkeeping (pure DB, same transaction):
             // first success creates an awaiting_manual row for eligible live
-            // tbank attempts; a refund marks an existing row for manual
-            // review without erasing the link.
-            $this->syncPaymentReceipt($attempt, $update);
+            // tbank attempts; a real refund transition marks an existing row
+            // for manual review without erasing the link.
+            $this->syncPaymentReceipt($attempt, $update, $previousStatus);
 
             // 9. Sync BillingSubscription horizon
             $this->syncSubscriptionHorizon($attempt);
@@ -476,12 +479,20 @@ class PaymentTransitionService
      *
      * Runs inside the transition transaction — pure DB, no external calls.
      * Late success (failed_terminal → succeeded) takes the same path, so a
-     * slow confirmation is still queued. Repeat success is a state-machine
-     * no-op before this point and, even if reached, firstOrCreate never
-     * duplicates a row or clears the refund-review flag.
+     * slow confirmation is still queued. The state machine also allows a
+     * repeat succeeded → succeeded, so this may run again: firstOrCreate
+     * keeps one row per attempt and never clears the refund-review flag.
+     *
+     * A refund only flags the receipt when the attempt actually moves into
+     * a refund status: a repeat refunded → refunded event (same refund
+     * re-reported with a new payload fingerprint) must not re-open a
+     * manual review the superadmin already closed.
      */
-    private function syncPaymentReceipt(PaymentAttempt $attempt, ProviderStatusUpdate $update): void
-    {
+    private function syncPaymentReceipt(
+        PaymentAttempt $attempt,
+        ProviderStatusUpdate $update,
+        PaymentAttemptStatus $previousStatus,
+    ): void {
         $receiptService = app(PaymentReceiptService::class);
 
         if ($update->normalizedStatus === PaymentAttemptStatus::Succeeded) {
@@ -490,12 +501,13 @@ class PaymentTransitionService
             return;
         }
 
-        // PartiallyRefunded is mapped nowhere today, but if it ever reaches
-        // this service it must flag the receipt like a full refund.
+        // PartiallyRefunded is mapped nowhere today, but if the state
+        // machine ever admits it, the real transition into that status
+        // must flag the receipt like a full refund.
         if (in_array($update->normalizedStatus, [
             PaymentAttemptStatus::Refunded,
             PaymentAttemptStatus::PartiallyRefunded,
-        ], true)) {
+        ], true) && $previousStatus !== $update->normalizedStatus) {
             $receiptService->markRefundReview($attempt);
         }
     }

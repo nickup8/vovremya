@@ -340,4 +340,30 @@ class ReceiptsAdminTest extends TestCase
         $this->assertSame($root->id, $this->receipt->refund_reviewed_by);
         $this->assertSame(1, SuperAdminAuditLog::where('action', 'receipt.refund_reviewed')->count());
     }
+
+    public function test_mark_refund_reviewed_twice_is_noop(): void
+    {
+        $this->receipt->update(['refund_review_required' => true, 'status' => PaymentReceiptStatus::Attached]);
+        $root = $this->createRoot();
+
+        $this->actingAs($root)
+            ->post(route('super_admin.receipts.refund_reviewed', $this->receipt))
+            ->assertRedirect();
+
+        $this->receipt->refresh();
+        $reviewedAt = $this->receipt->refund_reviewed_at;
+        $reviewedBy = $this->receipt->refund_reviewed_by;
+
+        $this->travel(5)->minutes();
+        $this->actingAs($this->createRoot())
+            ->post(route('super_admin.receipts.refund_reviewed', $this->receipt))
+            ->assertRedirect();
+        $this->travelBack();
+
+        $this->receipt->refresh();
+        $this->assertFalse($this->receipt->refund_review_required);
+        $this->assertTrue($reviewedAt->equalTo($this->receipt->refund_reviewed_at));
+        $this->assertSame($reviewedBy, $this->receipt->refund_reviewed_by);
+        $this->assertSame(1, SuperAdminAuditLog::where('action', 'receipt.refund_reviewed')->count());
+    }
 }

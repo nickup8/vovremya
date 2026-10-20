@@ -13,10 +13,12 @@ use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentReceipt;
 use App\Models\PlanPrice;
+use App\Models\SuperAdminAuditLog;
 use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
+use App\Services\Payment\PaymentReceiptService;
 use App\Services\Payment\PaymentTransitionService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
@@ -277,6 +279,89 @@ class PaymentReceiptLifecycleTest extends TestCase
         // Duplicate refund event — flag stays, no error.
         $this->assertTrue($this->refund($attempt)['success']);
         $this->assertTrue($receipt->refresh()->refund_review_required);
+    }
+
+    public function test_repeat_refund_after_review_closed_does_not_reopen_review(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $attempt = $this->liveTbankAttempt();
+        $this->succeed($attempt);
+        $this->refund($attempt);
+
+        $receipt = PaymentReceipt::where('payment_attempt_id', $attempt->id)->firstOrFail();
+        $url = 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/abc123/print';
+        $receipt->update([
+            'status' => PaymentReceiptStatus::Attached,
+            'receipt_url' => $url,
+            'refund_review_required' => false,
+            'refund_reviewed_by' => $admin->id,
+            'refund_reviewed_at' => now()->subHour(),
+        ]);
+        $reviewedAt = $receipt->refresh()->refund_reviewed_at;
+
+        // The same refund re-reported with a new payload fingerprint
+        // (different provider_event_id) passes event dedup but is the
+        // same refunded → refunded transition — the closed review must
+        // stay closed and the link must survive.
+        $this->assertTrue($this->refund($attempt)['success']);
+
+        $receipt->refresh();
+        $this->assertFalse($receipt->refund_review_required);
+        $this->assertTrue($reviewedAt->equalTo($receipt->refund_reviewed_at));
+        $this->assertSame($url, $receipt->receipt_url);
+        $this->assertSame(PaymentReceiptStatus::Attached, $receipt->status);
+    }
+
+    public function test_partially_refunded_is_not_in_state_machine_today(): void
+    {
+        $attempt = $this->liveTbankAttempt();
+        $this->succeed($attempt);
+
+        $result = $this->transitionService->transition(new ProviderStatusUpdate(
+            provider: 'tbank',
+            providerEventId: 'evt-'.bin2hex(random_bytes(8)),
+            providerPaymentId: $attempt->provider_payment_id,
+            normalizedStatus: PaymentAttemptStatus::PartiallyRefunded,
+            amount: 100,
+            currency: 'RUB',
+        ));
+
+        // PartiallyRefunded is not an allowed target today; if the state
+        // machine ever admits it, markRefundReview must run on the real
+        // transition (status actually changes into a refund status).
+        $this->assertFalse($result['success'] ?? false);
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $attempt->refresh()->status);
+        $this->assertFalse(
+            PaymentReceipt::where('payment_attempt_id', $attempt->id)->firstOrFail()->refund_review_required
+        );
+    }
+
+    public function test_review_stays_closed_across_repeat_refund_and_second_review_press(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $attempt = $this->liveTbankAttempt();
+        $this->succeed($attempt);
+        $this->refund($attempt);
+
+        $receipt = PaymentReceipt::where('payment_attempt_id', $attempt->id)->firstOrFail();
+        $service = app(PaymentReceiptService::class);
+        $service->markRefundReviewed($receipt, $admin);
+        $reviewedAt = $receipt->refresh()->refund_reviewed_at;
+        $auditCount = SuperAdminAuditLog::where('action', 'receipt.refund_reviewed')->count();
+
+        // Second «Проверено» press — no-op: date, admin, audit untouched.
+        $service->markRefundReviewed($receipt, $admin);
+        $receipt->refresh();
+        $this->assertFalse($receipt->refund_review_required);
+        $this->assertTrue($reviewedAt->equalTo($receipt->refund_reviewed_at));
+        $this->assertSame($auditCount, SuperAdminAuditLog::where('action', 'receipt.refund_reviewed')->count());
+
+        // Repeat refund event (new fingerprint) — closed review stays closed.
+        $this->assertTrue($this->refund($attempt)['success']);
+        $receipt->refresh();
+        $this->assertFalse($receipt->refund_review_required);
+        $this->assertTrue($reviewedAt->equalTo($receipt->refund_reviewed_at));
+        $this->assertSame($auditCount, SuperAdminAuditLog::where('action', 'receipt.refund_reviewed')->count());
     }
 
     // ── No network ──
