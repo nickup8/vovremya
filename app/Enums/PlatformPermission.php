@@ -24,4 +24,7 @@ enum PlatformPermission: string
     case NotificationsView = 'notifications.view';
     case NotificationsUpdate = 'notifications.update';
     case NotificationsDelete = 'notifications.delete';
+
+    case ReceiptsView = 'receipts.view';
+    case ReceiptsUpdate = 'receipts.update';
 }

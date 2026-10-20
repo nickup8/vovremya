@@ -17,6 +17,7 @@ use App\Services\Notification\MasterNotificationService;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 
 class PaymentTransitionService
 {
@@ -125,6 +126,12 @@ class PaymentTransitionService
             // 8. Update BillingCycle
             $this->updateCycle($attempt, $update);
 
+            // 8a. Manual NPD receipt bookkeeping (pure DB, same transaction):
+            // first success creates an awaiting_manual row for eligible live
+            // tbank attempts; a refund marks an existing row for manual
+            // review without erasing the link.
+            $this->syncPaymentReceipt($attempt, $update);
+
             // 9. Sync BillingSubscription horizon
             $this->syncSubscriptionHorizon($attempt);
 
@@ -166,7 +173,7 @@ class PaymentTransitionService
         $now = now();
 
         $rowData = [
-            'id' => (string) \Illuminate\Support\Str::uuid(),
+            'id' => (string) Str::uuid(),
             'provider' => $update->provider,
             'provider_event_id' => $update->providerEventId,
             'event_type' => $update->normalizedStatus->value,
@@ -246,10 +253,10 @@ class PaymentTransitionService
                 ksort($value);
                 $pairs = [];
                 foreach ($value as $k => $v) {
-                    $pairs[] = json_encode($k) . ':' . $this->canonicalize($v);
+                    $pairs[] = json_encode($k).':'.$this->canonicalize($v);
                 }
 
-                return '{' . implode(',', $pairs) . '}';
+                return '{'.implode(',', $pairs).'}';
             }
 
             $items = [];
@@ -257,7 +264,7 @@ class PaymentTransitionService
                 $items[] = $this->canonicalize($v);
             }
 
-            return '[' . implode(',', $items) . ']';
+            return '['.implode(',', $items).']';
         }
 
         if (is_string($value)) {
@@ -452,9 +459,45 @@ class PaymentTransitionService
             $updateData['failure_code'] = null;
             $updateData['failure_category'] = null;
             $updateData['failure_message'] = null;
+
+            // First IRСI-side confirmation only: a repeated success or a
+            // later refund never rewrites confirmed_at. finished_at stays
+            // the generic transition timestamp and is not reworked here.
+            if ($attempt->confirmed_at === null) {
+                $updateData['confirmed_at'] = now();
+            }
         }
 
         $attempt->update($updateData);
+    }
+
+    /**
+     * Manual NPD receipt sync for the live tbank receipt-queue feature.
+     *
+     * Runs inside the transition transaction — pure DB, no external calls.
+     * Late success (failed_terminal → succeeded) takes the same path, so a
+     * slow confirmation is still queued. Repeat success is a state-machine
+     * no-op before this point and, even if reached, firstOrCreate never
+     * duplicates a row or clears the refund-review flag.
+     */
+    private function syncPaymentReceipt(PaymentAttempt $attempt, ProviderStatusUpdate $update): void
+    {
+        $receiptService = app(PaymentReceiptService::class);
+
+        if ($update->normalizedStatus === PaymentAttemptStatus::Succeeded) {
+            $receiptService->ensureForSuccessfulAttempt($attempt);
+
+            return;
+        }
+
+        // PartiallyRefunded is mapped nowhere today, but if it ever reaches
+        // this service it must flag the receipt like a full refund.
+        if (in_array($update->normalizedStatus, [
+            PaymentAttemptStatus::Refunded,
+            PaymentAttemptStatus::PartiallyRefunded,
+        ], true)) {
+            $receiptService->markRefundReview($attempt);
+        }
     }
 
     /**
@@ -515,7 +558,7 @@ class PaymentTransitionService
         }
 
         try {
-            DB::transaction(function () use ($legacySubscriptionId, $update, $attempt) {
+            DB::transaction(function () use ($legacySubscriptionId, $update) {
                 $legacy = Subscription::find($legacySubscriptionId);
                 if ($legacy === null) {
                     Log::warning('Legacy subscription not found for mirror', [
@@ -576,12 +619,12 @@ class PaymentTransitionService
         if ($latestEnd !== null) {
             $sub->update([
                 'current_period_end' => $latestEnd,
-                'status' => \App\Enums\BillingSubscriptionStatus::Active,
+                'status' => BillingSubscriptionStatus::Active,
             ]);
         } else {
             // No paid cycles remain — subscription should be canceled
             $sub->update([
-                'status' => \App\Enums\BillingSubscriptionStatus::Canceled,
+                'status' => BillingSubscriptionStatus::Canceled,
             ]);
         }
     }
@@ -604,7 +647,7 @@ class PaymentTransitionService
             return;
         }
 
-        if ($sub->status === \App\Enums\BillingSubscriptionStatus::Canceled) {
+        if ($sub->status === BillingSubscriptionStatus::Canceled) {
             if ($sub->next_charge_at !== null) {
                 $sub->update(['next_charge_at' => null]);
             }

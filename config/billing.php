@@ -46,7 +46,26 @@ return [
             'terminal_key' => env('TBANK_TERMINAL_KEY'),
             'password' => env('TBANK_PASSWORD'),
             'base_url' => env('TBANK_BASE_URL', 'https://securepay.tinkoff.ru'),
+            // Explicit payment environment for T-Bank attempts: 'demo' or
+            // 'live' only. Snapshot of this value is stored on every new
+            // tbank PaymentAttempt (payment_attempts.payment_env); a later
+            // config change never rewrites existing attempts. Any other
+            // value is treated as 'demo' — never as live. Never inferred
+            // from TerminalKey, base URL, APP_ENV or the provider name.
+            'environment' => env('TBANK_ENVIRONMENT', 'demo'),
         ],
+    ],
+
+    /*
+     * Manual NPD receipts («Моё налоговое дело»).
+     *
+     * seller_inn — ИНН продавца (the ИРСИ operator). Required to attach
+     * an lknpd.nalog.ru receipt link: the sellerInn path segment of the
+     * URL must match this value exactly. Empty or malformed (not 10/12
+     * digits) — attaching a receipt link is refused with a clear error.
+     */
+    'receipts' => [
+        'seller_inn' => env('BILLING_RECEIPTS_SELLER_INN'),
     ],
 
     /*

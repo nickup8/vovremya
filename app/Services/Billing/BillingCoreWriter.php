@@ -12,7 +12,7 @@ use App\Models\PaymentAttempt;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Services\Payment\DTOs\PaymentInitiation;
-use Illuminate\Support\Facades\DB;
+use App\Services\Payment\PaymentEnvironmentResolver;
 use Illuminate\Support\Str;
 
 /**
@@ -143,6 +143,9 @@ class BillingCoreWriter
         $attempt = PaymentAttempt::create([
             'billing_cycle_id' => $cycle->id,
             'provider' => $provider,
+            // Environment snapshot taken once at creation; a later
+            // billing.gateways.tbank.environment change never rewrites it.
+            'payment_env' => app(PaymentEnvironmentResolver::class)->resolve($provider),
             'attempt_number' => $maxNumber + 1,
             'amount' => $price['final'],
             'currency' => 'RUB',

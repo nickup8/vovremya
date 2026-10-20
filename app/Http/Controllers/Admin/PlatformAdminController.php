@@ -192,6 +192,11 @@ class PlatformAdminController extends Controller
             $valid[] = 'notifications.view';
         }
 
+        // Dependency: receipts.update implies receipts.view
+        if (in_array('receipts.update', $valid) && ! in_array('receipts.view', $valid)) {
+            $valid[] = 'receipts.view';
+        }
+
         return array_values(array_unique($valid));
     }
 
@@ -211,6 +216,8 @@ class PlatformAdminController extends Controller
             PlatformPermission::NotificationsView => 'Просмотр уведомлений',
             PlatformPermission::NotificationsUpdate => 'Редактирование уведомлений',
             PlatformPermission::NotificationsDelete => 'Удаление уведомлений',
+            PlatformPermission::ReceiptsView => 'Просмотр чеков',
+            PlatformPermission::ReceiptsUpdate => 'Прикрепление чеков',
         };
     }
 }

@@ -14,6 +14,7 @@ const NAV_ITEMS = [
     { key: 'users', label: 'Пользователи', href: '/admin-root/users', permission: 'users.view' },
     { key: 'notifications', label: 'Уведомления', href: '/admin-root/notifications', permission: 'notifications.view' },
     { key: 'plans', label: 'Тарифы', href: '/admin-root/plans', permission: 'plans.view' },
+    { key: 'receipts', label: 'Чеки', href: '/admin-root/receipts', permission: 'receipts.view' },
     { key: 'audit', label: 'Журнал', href: '/admin-root/audit', permission: 'audit.view' },
     { key: 'admins', label: 'Администраторы', href: '/admin-root/admins', permission: 'platform_admins.manage' },
 ];

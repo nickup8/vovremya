@@ -97,6 +97,9 @@ class User extends Authenticatable implements PasskeyUser
         return $this->belongsTo(Workspace::class);
     }
 
+    /**
+     * @return HasOne<PlatformAdminAccess, $this>
+     */
     public function platformAdminAccess(): HasOne
     {
         return $this->hasOne(PlatformAdminAccess::class);

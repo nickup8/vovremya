@@ -144,6 +144,10 @@ class RenewalTechnicalRetryTest extends TestCase
     public function test_old_attempt_is_left_untouched(): void
     {
         [$sub, , , $first] = $this->technicalFailureState();
+        // Refresh first so the snapshot includes every current column
+        // (payment_env/confirmed_at arrive as NULL from the DB); a create()
+        // payload would omit them and a later refresh() would look like a change.
+        $first->refresh();
         $before = $first->toArray();
 
         $this->renewalService->prepareTechnicalRetry($sub);

@@ -8,7 +8,18 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * Declared explicitly: larastan reads casts() only with parseModelCastsMethod
+ * enabled and otherwise falls back to the migration column type (string),
+ * which hides the enum/datetime attributes at analysis time.
+ *
+ * @property BillingCycleOrigin $origin
+ * @property BillingCycleStatus $status
+ * @property Carbon $period_start
+ * @property Carbon $period_end
+ */
 class BillingCycle extends Model
 {
     use HasUuids;
@@ -40,16 +51,25 @@ class BillingCycle extends Model
         ];
     }
 
+    /**
+     * @return BelongsTo<BillingSubscription, $this>
+     */
     public function billingSubscription(): BelongsTo
     {
         return $this->belongsTo(BillingSubscription::class);
     }
 
+    /**
+     * @return BelongsTo<Workspace, $this>
+     */
     public function workspace(): BelongsTo
     {
         return $this->belongsTo(Workspace::class);
     }
 
+    /**
+     * @return BelongsTo<TariffPlan, $this>
+     */
     public function tariffPlan(): BelongsTo
     {
         return $this->belongsTo(TariffPlan::class);

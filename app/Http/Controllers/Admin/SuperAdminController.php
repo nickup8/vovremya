@@ -27,7 +27,6 @@ use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Notification;
 use Inertia\Inertia;
 use Inertia\Response;
 
@@ -210,7 +209,7 @@ class SuperAdminController extends Controller
         if ($tariff = $request->query('tariff')) {
             // Core-first: filter by entitlement plan code
             $entitlementService = app(EntitlementService::class);
-            $query->whereHas('workspace', function ($q) use ($tariff, $entitlementService) {
+            $query->whereHas('workspace', function ($q) use ($tariff) {
                 $q->whereHas('billingSubscriptions', function ($q2) use ($tariff) {
                     $q2->whereHas('tariffPlan', function ($q3) use ($tariff) {
                         $q3->where('code', $tariff);
@@ -669,6 +668,9 @@ class SuperAdminController extends Controller
             'notification.sent',
             'notification.updated',
             'notification.deleted',
+            'receipt.attached',
+            'receipt.url_changed',
+            'receipt.refund_reviewed',
         ];
 
         $admins = User::query()

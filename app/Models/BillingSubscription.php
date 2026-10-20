@@ -7,7 +7,22 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
+/**
+ * Declared explicitly: larastan reads casts() only with parseModelCastsMethod
+ * enabled and otherwise falls back to the migration column type (string),
+ * which hides the enum/datetime attributes at analysis time.
+ *
+ * @property BillingSubscriptionStatus $status
+ * @property int|null $renewal_period_months
+ * @property Carbon|null $current_period_start
+ * @property Carbon|null $current_period_end
+ * @property Carbon|null $next_charge_at
+ * @property bool $cancel_at_period_end
+ * @property Carbon|null $grace_until
+ * @property Carbon|null $auto_renew_consent_at
+ */
 class BillingSubscription extends Model
 {
     use HasUuids;

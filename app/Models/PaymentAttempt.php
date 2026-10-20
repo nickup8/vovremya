@@ -3,9 +3,12 @@
 namespace App\Models;
 
 use App\Enums\PaymentAttemptStatus;
+use App\Enums\PaymentEnvironment;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
 /**
  * Declared explicitly: larastan reads casts() only with parseModelCastsMethod
@@ -13,6 +16,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * which hides the enum this attribute actually is at runtime.
  *
  * @property PaymentAttemptStatus $status
+ * @property PaymentEnvironment|null $payment_env
+ * @property Carbon|null $confirmed_at
  */
 class PaymentAttempt extends Model
 {
@@ -22,6 +27,7 @@ class PaymentAttempt extends Model
         'billing_cycle_id',
         'payment_method_id',
         'provider',
+        'payment_env',
         'attempt_number',
         'amount',
         'currency',
@@ -33,6 +39,7 @@ class PaymentAttempt extends Model
         'failure_message',
         'initiated_at',
         'finished_at',
+        'confirmed_at',
         'metadata',
     ];
 
@@ -42,12 +49,17 @@ class PaymentAttempt extends Model
             'attempt_number' => 'integer',
             'amount' => 'integer',
             'status' => PaymentAttemptStatus::class,
+            'payment_env' => PaymentEnvironment::class,
             'initiated_at' => 'datetime',
             'finished_at' => 'datetime',
+            'confirmed_at' => 'datetime',
             'metadata' => 'array',
         ];
     }
 
+    /**
+     * @return BelongsTo<BillingCycle, $this>
+     */
     public function billingCycle(): BelongsTo
     {
         return $this->belongsTo(BillingCycle::class);
@@ -56,5 +68,13 @@ class PaymentAttempt extends Model
     public function paymentMethod(): BelongsTo
     {
         return $this->belongsTo(PaymentMethod::class);
+    }
+
+    /**
+     * @return HasOne<PaymentReceipt, $this>
+     */
+    public function paymentReceipt(): HasOne
+    {
+        return $this->hasOne(PaymentReceipt::class);
     }
 }

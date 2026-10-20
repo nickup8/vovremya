@@ -11,6 +11,7 @@ use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentMethod;
 use App\Models\PlanPrice;
+use App\Services\Payment\PaymentEnvironmentResolver;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Str;
 
@@ -154,6 +155,9 @@ class RenewalService
                 'billing_cycle_id' => $cycle->id,
                 'payment_method_id' => $method->id,
                 'provider' => $method->provider,
+                // Environment snapshot taken once at creation; a later
+                // billing.gateways.tbank.environment change never rewrites it.
+                'payment_env' => app(PaymentEnvironmentResolver::class)->resolve($method->provider),
                 'attempt_number' => (int) $attempts->max('attempt_number') + 1,
                 'amount' => $cycle->amount,
                 'currency' => $cycle->currency,
@@ -325,6 +329,9 @@ class RenewalService
             'billing_cycle_id' => $cycle->id,
             'payment_method_id' => $method->id,
             'provider' => $method->provider,
+            // Environment snapshot taken once at creation; a later
+            // billing.gateways.tbank.environment change never rewrites it.
+            'payment_env' => app(PaymentEnvironmentResolver::class)->resolve($method->provider),
             'attempt_number' => $maxNumber + 1,
             'amount' => $cycle->amount,
             'currency' => $cycle->currency,

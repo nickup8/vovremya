@@ -10,6 +10,7 @@ use App\Http\Controllers\Admin\ServiceCatalogController;
 use App\Http\Controllers\Admin\ScheduleController;
 use App\Http\Controllers\Admin\SettingsController;
 use App\Http\Controllers\Admin\SuperAdminController;
+use App\Http\Controllers\Admin\SuperAdminReceiptController;
 use App\Http\Controllers\Admin\TrackingLinkController;
 use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
@@ -226,6 +227,10 @@ Route::middleware(['auth'])->prefix('admin-root')->group(function () {
     Route::get('/plans', [SuperAdminController::class, 'plans'])->middleware('platform_permission:plans.view')->name('super_admin.plans');
     Route::put('/plans/{plan}', [SuperAdminController::class, 'updatePlan'])->middleware('platform_permission:plans.update')->name('super_admin.update_plan');
     Route::get('/audit', [SuperAdminController::class, 'audit'])->middleware('platform_permission:audit.view')->name('super_admin.audit');
+
+    Route::get('/receipts', [SuperAdminReceiptController::class, 'index'])->middleware('platform_permission:receipts.view')->name('super_admin.receipts');
+    Route::put('/receipts/{receipt}/attach', [SuperAdminReceiptController::class, 'attach'])->middleware('platform_permission:receipts.update')->name('super_admin.receipts.attach');
+    Route::post('/receipts/{receipt}/refund-reviewed', [SuperAdminReceiptController::class, 'markRefundReviewed'])->middleware('platform_permission:receipts.update')->name('super_admin.receipts.refund_reviewed');
 
     Route::post('/notifications', [SuperAdminController::class, 'sendNotification'])->middleware('platform_permission:notifications.send')->name('super_admin.notifications.send');
     Route::get('/notifications', [SuperAdminController::class, 'notificationsIndex'])->middleware('platform_permission:notifications.view')->name('super_admin.notifications.index');
