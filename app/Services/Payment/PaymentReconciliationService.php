@@ -495,18 +495,22 @@ class PaymentReconciliationService
     /**
      * Условия восстановления SBP-ссылки по строке попытки (все обязательны):
      *
-     * - tbank-checkout со способом sbp — без checkout_url и любых
-     *   противоречивых способов;
+     * - tbank-checkout без противоречивых данных способа: checkout_url
+     *   пуст, а способ — 'sbp' либо отсутствует/null. Контракт Phase A:
+     *   sbp_expires_at пишется в metadata только для sbp-попыток при
+     *   создании checkout, а payment_method/sbp_payload появляются лишь
+     *   в Phase C после успешного Init. Реальная попытка после ошибки
+     *   Init/GetQr несёт будущий срок без способа — такой пробел
+     *   допустим. Явный 'card', любое другое непустое или некорректное
+     *   значение отклоняются (fail closed);
      * - попытка всё ещё в полёте (ordinary-очередь): не terminal, не
      *   reconciliation_timeout, не финальный вердикт;
      * - PaymentId привязан (уже известен или восстановлен через CheckOrder);
      * - не renewal;
      * - sbp_payload ещё отсутствует;
-     * - исходный sbp_expires_at разобран и ещё в будущем. Контракт Phase A:
-     *   ключ пишется в metadata только для sbp-попыток при создании
-     *   checkout и никогда не продлевается; попытки старее этой записи ключа
-     *   не имеют вовсе — для них восстановление закрыто (срок/способ
-     *   неизвестны).
+     * - исходный sbp_expires_at разобран и ещё в будущем. Ключ никогда не
+     *   продлевается; попытки старее этой записи ключа не имеют вовсе — для
+     *   них восстановление закрыто (срок/способ неизвестны).
      */
     private function sbpQrRecoveryRowGates(PaymentAttempt $fresh): bool
     {
@@ -528,7 +532,11 @@ class PaymentReconciliationService
 
         $metadata = $this->attemptMetadata($fresh);
 
-        if (($metadata['payment_method'] ?? null) !== 'sbp') {
+        // Контракт Phase A: способ дописывается только в Phase C, поэтому
+        // отсутствующий/null ключ — это sbp-попытка, у которой Init не
+        // прошёл. 'card' или мусор — чужая попытка, восстановление закрыто.
+        $method = $metadata['payment_method'] ?? null;
+        if ($method !== null && $method !== 'sbp') {
             return false;
         }
 
@@ -567,11 +575,12 @@ class PaymentReconciliationService
      * Сохранение восстановленного SBP-payload под row lock с повторной
      * проверкой: тот же PaymentId, допустимый статус, срок ещё в будущем,
      * payload всё ещё отсутствует, способ не изменился. Мержатся ТОЛЬКО
-     * sbp_payload и request_key — webhook-маркеры, poll metadata и
-     * исходный sbp_expires_at не затираются. Если другой процесс успел
-     * сохранить payload раньше — его ссылка остаётся нетронутой ('kept');
-     * истёкший срок или изменившийся статус во время GetQr не дают
-     * сохранить ссылку вовсе ('skipped').
+     * sbp_payload, payment_method (дописывается 'sbp' попытке Phase A,
+     * у которой Init не успел записать способ) и request_key —
+     * webhook-маркеры, poll metadata и исходный sbp_expires_at не
+     * затираются. Если другой процесс успел сохранить payload раньше — его
+     * ссылка остаётся нетронутой ('kept'); истёкший срок или изменившийся
+     * статус во время GetQr не дают сохранить ссылку вовсе ('skipped').
      *
      * @param  array{payload: string, request_key: string|null}  $qr
      * @return string 'saved' | 'kept' | 'skipped' | 'missing'
@@ -603,6 +612,7 @@ class PaymentReconciliationService
                 return 'skipped';
             }
 
+            $metadata['payment_method'] = 'sbp';
             $metadata['sbp_payload'] = $qr['payload'];
 
             if ($qr['request_key'] !== null) {

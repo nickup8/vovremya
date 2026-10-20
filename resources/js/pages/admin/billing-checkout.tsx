@@ -1240,8 +1240,11 @@ export default function BillingCheckoutPage() {
                                                         обновление состояния —
                                                         ответ может принести
                                                         восстановленную
-                                                        SBP-ссылку; GET-цикла
-                                                        нет. */}
+                                                        SBP-ссылку. Ответ без
+                                                        вердикта продолжает
+                                                        существующий
+                                                        GET-polling этой же
+                                                        попытки. */}
                                                     <button
                                                         type="button"
                                                         onClick={() => {

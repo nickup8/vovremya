@@ -199,6 +199,21 @@ class SbpQrLinkRecoveryTest extends TestCase
         ], $overrides);
     }
 
+    /**
+     * Реальный контракт Phase A попытки, у которой Init/GetQr не прошёл:
+     * sbp_expires_at уже записан, payment_method / sbp_payload / PaymentId
+     * ещё нет — они появляются только в Phase C. Способ сюда не подставлять.
+     *
+     * @param  array<string, mixed>  $overrides
+     * @return array<string, mixed>
+     */
+    private function phaseAMetadata(array $overrides = []): array
+    {
+        return array_merge([
+            'sbp_expires_at' => now()->addMinutes(10)->toIso8601String(),
+        ], $overrides);
+    }
+
     private function reconcile(): void
     {
         app(PaymentReconciliationService::class)->reconcile();
@@ -332,6 +347,63 @@ class SbpQrLinkRecoveryTest extends TestCase
         $this->assertSame(1, $this->requestCount('/v2/CheckOrder'));
         $this->assertSame(1, $this->requestCount('/v2/GetQr'));
         // Никакого нового Init
+        $this->assertSame(0, $this->requestCount('/v2/Init'));
+    }
+
+    /**
+     * Обязательная регрессия: реальная попытка Phase A после ошибки
+     * Init/GetQr — sbp_expires_at есть, payment_method/payload/PaymentId
+     * нет. Такая строка основной сценарий восстановления, поэтому он
+     * должен быть достижим: CheckOrder → NEW → привязка ID → GetQr →
+     * method=sbp и payload в merge-записи, исходный срок не тронут, GET
+     * checkout отдаёт ссылку. Ни одного Init.
+     */
+    public function test_phase_a_attempt_without_method_recovers_link_end_to_end(): void
+    {
+        $expiresAt = now()->addMinutes(10)->toIso8601String();
+        $attempt = $this->createAttempt(
+            PaymentAttemptStatus::Created,
+            $this->phaseAMetadata(['sbp_expires_at' => $expiresAt]),
+            providerPaymentId: null,
+            ageMinutes: 10,
+        );
+
+        // Контракт Phase A в исходной фикстуре: способа, payload и id нет
+        $this->assertArrayNotHasKey('payment_method', $attempt->metadata);
+        $this->assertArrayNotHasKey('sbp_payload', $attempt->metadata);
+        $this->assertNull($attempt->provider_payment_id);
+
+        $this->fakeBank(
+            getStateAnswer: fn () => $this->fail('GetState не должен вызываться'),
+            getQrAnswer: fn () => $this->getQrAnswer(),
+            checkOrderAnswer: fn () => $this->checkOrderAnswer($attempt),
+        );
+
+        $this->reconcile();
+
+        $attempt->refresh();
+        $this->assertSame('tbank_777', $attempt->provider_payment_id);
+        // Merge-запись добрала способ вместе с payload
+        $this->assertSame('sbp', $attempt->metadata['payment_method']);
+        $this->assertSame('https://qr.nspk.ru/RECOVERED', $attempt->metadata['sbp_payload']);
+        $this->assertSame('rk_recovered', $attempt->metadata['request_key']);
+        // Исходный срок не изменён
+        $this->assertSame($expiresAt, $attempt->metadata['sbp_expires_at']);
+
+        $this->assertSame(1, $this->requestCount('/v2/CheckOrder'));
+        $this->assertSame(1, $this->requestCount('/v2/GetQr'));
+        $this->assertSame(0, $this->requestCount('/v2/Init'));
+
+        $this->actingAs($this->owner)
+            ->get('/admin/billing/checkout?period_months=1')
+            ->assertOk()
+            ->assertInertia(fn (Assert $page) => $page
+                ->component('admin/billing-checkout')
+                ->where('pending_attempt.method', 'sbp')
+                ->where('pending_attempt.sbp_payload', 'https://qr.nspk.ru/RECOVERED')
+                ->where('pending_attempt.sbp_expires_at', $expiresAt)
+            );
+
         $this->assertSame(0, $this->requestCount('/v2/Init'));
     }
 
@@ -530,6 +602,82 @@ class SbpQrLinkRecoveryTest extends TestCase
         $this->assertSame(0, $this->requestCount('/v2/GetQr'));
     }
 
+    public function test_missing_method_with_card_checkout_url_never_requests_getqr(): void
+    {
+        // Способ не записан (Phase A), но checkout_url выдаёт карточную
+        // попытку — противоречие, GetQr закрыт
+        $attempt = $this->createAttempt(
+            PaymentAttemptStatus::Processing,
+            $this->phaseAMetadata([
+                'checkout_url' => 'https://pay.tinkoff.ru/card-without-method',
+            ]),
+        );
+
+        $this->fakeBank(
+            getStateAnswer: fn () => $this->newStateAnswer($attempt, 'NEW'),
+        );
+
+        $this->reconcile();
+
+        $this->assertNull($attempt->refresh()->metadata['sbp_payload'] ?? null);
+        $this->assertSame(0, $this->requestCount('/v2/GetQr'));
+    }
+
+    public function test_unknown_method_never_requests_getqr(): void
+    {
+        $attempt = $this->createAttempt(
+            PaymentAttemptStatus::Processing,
+            $this->phaseAMetadata(['payment_method' => 'apple_pay']),
+        );
+
+        $this->fakeBank(
+            getStateAnswer: fn () => $this->newStateAnswer($attempt, 'NEW'),
+        );
+
+        $this->reconcile();
+
+        $fresh = $attempt->refresh();
+        $this->assertNull($fresh->metadata['sbp_payload'] ?? null);
+        $this->assertSame('apple_pay', $fresh->metadata['payment_method']);
+        $this->assertSame(0, $this->requestCount('/v2/GetQr'));
+    }
+
+    public function test_non_string_method_never_requests_getqr(): void
+    {
+        $attempt = $this->createAttempt(
+            PaymentAttemptStatus::Processing,
+            $this->phaseAMetadata(['payment_method' => ['sbp']]),
+        );
+
+        $this->fakeBank(
+            getStateAnswer: fn () => $this->newStateAnswer($attempt, 'NEW'),
+        );
+
+        $this->reconcile();
+
+        $this->assertNull($attempt->refresh()->metadata['sbp_payload'] ?? null);
+        $this->assertSame(0, $this->requestCount('/v2/GetQr'));
+    }
+
+    public function test_missing_method_expired_deadline_never_requests_getqr(): void
+    {
+        $attempt = $this->createAttempt(
+            PaymentAttemptStatus::Processing,
+            $this->phaseAMetadata([
+                'sbp_expires_at' => now()->subMinute()->toIso8601String(),
+            ]),
+        );
+
+        $this->fakeBank(
+            getStateAnswer: fn () => $this->newStateAnswer($attempt, 'NEW'),
+        );
+
+        $this->reconcile();
+
+        $this->assertNull($attempt->refresh()->metadata['sbp_payload'] ?? null);
+        $this->assertSame(0, $this->requestCount('/v2/GetQr'));
+    }
+
     public function test_renewal_never_requests_getqr(): void
     {
         $attempt = $this->createAttempt(
@@ -622,6 +770,44 @@ class SbpQrLinkRecoveryTest extends TestCase
         $fresh = $attempt->refresh();
         $this->assertSame(PaymentAttemptStatus::Succeeded, $fresh->status);
         $this->assertNull($fresh->metadata['sbp_payload'] ?? null);
+    }
+
+    public function test_webhook_verdict_during_getqr_never_writes_missing_method(): void
+    {
+        // Фикстура Phase A без способа: если webhook пришёл, пока банк
+        // отдавал QR, под row lock не пишется НИ payload, НИ способ
+        $attempt = $this->createAttempt(
+            PaymentAttemptStatus::Created,
+            $this->phaseAMetadata(),
+            providerPaymentId: null,
+            ageMinutes: 10,
+        );
+
+        $this->fakeBank(
+            getStateAnswer: fn () => $this->fail('GetState не должен вызываться'),
+            getQrAnswer: function () use ($attempt) {
+                app(PaymentTransitionService::class)->transition(new ProviderStatusUpdate(
+                    provider: 'tbank',
+                    normalizedStatus: PaymentAttemptStatus::Succeeded,
+                    providerPaymentId: 'tbank_777',
+                    internalOrderId: $attempt->internal_order_id,
+                    amount: 490,
+                    currency: 'RUB',
+                    raw: ['Status' => 'CONFIRMED', 'OrderId' => $attempt->internal_order_id],
+                ));
+
+                return $this->getQrAnswer();
+            },
+            checkOrderAnswer: fn () => $this->checkOrderAnswer($attempt),
+        );
+
+        $this->reconcile();
+
+        $fresh = $attempt->refresh();
+        $this->assertSame(PaymentAttemptStatus::Succeeded, $fresh->status);
+        $this->assertNull($fresh->metadata['sbp_payload'] ?? null);
+        // Способ не дописан: сохранение было отклонено целиком
+        $this->assertArrayNotHasKey('payment_method', $fresh->metadata);
     }
 
     public function test_deadline_passing_during_getqr_prevents_saving(): void
