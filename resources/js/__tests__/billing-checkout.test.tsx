@@ -3217,16 +3217,28 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         const getCallsWhileA = vi.mocked(axios.get).mock.calls.length;
         expect(getCallsWhileA).toBeGreaterThan(0);
 
-        // Отложенный GET, который ещё в полёте, когда контекст сменился
-        let resolveLateGet: (value: {
+        // Отложенный GET: resolver появляется только когда запрос реально
+        // стартует — заглушка не прячет незапущенный poll
+        let resolveLateGet: ((value: {
             data: Record<string, unknown>;
-        }) => void = () => {};
+        }) => void) | null = null;
         vi.mocked(axios.get).mockImplementation(
             () =>
                 new Promise((resolve) => {
                     resolveLateGet = resolve;
                 }),
         );
+
+        // Тик интервала запускает отложенный GET и оставляет его в полёте
+        const getCallsBeforeLateGet = vi.mocked(axios.get).mock.calls.length;
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(
+            getCallsBeforeLateGet + 1,
+        );
+        expect(resolveLateGet).not.toBeNull();
 
         // Контекст B: карточная попытка (GET-polling ей не положен)
         mockUsePage.mockReturnValue(cardBProps(90_000));
@@ -3238,11 +3250,20 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
 
         // Поздний ответ A: экран B не перекрашивается, новых GET нет
         await act(async () => {
-            resolveLateGet({ data: { status: 'succeeded' } });
+            resolveLateGet!({ data: { status: 'succeeded' } });
         });
         expect(screen.queryByText('Оплата прошла')).toBeNull();
         expect(screen.queryByText('Проверяем статус платежа')).toBeNull();
         expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(
+            getCallsAfterSwitch,
+        );
+
+        // Ни у A, ни у B polling после смены контекста не возобновляется
+        act(() => {
+            vi.advanceTimersByTime(2000 * 3);
+        });
+        await act(async () => {});
         expect(vi.mocked(axios.get).mock.calls.length).toBe(
             getCallsAfterSwitch,
         );
