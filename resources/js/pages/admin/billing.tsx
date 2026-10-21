@@ -199,6 +199,21 @@ function paymentCheckClosedInUrl(): boolean {
     );
 }
 
+/**
+ * Чековая пагинация меняет только receipts_page: остальные параметры
+ * адреса (payment_attempt / payment_check / utm) уходят в запрос как есть,
+ * поэтому баннер ручной проверки и закрытый диалог переживают переход на
+ * другую страницу чеков.
+ */
+function receiptsPageQuery(page: number): Record<string, string | number> {
+    return {
+        ...Object.fromEntries(
+            new URLSearchParams(window.location.search).entries(),
+        ),
+        receipts_page: page,
+    };
+}
+
 /* ═══════════════ Main Page ═══════════════ */
 
 export default function BillingPage() {
@@ -977,7 +992,7 @@ export default function BillingPage() {
                                         <button
                                             type="button"
                                             disabled={receipts.current_page <= 1}
-                                            onClick={() => router.get('/admin/billing', { receipts_page: receipts.current_page - 1 }, { preserveState: true })}
+                                            onClick={() => router.get('/admin/billing', receiptsPageQuery(receipts.current_page - 1), { preserveState: true })}
                                             className="rounded-[8px] border border-[var(--color-line)] px-3 py-1 font-semibold disabled:opacity-40"
                                         >
                                             Назад
@@ -985,7 +1000,7 @@ export default function BillingPage() {
                                         <button
                                             type="button"
                                             disabled={receipts.current_page >= receipts.last_page}
-                                            onClick={() => router.get('/admin/billing', { receipts_page: receipts.current_page + 1 }, { preserveState: true })}
+                                            onClick={() => router.get('/admin/billing', receiptsPageQuery(receipts.current_page + 1), { preserveState: true })}
                                             className="rounded-[8px] border border-[var(--color-line)] px-3 py-1 font-semibold disabled:opacity-40"
                                         >
                                             Вперёд

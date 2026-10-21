@@ -86,6 +86,9 @@ function renderAtWidth(node: React.ReactElement, width: number) {
 describe('admin/billing.tsx — cabinet receipts', () => {
     beforeEach(() => {
         routerGet.mockReset();
+        // Пагинация читает window.location.search — каждый тест стартует
+        // с чистого адреса.
+        window.history.replaceState(null, '', '/admin/billing');
     });
 
     it('desktop: shows amount, period, confirmation date, status and open link', () => {
@@ -156,6 +159,80 @@ describe('admin/billing.tsx — cabinet receipts', () => {
         expect(routerGet).toHaveBeenCalledWith(
             '/admin/billing',
             { receipts_page: 2 },
+            { preserveState: true },
+        );
+    });
+
+    it('keeps payment and utm params while changing only receipts_page', () => {
+        window.history.replaceState(
+            null,
+            '',
+            '/admin/billing?payment_attempt=pay_pending&payment_check=closed&utm_source=test',
+        );
+
+        const receipts = {
+            data: [makeReceipt('r-1', URL_A)],
+            current_page: 1,
+            last_page: 2,
+            per_page: 5,
+            total: 7,
+        };
+        mockUsePage.mockReturnValue({
+            props: {
+                ...makeProps(receipts).props,
+                payment_attempt_id: 'pay_pending',
+            },
+        });
+
+        const view = renderAtWidth(<BillingPage />, 1280);
+
+        // Закрытый диалог не переоткрывается, баннер ручной проверки жив.
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Проверить статус' })).toBeInTheDocument();
+
+        fireEvent.click(screen.getByText('Вперёд'));
+
+        expect(routerGet).toHaveBeenCalledWith(
+            '/admin/billing',
+            {
+                payment_attempt: 'pay_pending',
+                payment_check: 'closed',
+                utm_source: 'test',
+                receipts_page: 2,
+            },
+            { preserveState: true },
+        );
+
+        expect(screen.queryByRole('dialog')).toBeNull();
+        expect(screen.getByRole('button', { name: 'Проверить статус' })).toBeInTheDocument();
+
+        // Та же картинка на второй странице: «Назад» возвращает ту же
+        // тройку параметров и меняет только receipts_page.
+        view.unmount();
+        mockUsePage.mockReturnValue({
+            props: {
+                ...makeProps({
+                    data: [makeReceipt('r-2', URL_A)],
+                    current_page: 2,
+                    last_page: 2,
+                    per_page: 5,
+                    total: 7,
+                }).props,
+                payment_attempt_id: 'pay_pending',
+            },
+        });
+        renderAtWidth(<BillingPage />, 1280);
+
+        fireEvent.click(screen.getByText('Назад'));
+
+        expect(routerGet).toHaveBeenLastCalledWith(
+            '/admin/billing',
+            {
+                payment_attempt: 'pay_pending',
+                payment_check: 'closed',
+                utm_source: 'test',
+                receipts_page: 1,
+            },
             { preserveState: true },
         );
     });
