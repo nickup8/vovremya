@@ -130,8 +130,12 @@ class BillingService
                 //    (RedirectDueDate) несли один и тот же дедлайн. ──
                 $sbpExpiresAt = $paymentMethod === 'sbp' ? $this->sbpExpiresAt() : null;
 
+                // ── То же для карточной ссылки: свой срок, отдельный от
+                //    sbp_expires_at, — только для card-попытки. ──
+                $cardExpiresAt = $paymentMethod === 'card' ? $this->cardExpiresAt() : null;
+
                 // ── Phase A: DB intent (legacy + Core) ──
-                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period, $autoRenew, $sbpExpiresAt) {
+                $intent = DB::transaction(function () use ($master, $plan, $periodMonths, $price, $period, $autoRenew, $sbpExpiresAt, $cardExpiresAt) {
                     // P1.1c: помечаем прежние незавершённые pending этого workspace как failed
                     if ($master->workspace_id) {
                         Subscription::where('workspace_id', $master->workspace_id)
@@ -157,6 +161,7 @@ class BillingService
                         $this->gateway->name(),
                         $autoRenew,
                         $sbpExpiresAt,
+                        $cardExpiresAt,
                     );
 
                     return [
@@ -183,6 +188,7 @@ class BillingService
                             // Тот же дедлайн, что уже сохранён в Phase A:
                             // gateway передаёт его в Init как RedirectDueDate.
                             'sbp_expires_at' => $sbpExpiresAt,
+                            'card_expires_at' => $cardExpiresAt,
                         ],
                     );
 
@@ -237,6 +243,10 @@ class BillingService
                     // Provider id of this exact attempt — lets the caller bind
                     // the bank return to it instead of any "latest payment".
                     'payment_id' => $paymentResult->providerPaymentId,
+                    // Исходный срок этой карточной попытки (он же в
+                    // attempt.metadata и в Init RedirectDueDate) — без
+                    // продления при reuse.
+                    'card_expires_at' => $cardExpiresAt,
                 ];
             });
         } catch (LockTimeoutException) {
@@ -257,6 +267,23 @@ class BillingService
     private function sbpExpiresAt(): string
     {
         $minutes = (int) config('billing.sbp_redirect_ttl_minutes', 15);
+
+        return Carbon::now()->addMinutes($minutes)->format(DATE_ATOM);
+    }
+
+    /**
+     * Абсолютный срок действия новой карточной ссылки (RedirectDueDate).
+     *
+     * ISO8601 с timezone; TTL — billing.card_redirect_ttl_minutes, default
+     * 30 минут (T-Bank допускает от 1 минуты до 90 дней, значение в
+     * config зажато в этот диапазон). Считается один раз на сервере в
+     * checkout — НЕ при reuse: истечение срока не меняет статус попытки
+     * и не разрешает новый Init. Отдельный ключ: sbp_expires_at для карты
+     * не используется.
+     */
+    private function cardExpiresAt(): string
+    {
+        $minutes = (int) config('billing.card_redirect_ttl_minutes', 30);
 
         return Carbon::now()->addMinutes($minutes)->format(DATE_ATOM);
     }
@@ -318,6 +345,11 @@ class BillingService
                     'subscription' => $this->resolveInFlightSubscription($metadata, $master),
                     'confirmation_url' => $checkoutUrl,
                     'payment_id' => $inFlight->provider_payment_id,
+                    // Исходный срок этой попытки. Attempt без срока (создан
+                    // до этого изменения) остаётся без него — задним числом
+                    // не вычисляем и не продлеваем. data_get: metadata —
+                    // json-колонка, смещение по ней larastan не видит.
+                    'card_expires_at' => data_get($metadata, 'card_expires_at'),
                 ];
             }
 

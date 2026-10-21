@@ -32,6 +32,10 @@ class BillingCoreWriter
      * `$sbpExpiresAt` — абсолютный срок действия SBP-ссылки (RedirectDueDate),
      * вычисленный вызывающим ДО HTTP. Пишется в metadata один раз; старые
      * attempts без срока никогда не досчитываются задним числом.
+     *
+     * `$cardExpiresAt` — то же для карточной ссылки (отдельный ключ
+     * metadata.card_expires_at): ни sbp_expires_at, ни карточный срок не
+     * записываются дважды и никогда не смешиваются.
      */
     public function checkoutCreated(
         Subscription $legacy,
@@ -41,6 +45,7 @@ class BillingCoreWriter
         string $provider = 'mock',
         bool $autoRenew = false,
         ?string $sbpExpiresAt = null,
+        ?string $cardExpiresAt = null,
     ): array {
         $workspaceId = $legacy->workspace_id;
 
@@ -138,6 +143,10 @@ class BillingCoreWriter
 
         if ($sbpExpiresAt !== null) {
             $metadata['sbp_expires_at'] = $sbpExpiresAt;
+        }
+
+        if ($cardExpiresAt !== null) {
+            $metadata['card_expires_at'] = $cardExpiresAt;
         }
 
         $attempt = PaymentAttempt::create([

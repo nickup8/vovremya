@@ -232,27 +232,32 @@ class SbpRedirectDueDateTest extends TestCase
         $this->assertArrayNotHasKey('sbp_expires_at', $attempt->metadata);
     }
 
-    public function test_card_init_unchanged_without_redirect_due_date(): void
+    public function test_card_init_uses_its_own_redirect_due_date(): void
     {
         $this->fakeCardInit();
         $master = $this->createMasterWithWorkspace();
 
         $result = app(BillingService::class)->subscribe($master, $this->proPlan, 1, false, 'card');
 
+        // Карта несёт СВОЙ срок в card_expires_at — sbp-ключ ей не выдаётся
         $this->assertArrayNotHasKey('sbp_expires_at', $result);
+        $cardExpiresAt = $result['card_expires_at'] ?? null;
+        $this->assertIsString($cardExpiresAt);
 
         $attempt = $this->coreAttempt();
         $this->assertArrayNotHasKey('sbp_expires_at', $attempt->metadata);
+        $this->assertSame($cardExpiresAt, $attempt->metadata['card_expires_at']);
 
         Http::assertSentCount(1);
-        Http::assertSent(function ($request) {
+        Http::assertSent(function ($request) use ($cardExpiresAt) {
             if ($request->url() !== 'https://securepay.tinkoff.ru/v2/Init') {
                 return false;
             }
 
             $data = $request->data();
 
-            return ! array_key_exists('RedirectDueDate', $data)
+            // Тот же скаляр, что в metadata, как RedirectDueDate до Token
+            return ($data['RedirectDueDate'] ?? null) === $cardExpiresAt
                 && isset($data['Token'])
                 && hash_equals($this->tokenFor($data), $data['Token']);
         });

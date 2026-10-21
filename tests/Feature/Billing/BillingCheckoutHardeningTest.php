@@ -727,9 +727,10 @@ class BillingCheckoutHardeningTest extends TestCase
 
         $result = $service->subscribe($master, $this->proPlan, 1, false, 'card');
 
-        // Response contract: subscription + confirmation_url + payment_id —
-        // the return flow verifies this exact attempt (PR9), never the latest
-        $this->assertSame(['subscription', 'confirmation_url', 'payment_id'], array_keys($result));
+        // Response contract: subscription + confirmation_url + payment_id +
+        // card_expires_at — the return flow verifies this exact attempt
+        // (PR9), never the latest; the deadline is this attempt's own
+        $this->assertSame(['subscription', 'confirmation_url', 'payment_id', 'card_expires_at'], array_keys($result));
         $this->assertIsString($result['confirmation_url']);
         $this->assertNotSame('', $result['confirmation_url']);
         $this->assertIsString($result['payment_id']);

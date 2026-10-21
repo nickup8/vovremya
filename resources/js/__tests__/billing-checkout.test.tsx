@@ -2800,4 +2800,322 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(screen.getByText('Оплата прошла')).toBeTruthy();
         expect(axios.get).not.toHaveBeenCalled();
     });
+
+    // ── Карточный срок ссылки: countdown, истечение, ручная проверка ──
+
+    const CARD_EXPIRED_TITLE = 'Срок ссылки на оплату истёк';
+    const CARD_EXPIRED_BODY =
+        'Продолжить оплату по этой ссылке нельзя. Проверьте результат платежа.';
+
+    /**
+     * Рендер карточного pending-экрана с абсолютным сроком
+     * card_expires_at (отрицательный ms = уже истёк).
+     */
+    function renderCardPendingScreenWithDeadline(expiresInMs: number | null) {
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_9',
+                    period_months: 3,
+                    status: 'processing',
+                    method: 'card',
+                    checkout_url: CARD_CHECKOUT_URL,
+                    card_expires_at:
+                        expiresInMs === null ? null : isoIn(expiresInMs),
+                    sbp_payload: null,
+                    sbp_expires_at: null,
+                },
+            }),
+        );
+
+        return render(<BillingCheckoutPage />);
+    }
+
+    it('card countdown is computed from the absolute card_expires_at', () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithDeadline(5 * 60_000);
+
+        const countdown = screen.getByTestId('card-countdown');
+        // Ровно остаток попытки — не «новые 30 минут» от открытия страницы
+        expect(countdown.textContent).toContain('05:00');
+        expect(countdown.textContent).not.toContain('30:00');
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+
+        act(() => {
+            vi.advanceTimersByTime(61_000);
+        });
+
+        expect(screen.getByTestId('card-countdown').textContent).toContain(
+            '03:59',
+        );
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('returning to the tab recalculates the card countdown from the same deadline', async () => {
+        vi.useFakeTimers();
+        const deadline = isoIn(90_000);
+        renderCardPendingScreenWithDeadline(Date.parse(deadline) - Date.now());
+        expect(screen.getByTestId('card-countdown').textContent).toContain(
+            '01:30',
+        );
+
+        // Часы ушли, пока вкладка была скрыта: тики интервала не срабатывали
+        vi.setSystemTime(new Date(Date.parse(deadline) + 1000));
+        act(() => {
+            document.dispatchEvent(new Event('visibilitychange'));
+        });
+        await act(async () => {});
+
+        expect(screen.getByText(CARD_EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.queryByTestId('card-countdown')).toBeNull();
+    });
+
+    it('link expiry switches to the expired screen without declaring a verdict', async () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithDeadline(3000);
+
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        expect(screen.queryByText(CARD_EXPIRED_TITLE)).toBeNull();
+
+        act(() => {
+            vi.advanceTimersByTime(3000);
+        });
+        await act(async () => {});
+
+        // Истёкшее состояние: продолжение закрыто, проверка доступна
+        expect(screen.getByText(CARD_EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.getByText(CARD_EXPIRED_BODY)).toBeTruthy();
+        expect(screen.queryByText('Оплата не завершена')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: 'Продолжить оплату' }),
+        ).toBeNull();
+        expect(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        ).toBeTruthy();
+        expect(
+            screen.getByRole('link', { name: 'Вернуться к тарифам' }),
+        ).toBeTruthy();
+        expect(screen.queryByTestId('card-countdown')).toBeNull();
+
+        // Часы ничего не утверждают: ни отказа, ни новой оплаты, ни запросов
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(axios.post).not.toHaveBeenCalled();
+        expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    it('«Продолжить оплату» checks the deadline at click time', async () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithDeadline(500);
+
+        expect(
+            screen.getByRole('button', { name: 'Продолжить оплату' }),
+        ).toBeTruthy();
+
+        // До первого тика (1s) кнопка ещё видима, но срок уже прошёл
+        act(() => {
+            vi.advanceTimersByTime(600);
+        });
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Продолжить оплату' }),
+        );
+        await act(async () => {});
+
+        // Перехода в банк не было — обработчик сам отсёк истёкший срок
+        expect(window.location.href).toBe('');
+        expect(axios.post).not.toHaveBeenCalled();
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(screen.getByText(CARD_EXPIRED_TITLE)).toBeTruthy();
+    });
+
+    it('manual check on the expired screen is one POST, zero GET, and keeps the screen', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'processing', checked: true },
+        });
+
+        renderCardPendingScreenWithDeadline(-1000);
+        expect(screen.getByText(CARD_EXPIRED_TITLE)).toBeTruthy();
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+
+        expect(axios.post).toHaveBeenCalledTimes(1);
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
+        expect(axios.get).not.toHaveBeenCalled();
+        // Нетерминальный ответ: тот же истёкший экран с понятной подписью
+        expect(screen.getByText(CARD_EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.getByText(CARD_UNCONFIRMED_NOTICE)).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+
+        act(() => {
+            vi.advanceTimersByTime(60_000);
+        });
+        await act(async () => {});
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(axios.post).toHaveBeenCalledTimes(1);
+    });
+
+    it('network error and cooldown keep the expired screen without any verdict', async () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithDeadline(-1000);
+
+        // Сетевая ошибка — возможность повторить проверку
+        vi.mocked(axios.post).mockRejectedValueOnce(new Error('down'));
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+
+        expect(screen.getByText(CARD_EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.getByText(CARD_ERROR_NOTICE)).toBeTruthy();
+
+        // cooldown (checked=false) — существующая подсказка, не вердикт
+        vi.mocked(axios.post).mockResolvedValueOnce({
+            data: { status: 'processing', checked: false },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+
+        expect(screen.getByText(CARD_EXPIRED_TITLE)).toBeTruthy();
+        expect(screen.getByText(CARD_COOLDOWN_NOTICE)).toBeTruthy();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(
+            screen.queryByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        ).toBeNull();
+        expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    it('success on the expired screen lands on success, never on a clock-made decline', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'succeeded', checked: true },
+        });
+
+        renderCardPendingScreenWithDeadline(-1000);
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+        expect(screen.queryByText(CARD_EXPIRED_TITLE)).toBeNull();
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    it('a confirmed decline on the expired screen opens the existing failure path', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'failed_terminal', checked: true },
+        });
+
+        renderCardPendingScreenWithDeadline(-1000);
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+
+        // Подтверждённый отказ банка — существующий экран и путь новой оплаты
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+        expect(
+            screen.getByRole('button', { name: CHOOSE_METHOD }),
+        ).toBeTruthy();
+        expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    it('old card attempt without a deadline shows no timer and never expires', () => {
+        vi.useFakeTimers();
+        renderCardPendingScreenWithDeadline(null);
+
+        expect(screen.queryByTestId('card-countdown')).toBeNull();
+
+        act(() => {
+            vi.advanceTimersByTime(40 * 60_000);
+        });
+
+        // Старое поведение сохранено: экран и продолжение на месте
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        expect(screen.queryByText(CARD_EXPIRED_TITLE)).toBeNull();
+        expect(
+            screen.getByRole('button', { name: 'Продолжить оплату' }),
+        ).toBeTruthy();
+        expect(axios.get).not.toHaveBeenCalled();
+        expect(axios.post).not.toHaveBeenCalled();
+    });
+
+    it('a new pending_attempt in props resets per-attempt state and ignores the late answer', async () => {
+        vi.useFakeTimers();
+        const { rerender } = renderCardPendingScreenWithDeadline(30_000);
+
+        let resolveA: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveA = resolve;
+                }),
+        );
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+        expect(axios.post).toHaveBeenCalledTimes(1);
+
+        // Попытка сменилась в props: другой id и другой срок
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_10',
+                    period_months: 3,
+                    status: 'processing',
+                    method: 'card',
+                    checkout_url: CARD_CHECKOUT_URL,
+                    card_expires_at: isoIn(90_000),
+                    sbp_payload: null,
+                    sbp_expires_at: null,
+                },
+            }),
+        );
+        rerender(<BillingCheckoutPage />);
+        await act(async () => {});
+
+        // Состояние прошлой попытки не унаследовано: кнопка не busy,
+        // таймер пересчитан от срока НОВОЙ попытки
+        expect(
+            screen.queryByRole('button', { name: 'Проверяем…' }),
+        ).toBeNull();
+        expect(screen.getByTestId('card-countdown').textContent).toContain(
+            '01:30',
+        );
+
+        // Поздний ответ первой попытки замолкает
+        await act(async () => {
+            resolveA({ data: { status: 'succeeded', checked: true } });
+        });
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    it('unmount clears the card countdown timer', () => {
+        vi.useFakeTimers();
+        const { unmount } = renderCardPendingScreenWithDeadline(30_000);
+
+        expect(vi.getTimerCount()).toBeGreaterThan(0);
+        unmount();
+        expect(vi.getTimerCount()).toBe(0);
+    });
 });

@@ -242,7 +242,13 @@ class PaymentController extends Controller
      * without a new Init. A released (failed_terminal) or unknown-status
      * attempt, an unknown method or an SBP attempt never carries it.
      *
-     * @return array{payment_id: ?string, period_months: ?int, status: string, method: ?string, sbp_payload: ?string, sbp_expires_at: ?string, checkout_url: ?string}|null
+     * `card_expires_at` is the absolute deadline of THIS card attempt's
+     * link (from Phase A metadata): handed over whenever the method is
+     * card, an already-past deadline passed through untouched so the
+     * client can show the link as expired. Attempts created before this
+     * key existed simply return null — no deadline is invented backwards.
+     *
+     * @return array{payment_id: ?string, period_months: ?int, status: string, method: ?string, sbp_payload: ?string, sbp_expires_at: ?string, checkout_url: ?string, card_expires_at: ?string}|null
      */
     private function pendingAttemptState(Request $request, string $planId): ?array
     {
@@ -264,6 +270,7 @@ class PaymentController extends Controller
         $sbpPayloadRaw = data_get($attempt->metadata, 'sbp_payload');
         $sbpExpiresAtRaw = data_get($attempt->metadata, 'sbp_expires_at');
         $checkoutUrlRaw = data_get($attempt->metadata, 'checkout_url');
+        $cardExpiresAtRaw = data_get($attempt->metadata, 'card_expires_at');
 
         $awaitingPayment = in_array($attempt->status, [
             PaymentAttemptStatus::Created,
@@ -282,6 +289,7 @@ class PaymentController extends Controller
         $sbpPayload = null;
         $sbpExpiresAt = null;
         $checkoutUrl = null;
+        $cardExpiresAt = null;
 
         if (($awaitingPayment || $verifiedUnknownSbpLink)
             && $method === 'sbp'
@@ -298,6 +306,13 @@ class PaymentController extends Controller
             $checkoutUrl = $checkoutUrlRaw;
         }
 
+        // Срок карточной ссылки ЭТОЙ попытки — только для card-способа,
+        // уже истёкший передаётся как есть (экран истечения); чужим
+        // попыткам и старым rows без ключа не выдаётся.
+        if ($method === 'card' && is_string($cardExpiresAtRaw) && $cardExpiresAtRaw !== '') {
+            $cardExpiresAt = $cardExpiresAtRaw;
+        }
+
         return [
             'payment_id' => $attempt->provider_payment_id,
             'period_months' => $this->attemptPeriodMonths($attempt),
@@ -306,6 +321,7 @@ class PaymentController extends Controller
             'sbp_payload' => $sbpPayload,
             'sbp_expires_at' => $sbpExpiresAt,
             'checkout_url' => $checkoutUrl,
+            'card_expires_at' => $cardExpiresAt,
         ];
     }
 
@@ -518,6 +534,9 @@ class PaymentController extends Controller
             'checkout_url' => $result['confirmation_url'],
             'subscription_id' => $result['subscription']->id,
             'amount' => $result['subscription']->amount_paid,
+            // Исходный срок действия карточной ссылки этой попытки (null
+            // для старых attempts без срока) — без продления при reuse.
+            'card_expires_at' => $result['card_expires_at'] ?? null,
         ]);
     }
 

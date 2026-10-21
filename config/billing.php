@@ -98,6 +98,17 @@ return [
     'sbp_redirect_ttl_minutes' => (int) env('BILLING_SBP_REDIRECT_TTL_MINUTES', 15),
 
     /*
+     * Card checkout link lifetime.
+     *
+     * Absolute RedirectDueDate for a NEW card attempt (T-Bank allows
+     * 1 minute … 90 days). Computed once on the server in Phase A, before
+     * any provider call — reuse never extends it. The configured value is
+     * clamped into that allowed range so a bad env value can never put
+     * RedirectDueDate in the past or beyond the provider limit.
+     */
+    'card_redirect_ttl_minutes' => min(129600, max(1, (int) env('BILLING_CARD_REDIRECT_TTL_MINUTES', 30))),
+
+    /*
      * Renewal settings.
      */
     'renewal' => [

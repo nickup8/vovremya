@@ -167,10 +167,12 @@ class PaymentReconciliationService
      *    stale manual request can neither start a second check nor poll an
      *    attempt another actor has just resolved or just checked;
      * 2. provider HTTP, outside every DB transaction — GetState for an
-     *    attempt that already carries a PaymentId, CheckOrder recovery for
+     *    attempt that already carries a PaymentId (CheckOrder instead when
+     *    an expired card deadline demands it), CheckOrder recovery for
      *    a tbank checkout attempt that still waits without one;
      * 3. every write this check owes — cooldown marker, poll metadata, the
-     *    SBP expiry one-shot — committed BEFORE the lock is released;
+     *    SBP and card expiry one-shot markers — committed BEFORE the lock
+     *    is released;
      * 4. the caller's status handling, under the same lock, so a concurrent
      *    check never meets a half-finished one;
      * 5. optionally ($recoverSbpLink) the repeated GetQr that restores a
@@ -193,6 +195,7 @@ class PaymentReconciliationService
         callable $handle,
         bool $advancePollMetadata = false,
         bool $consumeSbpExpiry = false,
+        bool $consumeCardExpiry = false,
         bool $rethrow = false,
         bool $recoverSbpLink = false,
     ): array {
@@ -222,13 +225,14 @@ class PaymentReconciliationService
                 // Provider HTTP — outside any DB transaction. An attempt
                 // still waiting WITHOUT a PaymentId is asked about through
                 // CheckOrder (PaymentId recovery); one that already carries
-                // an id keeps the ordinary GetState.
+                // an id keeps the ordinary GetState — unless an expired
+                // card deadline switches it to CheckOrder.
                 $statusUpdate = $this->fetchProviderStatus($fresh);
             } catch (\Throwable $e) {
                 // The GetState really happened: what this call owes is still
                 // written before the lock goes, and an error is never a
                 // verdict — the attempt keeps waiting.
-                $this->recordStatusCheck($fresh, $advancePollMetadata, $consumeSbpExpiry);
+                $this->recordStatusCheck($fresh, $advancePollMetadata, $consumeSbpExpiry, $consumeCardExpiry);
 
                 if ($rethrow) {
                     throw $e;
@@ -238,7 +242,7 @@ class PaymentReconciliationService
             }
 
             // Exactly one set of writes per actual GetState, whatever it said
-            $this->recordStatusCheck($fresh, $advancePollMetadata, $consumeSbpExpiry);
+            $this->recordStatusCheck($fresh, $advancePollMetadata, $consumeSbpExpiry, $consumeCardExpiry);
 
             $handle($fresh, $statusUpdate);
 
@@ -263,8 +267,10 @@ class PaymentReconciliationService
      * - `last_status_check_at` — the cooldown marker shared by every path;
      * - `poll_count` / `last_polled_at` — the automatic queue's backoff,
      *   incremented exactly once per actual call and never reset;
-     * - `sbp_expiry_polled_at` — the post-expiry one-shot, consumed only by
-     *   the bypass that really reached the bank.
+     * - `sbp_expiry_polled_at` — the SBP post-expiry one-shot, consumed
+     *   only by the bypass that really reached the bank;
+     * - `card_expiry_polled_at` — the card post-expiry one-shot, same
+     *   rule: only an actual CheckOrder/GetState consumes it.
      *
      * The row is re-read under a lock and only these keys are rewritten, so
      * a marker or flag written in the meantime (charge_dispatch_started_at,
@@ -275,8 +281,9 @@ class PaymentReconciliationService
         PaymentAttempt $attempt,
         bool $advancePollMetadata,
         bool $consumeSbpExpiry,
+        bool $consumeCardExpiry = false,
     ): void {
-        DB::transaction(function () use ($attempt, $advancePollMetadata, $consumeSbpExpiry) {
+        DB::transaction(function () use ($attempt, $advancePollMetadata, $consumeSbpExpiry, $consumeCardExpiry) {
             $fresh = PaymentAttempt::lockForUpdate()
                 ->whereKey($attempt->getKey())
                 ->first();
@@ -297,6 +304,10 @@ class PaymentReconciliationService
                 $metadata['sbp_expiry_polled_at'] = now()->toIso8601String();
             }
 
+            if ($consumeCardExpiry) {
+                $metadata['card_expiry_polled_at'] = now()->toIso8601String();
+            }
+
             $fresh->update(['metadata' => $metadata]);
         });
     }
@@ -314,6 +325,31 @@ class PaymentReconciliationService
             && in_array($statusUpdate->normalizedStatus, self::FINAL_VERDICTS, true)) {
             $this->transitionService->transition($statusUpdate);
         }
+    }
+
+    /**
+     * What an answer means for the card post-expiry bypass: a known-id
+     * answer has already passed identity verification in
+     * fetchExpiredCardStatus, so only a FINAL verdict goes through the
+     * existing PaymentTransitionService (applyVerdictOnly). A no-id
+     * attempt reuses the established CheckOrder recovery: identity proof,
+     * bind under row lock with unique protection, then the same final-only
+     * continuation. Null / 335 / transport / ambiguous answers leave the
+     * attempt waiting — a local deadline is never a bank refusal.
+     */
+    private function applyCardExpiryVerdict(PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void
+    {
+        if ($statusUpdate === null) {
+            return;
+        }
+
+        if (! $this->hasProviderPaymentId($fresh)) {
+            $this->handleRecoveredPaymentIdAnswer($fresh, $statusUpdate);
+
+            return;
+        }
+
+        $this->applyVerdictOnly($statusUpdate);
     }
 
     /**
@@ -722,16 +758,137 @@ class PaymentReconciliationService
      * is already bound, CheckOrder recovery otherwise. Returns null for
      * rows that must not be asked about at all (non-tbank without an id,
      * renewal without an id, foreign gateway driver) — no HTTP happens.
+     *
+     * One exception switches the known-id path to CheckOrder: a tbank
+     * checkout attempt whose stored card_expires_at has already passed.
+     * The bank's confirmed deadline option answers with DEADLINE_EXPIRED
+     * for an unpaid expired link and keeps the real successful status for
+     * an already-paid one — GetState is NOT expected to report the expiry,
+     * so the deadline case must ask by OrderId. The identity of a known-id
+     * answer is verified (provider, OrderId, PaymentId) before anyone can
+     * act on it: a foreign answer is rejected, never applied, never bound.
+     * Attempts without a deadline, SBP rows, renewals and mock keep the
+     * ordinary GetState path untouched.
      */
     private function fetchProviderStatus(PaymentAttempt $fresh): ?ProviderStatusUpdate
     {
         if ($this->hasProviderPaymentId($fresh)) {
+            if ($this->cardDeadlineHasPassed($fresh)) {
+                return $this->fetchExpiredCardStatus($fresh);
+            }
+
             return $this->gatewayManager
                 ->getGateway($fresh->provider)
                 ->getPaymentStatus($fresh->provider_payment_id, $fresh->internal_order_id);
         }
 
         return $this->recoverPaymentIdViaCheckOrder($fresh);
+    }
+
+    /**
+     * CheckOrder for a card attempt past its stored card_expires_at while
+     * already carrying a known PaymentId. Asked by OrderId; the answer must
+     * prove it belongs to THIS attempt (same provider, same OrderId, same
+     * PaymentId) or it is rejected as null — a foreign PaymentId is never
+     * applied here and never rebound elsewhere. Null / 335 answers simply
+     * keep the attempt waiting; nothing in here ever treats an ambiguous
+     * or failed lookup as a refusal.
+     */
+    private function fetchExpiredCardStatus(PaymentAttempt $fresh): ?ProviderStatusUpdate
+    {
+        $gateway = $this->gatewayManager->getGateway($fresh->provider);
+
+        if (! $gateway instanceof TBankPaymentGateway) {
+            return null;
+        }
+
+        $statusUpdate = $gateway->findPaymentByOrderId($fresh->internal_order_id);
+
+        if ($statusUpdate === null) {
+            return null;
+        }
+
+        if ($statusUpdate->provider !== $fresh->provider
+            || $statusUpdate->internalOrderId !== $fresh->internal_order_id
+            || $statusUpdate->providerPaymentId !== $fresh->provider_payment_id) {
+            Log::warning('Expired-card CheckOrder answer rejected: identity mismatch', [
+                'attempt_id' => $fresh->id,
+                'answer_provider' => $statusUpdate->provider,
+                'answer_order_id' => $statusUpdate->internalOrderId,
+                'answer_payment_id' => $statusUpdate->providerPaymentId,
+                'attempt_order_id' => $fresh->internal_order_id,
+                'attempt_payment_id' => $fresh->provider_payment_id,
+            ]);
+
+            return null;
+        }
+
+        return $statusUpdate;
+    }
+
+    /**
+     * The attempt carries a trustworthy card deadline that has already
+     * passed — the safe predicate for switching checks to CheckOrder:
+     *
+     * - provider tbank (the CheckOrder contract owner; mock and anything
+     *   else keep their own path);
+     * - NOT a renewal — renewals are owned by the executor chain;
+     * - no contradictory SBP data: method 'sbp', a non-empty sbp_payload
+     *   or a separate sbp_expires_at make the card context ambiguous and
+     *   the row fails closed to its ordinary path (never a refusal);
+     * - payment_method may be 'card' OR ABSENT — a lost Init response
+     *   leaves Phase A's card_expires_at without the Phase C marker, and
+     *   that must not block recovery;
+     * - card_expires_at itself parses and is no longer in the future.
+     *   Invalid / malformed values simply keep the old path — they are
+     *   never evidence of a decline.
+     */
+    private function cardDeadlineHasPassed(PaymentAttempt $attempt): bool
+    {
+        if ($attempt->provider !== 'tbank') {
+            return false;
+        }
+
+        if ($this->isRenewalAttempt($attempt)) {
+            return false;
+        }
+
+        $metadata = $this->attemptMetadata($attempt);
+
+        $method = $metadata['payment_method'] ?? null;
+        if ($method !== null && $method !== 'card') {
+            return false;
+        }
+
+        $sbpPayload = $metadata['sbp_payload'] ?? null;
+        if (is_string($sbpPayload) && $sbpPayload !== '') {
+            return false;
+        }
+
+        $sbpExpiresAt = $metadata['sbp_expires_at'] ?? null;
+        if (is_string($sbpExpiresAt) && $sbpExpiresAt !== '') {
+            return false;
+        }
+
+        return $this->deadlineHasPassed($metadata['card_expires_at'] ?? null);
+    }
+
+    /**
+     * Абсолютный срок разобран и уже наступил.
+     */
+    private function deadlineHasPassed(mixed $expiresAt): bool
+    {
+        if (! is_string($expiresAt) || $expiresAt === '') {
+            return false;
+        }
+
+        try {
+            $deadline = Carbon::parse($expiresAt);
+        } catch (\Throwable) {
+            return false;
+        }
+
+        return now()->gte($deadline);
     }
 
     /**
@@ -801,6 +958,32 @@ class PaymentReconciliationService
                 },
                 advancePollMetadata: true,
                 consumeSbpExpiry: true,
+            );
+
+            return;
+        }
+
+        // ── Card expiry one-shot ──
+        // A card attempt whose link deadline has passed gets ONE timely
+        // CheckOrder (GetState does not report RedirectDueDate expiry) through
+        // the same shared lock+cooldown, whatever the old backoff says — the
+        // bank's verdict arrives while the user is still waiting. Works with
+        // or without a known PaymentId (CheckOrder asks by OrderId). poll_count
+        // is never reset: after this check the ordinary backoff continues from
+        // the advanced metadata, and the consumed card_expiry_polled_at marker
+        // keeps every following pass out of the bank. A skip (lock held /
+        // cooldown still running) reaches no HTTP and consumes no marker.
+        if ($this->isCardExpiryBypassDue($attempt)) {
+            $this->runStatusCheck(
+                $attempt,
+                due: fn (PaymentAttempt $fresh): bool => $this->isOrdinaryQueueAttempt($fresh)
+                    && $this->isCardExpiryBypassDue($fresh)
+                    && $this->statusCheckCooldownExpired($fresh),
+                handle: function (PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void {
+                    $this->applyCardExpiryVerdict($fresh, $statusUpdate);
+                },
+                advancePollMetadata: true,
+                consumeCardExpiry: true,
             );
 
             return;
@@ -961,6 +1144,29 @@ class PaymentReconciliationService
     }
 
     /**
+     * The card post-expiry bypass is a ONE-SHOT per attempt: due once the
+     * stored absolute card_expires_at has passed and the consuming marker
+     * (card_expiry_polled_at) is still absent. In contrast to the SBP
+     * bypass it does NOT require a provider payment id — CheckOrder asks
+     * by OrderId, so a lost-Init attempt can be recovered too. Re-checked
+     * on the fresh row under the lock, so a marker consumed meanwhile ends
+     * the bypass for this pass; a skip (lock/cooldown) reaches no HTTP and
+     * consumes nothing. After the one-shot the ordinary backoff rules,
+     * advanced by this very check, keep the bank quiet.
+     */
+    private function isCardExpiryBypassDue(PaymentAttempt $attempt): bool
+    {
+        $metadata = $this->attemptMetadata($attempt);
+
+        if (array_key_exists('card_expiry_polled_at', $metadata)) {
+            // Already consumed — the ordinary backoff rules from here on
+            return false;
+        }
+
+        return $this->cardDeadlineHasPassed($attempt);
+    }
+
+    /**
      * GetState for an attempt that was already age-released to
      * failed_terminal + reconciliation_timeout and can still be asked
      * about: with a provider payment id, or via CheckOrder recovery when
@@ -980,6 +1186,30 @@ class PaymentReconciliationService
         PaymentAttempt $attempt,
         array $backoff,
     ): void {
+        // ── Card expiry one-shot for an age-released row ──
+        // The release did NOT answer the bank's expiry question — a card
+        // attempt with a trustworthy passed deadline still gets its ONE
+        // timely CheckOrder regardless of the old backoff (selection lets
+        // such rows into this queue, see selectUnresolvedTimeouts). Same
+        // lock+cooldown, same final-only verdict handling; a non-final
+        // answer keeps the local timeout, its checkout block and the
+        // undefined_outcome flag untouched.
+        if ($this->isCardExpiryBypassDue($attempt)) {
+            $this->runStatusCheck(
+                $attempt,
+                due: fn (PaymentAttempt $fresh): bool => $this->isTimeoutQueueAttempt($fresh)
+                    && $this->isCardExpiryBypassDue($fresh)
+                    && $this->statusCheckCooldownExpired($fresh),
+                handle: function (PaymentAttempt $fresh, ?ProviderStatusUpdate $statusUpdate): void {
+                    $this->applyCardExpiryVerdict($fresh, $statusUpdate);
+                },
+                advancePollMetadata: true,
+                consumeCardExpiry: true,
+            );
+
+            return;
+        }
+
         // Same backoff as the ordinary queue — a row still waiting out its
         // window costs no HTTP at all. Selection already applied this when
         // the batch was filled; it is re-checked here so a stale snapshot
@@ -1071,6 +1301,11 @@ class PaymentReconciliationService
      * rows. Bounded by its own limit — the ordinary batch above keeps its
      * full batch_size.
      *
+     * A card attempt whose one-shot deadline bypass is due is selected even
+     * inside its backoff window — the bypass is the mechanism that should
+     * fire for it (reconcileTimeoutAttempt routes it there); an already
+     * consumed marker falls back to plain readiness as before.
+     *
      * @param  array<int, int>  $backoff
      * @return Collection<int, PaymentAttempt>
      */
@@ -1083,7 +1318,8 @@ class PaymentReconciliationService
             ->orderBy('id')
             ->lazy(max($limit, 100))
             ->filter(fn (PaymentAttempt $attempt): bool => $this->isPollableTimeoutRow($attempt)
-                && $this->isPollDue($attempt, $backoff))
+                && ($this->isPollDue($attempt, $backoff)
+                    || $this->isCardExpiryBypassDue($attempt)))
             ->take($limit)
             ->values();
 

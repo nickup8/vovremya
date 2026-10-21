@@ -50,6 +50,12 @@ interface PendingAttempt {
      * оплаты): продолжение без POST /admin/checkout и без нового Init.
      */
     checkout_url?: string | null;
+    /**
+     * Абсолютный срок карточной ссылки ЭТОЙ попытки (epoch из
+     * card_expires_at); истёкший срок передаётся как есть. null =
+     * попытка создана до срока — таймер и истечение не показываются.
+     */
+    card_expires_at?: string | null;
 }
 
 interface PageProps {
@@ -176,27 +182,72 @@ export default function BillingCheckoutPage() {
     const [unconfirmed, setUnconfirmed] = useState(false);
     // Ручная проверка через POST /check (координационный lock+cooldown на
     // сервере): ref-guard гасит повторный клик до ре-рендера, manualChecking
-    // остаётся только UI-флагом loading/disabled.
-    const [manualChecking, setManualChecking] = useState(false);
+    // остаётся только UI-флагом loading/disabled. Хранится вместе с ключом
+    // попытки: смена попытки в props сама по себе гасит busy — без
+    // эффектов-сбросов и без setState во время рендера.
+    const [manualCheckingState, setManualCheckingState] = useState<{
+        key: string;
+        busy: boolean;
+    }>({ key: '', busy: false });
     // Подпись последней POST-проверки карточной попытки на её же экране:
     // 'none' — ещё не проверяли; 'cooldown' — checked=false при
     // нетерминальном статусе (локальный перечит, не свежий ответ банка).
-    const [cardCheckNotice, setCardCheckNotice] = useState<
-        'none' | 'unconfirmed' | 'request_error' | 'cooldown'
-    >('none');
+    // Keyed: чужая попытка никогда не показывает старую подпись.
+    const [cardCheckNoticeState, setCardCheckNoticeState] = useState<{
+        key: string;
+        notice: 'none' | 'unconfirmed' | 'request_error' | 'cooldown';
+    } | null>(null);
+    // «Сейчас» для карточного countdown: обновляется только тиком
+    // интервала или visibilitychange (колбэки, не effect body). Сам
+    // абсолютный срок НИКОГДА не копируется в состояние — он приходит
+    // из props попытки. null-срок (старый attempt) не показывает таймер.
+    const [cardNow, setCardNow] = useState(() => Date.now());
 
     // Reload/Back с незавершённой попыткой сервера: показываем вход к её
     // проверке, а не новую готовую к оплате форму.
     const pendingAttempt = props.pending_attempt ?? null;
-    const [resumedAttemptScreen, setResumedAttemptScreen] = useState(
-        pendingAttempt !== null,
-    );
+    // Ключ идентичности возобновляемой попытки: смена любого из полей —
+    // уже ДРУГАЯ попытка, её per-attempt состояние не наследуется.
+    const pendingAttemptKey =
+        (pendingAttempt?.payment_id ?? 'no-id') +
+        '|' +
+        (pendingAttempt?.card_expires_at ?? '');
+    // Пользователь явно увёл форму с ЭТОГО ключа попытки; новый ключ
+    // попытки снова показывает экран возобновления.
+    const [dismissedAttemptKey, setDismissedAttemptKey] = useState<
+        string | null
+    >(null);
+    const resumedAttemptScreen =
+        pendingAttempt !== null && dismissedAttemptKey !== pendingAttemptKey;
     // Период именно проверяемой попытки — кнопка после подтверждённого
     // отказа ведёт на checkout с ним, а не с периодом URL. null = period
-    // восстановить нельзя → выбор периода на странице тарифов.
-    const [attemptPeriodMonths, setAttemptPeriodMonths] = useState<
-        number | null
-    >(null);
+    // восстановить нельзя → выбор периода на странице тарифов. Keyed store:
+    // смена попытки сама по себе возвращает null.
+    const [attemptPeriodState, setAttemptPeriodState] = useState<{
+        key: string;
+        months: number | null;
+    } | null>(null);
+    const attemptPeriodMonths =
+        attemptPeriodState?.key === pendingAttemptKey
+            ? attemptPeriodState.months
+            : null;
+
+    // Keyed-сеттеры: вызывающий код не меняется, «ключом» привязки к
+    // попытке служит текущий pendingAttemptKey в момент вызова.
+    const setManualChecking = (busy: boolean) =>
+        setManualCheckingState({ key: pendingAttemptKey, busy });
+    const manualChecking =
+        manualCheckingState.key === pendingAttemptKey &&
+        manualCheckingState.busy;
+    const setCardCheckNotice = (
+        notice: 'none' | 'unconfirmed' | 'request_error' | 'cooldown',
+    ) => setCardCheckNoticeState({ key: pendingAttemptKey, notice });
+    const cardCheckNotice =
+        cardCheckNoticeState?.key === pendingAttemptKey
+            ? cardCheckNoticeState.notice
+            : 'none';
+    const setAttemptPeriodMonths = (months: number | null) =>
+        setAttemptPeriodState({ key: pendingAttemptKey, months });
 
     const inFlightRef = useRef(false);
     // Клик по «Проверить статус»: начать новый цикл немедленным запросом.
@@ -232,11 +283,64 @@ export default function BillingCheckoutPage() {
         [invalidateManualStatusCheck],
     );
 
+    // Смена попытки в props (другой payment_id / другой карточный срок):
+    // поколение ручной проверки двигается в эффекте — refs только там, —
+    // поздний ответ старой попытки замолкает. Остальное per-attempt
+    // состояние keyed-выводно (см. выше) и отдельного сброса не требует.
+    useEffect(() => {
+        invalidateManualStatusCheck();
+    }, [pendingAttemptKey, invalidateManualStatusCheck]);
+
+    // Абсолютный срок карточной ссылки ЭТОЙ попытки — только из props,
+    // без копии в состоянии: reload/reuse продолжают исходный срок
+    // попытки, а не начинают новый. null = срока нет (старый attempt) —
+    // таймер не показывается и истечение никогда не наступает.
+    const cardDeadline = parseDeadline(pendingAttempt?.card_expires_at ?? null);
+    const cardRemainingMs =
+        cardDeadline === null ? null : Math.max(0, cardDeadline - cardNow);
+
+    // Карточный pending-экран активен, пока он и есть экран попытки:
+    // форма после сброса и терминальный экран тикер не держат.
+    const cardScreenActive =
+        sbpPayment === null && resumedAttemptScreen && pendingAttempt !== null;
+
+    // ── Card countdown: пересчёт от абсолютного карточного срока ──
+    // Тик интервала и возврат во вкладку двигают только «сейчас» — часы
+    // браузера никогда не меняют статус платежа и не трогают свежие
+    // props попытки.
+    useEffect(() => {
+        if (cardDeadline === null || !cardScreenActive) {
+            return;
+        }
+
+        const tick = () => setCardNow(Date.now());
+
+        // Свежий пересчёт «сейчас» сразу после смены экрана/попытки —
+        // макрозадача-колбэк, а не setState в body эффекта.
+        const sync = window.setTimeout(tick, 0);
+        const timer = window.setInterval(tick, 1000);
+        const onVisibilityChange = () => tick();
+
+        document.addEventListener('visibilitychange', onVisibilityChange);
+
+        return () => {
+            window.clearTimeout(sync);
+            window.clearInterval(timer);
+            document.removeEventListener(
+                'visibilitychange',
+                onVisibilityChange,
+            );
+        };
+    }, [cardDeadline, cardScreenActive]);
+
     const isSbp = paymentMethod === 'sbp';
     const monthlyEquiv = Math.round(price.final / periodMonths);
     const saving = price.base - price.final;
     // Только отображение: часы браузера никогда не меняют статус платежа.
     const linkExpired = remainingMs !== null && remainingMs <= 0;
+    // Карточный срок: тоже только отображение. Успех и отказ приходят
+    // исключительно из подтверждённых ответов сервера, не из часов.
+    const cardExpired = cardRemainingMs !== null && cardRemainingMs <= 0;
 
     function failCheckout(message: string) {
         setCheckoutError(message);
@@ -279,8 +383,11 @@ export default function BillingCheckoutPage() {
         setPaymentMethod('sbp');
         setAutoRenew(false);
         setAttemptPeriodMonths(null);
-        // Экран существующей попытки убран: форма выбора — вместо него
-        setResumedAttemptScreen(false);
+        // Экран существующей попытки убран: форма выбора — вместо него.
+        // Карточный срок остаётся в props, но тикер гаснет вместе с
+        // карточным экраном (cardScreenActive); новый ключ попытки снова
+        // откроет возобновление.
+        setDismissedAttemptKey(pendingAttemptKey);
     }
 
     /**
@@ -321,11 +428,23 @@ export default function BillingCheckoutPage() {
      * Продолжение карточной оплаты: сохранённый checkout_url ЭТОЙ же
      * попытки. Никакого POST /admin/checkout и нового Init — только переход
      * по той же защищённой странице T-Bank, которую банк выдал при Init.
+     * Срок проверяется в момент клика по исходному значению из props:
+     * после истечения кнопка не продолжает оплату, даже если таймер отстал.
      */
     function resumeCardCheckout() {
         const checkoutUrl = pendingAttempt?.checkout_url ?? null;
 
         if (checkoutUrl === null) {
+            return;
+        }
+
+        const deadline = parseDeadline(pendingAttempt?.card_expires_at ?? null);
+
+        if (deadline !== null && Date.now() >= deadline) {
+            // Часы не отменяют платёж сами — экран переходит в
+            // истёкшее состояние, но вердикт ждём от проверки
+            setCardNow(Date.now());
+
             return;
         }
 
@@ -1105,54 +1224,102 @@ export default function BillingCheckoutPage() {
                                            после ответа без вердикта; новые
                                            оплаты отсюда не стартуют. */
                                         <>
-                                            <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
-                                                Оплата не завершена
-                                            </div>
-                                            {pendingAttempt.checkout_url ? (
+                                            {cardExpired ? (
+                                                /* Срок истёк: продолжение
+                                                   по ссылке закрыто, но
+                                                   результат всё ещё ждём
+                                                   подтверждённой проверки —
+                                                   ни «не прошла», ни новой
+                                                   оплаты по часам нет. */
                                                 <>
+                                                    <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                                        Срок ссылки на оплату
+                                                        истёк
+                                                    </div>
                                                     <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                                        Продолжите оплату на той
-                                                        же защищённой странице —
-                                                        отдельный платёж не
-                                                        создаётся.
-                                                    </p>
-                                                    <button
-                                                        type="button"
-                                                        onClick={
-                                                            resumeCardCheckout
-                                                        }
-                                                        disabled={
-                                                            manualChecking
-                                                        }
-                                                        className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
-                                                    >
-                                                        Продолжить оплату
-                                                    </button>
-                                                    <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                                        Уже оплатили? Проверьте
-                                                        статус, прежде чем
-                                                        запускать оплату заново.
+                                                        Продолжить оплату по
+                                                        этой ссылке нельзя.
+                                                        Проверьте результат
+                                                        платежа.
                                                     </p>
                                                 </>
                                             ) : (
-                                                <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                                    Есть платёж, статус которого
-                                                    ещё не подтверждён.
-                                                    Проверьте его, прежде чем
-                                                    запускать оплату заново.
-                                                </p>
+                                                <>
+                                                    <div className="text-[15px] leading-[21px] font-bold tracking-[-.015em] text-[var(--color-ink)]">
+                                                        Оплата не завершена
+                                                    </div>
+                                                    {pendingAttempt.checkout_url ? (
+                                                        <>
+                                                            <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                                Продолжите
+                                                                оплату на той же
+                                                                защищённой
+                                                                странице —
+                                                                отдельный платёж
+                                                                не создаётся.
+                                                            </p>
+                                                            <button
+                                                                type="button"
+                                                                onClick={
+                                                                    resumeCardCheckout
+                                                                }
+                                                                disabled={
+                                                                    manualChecking
+                                                                }
+                                                                className={`${PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
+                                                            >
+                                                                Продолжить
+                                                                оплату
+                                                            </button>
+                                                            <p className="mt-3 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                                Уже оплатили?
+                                                                Проверьте
+                                                                статус, прежде
+                                                                чем запускать
+                                                                оплату заново.
+                                                            </p>
+                                                        </>
+                                                    ) : (
+                                                        <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
+                                                            Есть платёж,
+                                                            статус которого ещё
+                                                            не подтверждён.
+                                                            Проверьте его,
+                                                            прежде чем запускать
+                                                            оплату заново.
+                                                        </p>
+                                                    )}
+                                                    {/* Остаток от АБСОЛЮТНОГО
+                                                        срока попытки: без
+                                                        срока (старый attempt)
+                                                        таймер не показывается
+                                                        вовсе. */}
+                                                    {cardRemainingMs !== null && (
+                                                        <p
+                                                            data-testid="card-countdown"
+                                                            className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]"
+                                                        >
+                                                            Осталось{' '}
+                                                            {formatRemaining(
+                                                                cardRemainingMs,
+                                                            )}
+                                                        </p>
+                                                    )}
+                                                </>
                                             )}
                                             {/* Проверка — всегда POST /check
                                                 той же попытки: ни во время
                                                 запроса, ни после ответа без
-                                                вердикта GET-цикла нет. */}
+                                                вердикта GET-цикла нет. После
+                                                истечения — основное действие
+                                                экрана (продолжение закрыто). */}
                                             <button
                                                 type="button"
                                                 onClick={() => {
                                                     void startCardPendingStatusCheck();
                                                 }}
                                                 disabled={manualChecking}
-                                                className={`${pendingAttempt.checkout_url ? SECONDARY_BTN_CLASS : PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
+                                                className={`${pendingAttempt.checkout_url && !cardExpired ? SECONDARY_BTN_CLASS : PRIMARY_BTN_CLASS} disabled:cursor-not-allowed disabled:opacity-60`}
                                             >
                                                 {manualChecking
                                                     ? 'Проверяем…'

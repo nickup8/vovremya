@@ -144,6 +144,18 @@ class TBankPaymentGateway implements PaymentGatewayInterface
         // verdict-free; status source of truth is the webhook / Billing Core.
         $payload['SuccessURL'] = $this->signedReturnUrl('admin.billing.payment.success', $context);
         $payload['FailURL'] = $this->signedReturnUrl('admin.billing.payment.failed', $context);
+
+        // context['card_expires_at'] — абсолютный срок действия карточной
+        // ссылки, вычисленный сервером ОДИН РАЗ в Phase A и уже сохранённый
+        // в attempt.metadata: уходит в Init как RedirectDueDate ДО вычисления
+        // Token, чтобы участвовать в хэше (официальный Init-контракт).
+        // Здесь срок не вычисляется и не продлевается; без контекста поле
+        // в Init не попадает (рекуррентный Charge/Init его не получает).
+        $expiresAt = $context['card_expires_at'] ?? null;
+        if (is_string($expiresAt) && $expiresAt !== '') {
+            $payload['RedirectDueDate'] = $expiresAt;
+        }
+
         $payload['Token'] = $this->computeToken($payload);
 
         $response = Http::post($this->url(self::INIT_PATH), $payload);
