@@ -3110,6 +3110,194 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(axios.get).not.toHaveBeenCalled();
     });
 
+    // ── Смена pending_attempt: изоляция всего платёжного контекста ──
+
+    const CARD_B_URL = 'https://securepay.tinkoff.ru/pay?paymentId=card-b';
+
+    /** Props карточной попытки B (другой id, другая ссылка и срок). */
+    function cardBProps(expiresInMs: number) {
+        return makeProps({
+            pending_attempt: {
+                payment_id: 'pay_card_b',
+                period_months: 3,
+                status: 'processing',
+                method: 'card',
+                checkout_url: CARD_B_URL,
+                card_expires_at: isoIn(expiresInMs),
+                sbp_payload: null,
+                sbp_expires_at: null,
+            },
+        });
+    }
+
+    it('card A success is replaced by card B pending screen after props change', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'succeeded', checked: true },
+        });
+        const { rerender } = renderCardPendingScreenWithDeadline(30_000);
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+        expect(screen.getByText('Оплата прошла')).toBeTruthy();
+
+        // Props с картой B: терминальный экран A не должен переживать смену
+        mockUsePage.mockReturnValue(cardBProps(90_000));
+        rerender(<BillingCheckoutPage />);
+        await act(async () => {});
+
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        // Ссылка и countdown именно B
+        expect(
+            screen.queryByRole('button', { name: 'Продолжить оплату' }),
+        ).toBeTruthy();
+        expect(screen.getByTestId('card-countdown').textContent).toContain(
+            '01:30',
+        );
+        expect(axios.get).not.toHaveBeenCalled();
+    });
+
+    it('card A failure is replaced by card B pending screen after props change', async () => {
+        vi.useFakeTimers();
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'failed_terminal', checked: true },
+        });
+        const { rerender } = renderCardPendingScreenWithDeadline(30_000);
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+        expect(screen.getByText('Оплата не прошла')).toBeTruthy();
+
+        mockUsePage.mockReturnValue(cardBProps(90_000));
+        rerender(<BillingCheckoutPage />);
+        await act(async () => {});
+
+        expect(screen.queryByText('Оплата не прошла')).toBeNull();
+        expect(screen.queryByText(CHOOSE_METHOD)).toBeNull();
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        expect(screen.getByTestId('card-countdown').textContent).toContain(
+            '01:30',
+        );
+    });
+
+    it('late GET after attempt change does not recolor card B', async () => {
+        vi.useFakeTimers();
+        // A: SBP-возобновление без payload — активный GET-polling
+        vi.mocked(axios.get).mockResolvedValue({
+            data: { status: 'processing' },
+        });
+        mockUsePage.mockReturnValue(
+            makeProps({
+                pending_attempt: {
+                    payment_id: 'pay_sbp_a',
+                    period_months: 3,
+                    status: 'processing',
+                    method: 'sbp',
+                    sbp_payload: null,
+                    sbp_expires_at: null,
+                },
+            }),
+        );
+        const { rerender } = render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить статус' }),
+        );
+        await act(async () => {});
+        // Переход в секцию ожидания + старт polling
+        expect(screen.getByText('Проверяем статус платежа')).toBeTruthy();
+        act(() => {
+            vi.advanceTimersByTime(2000);
+        });
+        await act(async () => {});
+        const getCallsWhileA = vi.mocked(axios.get).mock.calls.length;
+        expect(getCallsWhileA).toBeGreaterThan(0);
+
+        // Отложенный GET, который ещё в полёте, когда контекст сменился
+        let resolveLateGet: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.get).mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveLateGet = resolve;
+                }),
+        );
+
+        // Контекст B: карточная попытка (GET-polling ей не положен)
+        mockUsePage.mockReturnValue(cardBProps(90_000));
+        rerender(<BillingCheckoutPage />);
+        await act(async () => {});
+
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        const getCallsAfterSwitch = vi.mocked(axios.get).mock.calls.length;
+
+        // Поздний ответ A: экран B не перекрашивается, новых GET нет
+        await act(async () => {
+            resolveLateGet({ data: { status: 'succeeded' } });
+        });
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.queryByText('Проверяем статус платежа')).toBeNull();
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+        expect(vi.mocked(axios.get).mock.calls.length).toBe(
+            getCallsAfterSwitch,
+        );
+    });
+
+    it('late POST A is ignored and manual check of B still works', async () => {
+        vi.useFakeTimers();
+        const { rerender } = renderCardPendingScreenWithDeadline(30_000);
+
+        let resolveA: (value: {
+            data: Record<string, unknown>;
+        }) => void = () => {};
+        vi.mocked(axios.post).mockImplementationOnce(
+            () =>
+                new Promise((resolve) => {
+                    resolveA = resolve;
+                }),
+        );
+
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+        expect(axios.post).toHaveBeenCalledWith(
+            '/admin/billing/payment-status/pay_9/check',
+        );
+
+        // Смена контекста на B до ответа A
+        mockUsePage.mockReturnValue(cardBProps(90_000));
+        rerender(<BillingCheckoutPage />);
+
+        // Поздний успех A замолкает
+        await act(async () => {
+            resolveA({ data: { status: 'succeeded', checked: true } });
+        });
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(screen.getByText('Оплата не завершена')).toBeTruthy();
+
+        // Ручная проверка B работает и идёт по B
+        vi.mocked(axios.post).mockResolvedValue({
+            data: { status: 'processing', checked: true },
+        });
+        fireEvent.click(
+            screen.getByRole('button', { name: 'Проверить оплату' }),
+        );
+        await act(async () => {});
+
+        expect(axios.post).toHaveBeenLastCalledWith(
+            '/admin/billing/payment-status/pay_card_b/check',
+        );
+        expect(screen.getByText('Оплата пока не подтверждена')).toBeTruthy();
+        expect(screen.queryByText('Оплата прошла')).toBeNull();
+        expect(axios.get).not.toHaveBeenCalled();
+    });
+
     it('unmount clears the card countdown timer', () => {
         vi.useFakeTimers();
         const { unmount } = renderCardPendingScreenWithDeadline(30_000);

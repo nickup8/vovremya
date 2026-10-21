@@ -8,6 +8,7 @@ use App\Models\BillingCycle;
 use App\Models\PaymentAttempt;
 use App\Services\Payment\DTOs\ProviderStatusUpdate;
 use Carbon\Carbon;
+use Carbon\CarbonInterface;
 use Illuminate\Database\Eloquent\Collection;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
@@ -64,16 +65,17 @@ class PaymentReconciliationService
 
         $freshThreshold = now()->subSeconds($freshGraceSeconds);
 
-        // Select stale attempts
-        $attempts = PaymentAttempt::whereIn('status', [
-            PaymentAttemptStatus::Created,
-            PaymentAttemptStatus::Processing,
-            PaymentAttemptStatus::Unknown,
-        ])
-            ->where('created_at', '<', $freshThreshold)
-            ->orderBy('created_at')
-            ->limit($batchSize)
-            ->get();
+        // Fair ordinary queue: readiness is applied WHILE the batch is
+        // filled, not after it (see selectDueOrdinaryAttempts). Rows still
+        // inside the backoff window no longer occupy batch slots that a
+        // due row — including a post-expiry one-shot — needs right now.
+        $attempts = $this->selectDueOrdinaryAttempts(
+            $batchSize,
+            $backoff,
+            $freshThreshold,
+            $maxAgeWithProviderId,
+            $maxAgeWithoutProviderId,
+        );
 
         // Separate, bounded queue for local timeouts awaiting a verdict —
         // its own budget, so it never displaces the ordinary batch above.
@@ -1279,6 +1281,86 @@ class PaymentReconciliationService
             // the backoff has already moved on before it is handed back.
             rethrow: true,
         );
+    }
+
+    /**
+     * Ordinary-queue rows that are actionable in THIS pass: age-release
+     * due, an unconsumed SBP/card post-expiry bypass, or an elapsed
+     * backoff window. Readiness is evaluated WHILE the batch is filled
+     * (see selectDueOrdinaryAttempts), so a row still waiting out its
+     * backoff never occupies a slot a due row needs — including an expired
+     * card attempt whose one-shot CheckOrder is still unconsumed. Skipped
+     * rows are never written to.
+     *
+     * Fair queue: rows are served least-recently-polled first (never
+     * polled first), then oldest first — a row just checked moves behind
+     * every waiting peer instead of holding the head of the batch forever.
+     * The walk is paged (max($limit, 100) candidates in memory, never a
+     * full-queue get()) and stops at $limit due rows; the batch_size cap
+     * is unchanged.
+     *
+     * @param  array<int, int>  $backoff
+     * @return Collection<int, PaymentAttempt>
+     */
+    private function selectDueOrdinaryAttempts(
+        int $limit,
+        array $backoff,
+        CarbonInterface $freshThreshold,
+        int $maxAgeWithProviderId,
+        int $maxAgeWithoutProviderId,
+    ): Collection {
+        $due = PaymentAttempt::whereIn('status', [
+            PaymentAttemptStatus::Created,
+            PaymentAttemptStatus::Processing,
+            PaymentAttemptStatus::Unknown,
+        ])
+            ->where('created_at', '<', $freshThreshold)
+            ->orderByRaw("metadata->>'last_polled_at' ASC NULLS FIRST")
+            ->orderBy('created_at')
+            ->orderBy('id')
+            ->lazy(max($limit, 100))
+            ->filter(fn (PaymentAttempt $attempt): bool => $this->isOrdinaryBatchDue(
+                $attempt,
+                $backoff,
+                $maxAgeWithProviderId,
+                $maxAgeWithoutProviderId,
+            ))
+            ->take($limit)
+            ->values();
+
+        return new Collection($due->all());
+    }
+
+    /**
+     * Whether an ordinary-queue row is worth a closer look in THIS pass.
+     *
+     * Mirrors the decision tree of reconcileAttempt as a cheap pre-check:
+     * age-release is always actionable (no HTTP); otherwise the shared
+     * cooldown must have elapsed before an SBP/card post-expiry bypass or
+     * the ordinary backoff poll can fire. Re-checked on the fresh row under
+     * the shared lock, so a snapshot that has aged out fires no HTTP.
+     *
+     * @param  array<int, int>  $backoff
+     */
+    private function isOrdinaryBatchDue(
+        PaymentAttempt $attempt,
+        array $backoff,
+        int $maxAgeWithProviderId,
+        int $maxAgeWithoutProviderId,
+    ): bool {
+        if ($this->shouldAgeRelease($attempt, $maxAgeWithProviderId, $maxAgeWithoutProviderId)) {
+            return true;
+        }
+
+        // Cooldown blocks every bank path for this attempt; age-release
+        // above does not go to the bank and is never gated by it.
+        if (! $this->statusCheckCooldownExpired($attempt)) {
+            return false;
+        }
+
+        return $this->isSbpExpiryBypassDue($attempt)
+            || $this->isCardExpiryBypassDue($attempt)
+            || $this->isPollDue($attempt, $backoff);
     }
 
     /**

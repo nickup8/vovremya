@@ -173,13 +173,20 @@ export default function BillingCheckoutPage() {
     const [autoRenew, setAutoRenew] = useState(false);
     const [loading, setLoading] = useState(false);
     const [checkoutError, setCheckoutError] = useState<string | null>(null);
-    const [sbpPayment, setSbpPayment] = useState<SbpPayment | null>(null);
-    const [sbpStatus, setSbpStatus] = useState<SbpStatus>('waiting');
-    // Остаток до абсолютного дедлайна; null = срока нет (старый attempt).
-    const [remainingMs, setRemainingMs] = useState<number | null>(null);
-    // Исход не подтверждён (сеть/unknown/reconciliation_timeout) — ручная
-    // проверка. Независимо от дедлайна, включая attempts без срока.
-    const [unconfirmed, setUnconfirmed] = useState(false);
+    // Весь отображаемый платёжный контекст (SBP-экран/терминальный экран
+    // карточного вердикта, его countdown, unconfirmed) хранится ВМЕСТЕ с
+    // ключом попытки — по образцу manualChecking/cardCheckNotice. Смена
+    // pending_attempt в props сама по себе скрывает чужой контекст: новый
+    // ключ не находит своё состояние и рендерит pending B вместо старого
+    // sbpPayment. Поздний GET гасится cleanup-флагом polling'а; поздний
+    // POST — epoch (см. invalidateManualStatusCheck).
+    const [sbpViewState, setSbpViewState] = useState<{
+        key: string;
+        payment: SbpPayment | null;
+        status: SbpStatus;
+        remainingMs: number | null;
+        unconfirmed: boolean;
+    } | null>(null);
     // Ручная проверка через POST /check (координационный lock+cooldown на
     // сервере): ref-guard гасит повторный клик до ре-рендера, manualChecking
     // остаётся только UI-флагом loading/disabled. Хранится вместе с ключом
@@ -231,6 +238,61 @@ export default function BillingCheckoutPage() {
         attemptPeriodState?.key === pendingAttemptKey
             ? attemptPeriodState.months
             : null;
+    // Keyed-вывод платёжного контекста: чужой (прошлой) попытки контекст
+    // не виден — без эффектов-сбросов и без setState во время рендера.
+    const sbpView =
+        sbpViewState?.key === pendingAttemptKey
+            ? sbpViewState
+            : {
+                  payment: null,
+                  status: 'waiting' as SbpStatus,
+                  remainingMs: null,
+                  unconfirmed: false,
+              };
+    const sbpPayment = sbpView.payment;
+    const sbpStatus = sbpView.status;
+    const remainingMs = sbpView.remainingMs;
+    const unconfirmed = sbpView.unconfirmed;
+    // Сеттеры пишут под текущий ключ попытки; несвойственный ключ
+    // начинается с чистого базового состояния (см. sbpView выше).
+    // useCallback по ключу: эффекты видят стабильную ссылку между
+    // ре-рендерами и получают новый сеттер только при смене попытки.
+    const patchSbpView = useCallback(
+        (
+            patch: Partial<{
+                payment: SbpPayment | null;
+                status: SbpStatus;
+                remainingMs: number | null;
+                unconfirmed: boolean;
+            }>,
+        ) =>
+            setSbpViewState((prev) => ({
+                key: pendingAttemptKey,
+                payment: null,
+                status: 'waiting' as SbpStatus,
+                remainingMs: null,
+                unconfirmed: false,
+                ...(prev?.key === pendingAttemptKey ? prev : null),
+                ...patch,
+            })),
+        [pendingAttemptKey],
+    );
+    const setSbpPayment = useCallback(
+        (payment: SbpPayment | null) => patchSbpView({ payment }),
+        [patchSbpView],
+    );
+    const setSbpStatus = useCallback(
+        (status: SbpStatus) => patchSbpView({ status }),
+        [patchSbpView],
+    );
+    const setRemainingMs = useCallback(
+        (value: number | null) => patchSbpView({ remainingMs: value }),
+        [patchSbpView],
+    );
+    const setUnconfirmed = useCallback(
+        (value: boolean) => patchSbpView({ unconfirmed: value }),
+        [patchSbpView],
+    );
 
     // Keyed-сеттеры: вызывающий код не меняется, «ключом» привязки к
     // попытке служит текущий pendingAttemptKey в момент вызова.
@@ -806,7 +868,7 @@ export default function BillingCheckoutPage() {
                 onVisibilityChange,
             );
         };
-    }, [sbpPayment?.deadline]);
+    }, [sbpPayment?.deadline, setRemainingMs]);
 
     // ── SBP status polling: local Billing Core attempt only, never T-Bank ──
     useEffect(() => {
@@ -930,6 +992,8 @@ export default function BillingCheckoutPage() {
         sbpStatus,
         linkExpired,
         unconfirmed,
+        setSbpStatus,
+        setUnconfirmed,
     ]);
 
     return (

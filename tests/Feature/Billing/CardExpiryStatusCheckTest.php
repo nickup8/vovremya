@@ -50,6 +50,18 @@ class CardExpiryStatusCheckTest extends TestCase
 
     private User $owner;
 
+    /**
+     * billing_subscriptions is unique on (workspace, plan) — all attempts of
+     * a test share the single subscription of this workspace.
+     */
+    private ?BillingSubscription $sharedSubscription = null;
+
+    /**
+     * UNIQUE (provider, provider_payment_id) — every attempt of a test gets
+     * its own provider payment id unless the test overrides it.
+     */
+    private int $attemptSeq = 0;
+
     protected function setUp(): void
     {
         parent::setUp();
@@ -119,18 +131,19 @@ class CardExpiryStatusCheckTest extends TestCase
      */
     private function createCardAttempt(array $metadataOverrides = [], array $attributes = []): PaymentAttempt
     {
-        $subscription = BillingSubscription::create([
+        $subscription = $this->sharedSubscription ??= BillingSubscription::create([
             'workspace_id' => $this->workspace->id,
             'tariff_plan_id' => $this->proPlan->id,
             'status' => BillingSubscriptionStatus::PendingInitial,
         ]);
 
+        $cycleSeq = BillingCycle::where('billing_subscription_id', $subscription->id)->count();
         $cycle = BillingCycle::create([
             'billing_subscription_id' => $subscription->id,
             'workspace_id' => $this->workspace->id,
             'tariff_plan_id' => $this->proPlan->id,
-            'period_start' => now(),
-            'period_end' => now()->addMonth(),
+            'period_start' => now()->addMinutes($cycleSeq),
+            'period_end' => now()->addMonth()->addMinutes($cycleSeq),
             'status' => BillingCycleStatus::Pending,
             'amount' => 490,
             'currency' => 'RUB',
@@ -160,7 +173,7 @@ class CardExpiryStatusCheckTest extends TestCase
             'amount' => 490,
             'currency' => 'RUB',
             'internal_order_id' => 'core_'.bin2hex(random_bytes(16)),
-            'provider_payment_id' => 'tbank_card_1',
+            'provider_payment_id' => 'tbank_card_'.$this->nextAttemptSeq(),
             'status' => PaymentAttemptStatus::Processing,
             'initiated_at' => now()->subHour(),
             'metadata' => $metadata,
@@ -169,6 +182,11 @@ class CardExpiryStatusCheckTest extends TestCase
         $attempt->save();
 
         return $attempt;
+    }
+
+    private function nextAttemptSeq(): int
+    {
+        return ++$this->attemptSeq;
     }
 
     /**
@@ -612,6 +630,113 @@ class CardExpiryStatusCheckTest extends TestCase
     }
 
     // ── §3: card expiry one-shot ──
+
+    /**
+     * Голодание ordinary-очереди: batch_size=2 целиком занимают старые
+     * processing-попытки внутри backoff, а карточная попытка с истёкшим
+     * сроком и неиспользованным one-shot за пределами batch не получает
+     * CheckOrder. Готовые строки не должны вытесняться неготовыми.
+     */
+    public function test_expired_card_one_shot_is_not_starved_by_backoff_blocked_rows(): void
+    {
+        config(['billing.reconciliation.batch_size' => 2]);
+
+        // Две более старые processing-попытки: backoff ещё держит их
+        // (poll_count=1 → 60s не истёк), age-release не требуется
+        $blockedA = $this->createCardAttempt([
+            'payment_method' => 'card',
+            'card_expires_at' => null,
+            'checkout_url' => 'https://securepay.tinkoff.ru/pay?card=blocked-a',
+            'poll_count' => 1,
+            'last_polled_at' => now()->subSeconds(30)->toIso8601String(),
+        ]);
+        $blockedA->created_at = now()->subHours(3);
+        $blockedA->save();
+
+        $blockedB = $this->createCardAttempt([
+            'payment_method' => 'card',
+            'card_expires_at' => null,
+            'checkout_url' => 'https://securepay.tinkoff.ru/pay?card=blocked-b',
+            'poll_count' => 1,
+            'last_polled_at' => now()->subSeconds(20)->toIso8601String(),
+        ]);
+        $blockedB->created_at = now()->subHours(2);
+        $blockedB->save();
+
+        // Третья карточная попытка: истёкший срок, one-shot не потреблён
+        $expired = $this->createCardAttempt();
+        $expired->created_at = now()->subHour();
+        $expired->save();
+
+        $blockedAMetadata = $blockedA->metadata;
+        $blockedBMetadata = $blockedB->metadata;
+
+        $this->fakeBank($expired);
+
+        app(PaymentReconciliationService::class)->reconcile();
+
+        // CheckOrder истёкшей карточной попытки — в ЭТОМ же проходе
+        $this->assertSame(1, $this->requestCount('/v2/CheckOrder'));
+        $this->assertSame(0, $this->requestCount('/v2/GetState'));
+
+        $expired->refresh();
+        $this->assertNotEmpty($expired->metadata['card_expiry_polled_at']);
+        $this->assertSame(5, $expired->metadata['poll_count']);
+
+        // Неготовые строки не опрашивались и их metadata не изменилась
+        $this->assertSame($blockedAMetadata, $blockedA->refresh()->metadata);
+        $this->assertSame($blockedBMetadata, $blockedB->refresh()->metadata);
+    }
+
+    /**
+     * Продвижение очереди: готовые старые попытки, после ответа банка
+     * остающиеся processing, не занимают batch постоянно — следующий
+     * готовый получает слот.
+     */
+    public function test_ready_processing_rows_do_not_hog_the_batch_after_a_non_final_answer(): void
+    {
+        config(['billing.reconciliation.batch_size' => 1]);
+
+        // Готовая старая попытка: poll_count=0, без срока — обычный GetState
+        $first = $this->createCardAttempt([
+            'payment_method' => 'card',
+            'card_expires_at' => null,
+            'checkout_url' => 'https://securepay.tinkoff.ru/pay?card=first',
+            'poll_count' => 0,
+            'last_polled_at' => null,
+        ]);
+        $first->created_at = now()->subHours(3);
+        $first->save();
+
+        // Вторая готовая попытка того же возраста — ждёт слота
+        $second = $this->createCardAttempt([
+            'payment_method' => 'card',
+            'card_expires_at' => null,
+            'checkout_url' => 'https://securepay.tinkoff.ru/pay?card=second',
+            'poll_count' => 0,
+            'last_polled_at' => null,
+        ]);
+        $second->created_at = now()->subHours(2);
+        $second->save();
+
+        // Банк отвечает NEW — попытка остаётся processing
+        $this->fakeBank($first);
+
+        app(PaymentReconciliationService::class)->reconcile();
+        $this->assertSame(1, $this->requestCount('/v2/GetState'));
+        $first->refresh();
+        $this->assertSame(PaymentAttemptStatus::Processing, $first->status);
+        $this->assertSame(1, $first->metadata['poll_count']);
+        $second->refresh();
+        $this->assertSame(0, $second->metadata['poll_count'] ?? 0);
+
+        // Следующий проход: first внутри backoff, second получает слот
+        app(PaymentReconciliationService::class)->reconcile();
+        $this->assertSame(2, $this->requestCount('/v2/GetState'));
+        $second->refresh();
+        $this->assertSame(1, $second->metadata['poll_count']);
+        $this->assertSame(PaymentAttemptStatus::Processing, $second->status);
+    }
 
     public function test_expiry_one_shot_bypasses_the_old_backoff_and_runs_exactly_once(): void
     {

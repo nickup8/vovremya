@@ -518,47 +518,55 @@ class ReconciliationTimeoutGetStateTest extends TestCase
             'billing.reconciliation.timeout_batch_size' => 1,
         ]);
 
-        $ordinary = $this->createOrdinaryAttempt(300);
-        $this->createOrdinaryAttempt(240);
+        $ordinaryA = $this->createOrdinaryAttempt(300);
+        $ordinaryB = $this->createOrdinaryAttempt(240);
         $timeoutX = $this->createTimeoutAttempt(300);
         $timeoutY = $this->createTimeoutAttempt(240);
 
-        $this->fakeGetState('NEW', $ordinary);
+        $this->fakeGetState('NEW', $ordinaryA);
 
         $first = $this->reconcile();
         $this->assertSame(0, $first['errors']);
 
-        // One slot per queue: neither crowd the other out.
+        // One slot per queue: neither crowd the other out. Fair order
+        // (least-recently-polled first, then oldest) serves ordinaryA —
+        // never polled, and older of the two ordinary rows.
         Http::assertSentCount(2);
-        Http::assertSent(fn ($request) => $request['PaymentId'] === $ordinary->provider_payment_id);
+        Http::assertSent(fn ($request) => $request['PaymentId'] === $ordinaryA->provider_payment_id);
         Http::assertSent(fn ($request) => $request['PaymentId'] === $timeoutX->provider_payment_id);
 
-        $ordinary->refresh();
+        $ordinaryA->refresh();
+        $ordinaryB->refresh();
         $timeoutX->refresh();
         $timeoutY->refresh();
-        $this->assertSame(1, $ordinary->metadata['poll_count']);
+        $this->assertSame(1, $ordinaryA->metadata['poll_count']);
+        $this->assertArrayNotHasKey('poll_count', $ordinaryB->metadata);
         $this->assertSame(1, $timeoutX->metadata['poll_count']);
         $this->assertArrayNotHasKey('poll_count', $timeoutY->metadata);
 
-        // Next pass: the timeout queue rotates to the row it has not served
-        // yet (least-recently-polled first), while the ordinary queue keeps
-        // getting its own slot.
+        // Next pass: both queues rotate to the row they have not served
+        // yet (least-recently-polled first) — ordinaryB and timeoutY.
         $this->travel(61)->seconds();
 
         $second = $this->reconcile();
         $this->assertSame(0, $second['errors']);
 
         Http::assertSentCount(4);
+        Http::assertSent(fn ($request) => $request['PaymentId'] === $ordinaryB->provider_payment_id);
         Http::assertSent(fn ($request) => $request['PaymentId'] === $timeoutY->provider_payment_id);
 
-        $ordinary->refresh();
+        $ordinaryA->refresh();
+        $ordinaryB->refresh();
         $timeoutX->refresh();
         $timeoutY->refresh();
-        $this->assertSame(2, $ordinary->metadata['poll_count']);
+        $this->assertSame(1, $ordinaryA->metadata['poll_count']);
+        $this->assertSame(1, $ordinaryB->metadata['poll_count']);
         $this->assertSame(1, $timeoutX->metadata['poll_count']);
         $this->assertSame(1, $timeoutY->metadata['poll_count']);
 
         // Nothing was resolved: every answer was non-terminal.
+        $this->assertSame(PaymentAttemptStatus::Processing, $ordinaryA->status);
+        $this->assertSame(PaymentAttemptStatus::Processing, $ordinaryB->status);
         $this->assertSame(PaymentAttemptStatus::FailedTerminal, $timeoutX->status);
         $this->assertSame(PaymentAttemptStatus::FailedTerminal, $timeoutY->status);
         $this->assertSame('reconciliation_timeout', $timeoutX->failure_category);
