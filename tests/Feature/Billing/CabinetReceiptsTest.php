@@ -60,8 +60,12 @@ class CabinetReceiptsTest extends TestCase
         $this->owner->update(['workspace_id' => $this->workspace->id]);
     }
 
-    private function createAttachedReceipt(Workspace $ws, string $url, ?string $confirmedAt = null): PaymentReceipt
-    {
+    private function createAttachedReceipt(
+        Workspace $ws,
+        string $url,
+        ?string $confirmedAt = null,
+        ?PaymentEnvironment $paymentEnv = PaymentEnvironment::Live,
+    ): PaymentReceipt {
         $billingSub = BillingSubscription::firstOrCreate(
             [
                 'workspace_id' => $ws->id,
@@ -87,7 +91,7 @@ class CabinetReceiptsTest extends TestCase
         $attempt = PaymentAttempt::create([
             'billing_cycle_id' => $cycle->id,
             'provider' => 'tbank',
-            'payment_env' => PaymentEnvironment::Live,
+            'payment_env' => $paymentEnv,
             'attempt_number' => 1,
             'amount' => 490,
             'currency' => 'RUB',
@@ -176,6 +180,24 @@ class CabinetReceiptsTest extends TestCase
                 ->has('receipts.data', 5)
                 ->where('receipts.total', 7)
                 ->where('receipts.last_page', 2));
+    }
+
+    public function test_only_live_tbank_receipts_are_returned(): void
+    {
+        // Rows are created directly (not via PaymentReceiptService) so the
+        // regression targets the cabinet selection itself: demo attempts and
+        // legacy rows with payment_env = NULL must never surface.
+        $this->createAttachedReceipt($this->workspace, self::URL_A, null, PaymentEnvironment::Live);
+        $this->createAttachedReceipt($this->workspace, self::URL_B, null, PaymentEnvironment::Demo);
+        $this->createAttachedReceipt($this->workspace, 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/ccc333/print', null, null);
+
+        $this->actingAs($this->owner)
+            ->get(route('admin.billing'))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->has('receipts.data', 1)
+                ->where('receipts.data.0.receipt_url', self::URL_A)
+                ->where('receipts.total', 1));
     }
 
     public function test_non_owner_role_cannot_see_receipts_page(): void

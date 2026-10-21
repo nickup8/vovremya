@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\BillingSubscriptionStatus;
 use App\Enums\PaymentAttemptStatus;
+use App\Enums\PaymentEnvironment;
 use App\Enums\PaymentReceiptStatus;
 use App\Http\Controllers\Controller;
 use App\Models\BillingCycle;
@@ -132,6 +133,12 @@ class PaymentController extends Controller
         $receipts = PaymentReceipt::query()
             ->where('status', PaymentReceiptStatus::Attached)
             ->whereNotNull('receipt_url')
+            ->whereHas('paymentAttempt', function ($q) {
+                // Only real T-Bank live charges: demo and legacy rows
+                // (payment_env IS NULL) must never surface in the cabinet.
+                $q->where('provider', 'tbank')
+                    ->where('payment_env', PaymentEnvironment::Live);
+            })
             ->whereHas('paymentAttempt.billingCycle', function ($q) use ($workspaceId) {
                 $q->where('workspace_id', $workspaceId);
             })
