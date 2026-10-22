@@ -381,6 +381,39 @@ describe('Mobile sidebar — theme toggle', () => {
         expect(source).toContain('Светлая тема');
         expect(source).toContain('Тёмная тема');
     });
+
+    it('profile menu theme item is mobile-only (hidden on desktop)', () => {
+        const source = readSource('../components/admin/Sidebar.tsx');
+        expect(source).toContain('onToggleTheme && (');
+        const themeItem = source.split('onToggleTheme && (')[1]?.split(')}')[0] ?? '';
+        expect(themeItem).toContain('lg:hidden');
+    });
+});
+
+describe('Profile menu — client mode removed', () => {
+    it('sidebar has no «Режим клиента» item', () => {
+        const source = readSource('../components/admin/Sidebar.tsx');
+        expect(source).not.toContain('Режим клиента');
+    });
+
+    it('sidebar has no switch-to-client call', () => {
+        const source = readSource('../components/admin/Sidebar.tsx');
+        expect(source).not.toContain('switch-to-client');
+    });
+
+    it('tariff and logout items remain in profile menu', () => {
+        const source = readSource('../components/admin/Sidebar.tsx');
+        expect(source).toContain('Тариф · {tariffName}');
+        expect(source).toContain('Выйти');
+    });
+});
+
+describe('Desktop topbar — theme switch preserved', () => {
+    it('topbar theme switch remains desktop-only', () => {
+        const source = readSource('../layouts/AdminLayout.tsx');
+        expect(source).toContain('lg:grid'); // theme switch desktop only
+        expect(source).toContain('toggleTheme');
+    });
 });
 
 describe('DateControlPanel — desktop one-row layout restored', () => {

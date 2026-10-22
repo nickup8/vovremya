@@ -8,7 +8,6 @@ import {
     BookOpenIcon,
     XMarkIcon,
     ArrowRightStartOnRectangleIcon,
-    ArrowPathIcon,
     CreditCardIcon,
     EllipsisVerticalIcon,
     QuestionMarkCircleIcon,
@@ -148,18 +147,10 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                     <span>Тариф · {tariffName}</span>
                 </Link>
             )}
-            <button
-                onClick={() => { closeProfile(); onMobileClose(); router.post('/switch-to-client'); }}
-                className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
-                role="menuitem"
-            >
-                <ArrowPathIcon className="size-[18px] text-[var(--color-graphite)]" />
-                <span>Режим клиента</span>
-            </button>
             {onToggleTheme && (
                 <button
                     onClick={() => { closeProfile(); onMobileClose(); onToggleTheme(); }}
-                    className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
+                    className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)] lg:hidden"
                     role="menuitem"
                 >
                     {isDark ? (
