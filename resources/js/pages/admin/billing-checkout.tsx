@@ -1345,9 +1345,9 @@ export default function BillingCheckoutPage() {
                                                         </>
                                                     ) : (
                                                         <p className="mt-2 text-[13px] leading-[18px] text-[var(--color-graphite)]">
-                                                            Есть платёж,
-                                                            статус которого ещё
-                                                            не подтверждён.
+                                                            Есть платёж, статус
+                                                            которого ещё не
+                                                            подтверждён.
                                                             Проверьте его,
                                                             прежде чем запускать
                                                             оплату заново.
@@ -1358,7 +1358,8 @@ export default function BillingCheckoutPage() {
                                                         срока (старый attempt)
                                                         таймер не показывается
                                                         вовсе. */}
-                                                    {cardRemainingMs !== null && (
+                                                    {cardRemainingMs !==
+                                                        null && (
                                                         <p
                                                             data-testid="card-countdown"
                                                             className="mt-1.5 text-[15px] leading-[21px] font-bold text-[var(--color-ink)]"
@@ -1657,51 +1658,58 @@ export default function BillingCheckoutPage() {
                                 </section>
 
                                 {/* ─── Auto renewal consent ─── */}
-                                <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
-                                    <label className="flex cursor-pointer items-start gap-[10px]">
-                                        <input
-                                            type="checkbox"
-                                            checked={isSbp ? false : autoRenew}
-                                            disabled={isSbp || loading}
-                                            onChange={(e) =>
-                                                setAutoRenew(e.target.checked)
-                                            }
-                                            className="mt-[2px] h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-orange)] disabled:cursor-not-allowed"
-                                        />
-                                        <span className="min-w-0">
-                                            <span className="block text-[13px] leading-[18px] font-semibold text-[var(--color-ink)]">
-                                                Продлевать автоматически
+                                {!isSbp && (
+                                    <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
+                                        <label className="flex cursor-pointer items-start gap-[10px]">
+                                            <input
+                                                type="checkbox"
+                                                checked={
+                                                    isSbp ? false : autoRenew
+                                                }
+                                                disabled={isSbp || loading}
+                                                onChange={(e) =>
+                                                    setAutoRenew(
+                                                        e.target.checked,
+                                                    )
+                                                }
+                                                className="mt-[2px] h-4 w-4 shrink-0 cursor-pointer accent-[var(--color-orange)] disabled:cursor-not-allowed"
+                                            />
+                                            <span className="min-w-0">
+                                                <span className="block text-[13px] leading-[18px] font-semibold text-[var(--color-ink)]">
+                                                    Продлевать автоматически
+                                                </span>
+                                                {isSbp ? (
+                                                    <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
+                                                        Автопродление через СБП
+                                                        появится позже.
+                                                    </span>
+                                                ) : (
+                                                    <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
+                                                        После окончания
+                                                        оплаченного периода ИРСИ
+                                                        сможет автоматически
+                                                        списать стоимость
+                                                        следующего периода с
+                                                        сохранённого способа
+                                                        оплаты. Автопродление
+                                                        можно будет отключить до
+                                                        следующего списания.
+                                                    </span>
+                                                )}
                                             </span>
-                                            {isSbp ? (
-                                                <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
-                                                    Автопродление через СБП
-                                                    появится позже.
-                                                </span>
-                                            ) : (
-                                                <span className="mt-[3px] block text-[12px] leading-[16px] text-[var(--color-graphite)]">
-                                                    После окончания оплаченного
-                                                    периода ИРСИ сможет
-                                                    автоматически списать
-                                                    стоимость следующего периода
-                                                    с сохранённого способа
-                                                    оплаты. Автопродление можно
-                                                    будет отключить до
-                                                    следующего списания.
-                                                </span>
-                                            )}
-                                        </span>
-                                    </label>
-                                    {!isSbp && (
-                                        <a
-                                            href="/offer#auto-renew"
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="mt-2.5 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
-                                        >
-                                            Условия автопродления
-                                        </a>
-                                    )}
-                                </section>
+                                        </label>
+                                        {!isSbp && (
+                                            <a
+                                                href="/offer#auto-renew"
+                                                target="_blank"
+                                                rel="noopener noreferrer"
+                                                className="mt-2.5 inline-block text-[12px] font-semibold text-[var(--color-orange)] hover:underline"
+                                            >
+                                                Условия автопродления
+                                            </a>
+                                        )}
+                                    </section>
+                                )}
 
                                 {/* ─── Checkout error (visible on any width) ─── */}
                                 {checkoutError && (

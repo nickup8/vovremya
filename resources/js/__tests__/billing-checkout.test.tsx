@@ -207,15 +207,14 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(sbp.getAttribute('aria-checked')).toBe('false');
     });
 
-    it('auto-renew is disabled for SBP with a notice', () => {
+    it('auto-renew section is hidden for SBP', () => {
         render(<BillingCheckoutPage />);
 
-        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
-        expect(checkbox.disabled).toBe(true);
-        expect(checkbox.checked).toBe(false);
+        expect(screen.queryByRole('checkbox')).toBeNull();
+        expect(screen.queryByText('Продлевать автоматически')).toBeNull();
         expect(
-            screen.getByText('Автопродление через СБП появится позже.'),
-        ).toBeTruthy();
+            screen.queryByText('Автопродление через СБП появится позже.'),
+        ).toBeNull();
     });
 
     it('card keeps auto-renew enabled', () => {
@@ -232,6 +231,26 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         ).toBeNull();
     });
 
+    it('card → auto-renew on → SBP → card hides the section and restores the checked state', () => {
+        render(<BillingCheckoutPage />);
+
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(screen.getByRole('checkbox'));
+
+        fireEvent.click(screen.getByRole('radio', { name: /СБП/ }));
+        expect(screen.queryByRole('checkbox')).toBeNull();
+        expect(screen.queryByText('Продлевать автоматически')).toBeNull();
+
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
+        expect(checkbox.checked).toBe(true);
+        expect(checkbox.disabled).toBe(false);
+    });
+
     it('back link goes to the billing page', () => {
         render(<BillingCheckoutPage />);
 
@@ -241,6 +260,29 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
 
     it('CTA posts payment_method sbp by default', async () => {
         render(<BillingCheckoutPage />);
+        fireEvent.click(
+            screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
+        );
+
+        await waitFor(() =>
+            expect(axios.post).toHaveBeenCalledWith('/admin/checkout', {
+                tariff_plan_id: 1,
+                period_months: 3,
+                auto_renew: false,
+                payment_method: 'sbp',
+            }),
+        );
+    });
+
+    it('switching to SBP after checking auto-renew on card still POSTs auto_renew=false', async () => {
+        render(<BillingCheckoutPage />);
+
+        fireEvent.click(
+            screen.getByRole('radio', { name: /Банковская карта/ }),
+        );
+        fireEvent.click(screen.getByRole('checkbox'));
+        fireEvent.click(screen.getByRole('radio', { name: /СБП/ }));
+
         fireEvent.click(
             screen.getByRole('button', { name: /Оплатить 1.323 ₽/u }),
         );
@@ -1245,15 +1287,13 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(screen.getByText('3 месяца')).toBeTruthy();
         expect(screen.getByText('1 323 ₽')).toBeTruthy();
 
-        // СБП по умолчанию, autoRenew=false
+        // СБП по умолчанию, секция автопродления скрыта
         expect(
             screen
                 .getByRole('radio', { name: /СБП/ })
                 .getAttribute('aria-checked'),
         ).toBe('true');
-        const checkbox = screen.getByRole('checkbox') as HTMLInputElement;
-        expect(checkbox.checked).toBe(false);
-        expect(checkbox.disabled).toBe(true);
+        expect(screen.queryByRole('checkbox')).toBeNull();
 
         // Состояние старой попытки сброшено: ни экрана, ни ошибки, ни QR/таймера
         expect(screen.queryByText('Оплата не прошла')).toBeNull();
@@ -1557,9 +1597,7 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(
             screen.getByRole('radio', { name: /СБП/ }).hasAttribute('disabled'),
         ).toBe(false);
-        expect(
-            (screen.getByRole('checkbox') as HTMLInputElement).disabled,
-        ).toBe(true); // СБП по умолчанию — чекбокс disabled по способу, не по загрузке
+        expect(screen.queryByRole('checkbox')).toBeNull(); // СБП по умолчанию — секция автопродления скрыта
 
         // Повторная отправка после ошибки возможна
         vi.mocked(axios.post).mockResolvedValue(SBP_CHECKOUT_RESPONSE);
@@ -1642,9 +1680,11 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(screen.queryByText('Незавершённый платёж')).toBeNull();
         expect(screen.getByText('3 месяца')).toBeTruthy();
         expect(
-            vi.mocked(axios.post).mock.calls.some(
-                (call) => String(call[0]).includes('/admin/checkout'),
-            ),
+            vi
+                .mocked(axios.post)
+                .mock.calls.some((call) =>
+                    String(call[0]).includes('/admin/checkout'),
+                ),
         ).toBe(false);
         expect(mockRouter.get).not.toHaveBeenCalled();
     });
@@ -2048,9 +2088,11 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
         expect(screen.queryByText(UNCONFIRMED_TITLE)).toBeNull();
         expect(screen.getByText('Ожидаем подтверждение оплаты')).toBeTruthy();
         expect(
-            vi.mocked(axios.post).mock.calls.some(
-                (call) => String(call[0]).includes('/admin/checkout'),
-            ),
+            vi
+                .mocked(axios.post)
+                .mock.calls.some((call) =>
+                    String(call[0]).includes('/admin/checkout'),
+                ),
         ).toBe(false);
         expect(vi.mocked(axios.post)).toHaveBeenCalledTimes(1);
         expect(vi.mocked(axios.post)).toHaveBeenCalledWith(
@@ -2104,9 +2146,11 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
             '/admin/billing/payment-status/pay_9/check',
         );
         expect(
-            vi.mocked(axios.post).mock.calls.some(
-                (call) => String(call[0]).includes('/admin/checkout'),
-            ),
+            vi
+                .mocked(axios.post)
+                .mock.calls.some((call) =>
+                    String(call[0]).includes('/admin/checkout'),
+                ),
         ).toBe(false);
     });
 
@@ -2116,9 +2160,7 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
             data: { status: 'failed_terminal', undefined_outcome: true },
         });
 
-        const { unmount } = await startSbpCheckoutWithExpiry(
-            isoIn(5 * 60_000),
-        );
+        const { unmount } = await startSbpCheckoutWithExpiry(isoIn(5 * 60_000));
         act(() => {
             vi.advanceTimersByTime(2000);
         });
@@ -3094,9 +3136,7 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
 
         // Состояние прошлой попытки не унаследовано: кнопка не busy,
         // таймер пересчитан от срока НОВОЙ попытки
-        expect(
-            screen.queryByRole('button', { name: 'Проверяем…' }),
-        ).toBeNull();
+        expect(screen.queryByRole('button', { name: 'Проверяем…' })).toBeNull();
         expect(screen.getByTestId('card-countdown').textContent).toContain(
             '01:30',
         );
@@ -3219,9 +3259,9 @@ describe('admin/billing-checkout.tsx — own checkout page', () => {
 
         // Отложенный GET: resolver появляется только когда запрос реально
         // стартует — заглушка не прячет незапущенный poll
-        let resolveLateGet: ((value: {
-            data: Record<string, unknown>;
-        }) => void) | null = null;
+        let resolveLateGet:
+            | ((value: { data: Record<string, unknown> }) => void)
+            | null = null;
         vi.mocked(axios.get).mockImplementation(
             () =>
                 new Promise((resolve) => {
