@@ -73,11 +73,17 @@ return [
     | Timeouts (секунды)
     |--------------------------------------------------------------------------
     |
-    | Согласованная цепочка: process_timeout < job_timeout < retry_after
-    | < stopwaitsecs в Supervisor-процессе бэкапов. Подробнее —
-    | docs/DB_BACKUPS.md.
+    | Согласованная цепочка: S3 connect/request, process_timeout,
+    | job_timeout < retry_after < stopwaitsecs в Supervisor-процессе
+    | бэкапов. Подробнее — docs/DB_BACKUPS.md.
     |
     */
+
+    // HTTP connect-timeout клиента S3 (отдельный от Laravel Http-фасада).
+    's3_connect_timeout' => max(1, (int) env('BACKUP_S3_CONNECT_TIMEOUT', 10)),
+
+    // HTTP request timeout клиента S3 (один HTTP-запрос к бакету).
+    's3_request_timeout' => max(5, (int) env('BACKUP_S3_REQUEST_TIMEOUT', 60)),
 
     // Жёсткий таймаут pg_dump/pg_restore subprocess.
     'process_timeout' => max(60, (int) env('BACKUP_PROCESS_TIMEOUT', 600)),

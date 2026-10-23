@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\BackupStatus;
+use App\Exceptions\Backups\BackupCaptureLost;
 use App\Models\DatabaseBackup;
 use App\Services\Backups\BackupError;
 use App\Services\Backups\DatabaseBackupService;
@@ -54,19 +55,34 @@ class RunDatabaseBackupJob implements ShouldQueue
             return;
         }
 
-        $service->run($backup);
+        try {
+            $service->run($backup);
+        } catch (BackupCaptureLost) {
+            // Гонка доставок: между проверкой статуса и begin() копию
+            // захватил другой воркер. No-op: failed()-хук не должен
+            // пометить прерванной чужую живую попытку.
+            Log::info('Backups: доставка job проиграла гонку захвата — no-op', [
+                'backup_id' => $this->backupId,
+            ]);
+        }
     }
 
+    /**
+     * В failed_jobs уходит только санитизированное сообщение BackupException
+     * (run() не пробрасывает исходное исключение и его previous-цепочку).
+     */
     public function failed(Throwable $e): void
     {
+        $safe = BackupError::fromThrowable($e);
+
         app(DatabaseBackupService::class)->markInterruptedIfActive(
             $this->backupId,
-            'Задание прервано: '.BackupError::fromThrowable($e),
+            'Задание прервано: '.$safe,
         );
 
         Log::error('Backups: job завершился с ошибкой', [
             'backup_id' => $this->backupId,
-            'error' => BackupError::fromThrowable($e),
+            'error' => $safe,
         ]);
     }
 }

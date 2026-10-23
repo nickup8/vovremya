@@ -20,11 +20,14 @@ class BackupCommandsTest extends TestCase
     {
         parent::setUp();
 
-        $this->tmpDir = sys_get_temp_dir().'/irsi-backups-cmd-'.uniqid();
+        $this->tmpDir = storage_path('framework/testing/backups-cmd-'.uniqid('', true));
 
         config([
             'backups.tmp_dir' => $this->tmpDir,
             'backups.tmp_max_age_hours' => 24,
+            'queue.connections.backups.driver' => 'database',
+            'queue.connections.backups.connection' => null,
+            'queue.connections.backups.after_commit' => false,
         ]);
     }
 
@@ -69,6 +72,24 @@ class BackupCommandsTest extends TestCase
 
         Queue::assertNothingPushed();
         $this->assertDatabaseCount('database_backups', 1);
+    }
+
+    public function test_backups_recover_runs_even_when_schedule_disabled(): void
+    {
+        config(['backups.scheduled.enabled' => false]);
+
+        Queue::fake();
+
+        DatabaseBackup::create([
+            'trigger_type' => BackupTrigger::Manual->value,
+            'status' => BackupStatus::Running,
+            'requested_at' => now()->subHours(3),
+            'started_at' => now()->subHours(3),
+        ]);
+
+        $this->artisan('backups:recover')->assertExitCode(0);
+
+        $this->assertSame(BackupStatus::Failed, DatabaseBackup::sole()->status);
     }
 
     public function test_cleanup_tmp_removes_stale_files_and_keeps_fresh_ones(): void

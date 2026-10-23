@@ -19,7 +19,7 @@ class BackupScheduleDailyTest extends TestCase
         parent::setUp();
 
         config([
-            'backups.tmp_dir' => sys_get_temp_dir().'/irsi-backups-sched-'.uniqid(),
+            'backups.tmp_dir' => storage_path('framework/testing/backups-sched-'.uniqid('', true)),
             'backups.scheduled.timezone' => 'Europe/Moscow',
         ]);
     }

@@ -7,16 +7,22 @@ use RuntimeException;
 
 /**
  * Заглушка S3-диска для тестов: делегирует на фейковый диск Storage::fake,
- * позволяет сымитировать сбой записи/чтения и подменить содержимое
- * при проверочном чтении (рассинхрон размера/SHA-256).
+ * позволяет сымитировать сбой записи/чтения/удаления (исключение или
+ * false) и подменить содержимое при проверочном чтении.
+ * Не final: тесты наследуют анонимными классами для точечных сбоев.
  */
-final class BackupDiskStub implements Filesystem
+class BackupDiskStub implements Filesystem
 {
     public bool $failWrites = false;
 
     public bool $failDeletes = false;
 
+    public bool $deleteReturnsFalse = false;
+
     public bool $tamperReads = false;
+
+    /** @var list<string> */
+    public array $deleted = [];
 
     public function __construct(private readonly Filesystem $inner) {}
 
@@ -110,8 +116,16 @@ final class BackupDiskStub implements Filesystem
 
     public function delete($paths)
     {
+        foreach ((array) $paths as $path) {
+            $this->deleted[] = (string) $path;
+        }
+
         if ($this->failDeletes) {
             throw new RuntimeException('S3 delete failed (test stub)');
+        }
+
+        if ($this->deleteReturnsFalse) {
+            return false;
         }
 
         return $this->inner->delete($paths);

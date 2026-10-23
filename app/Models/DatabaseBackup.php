@@ -12,6 +12,7 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 /**
  * @property BackupTrigger $trigger_type
  * @property BackupStatus $status
+ * @property string|null $execution_token
  * @property CarbonImmutable|null $requested_at
  * @property CarbonImmutable|null $started_at
  * @property CarbonImmutable|null $finished_at
@@ -32,6 +33,7 @@ class DatabaseBackup extends Model
     protected $fillable = [
         'trigger_type',
         'status',
+        'execution_token',
         'requested_by',
         'requested_at',
         'started_at',
@@ -69,7 +71,7 @@ class DatabaseBackup extends Model
 
     /**
      * Копия висит дольше stale_after (воркер мог быть убит без освобождения
-     * job): разрешён повторный запуск с пометкой такой копии прерванной.
+     * job): разрешён повторный захват с пометкой такой копии прерванной.
      */
     public function isStale(): bool
     {

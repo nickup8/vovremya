@@ -115,6 +115,11 @@ return [
             'bucket' => env('BACKUP_S3_BUCKET'),
             'endpoint' => env('BACKUP_S3_ENDPOINT'),
             'use_path_style_endpoint' => env('BACKUP_S3_PATH_STYLE', true),
+            // Явные HTTP-таймауты клиента AWS SDK (не путать с job/subprocess).
+            'http' => [
+                'connect_timeout' => (float) env('BACKUP_S3_CONNECT_TIMEOUT', 10),
+                'timeout' => (float) env('BACKUP_S3_REQUEST_TIMEOUT', 60),
+            ],
             'throw' => true,
             'report' => false,
         ],

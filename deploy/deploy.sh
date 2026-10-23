@@ -21,6 +21,15 @@ php artisan down --render="errors::503" --retry=60
 echo "[2/8] Pull из репозитория..."
 git pull origin main
 
+# ─── APP_VERSION = git SHA (для manifest резервных копий) ───
+APP_SHA="$(git rev-parse HEAD)"
+if grep -q '^APP_VERSION=' "$APP_DIR/.env" 2>/dev/null; then
+  sed -i "s|^APP_VERSION=.*|APP_VERSION=${APP_SHA}|" "$APP_DIR/.env"
+else
+  printf '\nAPP_VERSION=%s\n' "$APP_SHA" >> "$APP_DIR/.env"
+fi
+echo "APP_VERSION=${APP_SHA}"
+
 # ─── Установка PHP-зависимостей ───
 echo "[3/8] Composer install..."
 composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev

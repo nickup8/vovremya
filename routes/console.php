@@ -17,4 +17,7 @@ Schedule::command('backups:schedule-daily')
     ->dailyAt((string) config('backups.scheduled.time', '03:30'))
     ->timezone((string) config('backups.scheduled.timezone', 'Europe/Moscow'))
     ->withoutOverlapping();
+// Восстановление активных состояний (stale running, потерянные queued)
+// идёт всегда — не зависит от BACKUP_SCHEDULED_ENABLED.
+Schedule::command('backups:recover')->everyFifteenMinutes()->withoutOverlapping();
 Schedule::command('backups:cleanup-tmp')->hourly()->withoutOverlapping();

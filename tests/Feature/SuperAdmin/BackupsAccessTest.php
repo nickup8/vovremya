@@ -23,7 +23,7 @@ class BackupsAccessTest extends TestCase
         parent::setUp();
 
         config([
-            'backups.tmp_dir' => sys_get_temp_dir().'/irsi-backups-test-'.uniqid(),
+            'backups.tmp_dir' => storage_path('framework/testing/backups-access-'.uniqid('', true)),
             'backups.scheduled.enabled' => false,
         ]);
     }

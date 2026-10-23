@@ -4,6 +4,7 @@ namespace Tests\Feature\Backups;
 
 use App\Enums\BackupStatus;
 use App\Enums\BackupTrigger;
+use App\Exceptions\Backups\BackupCaptureLost;
 use App\Jobs\RunDatabaseBackupJob;
 use App\Models\DatabaseBackup;
 use App\Services\Backups\BackupProcessRunner;
@@ -25,7 +26,7 @@ class RunDatabaseBackupJobTest extends TestCase
     {
         parent::setUp();
 
-        $this->tmpDir = sys_get_temp_dir().'/irsi-backups-job-'.uniqid();
+        $this->tmpDir = storage_path('framework/testing/backups-job-'.uniqid('', true));
 
         config([
             'backups.disk' => 'backups_s3',
@@ -124,18 +125,44 @@ class RunDatabaseBackupJobTest extends TestCase
         $this->assertSame([], $this->runner->calls);
     }
 
-    public function test_failed_hook_marks_active_backup_interrupted(): void
+    public function test_capture_lost_race_is_noop_and_does_not_fail_backup(): void
     {
+        $backup = $this->makeBackup(BackupStatus::Queued);
+
+        // Между проверкой статуса в handle() и begin() другой воркер
+        // захватил копию — run() бросает BackupCaptureLost.
+        $service = new class(app(BackupProcessRunner::class)) extends DatabaseBackupService
+        {
+            public function run(DatabaseBackup $backup): void
+            {
+                throw new BackupCaptureLost;
+            }
+        };
+
+        (new RunDatabaseBackupJob($backup->getKey()))->handle($service);
+
+        $fresh = $backup->fresh();
+        $this->assertSame(BackupStatus::Queued, $fresh->status);
+        $this->assertNull($fresh->error_message);
+        $this->assertNull($fresh->finished_at);
+    }
+
+    public function test_failed_hook_marks_active_backup_interrupted_and_sanitizes(): void
+    {
+        config(['filesystems.disks.backups_s3.secret' => 'S3Secret-MARKER-hook']);
+
         $backup = $this->makeBackup(BackupStatus::Running, [
             'started_at' => now()->subMinutes(10),
         ]);
 
-        (new RunDatabaseBackupJob($backup->getKey()))->failed(new \RuntimeException('worker died'));
+        (new RunDatabaseBackupJob($backup->getKey()))->failed(
+            new \RuntimeException('worker died secret=S3Secret-MARKER-hook'),
+        );
 
         $fresh = $backup->fresh();
         $this->assertSame(BackupStatus::Failed, $fresh->status);
         $this->assertStringContainsString('прерван', (string) $fresh->error_message);
-        $this->assertStringNotContainsString('secret', (string) $fresh->error_message);
+        $this->assertStringNotContainsString('S3Secret-MARKER-hook', (string) $fresh->error_message);
     }
 
     public function test_failed_hook_does_not_resurrect_terminal_backup(): void
