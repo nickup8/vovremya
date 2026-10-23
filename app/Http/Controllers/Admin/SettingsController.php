@@ -6,16 +6,18 @@ use App\Enums\BlockedTimeReason;
 use App\Http\Controllers\Controller;
 use App\Models\BlockedTime;
 use App\Models\User;
+use App\Services\Avatars\AvatarStorageService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 use Illuminate\Validation\Rule;
 use Inertia\Inertia;
 use Inertia\Response as InertiaResponse;
+use Throwable;
 
 class SettingsController extends Controller
 {
@@ -188,20 +190,26 @@ class SettingsController extends Controller
         ]);
 
         $user = auth()->user();
+        $file = $request->file('avatar');
 
-        if ($request->file('avatar')->isValid()) {
-            if ($user->avatar_url) {
-                $oldPath = str_replace('/storage/', '', $user->avatar_url);
-                Storage::disk('public')->delete($oldPath);
+        if ($file->isValid()) {
+            try {
+                $avatarUrl = app(AvatarStorageService::class)->replace(
+                    $user,
+                    $file->getContent(),
+                    $file->getClientOriginalExtension()
+                );
+            } catch (Throwable $e) {
+                Log::warning('settings: avatar upload failed', [
+                    'user_id' => $user?->getAuthIdentifier(),
+                    'error' => $e->getMessage(),
+                ]);
+
+                // Старый аватар и его URL не тронуты.
+                return response()->json(['message' => 'Не удалось сохранить фото.'], 500);
             }
 
-            $path = $request->file('avatar')->store('avatars', 'public');
-
-            $user->update([
-                'avatar_url' => '/storage/'.$path,
-            ]);
-
-            return response()->json(['success' => true, 'avatar_url' => '/storage/'.$path]);
+            return response()->json(['success' => true, 'avatar_url' => $avatarUrl]);
         }
 
         return response()->json(['message' => 'Не удалось обработать файл.'], 400);
@@ -211,11 +219,7 @@ class SettingsController extends Controller
     {
         $user = auth()->user();
 
-        if ($user->avatar_url) {
-            $path = str_replace('/storage/', '', $user->avatar_url);
-            Storage::disk('public')->delete($path);
-            $user->update(['avatar_url' => null]);
-        }
+        app(AvatarStorageService::class)->remove($user);
 
         return back()->with('success', 'Фото удалено');
     }

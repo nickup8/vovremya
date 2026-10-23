@@ -2,6 +2,7 @@
 
 namespace App\Models;
 
+use App\Models\Concerns\HasAvatar;
 use App\Traits\SearchableByProvider;
 use Illuminate\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
@@ -11,9 +12,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Str;
 
+/**
+ * @property string|null $avatar_url
+ * @property string|null $avatar_disk
+ * @property string|null $avatar_path
+ */
 class Client extends Authenticatable
 {
-    use HasFactory, HasUuids, SearchableByProvider;
+    use HasAvatar, HasFactory, HasUuids, SearchableByProvider;
 
     protected $fillable = [
         'user_id',
@@ -54,6 +60,11 @@ class Client extends Authenticatable
     public function canReceiveVkMessages(): bool
     {
         return $this->vk_messages_allowed !== false;
+    }
+
+    public function avatarDirectory(): string
+    {
+        return 'avatars/clients/';
     }
 
     public function master(): BelongsTo

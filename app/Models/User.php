@@ -3,6 +3,7 @@
 namespace App\Models;
 
 use App\Enums\UserRole;
+use App\Models\Concerns\HasAvatar;
 use App\Services\Billing\EntitlementService;
 use App\Traits\SearchableByProvider;
 use Database\Factories\UserFactory;
@@ -14,6 +15,7 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Database\Eloquent\Relations\MorphMany;
 use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Notifications\Notifiable;
 use Illuminate\Support\Carbon;
@@ -30,6 +32,8 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
  * @property string|null $telegram_chat_id
  * @property string|null $max_id
  * @property string|null $avatar_url
+ * @property string|null $avatar_disk
+ * @property string|null $avatar_path
  * @property bool $is_master
  * @property bool $is_service_provider
  * @property bool $admin_can_see_finance
@@ -64,7 +68,7 @@ use Laravel\Fortify\TwoFactorAuthenticatable;
 class User extends Authenticatable implements PasskeyUser
 {
     /** @use HasFactory<UserFactory> */
-    use HasFactory, HasUuids, Notifiable, PasskeyAuthenticatable, SearchableByProvider, TwoFactorAuthenticatable;
+    use HasAvatar, HasFactory, HasUuids, Notifiable, PasskeyAuthenticatable, SearchableByProvider, TwoFactorAuthenticatable;
 
     protected function casts(): array
     {
@@ -105,7 +109,7 @@ class User extends Authenticatable implements PasskeyUser
         return $this->hasOne(PlatformAdminAccess::class);
     }
 
-    public function notifications(): \Illuminate\Database\Eloquent\Relations\MorphMany
+    public function notifications(): MorphMany
     {
         return $this->morphMany(Notification::class, 'notifiable')->latest();
     }
@@ -182,7 +186,7 @@ class User extends Authenticatable implements PasskeyUser
 
     public function recurringBlockedTimeSeries(): HasMany
     {
-        return $this->hasMany(\App\Models\RecurringBlockedTimeSeries::class);
+        return $this->hasMany(RecurringBlockedTimeSeries::class);
     }
 
     public function isSuperAdmin(): bool

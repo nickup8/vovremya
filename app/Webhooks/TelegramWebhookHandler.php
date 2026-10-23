@@ -14,6 +14,8 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
+use App\Services\AppointmentVisitConfirmationService;
+use App\Services\Avatars\AvatarStorageService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
@@ -28,7 +30,6 @@ use Illuminate\Http\Client\ConnectionException;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Illuminate\Support\Stringable;
 use Throwable;
@@ -432,7 +433,7 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $result = app(\App\Services\AppointmentVisitConfirmationService::class)
+        $result = app(AppointmentVisitConfirmationService::class)
             ->confirm($appointment, $client);
 
         match ($result['result']) {
@@ -1376,14 +1377,11 @@ class TelegramWebhookHandler extends WebhookHandler
                 return;
             }
 
-            $filename = "tg_avatar_{$telegramId}_".time().'.jpg';
-            Storage::disk('public')->put("avatars/{$filename}", $body);
-
-            $master->update(['avatar_url' => "/storage/avatars/{$filename}"]);
+            $avatarUrl = app(AvatarStorageService::class)->replace($master, $body, 'jpg');
 
             Log::info('[TG] syncTelegramAvatar: saved', [
                 'user_id' => $master->id,
-                'filename' => $filename,
+                'avatar_url' => $avatarUrl,
             ]);
         } catch (Throwable $e) {
             Log::warning('[TG] syncTelegramAvatar: failed', [
@@ -1455,14 +1453,11 @@ class TelegramWebhookHandler extends WebhookHandler
                 return;
             }
 
-            $filename = "tg_avatar_client_{$telegramId}_".time().'.jpg';
-            Storage::disk('public')->put("avatars/clients/{$filename}", $body);
-
-            $client->update(['avatar_url' => "/storage/avatars/clients/{$filename}"]);
+            $avatarUrl = app(AvatarStorageService::class)->replace($client, $body, 'jpg');
 
             Log::info('[TG] syncClientTelegramAvatar: saved', [
                 'client_id' => $client->id,
-                'filename' => $filename,
+                'avatar_url' => $avatarUrl,
             ]);
         } catch (Throwable $e) {
             Log::warning('[TG] syncClientTelegramAvatar: failed', [

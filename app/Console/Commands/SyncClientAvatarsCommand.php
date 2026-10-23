@@ -3,10 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Models\Client;
+use App\Services\Avatars\AvatarStorageService;
 use Illuminate\Console\Command;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
-use Illuminate\Support\Facades\Storage;
 
 class SyncClientAvatarsCommand extends Command
 {
@@ -90,10 +90,7 @@ class SyncClientAvatarsCommand extends Command
                     continue;
                 }
 
-                $filename = "tg_avatar_client_{$client->telegram_id}_".time().'.jpg';
-                Storage::disk('public')->put("avatars/clients/{$filename}", $content);
-
-                $client->update(['avatar_url' => "/storage/avatars/clients/{$filename}"]);
+                app(AvatarStorageService::class)->replace($client, $content, 'jpg');
 
                 $synced++;
 
