@@ -4,11 +4,16 @@ use App\Http\Controllers\Admin\AnalyticsController;
 use App\Http\Controllers\Admin\CalendarApiController;
 use App\Http\Controllers\Admin\CalendarController;
 use App\Http\Controllers\Admin\ClientController;
+use App\Http\Controllers\Admin\FreeWindowsController;
+use App\Http\Controllers\Admin\NotificationController;
 use App\Http\Controllers\Admin\PaymentController;
 use App\Http\Controllers\Admin\PlatformAdminController;
-use App\Http\Controllers\Admin\ServiceCatalogController;
+use App\Http\Controllers\Admin\RecurringAppointmentController;
+use App\Http\Controllers\Admin\RecurringBlockedTimeController;
 use App\Http\Controllers\Admin\ScheduleController;
+use App\Http\Controllers\Admin\ServiceCatalogController;
 use App\Http\Controllers\Admin\SettingsController;
+use App\Http\Controllers\Admin\SuperAdminBackupController;
 use App\Http\Controllers\Admin\SuperAdminController;
 use App\Http\Controllers\Admin\SuperAdminReceiptController;
 use App\Http\Controllers\Admin\TrackingLinkController;
@@ -16,18 +21,20 @@ use App\Http\Controllers\Auth\MagicLoginController;
 use App\Http\Controllers\Auth\TelegramAuthController;
 use App\Http\Controllers\Auth\VkAuthController;
 use App\Http\Controllers\BookingWidgetController;
-use App\Http\Controllers\LegalController;
 use App\Http\Controllers\Client\BookingsController;
 use App\Http\Controllers\Client\ClientAuthController;
 use App\Http\Controllers\Client\ClientProfileController;
 use App\Http\Controllers\Client\RoleSwitchController;
 use App\Http\Controllers\ClientModeController;
+use App\Http\Controllers\LegalController;
 use App\Http\Controllers\Webhook\PaymentWebhookController;
 use App\Http\Controllers\Webhook\TelegraphWebhookController;
 use App\Http\Controllers\Webhook\VkWebhookController;
 use App\Http\Controllers\WebhookController;
 use App\Models\User;
+use App\Services\MaxApiClient;
 use DefStudio\Telegraph\Models\TelegraphBot;
+use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Route;
 use Inertia\Inertia;
@@ -162,24 +169,24 @@ Route::middleware(['auth'])->group(function () {
     Route::delete('/admin/blocked-times/{blockedTime}', [SettingsController::class, 'destroyBlockedTime'])->name('admin.blocked-times.destroy');
 
     // Recurring blocked times — доступны всем авторизованным пользователям
-    Route::post('/admin/recurring-blocked-times/preview', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'preview'])->name('admin.recurring-blocked-times.preview');
-    Route::post('/admin/recurring-blocked-times', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'store'])->name('admin.recurring-blocked-times.store');
-    Route::patch('/admin/recurring-blocked-times/{series}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'update'])->name('admin.recurring-blocked-times.update');
-    Route::delete('/admin/recurring-blocked-times/{series}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'destroy'])->name('admin.recurring-blocked-times.destroy');
-    Route::patch('/admin/recurring-blocked-times/{series}/occurrences/{date}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'updateOccurrence'])->name('admin.recurring-blocked-times.occurrence.update');
-    Route::delete('/admin/recurring-blocked-times/{series}/occurrences/{date}', [\App\Http\Controllers\Admin\RecurringBlockedTimeController::class, 'destroyOccurrence'])->name('admin.recurring-blocked-times.occurrence.destroy');
+    Route::post('/admin/recurring-blocked-times/preview', [RecurringBlockedTimeController::class, 'preview'])->name('admin.recurring-blocked-times.preview');
+    Route::post('/admin/recurring-blocked-times', [RecurringBlockedTimeController::class, 'store'])->name('admin.recurring-blocked-times.store');
+    Route::patch('/admin/recurring-blocked-times/{series}', [RecurringBlockedTimeController::class, 'update'])->name('admin.recurring-blocked-times.update');
+    Route::delete('/admin/recurring-blocked-times/{series}', [RecurringBlockedTimeController::class, 'destroy'])->name('admin.recurring-blocked-times.destroy');
+    Route::patch('/admin/recurring-blocked-times/{series}/occurrences/{date}', [RecurringBlockedTimeController::class, 'updateOccurrence'])->name('admin.recurring-blocked-times.occurrence.update');
+    Route::delete('/admin/recurring-blocked-times/{series}/occurrences/{date}', [RecurringBlockedTimeController::class, 'destroyOccurrence'])->name('admin.recurring-blocked-times.occurrence.destroy');
 
     // Recurring appointments — только ПРОФИ (feature gate)
     Route::middleware('feature:recurring_appointments')->group(function () {
-        Route::post('/admin/recurring-appointments/preview', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'preview'])->name('admin.recurring-appointments.preview');
-        Route::post('/admin/recurring-appointments', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'store'])->name('admin.recurring-appointments.store');
-        Route::post('/admin/recurring-appointments/from-appointment/{appointment}', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'fromExisting'])->name('admin.recurring-appointments.from-existing');
-        Route::patch('/admin/appointments/{appointment}/recurring/edit-only-this', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'editOnlyThis'])->name('admin.recurring-appointments.edit-only-this');
-        Route::patch('/admin/appointments/{appointment}/recurring/cancel-only-this', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'cancelOnlyThis'])->name('admin.recurring-appointments.cancel-only-this');
-        Route::post('/admin/appointments/{appointment}/recurring/preview-split', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'previewSplit'])->name('admin.recurring-appointments.preview-split');
-        Route::post('/admin/appointments/{appointment}/recurring/edit-this-and-future', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'editThisAndFuture'])->name('admin.recurring-appointments.edit-this-and-future');
-        Route::post('/admin/appointments/{appointment}/recurring/cancel-this-and-future', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'cancelThisAndFuture'])->name('admin.recurring-appointments.cancel-this-and-future');
-        Route::post('/admin/appointments/{appointment}/recurring/cancel-whole-series', [\App\Http\Controllers\Admin\RecurringAppointmentController::class, 'cancelWholeSeries'])->name('admin.recurring-appointments.cancel-whole-series');
+        Route::post('/admin/recurring-appointments/preview', [RecurringAppointmentController::class, 'preview'])->name('admin.recurring-appointments.preview');
+        Route::post('/admin/recurring-appointments', [RecurringAppointmentController::class, 'store'])->name('admin.recurring-appointments.store');
+        Route::post('/admin/recurring-appointments/from-appointment/{appointment}', [RecurringAppointmentController::class, 'fromExisting'])->name('admin.recurring-appointments.from-existing');
+        Route::patch('/admin/appointments/{appointment}/recurring/edit-only-this', [RecurringAppointmentController::class, 'editOnlyThis'])->name('admin.recurring-appointments.edit-only-this');
+        Route::patch('/admin/appointments/{appointment}/recurring/cancel-only-this', [RecurringAppointmentController::class, 'cancelOnlyThis'])->name('admin.recurring-appointments.cancel-only-this');
+        Route::post('/admin/appointments/{appointment}/recurring/preview-split', [RecurringAppointmentController::class, 'previewSplit'])->name('admin.recurring-appointments.preview-split');
+        Route::post('/admin/appointments/{appointment}/recurring/edit-this-and-future', [RecurringAppointmentController::class, 'editThisAndFuture'])->name('admin.recurring-appointments.edit-this-and-future');
+        Route::post('/admin/appointments/{appointment}/recurring/cancel-this-and-future', [RecurringAppointmentController::class, 'cancelThisAndFuture'])->name('admin.recurring-appointments.cancel-this-and-future');
+        Route::post('/admin/appointments/{appointment}/recurring/cancel-whole-series', [RecurringAppointmentController::class, 'cancelWholeSeries'])->name('admin.recurring-appointments.cancel-whole-series');
     });
 
     Route::get('/admin/billing', [PaymentController::class, 'index'])->name('admin.billing');
@@ -193,19 +200,19 @@ Route::middleware(['auth'])->group(function () {
 
     // Free windows — только Профи (feature gate)
     Route::middleware('feature:free_windows')->group(function () {
-        Route::get('/admin/free-windows', [\App\Http\Controllers\Admin\FreeWindowsController::class, 'index'])->name('admin.free-windows');
-        Route::post('/admin/free-windows/publications', [\App\Http\Controllers\Admin\FreeWindowsController::class, 'storePublication'])->name('admin.free-windows.publications.store');
+        Route::get('/admin/free-windows', [FreeWindowsController::class, 'index'])->name('admin.free-windows');
+        Route::post('/admin/free-windows/publications', [FreeWindowsController::class, 'storePublication'])->name('admin.free-windows.publications.store');
     });
 
-    Route::post('/admin/notifications/{notification}/read', [\App\Http\Controllers\Admin\NotificationController::class, 'markRead'])->name('admin.notifications.read');
-    Route::post('/admin/notifications/read-all', [\App\Http\Controllers\Admin\NotificationController::class, 'markAllRead'])->name('admin.notifications.readAll');
+    Route::post('/admin/notifications/{notification}/read', [NotificationController::class, 'markRead'])->name('admin.notifications.read');
+    Route::post('/admin/notifications/read-all', [NotificationController::class, 'markAllRead'])->name('admin.notifications.readAll');
 });
 
-Route::get('/max/diag/send-test-button', function (\Illuminate\Http\Request $request) {
+Route::get('/max/diag/send-test-button', function (Request $request) {
     abort_unless($request->query('secret') === config('services.max.secret_token'), 403);
     $chatId = $request->query('chat_id');
     abort_if(empty($chatId), 400, 'chat_id required');
-    $ok = app(\App\Services\MaxApiClient::class)->sendCallbackTestButton($chatId);
+    $ok = app(MaxApiClient::class)->sendCallbackTestButton($chatId);
 
     return response()->json(['sent' => $ok]);
 });
@@ -242,6 +249,14 @@ Route::middleware(['auth'])->prefix('admin-root')->group(function () {
     Route::post('/admins', [PlatformAdminController::class, 'store'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.store');
     Route::put('/admins/{access}', [PlatformAdminController::class, 'update'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.update');
     Route::patch('/admins/{access}/active', [PlatformAdminController::class, 'toggleActive'])->middleware('platform_permission:platform_admins.manage')->name('super_admin.admins.toggle_active');
+});
+
+// Резервные копии БД — строго только ROOT (is_super_admin):
+// platform_permission здесь не используется, чтобы limited admin
+// не получил доступ даже с набором всех разрешений.
+Route::middleware(['auth', 'super_admin'])->prefix('admin-root')->group(function () {
+    Route::get('/backups', [SuperAdminBackupController::class, 'index'])->name('super_admin.backups');
+    Route::post('/backups', [SuperAdminBackupController::class, 'store'])->name('super_admin.backups.store');
 });
 
 Route::middleware(['auth', 'can_leave_impersonation'])->post('/admin-root/leave-impersonate', [SuperAdminController::class, 'leaveImpersonate'])->name('super_admin.leave_impersonate');

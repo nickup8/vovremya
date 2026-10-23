@@ -10,3 +10,11 @@ Schedule::command('subscriptions:check-limits')->hourly()->withoutOverlapping();
 Schedule::command('subscriptions:cleanup-pending')->hourly()->withoutOverlapping();
 Schedule::command('billing:reconcile-payment-attempts')->everyMinute()->withoutOverlapping();
 Schedule::command('publications:cleanup-expired')->dailyAt('03:00')->withoutOverlapping();
+
+// Резервные копии БД: 03:30 Europe/Moscow; включение — BACKUP_SCHEDULED_ENABLED
+// (сама команда выходит без действий, если флаг выключен).
+Schedule::command('backups:schedule-daily')
+    ->dailyAt((string) config('backups.scheduled.time', '03:30'))
+    ->timezone((string) config('backups.scheduled.timezone', 'Europe/Moscow'))
+    ->withoutOverlapping();
+Schedule::command('backups:cleanup-tmp')->hourly()->withoutOverlapping();

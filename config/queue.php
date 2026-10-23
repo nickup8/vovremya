@@ -44,6 +44,18 @@ return [
             'after_commit' => false,
         ],
 
+        // Отдельное соединение под резервные копии БД: своя очередь
+        // 'backups' и увеличенный retry_after (> job_timeout копий,
+        // см. config/backups.php). Общая очередь default не меняется.
+        'backups' => [
+            'driver' => 'database',
+            'connection' => env('BACKUP_DB_QUEUE_CONNECTION'),
+            'table' => env('DB_QUEUE_TABLE', 'jobs'),
+            'queue' => 'backups',
+            'retry_after' => (int) env('BACKUP_QUEUE_RETRY_AFTER', 1200),
+            'after_commit' => false,
+        ],
+
         'beanstalkd' => [
             'driver' => 'beanstalkd',
             'host' => env('BEANSTALKD_QUEUE_HOST', 'localhost'),

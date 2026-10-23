@@ -671,6 +671,9 @@ class SuperAdminController extends Controller
             'receipt.attached',
             'receipt.url_changed',
             'receipt.refund_reviewed',
+            'backup.requested',
+            'backup.succeeded',
+            'backup.failed',
         ];
 
         $admins = User::query()

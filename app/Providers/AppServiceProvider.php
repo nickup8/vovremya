@@ -9,28 +9,33 @@ use App\Listeners\FlushAvailabilityCache;
 use App\Listeners\SendVkBookingConfirmation;
 use App\Models\BlockedTime;
 use App\Models\MasterService;
+use App\Models\RecurringBlockedTimeException;
+use App\Models\RecurringBlockedTimeSeries;
 use App\Models\Subscription;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Observers\BlockedTimeObserver;
 use App\Observers\MasterServiceObserver;
+use App\Observers\RecurringBlockedTimeExceptionObserver;
+use App\Observers\RecurringBlockedTimeSeriesObserver;
 use App\Observers\SubscriptionObserver;
 use App\Observers\UserObserver;
 use App\Observers\WorkingHourObserver;
-use App\Services\Payment\MockPaymentGateway;
+use App\Services\Backups\BackupProcessRunner;
+use App\Services\Backups\LocalBackupProcessRunner;
 use App\Services\Payment\PaymentGatewayInterface;
 use App\Services\Payment\PaymentGatewayManager;
 use App\Services\Payment\TBankPaymentGateway;
 use Carbon\CarbonImmutable;
+use GuzzleHttp\Exception\ConnectException;
+use GuzzleHttp\Middleware;
 use Illuminate\Support\Facades\Date;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\ServiceProvider;
-use GuzzleHttp\Middleware;
-use GuzzleHttp\Exception\ConnectException;
-use Psr\Http\Message\RequestInterface;
 use Illuminate\Validation\Rules\Password;
+use Psr\Http\Message\RequestInterface;
 
 class AppServiceProvider extends ServiceProvider
 {
@@ -46,6 +51,11 @@ class AppServiceProvider extends ServiceProvider
         $this->app->bind(PaymentGatewayInterface::class, function ($app) {
             return $app->make(PaymentGatewayManager::class)->getDefault();
         });
+
+        $this->app->bind(
+            BackupProcessRunner::class,
+            LocalBackupProcessRunner::class,
+        );
     }
 
     /**
@@ -87,8 +97,8 @@ class AppServiceProvider extends ServiceProvider
         WorkingHour::observe(WorkingHourObserver::class);
         BlockedTime::observe(BlockedTimeObserver::class);
         MasterService::observe(MasterServiceObserver::class);
-        \App\Models\RecurringBlockedTimeSeries::observe(\App\Observers\RecurringBlockedTimeSeriesObserver::class);
-        \App\Models\RecurringBlockedTimeException::observe(\App\Observers\RecurringBlockedTimeExceptionObserver::class);
+        RecurringBlockedTimeSeries::observe(RecurringBlockedTimeSeriesObserver::class);
+        RecurringBlockedTimeException::observe(RecurringBlockedTimeExceptionObserver::class);
         Subscription::observe(SubscriptionObserver::class);
 
         // Flush availability cache on any appointment change

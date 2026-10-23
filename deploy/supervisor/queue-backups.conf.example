@@ -1,0 +1,24 @@
+; Пример конфигурации Supervisor для отдельного воркера очереди backups.
+; НЕ устанавливается автоматически — положить в /etc/supervisor/conf.d/
+; на сервере и выполнить supervisorctl reread && supervisorctl update.
+;
+; Таймауты согласованы с config/backups.php и config/queue.php:
+;   process_timeout 600 < job_timeout 900 < stopwaitsecs 950 < retry_after 1200
+;   worker max-time 3300 — периодический перезапуск воркера.
+;
+; Общая очередь (queue:work default) и её таймауты не меняются.
+
+[program:queue-backups]
+process_name=%(program_name)s
+command=php /path/to/app/artisan queue:work backups --sleep=3 --tries=1 --max-time=3300
+directory=/path/to/app
+autostart=true
+autorestart=true
+stopasgroup=true
+killasgroup=true
+user=www-data
+numprocs=1
+redirect_stderr=true
+stdout_logfile=/var/log/supervisor/queue-backups.log
+stdout_logfile_maxbytes=50MB
+stopwaitsecs=950

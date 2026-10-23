@@ -50,6 +50,9 @@ const ACTION_LABELS: Record<string, string> = {
     'platform_admin.permissions_changed': 'Изменены права администратора',
     'platform_admin.activated': 'Доступ администратора включён',
     'platform_admin.deactivated': 'Доступ администратора отключён',
+    'backup.requested': 'Запрошена резервная копия БД',
+    'backup.succeeded': 'Резервная копия БД создана',
+    'backup.failed': 'Сбой резервной копии БД',
 };
 
 const DIFF_LABELS: Record<string, string> = {

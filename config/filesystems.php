@@ -96,6 +96,29 @@ return [
             'report' => false,
         ],
 
+        /*
+        |--------------------------------------------------------------------------
+        | Backup Disk (дампы PostgreSQL)
+        |--------------------------------------------------------------------------
+        |
+        | Отдельный приватный холодный бакет для резервных копий БД.
+        | Собственные BACKUP_S3_* переменные: MEDIA_* и AWS_* не читаются,
+        | публичный URL не формируется.
+        |
+        */
+
+        'backups_s3' => [
+            'driver' => 's3',
+            'key' => env('BACKUP_S3_KEY'),
+            'secret' => env('BACKUP_S3_SECRET'),
+            'region' => env('BACKUP_S3_REGION', 'ru-1'),
+            'bucket' => env('BACKUP_S3_BUCKET'),
+            'endpoint' => env('BACKUP_S3_ENDPOINT'),
+            'use_path_style_endpoint' => env('BACKUP_S3_PATH_STYLE', true),
+            'throw' => true,
+            'report' => false,
+        ],
+
     ],
 
     /*
