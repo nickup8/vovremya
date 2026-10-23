@@ -23,7 +23,7 @@ class TelegramAvatarSyncTest extends TestCase
         parent::setUp();
 
         config(['services.telegram.bot_token' => 'test-bot-token']);
-        Storage::fake('media');
+        Storage::fake('media_local');
         Storage::fake('public');
 
         Http::fake([
@@ -54,8 +54,8 @@ class TelegramAvatarSyncTest extends TestCase
         $user->refresh();
         $this->assertMatchesRegularExpression('#^/storage/avatars/[A-Za-z0-9]{40}\.jpg$#', $user->avatar_url);
         $this->assertStringNotContainsString(self::TELEGRAM_ID, (string) $user->avatar_url);
-        $this->assertTrue(Storage::disk('media')->exists((string) $user->avatar_path));
-        $this->assertSame('tg-image-bytes', Storage::disk('media')->get((string) $user->avatar_path));
+        $this->assertTrue(Storage::disk('media_local')->exists((string) $user->avatar_path));
+        $this->assertSame('tg-image-bytes', Storage::disk('media_local')->get((string) $user->avatar_path));
     }
 
     public function test_master_avatar_sync_is_skipped_when_avatar_exists(): void
@@ -81,7 +81,7 @@ class TelegramAvatarSyncTest extends TestCase
         $client->refresh();
         $this->assertMatchesRegularExpression('#^/storage/avatars/clients/[A-Za-z0-9]{40}\.jpg$#', (string) $client->avatar_url);
         $this->assertStringNotContainsString($telegramId, (string) $client->avatar_url);
-        $this->assertTrue(Storage::disk('media')->exists((string) $client->avatar_path));
+        $this->assertTrue(Storage::disk('media_local')->exists((string) $client->avatar_path));
     }
 
     public function test_client_avatar_sync_write_failure_leaves_avatar_unset_without_throwing(): void
@@ -91,7 +91,7 @@ class TelegramAvatarSyncTest extends TestCase
         $failing = \Mockery::mock(Filesystem::class);
         $failing->shouldReceive('put')->andThrow(new \RuntimeException('storage down'));
         $failing->shouldReceive('delete')->andReturn(false);
-        Storage::set('media', $failing);
+        Storage::set('media_local', $failing);
 
         $this->invokePrivate('syncClientTelegramAvatar', [$client, (string) $client->telegram_id]);
 

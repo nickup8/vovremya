@@ -22,13 +22,15 @@ use Throwable;
 class AvatarStorageService
 {
     /**
-     * Диск, на который пишутся новые аватары.
+     * Конкретный диск, на который пишутся новые аватары (media_local или
+     * media_s3). Существующий файл разрешается по сохранённому avatar_disk,
+     * а не по этому режиму.
      */
     public function disk(): string
     {
         $disk = config('avatars.disk');
 
-        return is_string($disk) && $disk !== '' ? $disk : 'media';
+        return is_string($disk) && $disk !== '' ? $disk : 'media_local';
     }
 
     /**

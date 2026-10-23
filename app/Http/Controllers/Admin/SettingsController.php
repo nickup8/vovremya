@@ -192,27 +192,39 @@ class SettingsController extends Controller
         $user = auth()->user();
         $file = $request->file('avatar');
 
-        if ($file->isValid()) {
-            try {
-                $avatarUrl = app(AvatarStorageService::class)->replace(
-                    $user,
-                    $file->getContent(),
-                    $file->getClientOriginalExtension()
-                );
-            } catch (Throwable $e) {
-                Log::warning('settings: avatar upload failed', [
-                    'user_id' => $user?->getAuthIdentifier(),
-                    'error' => $e->getMessage(),
-                ]);
-
-                // Старый аватар и его URL не тронуты.
-                return response()->json(['message' => 'Не удалось сохранить фото.'], 500);
-            }
-
-            return response()->json(['success' => true, 'avatar_url' => $avatarUrl]);
+        if (! $file->isValid()) {
+            return response()->json(['message' => 'Не удалось обработать файл.'], 400);
         }
 
-        return response()->json(['message' => 'Не удалось обработать файл.'], 400);
+        // Расширение объекта берётся из проверенного валидацией MIME
+        // содержимого, а не из имени файла (имя может быть подменено).
+        $extension = match ($file->getMimeType()) {
+            'image/jpeg' => 'jpg',
+            'image/png' => 'png',
+            default => null,
+        };
+
+        if ($extension === null) {
+            return response()->json(['message' => 'Не удалось обработать файл.'], 400);
+        }
+
+        try {
+            $avatarUrl = app(AvatarStorageService::class)->replace(
+                $user,
+                $file->getContent(),
+                $extension
+            );
+        } catch (Throwable $e) {
+            Log::warning('settings: avatar upload failed', [
+                'user_id' => $user?->getAuthIdentifier(),
+                'error' => $e->getMessage(),
+            ]);
+
+            // Старый аватар и его URL не тронуты.
+            return response()->json(['message' => 'Не удалось сохранить фото.'], 500);
+        }
+
+        return response()->json(['success' => true, 'avatar_url' => $avatarUrl]);
     }
 
     public function destroyAvatar(): RedirectResponse

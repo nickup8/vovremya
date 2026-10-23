@@ -4,6 +4,7 @@ namespace Tests\Feature\Console;
 
 use App\Models\Client;
 use App\Models\User;
+use App\Services\Avatars\AvatarStorageService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
 use Tests\Support\InterceptingFilesystem;
@@ -18,7 +19,14 @@ class MigrateAvatarsToS3CommandTest extends TestCase
         parent::setUp();
 
         Storage::fake('public');
-        Storage::fake('media');
+        Storage::fake('media_local');
+        Storage::fake('media_s3');
+
+        // Симуляция MEDIA_DRIVER=s3: цель переноса и новые загрузки — media_s3.
+        config([
+            'avatars.disk' => 'media_s3',
+            'filesystems.disks.media_s3.url' => 'https://cdn.example.com/irsi-media',
+        ]);
     }
 
     public function test_dry_run_lists_candidates_without_writing_or_deleting(): void
@@ -40,7 +48,7 @@ class MigrateAvatarsToS3CommandTest extends TestCase
         $this->assertNull($user->avatar_disk);
         $this->assertNull($user->avatar_path);
 
-        $this->assertSame([], Storage::disk('media')->allFiles('avatars'));
+        $this->assertSame([], Storage::disk('media_s3')->allFiles('avatars'));
         $this->assertTrue(Storage::disk('public')->exists('avatars/legacy.jpg'));
     }
 
@@ -59,12 +67,12 @@ class MigrateAvatarsToS3CommandTest extends TestCase
             ->assertExitCode(0);
 
         $user->refresh();
-        $this->assertSame('media', $user->avatar_disk);
+        $this->assertSame('media_s3', $user->avatar_disk);
         $this->assertMatchesRegularExpression('#^avatars/[A-Za-z0-9]{40}\.jpg$#', (string) $user->avatar_path);
-        $this->assertSame('/storage/'.$user->avatar_path, $user->avatar_url);
+        $this->assertSame('https://cdn.example.com/irsi-media/'.$user->avatar_path, $user->avatar_url);
 
-        $this->assertTrue(Storage::disk('media')->exists((string) $user->avatar_path));
-        $this->assertSame('legacy-bytes', Storage::disk('media')->get((string) $user->avatar_path));
+        $this->assertTrue(Storage::disk('media_s3')->exists((string) $user->avatar_path));
+        $this->assertSame('legacy-bytes', Storage::disk('media_s3')->get((string) $user->avatar_path));
 
         // Локальный оригинал сохранён.
         $this->assertTrue(Storage::disk('public')->exists('avatars/legacy.jpg'));
@@ -83,14 +91,14 @@ class MigrateAvatarsToS3CommandTest extends TestCase
 
         $client->refresh();
         $this->assertMatchesRegularExpression('#^avatars/clients/[A-Za-z0-9]{40}\.jpg$#', (string) $client->avatar_path);
-        $this->assertTrue(Storage::disk('media')->exists((string) $client->avatar_path));
+        $this->assertTrue(Storage::disk('media_s3')->exists((string) $client->avatar_path));
         $this->assertTrue(Storage::disk('public')->exists('avatars/clients/legacy.jpg'));
     }
 
     public function test_rerun_is_idempotent_and_foreign_objects_are_not_overwritten(): void
     {
         Storage::disk('public')->put('avatars/legacy.jpg', 'legacy-bytes');
-        Storage::disk('media')->put('avatars/foreign-object.jpg', 'foreign-bytes');
+        Storage::disk('media_s3')->put('avatars/foreign-object.jpg', 'foreign-bytes');
 
         $user = User::factory()->create([
             'avatar_url' => '/storage/avatars/legacy.jpg',
@@ -112,8 +120,78 @@ class MigrateAvatarsToS3CommandTest extends TestCase
         $this->assertSame($firstUrl, $user->avatar_url);
         $this->assertSame($firstPath, $user->avatar_path);
 
-        $this->assertSame('foreign-bytes', Storage::disk('media')->get('avatars/foreign-object.jpg'));
-        $this->assertCount(2, Storage::disk('media')->allFiles('avatars'));
+        $this->assertSame('foreign-bytes', Storage::disk('media_s3')->get('avatars/foreign-object.jpg'));
+        $this->assertCount(2, Storage::disk('media_s3')->allFiles('avatars'));
+    }
+
+    public function test_upload_at_local_then_switch_to_s3_migrates_with_content_check_and_db_update(): void
+    {
+        config(['avatars.disk' => 'media_local']);
+
+        $user = User::factory()->create(['avatar_url' => null]);
+        app(AvatarStorageService::class)->replace($user, 'local-avatar-bytes', 'jpg');
+
+        $user->refresh();
+        $this->assertSame('media_local', $user->avatar_disk);
+        $localUrl = (string) $user->avatar_url;
+        $localPath = (string) $user->avatar_path;
+        $this->assertTrue(Storage::disk('media_local')->exists($localPath));
+
+        // Переключение режима новых загрузок на S3: ссылки на локальные
+        // файлы сохраняют смысл и не считаются уже перенесёнными.
+        config(['avatars.disk' => 'media_s3']);
+
+        $this->artisan('avatars:migrate-to-s3')
+            ->expectsOutputToContain('migrated: 1')
+            ->assertExitCode(0);
+
+        $user->refresh();
+        $this->assertSame('media_s3', $user->avatar_disk);
+        $this->assertNotSame($localUrl, $user->avatar_url);
+        $this->assertSame(
+            'https://cdn.example.com/irsi-media/'.$user->avatar_path,
+            $user->avatar_url
+        );
+
+        // Содержимое скопированного объекта совпадает с локальным оригиналом.
+        $this->assertTrue(Storage::disk('media_s3')->exists((string) $user->avatar_path));
+        $this->assertSame('local-avatar-bytes', Storage::disk('media_s3')->get((string) $user->avatar_path));
+
+        // Локальный оригинал сохранён.
+        $this->assertTrue(Storage::disk('media_local')->exists($localPath));
+        $this->assertSame('local-avatar-bytes', Storage::disk('media_local')->get($localPath));
+    }
+
+    public function test_rerun_after_switch_is_safe_and_keeps_local_originals(): void
+    {
+        config(['avatars.disk' => 'media_local']);
+
+        $user = User::factory()->create(['avatar_url' => null]);
+        app(AvatarStorageService::class)->replace($user, 'local-avatar-bytes', 'jpg');
+
+        $user->refresh();
+        $localPath = (string) $user->avatar_path;
+
+        config(['avatars.disk' => 'media_s3']);
+        $this->artisan('avatars:migrate-to-s3')->assertExitCode(0);
+
+        $user->refresh();
+        $firstUrl = $user->avatar_url;
+        $firstPath = $user->avatar_path;
+
+        $this->artisan('avatars:migrate-to-s3')
+            ->expectsOutputToContain('already migrated: 1')
+            ->assertExitCode(0);
+
+        $user->refresh();
+        $this->assertSame('media_s3', $user->avatar_disk);
+        $this->assertSame($firstUrl, $user->avatar_url);
+        $this->assertSame($firstPath, $user->avatar_path);
+
+        // Локальные оригиналы пережили оба запуска, содержимое не изменилось.
+        $this->assertTrue(Storage::disk('media_local')->exists($localPath));
+        $this->assertSame('local-avatar-bytes', Storage::disk('media_local')->get($localPath));
+        $this->assertSame('local-avatar-bytes', Storage::disk('media_s3')->get((string) $firstPath));
     }
 
     public function test_missing_local_file_is_reported_and_fails(): void
@@ -131,7 +209,7 @@ class MigrateAvatarsToS3CommandTest extends TestCase
         $user->refresh();
         $this->assertSame('/storage/avatars/gone.jpg', $user->avatar_url);
         $this->assertNull($user->avatar_disk);
-        $this->assertSame([], Storage::disk('media')->allFiles('avatars'));
+        $this->assertSame([], Storage::disk('media_s3')->allFiles('avatars'));
     }
 
     public function test_verification_mismatch_rolls_back_object_and_keeps_record(): void
@@ -144,9 +222,9 @@ class MigrateAvatarsToS3CommandTest extends TestCase
             'avatar_path' => null,
         ]);
 
-        $wrapped = new InterceptingFilesystem(Storage::disk('media'));
+        $wrapped = new InterceptingFilesystem(Storage::disk('media_s3'));
         $wrapped->tamperRead = fn (string $value): string => $value.'-tampered';
-        Storage::set('media', $wrapped);
+        Storage::set('media_s3', $wrapped);
 
         $this->artisan('avatars:migrate-to-s3')
             ->expectsOutputToContain('verification mismatches: 1')
@@ -170,13 +248,13 @@ class MigrateAvatarsToS3CommandTest extends TestCase
             'avatar_path' => null,
         ]);
 
-        $wrapped = new InterceptingFilesystem(Storage::disk('media'));
+        $wrapped = new InterceptingFilesystem(Storage::disk('media_s3'));
         $wrapped->beforePut = function () use ($user): void {
             User::query()->whereKey($user->getKey())->update([
                 'avatar_url' => '/storage/avatars/winner.jpg',
             ]);
         };
-        Storage::set('media', $wrapped);
+        Storage::set('media_s3', $wrapped);
 
         $this->artisan('avatars:migrate-to-s3')
             ->expectsOutputToContain('conflicts: 1')
@@ -206,13 +284,14 @@ class MigrateAvatarsToS3CommandTest extends TestCase
         $user->refresh();
         $this->assertSame('https://cdn.example.com/avatar.jpg', $user->avatar_url);
         $this->assertNull($user->avatar_disk);
-        $this->assertSame([], Storage::disk('media')->allFiles('avatars'));
+        $this->assertSame([], Storage::disk('media_s3')->allFiles('avatars'));
     }
 
     public function test_real_run_refuses_when_media_disk_shares_public_root(): void
     {
-        // Целевой диск указывает на тот же root, что и public.
-        Storage::set('media', Storage::disk('public'));
+        // Локальная цель указывает на тот же root, что и public.
+        config(['avatars.disk' => 'media_local']);
+        Storage::set('media_local', Storage::disk('public'));
 
         $this->artisan('avatars:migrate-to-s3')
             ->assertExitCode(1);
@@ -220,10 +299,7 @@ class MigrateAvatarsToS3CommandTest extends TestCase
 
     public function test_real_run_refuses_without_media_public_url_on_s3(): void
     {
-        config([
-            'filesystems.disks.media.driver' => 's3',
-            'filesystems.disks.media.url' => null,
-        ]);
+        config(['filesystems.disks.media_s3.url' => null]);
 
         $this->artisan('avatars:migrate-to-s3')
             ->expectsOutputToContain('MEDIA_PUBLIC_URL')

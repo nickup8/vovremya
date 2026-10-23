@@ -23,7 +23,8 @@ class AvatarStorageServiceTest extends TestCase
     {
         parent::setUp();
 
-        Storage::fake('media');
+        Storage::fake('media_local');
+        Storage::fake('media_s3');
         Storage::fake('public');
 
         $this->service = app(AvatarStorageService::class);
@@ -45,16 +46,16 @@ class AvatarStorageServiceTest extends TestCase
 
         $user->refresh();
         $this->assertSame($url, $user->avatar_url);
-        $this->assertSame('media', $user->avatar_disk);
+        $this->assertSame('media_local', $user->avatar_disk);
         $this->assertSame('avatars/'.substr($url, strlen('/storage/avatars/')), $user->avatar_path);
 
-        $this->assertTrue(Storage::disk('media')->exists($user->avatar_path));
-        $this->assertSame('avatar-bytes', Storage::disk('media')->get($user->avatar_path));
+        $this->assertTrue(Storage::disk('media_local')->exists($user->avatar_path));
+        $this->assertSame('avatar-bytes', Storage::disk('media_local')->get($user->avatar_path));
     }
 
     public function test_replace_uses_local_disk_by_default_without_fake(): void
     {
-        Storage::set('media', Storage::createLocalDriver([
+        Storage::set('media_local', Storage::createLocalDriver([
             'root' => storage_path('app/public'),
             'throw' => true,
         ]));
@@ -93,7 +94,7 @@ class AvatarStorageServiceTest extends TestCase
 
         $this->assertNotSame('/storage/avatars/old.jpg', $url);
         $this->assertFalse(Storage::disk('public')->exists('avatars/old.jpg'));
-        $this->assertTrue(Storage::disk('media')->exists('avatars/'.substr($url, strlen('/storage/avatars/'))));
+        $this->assertTrue(Storage::disk('media_local')->exists('avatars/'.substr($url, strlen('/storage/avatars/'))));
     }
 
     public function test_failed_write_keeps_old_file_and_url(): void
@@ -109,7 +110,7 @@ class AvatarStorageServiceTest extends TestCase
         $failing = Mockery::mock(Filesystem::class);
         $failing->shouldReceive('put')->andThrow(new \RuntimeException('S3 unavailable'));
         $failing->shouldReceive('delete')->andReturn(false);
-        Storage::set('media', $failing);
+        Storage::set('media_local', $failing);
 
         try {
             $this->service->replace($user, 'new-bytes', 'jpg');
@@ -161,7 +162,7 @@ class AvatarStorageServiceTest extends TestCase
         $this->assertTrue(Storage::disk('public')->exists('avatars/old.jpg'));
 
         // Новый файл удалён после ошибки БД.
-        $this->assertSame([], Storage::disk('media')->allFiles('avatars'));
+        $this->assertSame([], Storage::disk('media_local')->allFiles('avatars'));
     }
 
     public function test_concurrent_change_is_not_overwritten_and_stale_file_removed(): void
@@ -174,13 +175,13 @@ class AvatarStorageServiceTest extends TestCase
             'avatar_path' => null,
         ]);
 
-        $wrapped = new InterceptingFilesystem(Storage::disk('media'));
+        $wrapped = new InterceptingFilesystem(Storage::disk('media_local'));
         $wrapped->beforePut = function () use ($user): void {
             $user->newQuery()
                 ->whereKey($user->getKey())
                 ->update(['avatar_url' => '/storage/avatars/concurrent.jpg']);
         };
-        Storage::set('media', $wrapped);
+        Storage::set('media_local', $wrapped);
 
         try {
             $this->service->replace($user, 'new-bytes', 'jpg');
@@ -274,11 +275,11 @@ class AvatarStorageServiceTest extends TestCase
 
         $explicit = (new User)->forceFill([
             'avatar_url' => 'https://cdn.example.com/x.jpg',
-            'avatar_disk' => 'media',
+            'avatar_disk' => 'media_local',
             'avatar_path' => 'avatars/x.jpg',
         ]);
         $this->assertSame(
-            ['owned' => true, 'disk' => 'media', 'path' => 'avatars/x.jpg'],
+            ['owned' => true, 'disk' => 'media_local', 'path' => 'avatars/x.jpg'],
             $explicit->avatarReference()
         );
 
@@ -291,7 +292,7 @@ class AvatarStorageServiceTest extends TestCase
 
         $traversal = (new User)->forceFill([
             'avatar_url' => null,
-            'avatar_disk' => 'media',
+            'avatar_disk' => 'media_local',
             'avatar_path' => 'avatars/../../secrets.env',
         ]);
         $this->assertFalse($traversal->avatarReference()['owned']);
@@ -300,8 +301,8 @@ class AvatarStorageServiceTest extends TestCase
     public function test_url_builds_absolute_s3_url_from_configured_public_url(): void
     {
         config([
-            'filesystems.disks.media.driver' => 's3',
-            'filesystems.disks.media.url' => 'https://cdn.example.com/irsi-media',
+            'avatars.disk' => 'media_s3',
+            'filesystems.disks.media_s3.url' => 'https://cdn.example.com/irsi-media',
         ]);
 
         $user = User::factory()->create(['avatar_url' => null]);
@@ -311,14 +312,15 @@ class AvatarStorageServiceTest extends TestCase
         $this->assertMatchesRegularExpression('#^https://cdn\.example\.com/irsi-media/avatars/[A-Za-z0-9]{40}\.jpg$#', $url);
         $user->refresh();
         $this->assertSame($url, $user->avatar_url);
-        $this->assertTrue(Storage::disk('media')->exists($user->avatar_path));
+        $this->assertSame('media_s3', $user->avatar_disk);
+        $this->assertTrue(Storage::disk('media_s3')->exists($user->avatar_path));
     }
 
     public function test_s3_without_public_url_fails_without_saving(): void
     {
         config([
-            'filesystems.disks.media.driver' => 's3',
-            'filesystems.disks.media.url' => null,
+            'avatars.disk' => 'media_s3',
+            'filesystems.disks.media_s3.url' => null,
         ]);
 
         $user = User::factory()->create(['avatar_url' => null]);
@@ -332,7 +334,7 @@ class AvatarStorageServiceTest extends TestCase
 
         $user->refresh();
         $this->assertNull($user->avatar_url);
-        $this->assertSame([], Storage::disk('media')->allFiles('avatars'));
+        $this->assertSame([], Storage::disk('media_s3')->allFiles('avatars'));
     }
 
     public function test_client_avatar_goes_to_clients_directory(): void
@@ -345,6 +347,109 @@ class AvatarStorageServiceTest extends TestCase
 
         $client->refresh();
         $this->assertSame('avatars/clients/'.substr($url, strlen('/storage/avatars/clients/')), $client->avatar_path);
-        $this->assertTrue(Storage::disk('media')->exists($client->avatar_path));
+        $this->assertTrue(Storage::disk('media_local')->exists($client->avatar_path));
+    }
+
+    public function test_replace_after_switch_to_s3_deletes_previous_local_avatar_from_local_storage(): void
+    {
+        config(['avatars.disk' => 'media_local']);
+
+        $user = User::factory()->create(['avatar_url' => null]);
+        $this->service->replace($user, 'old-local-bytes', 'jpg');
+        $user->refresh();
+        $oldPath = (string) $user->avatar_path;
+        $this->assertTrue(Storage::disk('media_local')->exists($oldPath));
+
+        // Переключение режима новых загрузок на S3.
+        config([
+            'avatars.disk' => 'media_s3',
+            'filesystems.disks.media_s3.url' => 'https://cdn.example.com/irsi-media',
+        ]);
+
+        $url = $this->service->replace($user, 'new-s3-bytes', 'jpg');
+
+        $this->assertMatchesRegularExpression('#^https://cdn\.example\.com/irsi-media/avatars/[A-Za-z0-9]{40}\.jpg$#', $url);
+
+        $user->refresh();
+        $this->assertSame('media_s3', $user->avatar_disk);
+        $this->assertSame($url, $user->avatar_url);
+        $this->assertSame('new-s3-bytes', Storage::disk('media_s3')->get((string) $user->avatar_path));
+
+        // Старый аватар удалён именно из локального хранилища.
+        $this->assertFalse(Storage::disk('media_local')->exists($oldPath));
+    }
+
+    public function test_remove_after_switch_to_s3_deletes_local_avatar_from_local_storage(): void
+    {
+        config(['avatars.disk' => 'media_local']);
+
+        $user = User::factory()->create(['avatar_url' => null]);
+        $this->service->replace($user, 'local-bytes', 'jpg');
+        $user->refresh();
+        $oldPath = (string) $user->avatar_path;
+        $this->assertTrue(Storage::disk('media_local')->exists($oldPath));
+
+        config(['avatars.disk' => 'media_s3']);
+
+        $this->assertTrue($this->service->remove($user));
+
+        $user->refresh();
+        $this->assertNull($user->avatar_url);
+        // Удаление обращается к локальному хранилищу, а не к S3.
+        $this->assertFalse(Storage::disk('media_local')->exists($oldPath));
+        $this->assertSame([], Storage::disk('media_s3')->allFiles('avatars'));
+    }
+
+    public function test_replace_after_return_to_local_deletes_previous_s3_avatar_from_s3_storage(): void
+    {
+        config([
+            'avatars.disk' => 'media_s3',
+            'filesystems.disks.media_s3.url' => 'https://cdn.example.com/irsi-media',
+        ]);
+
+        $user = User::factory()->create(['avatar_url' => null]);
+        $this->service->replace($user, 'old-s3-bytes', 'jpg');
+        $user->refresh();
+        $oldPath = (string) $user->avatar_path;
+        $this->assertTrue(Storage::disk('media_s3')->exists($oldPath));
+
+        // Возврат к локальным загрузкам.
+        config(['avatars.disk' => 'media_local']);
+
+        $url = $this->service->replace($user, 'new-local-bytes', 'jpg');
+
+        $this->assertMatchesRegularExpression('#^/storage/avatars/[A-Za-z0-9]{40}\.jpg$#', $url);
+
+        $user->refresh();
+        $this->assertSame('media_local', $user->avatar_disk);
+        $this->assertSame($url, $user->avatar_url);
+        $this->assertSame('new-local-bytes', Storage::disk('media_local')->get((string) $user->avatar_path));
+
+        // Старый аватар удалён именно из S3, а не из локального хранилища.
+        $this->assertFalse(Storage::disk('media_s3')->exists($oldPath));
+    }
+
+    public function test_remove_after_return_to_local_deletes_s3_avatar_from_s3_storage(): void
+    {
+        config([
+            'avatars.disk' => 'media_s3',
+            'filesystems.disks.media_s3.url' => 'https://cdn.example.com/irsi-media',
+        ]);
+
+        $user = User::factory()->create(['avatar_url' => null]);
+        $this->service->replace($user, 's3-bytes', 'jpg');
+        $user->refresh();
+        $oldPath = (string) $user->avatar_path;
+        $this->assertTrue(Storage::disk('media_s3')->exists($oldPath));
+
+        config(['avatars.disk' => 'media_local']);
+
+        $this->assertTrue($this->service->remove($user));
+
+        $user->refresh();
+        $this->assertNull($user->avatar_url);
+        // Удаление обращается к S3, а не к локальному хранилищу.
+        $this->assertFalse(Storage::disk('media_s3')->exists($oldPath));
+        $this->assertSame([], Storage::disk('media_local')->allFiles('avatars'));
     }
 }

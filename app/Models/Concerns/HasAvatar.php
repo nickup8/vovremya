@@ -7,7 +7,9 @@ use App\Services\Avatars\AvatarPath;
 /**
  * Единая модель хранения аватаров: avatar_url — публичный URL для фронтенда,
  * avatar_disk/avatar_path — точная ссылка на принадлежащий приложению файл.
- * Старые записи (avatar_disk/avatar_path = null) разбираются из avatar_url.
+ * avatar_disk хранит конкретный идентификатор хранилища (public/media_local/
+ * media_s3), не меняющий смысл при переключении MEDIA_DRIVER. Старые записи
+ * (avatar_disk/avatar_path = null) разбираются из avatar_url.
  *
  * @property string|null $avatar_url
  * @property string|null $avatar_disk

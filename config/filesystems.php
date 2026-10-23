@@ -62,36 +62,39 @@ return [
 
         /*
         |--------------------------------------------------------------------------
-        | Media Disk (avatars)
+        | Media Disks (avatars)
         |--------------------------------------------------------------------------
         |
-        | Отдельный диск для аватаров. По умолчанию — локальные загрузки
-        | (MEDIA_DRIVER=local), S3 включается явно через MEDIA_DRIVER=s3.
-        | Дефолтный FILESYSTEM_DISK и существующие диски не переключаются.
+        | Два конкретных диска для аватаров: media_local (локальный) и
+        | media_s3 (S3). MEDIA_DRIVER выбирает только диск, на который пишутся
+        | НОВЫЕ аватары (см. config/avatars.php); конфигурация каждого диска
+        | от режима не зависит, поэтому сохранённые в БД идентификаторы не
+        | меняют смысл. Дефолтный FILESYSTEM_DISK и существующие диски
+        | local/public/s3 не переключаются.
         |
         */
 
-        'media' => env('MEDIA_DRIVER', 'local') === 's3'
-            ? [
-                'driver' => 's3',
-                'key' => env('MEDIA_S3_KEY'),
-                'secret' => env('MEDIA_S3_SECRET'),
-                'region' => env('MEDIA_S3_REGION', 'ru-1'),
-                'bucket' => env('MEDIA_S3_BUCKET'),
-                'endpoint' => env('MEDIA_S3_ENDPOINT'),
-                'url' => env('MEDIA_PUBLIC_URL'),
-                'use_path_style_endpoint' => env('MEDIA_S3_PATH_STYLE', true),
-                'throw' => true,
-                'report' => false,
-            ]
-            : [
-                'driver' => 'local',
-                'root' => storage_path('app/public'),
-                'url' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/storage',
-                'visibility' => 'public',
-                'throw' => true,
-                'report' => false,
-            ],
+        'media_local' => [
+            'driver' => 'local',
+            'root' => storage_path('app/public'),
+            'url' => rtrim((string) env('APP_URL', 'http://localhost'), '/').'/storage',
+            'visibility' => 'public',
+            'throw' => true,
+            'report' => false,
+        ],
+
+        'media_s3' => [
+            'driver' => 's3',
+            'key' => env('MEDIA_S3_KEY'),
+            'secret' => env('MEDIA_S3_SECRET'),
+            'region' => env('MEDIA_S3_REGION', 'ru-1'),
+            'bucket' => env('MEDIA_S3_BUCKET'),
+            'endpoint' => env('MEDIA_S3_ENDPOINT'),
+            'url' => env('MEDIA_PUBLIC_URL'),
+            'use_path_style_endpoint' => env('MEDIA_S3_PATH_STYLE', true),
+            'throw' => true,
+            'report' => false,
+        ],
 
     ],
 

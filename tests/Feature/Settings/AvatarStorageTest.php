@@ -18,7 +18,7 @@ class AvatarStorageTest extends TestCase
     {
         parent::setUp();
 
-        Storage::fake('media');
+        Storage::fake('media_local');
         Storage::fake('public');
     }
 
@@ -40,8 +40,8 @@ class AvatarStorageTest extends TestCase
 
         $user->refresh();
         $this->assertSame($url, $user->avatar_url);
-        $this->assertSame('media', $user->avatar_disk);
-        $this->assertTrue(Storage::disk('media')->exists($user->avatar_path));
+        $this->assertSame('media_local', $user->avatar_disk);
+        $this->assertTrue(Storage::disk('media_local')->exists($user->avatar_path));
         $this->assertFalse(Storage::disk('public')->exists($user->avatar_path));
     }
 
@@ -70,7 +70,7 @@ class AvatarStorageTest extends TestCase
 
         // Старый файл удалён только после успешной записи и обновления БД.
         $this->assertFalse(Storage::disk('public')->exists('avatars/legacy-old.jpg'));
-        $this->assertTrue(Storage::disk('media')->exists($user->avatar_path));
+        $this->assertTrue(Storage::disk('media_local')->exists($user->avatar_path));
     }
 
     public function test_avatar_upload_rejects_invalid_file(): void
@@ -93,7 +93,7 @@ class AvatarStorageTest extends TestCase
         $user->refresh();
         $this->assertSame('/storage/avatars/keep.jpg', $user->avatar_url);
         $this->assertTrue(Storage::disk('public')->exists('avatars/keep.jpg'));
-        $this->assertSame([], Storage::disk('media')->allFiles('avatars'));
+        $this->assertSame([], Storage::disk('media_local')->allFiles('avatars'));
     }
 
     public function test_failed_write_keeps_previous_avatar_and_url(): void
@@ -109,7 +109,7 @@ class AvatarStorageTest extends TestCase
         $failing = Mockery::mock(Filesystem::class);
         $failing->shouldReceive('put')->andThrow(new \RuntimeException('storage down'));
         $failing->shouldReceive('delete')->andReturn(false);
-        Storage::set('media', $failing);
+        Storage::set('media_local', $failing);
 
         $response = $this
             ->actingAs($user)
@@ -161,5 +161,44 @@ class AvatarStorageTest extends TestCase
         $user->refresh();
         $this->assertNull($user->avatar_url);
         $this->assertTrue(Storage::disk('public')->exists('avatars/keep.jpg'));
+    }
+
+    public function test_jpeg_with_spoofed_file_name_is_stored_with_jpg_extension(): void
+    {
+        $user = User::factory()->create(['avatar_url' => null]);
+
+        // JPEG-содержимое, но имя файла подменено на .png. Настоящий
+        // UploadedFile (не Testing\File): MIME берётся из содержимого,
+        // как в реальном запросе.
+        $jpeg = UploadedFile::fake()->image('real.jpg');
+        $jpegBytes = file_get_contents($jpeg->getPathname());
+        $this->assertIsString($jpegBytes);
+
+        $tempPath = tempnam(sys_get_temp_dir(), 'avatar');
+        $this->assertIsString($tempPath);
+        file_put_contents($tempPath, $jpegBytes);
+        $spoofed = new UploadedFile($tempPath, 'spoofed.png', null, null, true);
+
+        try {
+            $response = $this
+                ->actingAs($user)
+                ->post(route('admin.settings.avatar'), [
+                    'avatar' => $spoofed,
+                ]);
+        } finally {
+            @unlink($tempPath);
+        }
+
+        $response->assertOk();
+        $response->assertJson(['success' => true]);
+
+        $url = (string) $response->json('avatar_url');
+        $this->assertMatchesRegularExpression('#^/storage/avatars/[A-Za-z0-9]{40}\.jpg$#', $url);
+
+        $user->refresh();
+        $this->assertMatchesRegularExpression('#^avatars/[A-Za-z0-9]{40}\.jpg$#', (string) $user->avatar_path);
+        $this->assertStringNotContainsString('.png', (string) $user->avatar_path);
+        $this->assertSame('media_local', $user->avatar_disk);
+        $this->assertTrue(Storage::disk('media_local')->exists((string) $user->avatar_path));
     }
 }

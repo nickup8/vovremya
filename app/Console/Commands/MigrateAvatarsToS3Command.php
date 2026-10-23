@@ -17,7 +17,7 @@ class MigrateAvatarsToS3Command extends Command
     protected $signature = 'avatars:migrate-to-s3
         {--dry-run : Показать, что будет перенесено, без записей в БД/S3 и без удалений}';
 
-    protected $description = 'Copy local avatars to the media (S3) disk: size + SHA-256 verification, conditional DB update, local originals kept';
+    protected $description = 'Copy local avatars to the media_s3 disk: size + SHA-256 verification, conditional DB update, local originals kept';
 
     private int $migrated = 0;
 
