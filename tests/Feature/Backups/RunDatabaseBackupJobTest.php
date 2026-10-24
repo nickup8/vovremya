@@ -7,10 +7,12 @@ use App\Enums\BackupTrigger;
 use App\Exceptions\Backups\BackupCaptureLost;
 use App\Jobs\RunDatabaseBackupJob;
 use App\Models\DatabaseBackup;
+use App\Models\User;
 use App\Services\Backups\BackupProcessRunner;
 use App\Services\Backups\DatabaseBackupService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use Tests\Support\Backups\FakeBackupProcessRunner;
 use Tests\TestCase;
 
@@ -133,7 +135,7 @@ class RunDatabaseBackupJobTest extends TestCase
         // захватил копию — run() бросает BackupCaptureLost.
         $service = new class(app(BackupProcessRunner::class)) extends DatabaseBackupService
         {
-            public function run(DatabaseBackup $backup): void
+            public function run(DatabaseBackup $backup, ?string $executionToken = null): void
             {
                 throw new BackupCaptureLost;
             }
@@ -151,11 +153,13 @@ class RunDatabaseBackupJobTest extends TestCase
     {
         config(['filesystems.disks.backups_s3.secret' => 'S3Secret-MARKER-hook']);
 
+        $token = (string) Str::uuid();
         $backup = $this->makeBackup(BackupStatus::Running, [
             'started_at' => now()->subMinutes(10),
+            'execution_token' => $token,
         ]);
 
-        (new RunDatabaseBackupJob($backup->getKey()))->failed(
+        (new RunDatabaseBackupJob($backup->getKey(), $token))->failed(
             new \RuntimeException('worker died secret=S3Secret-MARKER-hook'),
         );
 
@@ -163,6 +167,29 @@ class RunDatabaseBackupJobTest extends TestCase
         $this->assertSame(BackupStatus::Failed, $fresh->status);
         $this->assertStringContainsString('прерван', (string) $fresh->error_message);
         $this->assertStringNotContainsString('S3Secret-MARKER-hook', (string) $fresh->error_message);
+    }
+
+    public function test_failed_hook_does_not_interrupt_foreign_execution(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+
+        $foreignToken = (string) Str::uuid();
+        $backup = $this->makeBackup(BackupStatus::Running, [
+            'started_at' => now()->subMinutes(10),
+            'execution_token' => $foreignToken,
+        ]);
+
+        // Запоздавший failed()-хук другой доставки: чужой живой запуск
+        // не прерывается и не получает ложное уведомление.
+        (new RunDatabaseBackupJob($backup->getKey(), (string) Str::uuid()))->failed(
+            new \RuntimeException('late foreign failure'),
+        );
+
+        $fresh = $backup->fresh();
+        $this->assertSame(BackupStatus::Running, $fresh->status);
+        $this->assertSame($foreignToken, $fresh->execution_token);
+        $this->assertNull($fresh->error_message);
+        $this->assertSame(0, $admin->notifications()->count());
     }
 
     public function test_failed_hook_does_not_resurrect_terminal_backup(): void

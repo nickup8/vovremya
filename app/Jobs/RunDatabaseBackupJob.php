@@ -13,12 +13,13 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Throwable;
 
 /**
  * Выполнение резервной копии в очереди 'backups' (connection 'backups').
- * Сериализуется только id копии — никаких моделей, секретов и параметров
- * подключения. Повторная доставка идемпотентна.
+ * Сериализуется только id копии и токен доставки — никаких моделей,
+ * секретов и параметров подключения. Повторная доставка идемпотентна.
  */
 class RunDatabaseBackupJob implements ShouldQueue
 {
@@ -29,9 +30,18 @@ class RunDatabaseBackupJob implements ShouldQueue
 
     public int $timeout;
 
+    /**
+     * Токен этой доставки — он же execution_token копии. Хранится в job,
+     * чтобы failed()-хук (отдельная десериализация команды) мог fenced-
+     * прервать ТОЛЬКО своё исполнение, а не чужой/перехваченный запуск.
+     */
+    public ?string $executionToken = null;
+
     public function __construct(
         private readonly string $backupId,
+        ?string $executionToken = null,
     ) {
+        $this->executionToken = $executionToken;
         $this->timeout = (int) config('backups.job_timeout', 900);
     }
 
@@ -55,8 +65,10 @@ class RunDatabaseBackupJob implements ShouldQueue
             return;
         }
 
+        $this->executionToken ??= (string) Str::uuid();
+
         try {
-            $service->run($backup);
+            $service->run($backup, $this->executionToken);
         } catch (BackupCaptureLost) {
             // Гонка доставок: между проверкой статуса и begin() копию
             // захватил другой воркер. No-op: failed()-хук не должен
@@ -70,6 +82,7 @@ class RunDatabaseBackupJob implements ShouldQueue
     /**
      * В failed_jobs уходит только санитизированное сообщение BackupException
      * (run() не пробрасывает исходное исключение и его previous-цепочку).
+     * Прерывается только исполнение этой доставки (execution_token).
      */
     public function failed(Throwable $e): void
     {
@@ -78,6 +91,7 @@ class RunDatabaseBackupJob implements ShouldQueue
         app(DatabaseBackupService::class)->markInterruptedIfActive(
             $this->backupId,
             'Задание прервано: '.$safe,
+            $this->executionToken,
         );
 
         Log::error('Backups: job завершился с ошибкой', [

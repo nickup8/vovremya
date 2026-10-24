@@ -98,6 +98,10 @@ return [
     // running старше этого срока считается зависшим и помечается прерванной.
     'stale_after' => max(600, (int) env('BACKUP_STALE_AFTER', 1800)),
 
+    // Сколько раз backups:recover повторяет очистку незавершённых объектов
+    // после неудачного delete (состояние cleanup_pending_at).
+    'cleanup_retry_max' => max(1, (int) env('BACKUP_CLEANUP_RETRY_MAX', 5)),
+
     /*
     |--------------------------------------------------------------------------
     | Freshness Warning

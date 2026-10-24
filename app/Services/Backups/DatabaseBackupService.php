@@ -124,28 +124,42 @@ class DatabaseBackupService
      *
      * Различает: queued с job (ждёт живого воркера), queued без job
      * (потерянное задание → повторная постановка), running stale
-     * (прерванное выполнение → failed + очистка незавершённых объектов).
+     * (прерванное выполнение → failed + очистка незавершённых объектов),
+     * cleanup_pending_at (неуданная очистка → ограниченный повтор).
      */
     public function recoverActiveBackups(): void
     {
         $this->reclaimStaleRunning();
         $this->redispatchLostQueued();
+        $this->retryPendingCleanup();
     }
 
     /**
-     * Полный цикл создания копии. Любой сбой → безопасная запись ошибки,
-     * database-уведомление ROOT, очистка незавершённых объектов и rethrow
-     * УЖЕ санитизированного BackupException (без исходного previous).
+     * Полный цикл создания копии. Сбой до/во время записи успеха →
+     * безопасная запись ошибки, database-уведомление ROOT, очистка ТОЛЬКО
+     * объектов этого исполнения и rethrow УЖЕ санитизированного
+     * BackupException (без исходного previous).
+     *
+     * Завершение отделено от ротации: после подтверждённого success сбой
+     * ротации/аудита/дальнейших действий не вызывает cleanup новой копии и
+     * не меняет статус — ошибка пишется отдельно (prune_error_message).
+     *
+     * @param  string|null  $executionToken  токен доставки job: он же
+     *                                       execution_token, по нему поздние
+     *                                       failed()/CAS отличают своё
+     *                                       исполнение; иначе генерируется.
      */
-    public function run(DatabaseBackup $backup): void
+    public function run(DatabaseBackup $backup, ?string $executionToken = null): void
     {
-        $token = $this->begin($backup);
+        $token = $this->begin($backup, $executionToken);
 
         $tmpDir = null;
-        $intendedKeys = [];
+
+        /** @var list<string> $claimedKeys Ключи, свободность которых подтвердило это исполнение. */
+        $claimedKeys = [];
 
         try {
-            $tmpDir = $this->createTempDirectory($backup);
+            $tmpDir = $this->createTempDirectory($backup, $token);
             $dumpPath = $tmpDir.'/database.dump';
 
             $this->runPgDump($tmpDir, $dumpPath);
@@ -156,14 +170,15 @@ class DatabaseBackupService
             $pgVersion = $this->postgresVersion();
             $appVersion = (string) config('app.version');
 
-            $objectKey = $this->objectKey($backup);
+            $objectKey = $this->objectKey($backup, $token);
             $manifestKey = $objectKey.'.manifest.json';
 
-            // Учёт намерения ДО HTTP: recovery/ошибка смогут убрать объекты.
-            $this->recordIntendedKeys($backup, $token, $objectKey, $manifestKey);
-            $intendedKeys = [$objectKey, $manifestKey];
-
+            // Ключ записывается как наш ТОЛЬКО после проверки, что он свободен
+            // (ДО HTTP): намерение загрузки не даёт права удалять существующий
+            // объект, а частично загруженное сможет убрать cleanup.
+            $this->claimKey($backup, $token, 'object_key', $objectKey, $claimedKeys);
             $this->uploadVerified($dumpPath, $objectKey, $size, $sha);
+            $this->claimKey($backup, $token, 'manifest_key', $manifestKey, $claimedKeys);
             $this->uploadManifest($tmpDir, $manifestKey, [
                 'backup_id' => $backup->getKey(),
                 'object_key' => $objectKey,
@@ -178,10 +193,12 @@ class DatabaseBackupService
             ]);
 
             $this->markSucceeded($backup, $token, $objectKey, $manifestKey, $size, $sha, $pgVersion, $appVersion);
-            $this->pruneOld($backup);
         } catch (Throwable $e) {
             $this->safeRecordFailure($backup, $token, $e);
-            $this->cleanupIntendedObjects($backup, $intendedKeys);
+
+            // Только подтверждённые этим исполнением ключи (токен-скоуп:
+            // чужие исполнения того же id не делят удаляемые объекты).
+            $this->cleanupIntendedObjects($backup, $claimedKeys, $token);
 
             // Не пробрасываем исходное исключение: оно может содержать
             // секреты и попадёт в failed_jobs/логи воркера через цепочку.
@@ -189,7 +206,16 @@ class DatabaseBackupService
         } finally {
             if ($tmpDir !== null) {
                 self::deleteTree($tmpDir);
+                // Убираем пустой родительский каталог {id}/ этого исполнения.
+                @rmdir(dirname($tmpDir));
             }
+        }
+
+        try {
+            $this->pruneOld($backup);
+        } catch (Throwable $e) {
+            // Сбой ротации не отменяет success и не удаляет новую копию.
+            $this->recordPruneError($backup, 'Очистка старых копий: '.BackupError::fromThrowable($e));
         }
     }
 
@@ -212,13 +238,44 @@ class DatabaseBackupService
     /**
      * Последний шанс при сбое job: не оставлять копию навсегда running.
      * Вызывается из failed()-хука; уведомляет ROOT при доступной БД.
+     *
+     * Fencing: прерывается только исполнение, принадлежащее этой доставке
+     * job (execution_token) либо не начатое вовсе (queued без токена).
+     * Запоздавший хук чужой/перехваченной доставки не меняет статус и не
+     * удаляет файлы действующего или успешного исполнения.
      */
-    public function markInterruptedIfActive(string $backupId, string $message): void
+    public function markInterruptedIfActive(string $backupId, string $message, ?string $executionToken = null): void
     {
         try {
+            $backup = DatabaseBackup::query()->find($backupId);
+
+            if (! $backup instanceof DatabaseBackup) {
+                return;
+            }
+
+            // Ключи читаем ДО CAS: после успешного прерывания статус
+            // терминален и новый владелец появиться не может.
+            $intendedKeys = [$backup->object_key, $backup->manifest_key];
+
             $affected = DatabaseBackup::query()
                 ->whereKey($backupId)
-                ->whereIn('status', [BackupStatus::Queued->value, BackupStatus::Running->value])
+                ->where(function ($query) use ($executionToken) {
+                    $query->where('status', BackupStatus::Queued->value)
+                        ->whereNull('execution_token')
+                        ->orWhere(function ($q) use ($executionToken) {
+                            $q->where('status', BackupStatus::Running->value)
+                                ->where(function ($q2) use ($executionToken) {
+                                    // running без токена — строки до внедрения
+                                    // execution_token; живой чужой запуск токен
+                                    // всегда имеет и здесь не совпадёт.
+                                    $q2->whereNull('execution_token');
+
+                                    if ($executionToken !== null) {
+                                        $q2->orWhere('execution_token', $executionToken);
+                                    }
+                                });
+                        });
+                })
                 ->update([
                     'status' => BackupStatus::Failed->value,
                     'finished_at' => now(),
@@ -226,20 +283,17 @@ class DatabaseBackupService
                     'execution_token' => null,
                 ]);
 
-            if ($affected > 0) {
-                Log::error('Backups: копия помечена прерванной', ['backup_id' => $backupId, 'message' => BackupError::sanitize($message)]);
-
-                $backup = DatabaseBackup::query()->find($backupId);
-
-                if ($backup instanceof DatabaseBackup) {
-                    $this->cleanupIntendedObjects($backup, [
-                        $backup->object_key,
-                        $backup->manifest_key,
-                    ]);
-                }
-
-                $this->notifyRootsFailure(BackupError::sanitize($message));
+            if ($affected !== 1) {
+                // CAS проигран: статус принадлежит другому исполнению —
+                // ни очистки, ни уведомления о чужом сбое.
+                return;
             }
+
+            Log::error('Backups: копия помечена прерванной', ['backup_id' => $backupId, 'message' => BackupError::sanitize($message)]);
+
+            $this->cleanupIntendedObjects($backup->refresh(), $intendedKeys, $executionToken);
+
+            $this->notifyRootsFailure(BackupError::sanitize($message));
         } catch (Throwable $e) {
             // БД может быть недоступна — фиксируем хотя бы в системный лог.
             Log::error('Backups: не удалось пометить копию прерванной: '.BackupError::fromThrowable($e), [
@@ -273,13 +327,14 @@ class DatabaseBackupService
     /**
      * Атомарный захват: queued→running либо (stale running→running)
      * одним CAS-UPDATE по status. Возвращает execution_token — только
-     * его владелец может завершить/прервать эту попытку.
+     * его владелец может завершить/прервать эту попытку. Токен можно
+     * передать из job-доставки, чтобы failed()-хук знал своё исполнение.
      *
      * @throws BackupException
      */
-    private function begin(DatabaseBackup $backup): string
+    private function begin(DatabaseBackup $backup, ?string $executionToken = null): string
     {
-        $token = (string) Str::uuid();
+        $token = $executionToken ?? (string) Str::uuid();
         $staleBefore = now()->subSeconds((int) config('backups.stale_after', 1800));
 
         $affected = DatabaseBackup::query()
@@ -312,25 +367,33 @@ class DatabaseBackupService
     }
 
     /**
-     * Записать ключи объектов до HTTP-загрузки (только своим токеном).
+     * Зарезервировать ключ за этим исполнением: занятый ключ отклоняется
+     * (существующий объект не удаляется и не перезаписывается), свободный
+     * записывается в БД до HTTP и попадает в список очистки этого запуска.
+     *
+     * @param  list<string>  $claimedKeys
      *
      * @throws BackupException
      */
-    private function recordIntendedKeys(DatabaseBackup $backup, string $token, string $objectKey, string $manifestKey): void
+    private function claimKey(DatabaseBackup $backup, string $token, string $column, string $key, array &$claimedKeys): void
     {
+        if ($this->disk()->exists($key)) {
+            // Зарезервированный ключ занят чужим/старым объектом:
+            // намерение загрузки не даёт права его удалять.
+            throw new BackupException('Объект уже существует в бакете — перезапись отменена.');
+        }
+
         $affected = DatabaseBackup::query()
             ->whereKey($backup->getKey())
             ->where('status', BackupStatus::Running->value)
             ->where('execution_token', $token)
-            ->update([
-                'object_key' => $objectKey,
-                'manifest_key' => $manifestKey,
-            ]);
+            ->update([$column => $key]);
 
         if ($affected !== 1) {
             throw new BackupException('Владение выполнением потеряно — загрузка отменена.');
         }
 
+        $claimedKeys[] = $key;
         $backup->refresh();
     }
 
@@ -404,15 +467,12 @@ class DatabaseBackupService
 
     /**
      * Загрузка потоком + контроль: после записи объект читается заново,
-     * размер и SHA-256 сверяются с локальным файлом.
+     * размер и SHA-256 сверяются с локальным файлом. Ключ к этому моменту
+     * уже занят через claimKey (проверка свободности и учёт — там).
      */
     private function uploadVerified(string $path, string $objectKey, int $size, string $sha): void
     {
         $disk = $this->disk();
-
-        if ($disk->exists($objectKey)) {
-            throw new BackupException('Объект уже существует в бакете — перезапись отменена.');
-        }
 
         $stream = fopen($path, 'rb');
 
@@ -545,9 +605,12 @@ class DatabaseBackupService
      * Ротация: держим последние N успешных копий каждого типа отдельно.
      * Удаляются только объекты нашего namespace (prefix/env/type) и только
      * с проверкой false от delete; сбой очистки не делает новую копию
-     * невалидной — пишется prune_error_message.
+     * невалидной — пишется prune_error_message. Вызывается run() УЖЕ после
+     * подтверждённого success и никогда не приводит к cleanup новой копии.
+     *
+     * Вынесено protected — в тестах подменяется сбой ротации.
      */
-    private function pruneOld(DatabaseBackup $current): void
+    protected function pruneOld(DatabaseBackup $current): void
     {
         $keep = max(1, (int) config('backups.keep.'.$current->trigger_type->value, 7));
 
@@ -592,19 +655,26 @@ class DatabaseBackupService
         }
 
         if ($errors !== []) {
-            $message = 'Очистка старых копий: '.implode(' | ', array_unique($errors));
-
-            DatabaseBackup::query()
-                ->whereKey($current->getKey())
-                ->update(['prune_error_message' => BackupError::sanitize($message)]);
-
-            $current->refresh();
-
-            Log::warning('Backups: ошибка ротации старых копий', [
-                'backup_id' => $current->getKey(),
-                'errors' => $errors,
-            ]);
+            $this->recordPruneError($current, 'Очистка старых копий: '.implode(' | ', array_unique($errors)));
         }
+    }
+
+    /**
+     * Ошибка ротации/очистки — отдельно от результата копии: статус и
+     * объекты успешного исполнения не затрагиваются.
+     */
+    private function recordPruneError(DatabaseBackup $backup, string $message): void
+    {
+        DatabaseBackup::query()
+            ->whereKey($backup->getKey())
+            ->update(['prune_error_message' => BackupError::sanitize($message)]);
+
+        $backup->refresh();
+
+        Log::warning('Backups: ошибка очистки старых копий', [
+            'backup_id' => $backup->getKey(),
+            'error' => BackupError::sanitize($message),
+        ]);
     }
 
     /**
@@ -636,13 +706,25 @@ class DatabaseBackupService
     }
 
     /**
-     * Удалить незавершённые объекты этого запуска (только свои ключи).
+     * Удалить незавершённые объекты этого запуска. Удаляются только ключи
+     * нашего namespace с полным id копии; при известном токене — ещё и
+     * токен-скоуп исполнения (разные исполнения одного id объекты не
+     * делят). Скан бакета не выполняется. Сбой очистки переводит запись
+     * в состояние ожидания повтора (cleanup_pending_at) — повтор делает
+     * backups:recover в пределах cleanup_retry_max.
      *
      * @param  list<string|null>  $keys
      */
-    private function cleanupIntendedObjects(DatabaseBackup $backup, array $keys): void
+    private function cleanupIntendedObjects(DatabaseBackup $backup, array $keys, ?string $token = null): void
     {
-        $keys = array_unique(array_filter($keys));
+        $keys = array_values(array_unique(array_filter($keys)));
+
+        if ($token !== null) {
+            $keys = array_values(array_filter(
+                $keys,
+                fn (string $key): bool => str_contains($key, '/'.$token.'/'),
+            ));
+        }
 
         if ($keys === []) {
             // Нечего убирать: не требуем настроенного S3-диска
@@ -679,17 +761,86 @@ class DatabaseBackupService
 
             DatabaseBackup::query()
                 ->whereKey($backup->getKey())
-                ->update(['prune_error_message' => BackupError::sanitize($message)]);
+                ->update([
+                    'prune_error_message' => BackupError::sanitize($message),
+                    'cleanup_pending_at' => now(),
+                ]);
 
             $backup->refresh();
+
+            return;
         }
+
+        // Очистка прошла: снимаем ожидание повтора и устаревшее сообщение.
+        DatabaseBackup::query()
+            ->whereKey($backup->getKey())
+            ->whereNotNull('cleanup_pending_at')
+            ->update([
+                'cleanup_pending_at' => null,
+                'prune_error_message' => null,
+            ]);
+
+        $backup->refresh();
     }
 
+    /**
+     * Ограниченный повтор очистки незавершённых объектов: только ключи,
+     * записанные в самой строке (без сканирования бакета) и только пока
+     * cleanup_attempts не достиг лимита.
+     */
+    private function retryPendingCleanup(): void
+    {
+        $max = max(1, (int) config('backups.cleanup_retry_max', 5));
+
+        DatabaseBackup::query()
+            ->whereNotNull('cleanup_pending_at')
+            ->where('cleanup_attempts', '<', $max)
+            ->orderBy('cleanup_pending_at')
+            ->take(20)
+            ->get()
+            ->each(function (DatabaseBackup $backup) use ($max) {
+                // Атомарный захват попытки — параллельный recover не дублирует.
+                $claimed = DatabaseBackup::query()
+                    ->whereKey($backup->getKey())
+                    ->where('cleanup_attempts', '<', $max)
+                    ->update(['cleanup_attempts' => DB::raw('cleanup_attempts + 1')]);
+
+                if ($claimed !== 1) {
+                    return;
+                }
+
+                $backup->refresh();
+
+                $this->cleanupIntendedObjects($backup, [
+                    $backup->object_key,
+                    $backup->manifest_key,
+                ]);
+            });
+    }
+
+    /**
+     * Fencing прерывания: CAS-UPDATE повторно проверяет и stale-возраст,
+     * и наблюдаемый execution_token. Между чтанием и UPDATE копию мог
+     * перехватить другой процесс с новым токеном — тогда CAS проигрывается
+     * и прерывание/очистка/уведомление не выполняются.
+     */
     private function markInterrupted(DatabaseBackup $backup): void
     {
+        $observedToken = $backup->execution_token;
+        $staleBefore = now()->subSeconds((int) config('backups.stale_after', 1800));
+
         $affected = DatabaseBackup::query()
             ->whereKey($backup->getKey())
             ->where('status', BackupStatus::Running->value)
+            ->where(function ($query) use ($staleBefore) {
+                $query->whereNull('started_at')
+                    ->orWhere('started_at', '<', $staleBefore);
+            })
+            ->when(
+                $observedToken === null,
+                fn ($query) => $query->whereNull('execution_token'),
+                fn ($query) => $query->where('execution_token', $observedToken),
+            )
             ->update([
                 'status' => BackupStatus::Failed->value,
                 'finished_at' => now(),
@@ -706,7 +857,7 @@ class DatabaseBackupService
         $this->cleanupIntendedObjects($backup, [
             $backup->object_key,
             $backup->manifest_key,
-        ]);
+        ], $observedToken);
 
         Log::warning('Backups: зависшая копия помечена прерванной', ['backup_id' => $backup->getKey()]);
 
@@ -725,7 +876,7 @@ class DatabaseBackupService
         $message = BackupError::fromThrowable($e);
 
         try {
-            DatabaseBackup::query()
+            $affected = DatabaseBackup::query()
                 ->whereKey($backup->getKey())
                 ->where('status', BackupStatus::Running->value)
                 ->where('execution_token', $token)
@@ -735,6 +886,17 @@ class DatabaseBackupService
                     'error_message' => $message,
                     'execution_token' => null,
                 ]);
+
+            if ($affected !== 1) {
+                // Проигрыш владения: исполнение перехвачено или уже
+                // завершено другим процессом — не меняем чужой статус и
+                // не шлём ложное уведомление о сбое чужого запуска.
+                Log::info('Backups: сбой записи — исполнение уже не наше', [
+                    'backup_id' => $backup->getKey(),
+                ]);
+
+                return;
+            }
 
             $backup->refresh();
         } catch (Throwable $dbError) {
@@ -938,7 +1100,11 @@ class DatabaseBackupService
         }
     }
 
-    private function createTempDirectory(DatabaseBackup $backup): string
+    /**
+     * Временный каталог строго этого исполнения ({id}/{execution_token}):
+     * параллельные/перехваченные запуски одного id каталог не делят.
+     */
+    private function createTempDirectory(DatabaseBackup $backup, string $token): string
     {
         $base = rtrim((string) config('backups.tmp_dir'), '/\\');
 
@@ -946,9 +1112,9 @@ class DatabaseBackupService
             throw new BackupException('Не удалось создать временную директорию резервных копий.');
         }
 
-        $dir = $base.'/'.$backup->getKey();
+        $dir = $base.'/'.$backup->getKey().'/'.$token;
 
-        if (! @mkdir($dir, 0700) && ! is_dir($dir)) {
+        if (! @mkdir($dir, 0700, true) && ! is_dir($dir)) {
             throw new BackupException('Не удалось создать временную директорию копии.');
         }
 
@@ -1009,13 +1175,19 @@ class DatabaseBackupService
         return (string) ($rows[0]->version ?? '');
     }
 
-    private function objectKey(DatabaseBackup $backup): string
+    /**
+     * Ключ объекта этого исполнения: токен в пути разделяет объекты
+     * разных исполнений одного id — поздний владелец не может удалить
+     * или перезаписать файлы нового исполнения.
+     */
+    private function objectKey(DatabaseBackup $backup, string $token): string
     {
         return $this->objectNamespace($backup).sprintf(
-            '%s/%s/%s/%s.dump',
+            '%s/%s/%s/%s/%s.dump',
             ($backup->requested_at ?? now())->setTimezone('UTC')->format('Y'),
             ($backup->requested_at ?? now())->setTimezone('UTC')->format('m'),
             ($backup->requested_at ?? now())->setTimezone('UTC')->format('d'),
+            $token,
             $backup->getKey(),
         );
     }

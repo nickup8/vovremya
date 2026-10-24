@@ -52,23 +52,41 @@ SHA-256, ротация. Доступ к разделу — только у ROOT
   - `queued` с job в `jobs` — ждёт живого воркера, не трогается;
   - `queued` **без** job — потерянное задание, повторная постановка;
   - `running` старше `stale_after` — прерванное выполнение → `failed`,
-    уведомление ROOT и очистка незавершённых S3-объектов.
+    уведомление ROOT и очистка незавершённых S3-объектов;
+  - `cleanup_pending_at` — очистка не удалась → ограниченный повтор
+    (`BACKUP_CLEANUP_RETRY_MAX`, по умолчанию 5).
   Вторая копия поверх живого процесса не запускается: `begin()` —
   атомарный CAS по `status` + `execution_token`; запоздавший исполнитель
   не может записать success/error чужого запуска и не запускает ротацию.
   Дубликат доставки job, проигравший гонку захвата, — no-op
-  (`BackupCaptureLost`): failed()-хук не помечает прерванной чужую
-  живую попытку.
-- **Учёт незавершённых объектов**: ключи dump/manifest записываются в
-  БД **до** HTTP-загрузки. При сбое/прерывании удаляются только объекты
-  этого запуска в namespace `{prefix}/{APP_ENV}/{trigger}/…` с полным
-  id копии в имени; `delete===false` считается ошибкой. Успешные копии
-  и чужие ключи не затрагиваются.
+  (`BackupCaptureLost`): failed()-хук прерывает только исполнение своей
+  доставки (CAS по `execution_token`) и не помечает прерванной чужую
+  живую попытку; при проигрыше CAS ни очистки, ни уведомления нет.
+- **Изоляция исполнений**: каждая попытка имеет свой
+  `execution_token` (генерируется в job-доставке и лежит в нём же, чтобы
+  failed()-хук знал своё исполнение). Временный каталог —
+  `{tmp_dir}/{id}/{token}/`, ключи объектов —
+  `…/{Y}/{m}/{d}/{token}/{id}.dump`: разные исполнения одного id не
+  делят временные файлы и удаляемые объекты.
+- **Учёт незавершённых объектов**: ключ попадает в БД как объект этого
+  исполнения только после проверки, что он **свободен** (до HTTP-загрузки).
+  Занятый ключ — отказ без удаления: намерение загрузки не даёт права
+  удалять существующий объект. При сбое/прерывании удаляются только
+  подтверждённые ключи этого исполнения в namespace
+  `{prefix}/{APP_ENV}/{trigger}/…` с полным id копии в имени;
+  `delete===false` считается ошибкой. Успешные копии и чужие ключи не
+  затрагиваются; скан бакета не выполняется.
+- **Очистка после сбоя delete**: если удаление не удалось, запись
+  получает состояние ожидания очистки (`cleanup_pending_at`) и
+  `backups:recover` повторяет очистку только по ключам этой записи,
+  не больше `BACKUP_CLEANUP_RETRY_MAX` раз.
 - **Ротация**: последние 7 успешных копий scheduled и последние 7
   успешных manual хранятся отдельно (`BACKUP_KEEP_SCHEDULED`,
   `BACKUP_KEEP_MANUAL`). Старые удаляются только после полной проверки
   новой копии; сбой очистки не делает новую копию невалидной
-  (`prune_error_message`).
+  (`prune_error_message`). Ротация отделена от завершения: исключение
+  при входе в ротацию после `success` не вызывает очистку новой копии и
+  не меняет её статус — ошибка пишется отдельно.
 
 ## Настройка (server side)
 
@@ -93,6 +111,9 @@ BACKUP_SCHEDULED_ENABLED=true
 
 BACKUP_KEEP_SCHEDULED=7
 BACKUP_KEEP_MANUAL=7
+
+# Повторов очистки незавершённых объектов после сбоя S3 delete
+BACKUP_CLEANUP_RETRY_MAX=5
 ```
 
 2. **`BACKUP_DB_QUEUE_CONNECTION`** (опционально, connection из
@@ -135,8 +156,9 @@ stdout_logfile=/var/log/supervisor/queue-backups.log
 stopwaitsecs=950
 ```
 
-5. `php artisan migrate` — создаёт таблицу `database_backups` и
-   `execution_token`.
+5. `php artisan migrate` — создаёт таблицу `database_backups`,
+   `execution_token` и колонки состояния очистки
+   (`cleanup_pending_at`, `cleanup_attempts`).
 
 6. Scheduler уже запускается root-cron; в `routes/console.php`
    зарегистрированы `backups:schedule-daily` (03:30 Europe/Moscow,
@@ -189,7 +211,8 @@ timeout больше job_timeout) не отклоняется кодом — с�
 ## Проверка и скачивание объекта без Laravel
 
 Объекты по умолчанию лежат под `irsi-app/{APP_ENV}/…`, например
-`irsi-app/production/scheduled/2026/10/26/<uuid>.dump`.
+`irsi-app/production/scheduled/2026/10/26/<execution_token>/<uuid>.dump`
+(каталог по токену исполнения отделяет объекты разных попыток одного id).
 
 ### Timeweb S3 (path-style endpoint)
 
@@ -212,22 +235,28 @@ set -a; source ~/.irsi-backups-s3.env; set +a
 aws s3 ls s3://irsi-db-backups/irsi-app/production/scheduled/2026/10/26/ \
   --endpoint-url "$AWS_ENDPOINT_URL" --recursive
 
-aws s3 cp s3://irsi-db-backups/irsi-app/production/scheduled/2026/10/26/<uuid>.dump \
+aws s3 cp s3://irsi-db-backups/irsi-app/production/scheduled/2026/10/26/<token>/<uuid>.dump \
   . --endpoint-url "$AWS_ENDPOINT_URL"
-aws s3 cp s3://irsi-db-backups/irsi-app/production/scheduled/2026/10/26/<uuid>.dump.manifest.json \
+aws s3 cp s3://irsi-db-backups/irsi-app/production/scheduled/2026/10/26/<token>/<uuid>.dump.manifest.json \
   . --endpoint-url "$AWS_ENDPOINT_URL"
 ```
 
-Или `s3cmd`:
+Или `s3cmd` — с ключами **только** в защищённом конфиг-файле, не в
+аргументах командной строки (аргументы видны в `ps` и попадают в
+историю shell):
 
 ```bash
-s3cmd --host=s3.twcstorage.ru --host-bucket='%(bucket)s.s3.twcstorage.ru' \
-  --access_key=... --secret_key=... \
-  get s3://irsi-db-backups/irsi-app/production/scheduled/2026/10/26/<uuid>.dump .
-```
+# ~/.s3cfg-backups (chmod 600): заполнить access_key/secret_key один раз
+# [default]
+# access_key = <ключ>
+# secret_key = <секрет>
+# host_base = s3.twcstorage.ru
+# host_bucket = %(bucket)s.s3.twcstorage.ru
+# use_https = True
 
-(Ключи лучше передать через `--access_key` из защищённого файла, не
-из shell history.)
+s3cmd -c ~/.s3cfg-backups \
+  get s3://irsi-db-backups/irsi-app/production/scheduled/2026/10/26/<token>/<uuid>.dump .
+```
 
 ### Сверка
 
@@ -285,11 +314,24 @@ sha256sum <uuid>.dump
   `failed` через `backups:recover`;
 - `running` старше `stale_after` → `failed` + уведомление ROOT +
   удаление незавершённых объектов этого запуска (при доступной БД/S3);
-- success выставляется только после полной сверки dump+manifest;
-- запоздавший исполнитель (после перехвата) не меняет результат и не
-  запускает ротацию (`execution_token`);
+  CAS прерывания повторно проверяет и staleness, и наблюдаемый
+  `execution_token` — перехваченный копии прерывание не грозит;
+- success выставляется только после полной сверки dump+manifest; после
+  подтверждённого success сбой ротации/очистки/аудита не вызывает
+  удаление новой копии и не меняет её статус;
+- запоздавший исполнитель (после перехвата) не меняет результат, не
+  запускает ротацию и не удаляет файлы нового исполнения
+  (`execution_token` + токен-скоуп ключей и временного каталога);
+- failed()-хук job прерывает только исполнение своей доставки; при
+  проигрыше CAS нет ни очистки, ни ложного уведомления о чужом сбое;
+- занятый объект в бакете не удаляется и не перезаписывается: ключ
+  становится объектом исполнения только после проверки, что он свободен;
+- неуданная очистка незавершённых объектов повторяется
+  `backups:recover` не более `BACKUP_CLEANUP_RETRY_MAX` раз и только по
+  ключам, записанным в самой строке (бакет не сканируется);
 - санитизированные тексты ошибок в БД, failed_jobs, логах воркера
-  (без пароля БД и S3-секрета из конфигурации).
+  (без пароля БД и S3-секрета из конфигурации) — в том числе ошибки
+  самой очистки.
 
 Что **не гарантируется** (ограничения):
 
@@ -301,14 +343,18 @@ sha256sum <uuid>.dump
 - `queued` с job, но **выключенным** воркером может ждать сколько угодно
   (это ожидание живого воркера, не потеря);
 - одновременный `delete` нескольких ключей не атомарен: частичная
-  очистка возможна, повтор — через следующую ротацию/recovery;
+  очистка возможна; повтор ограничен `BACKUP_CLEANUP_RETRY_MAX`, после
+  исчерпания попыток удаление остатков — вручную по ключам из строки
+  (`object_key`/`manifest_key`);
 - реальный `pg_dump`/`pg_restore` в тестах не выполняется (fake runner).
 
 ## Поведение при сбоях
 
 - **Сбой между загрузкой дампа и manifest / записью успеха в БД**:
-  ключи уже записаны как намерение; `run()`/`failed()`/`recover` удаляют
-  незавершённые объекты этого запуска. Повторная доставка job
+  свободные ключи уже записаны как объекты этого исполнения; `run()`
+  удаляет их по своему токену, `failed()`/`recover` прерывают и чистят
+  только своё исполнение (CAS по `execution_token`), неуданная очистка
+  повторяется через `backups:recover`. Повторная доставка job
   идемпотентна: success/failed — no-op, свежий running не трогается.
 - **Сбой БД во время записи ошибки**: сообщение уходит как минимум в
   системный лог (`storage/logs`) и в stderr воркера (Supervisor-лог);

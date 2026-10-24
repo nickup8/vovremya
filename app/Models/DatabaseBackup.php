@@ -24,6 +24,8 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * @property string|null $app_version
  * @property string|null $error_message
  * @property string|null $prune_error_message
+ * @property CarbonImmutable|null $cleanup_pending_at
+ * @property int $cleanup_attempts
  * @property User|null $requester
  */
 class DatabaseBackup extends Model
@@ -47,6 +49,8 @@ class DatabaseBackup extends Model
         'app_version',
         'error_message',
         'prune_error_message',
+        'cleanup_pending_at',
+        'cleanup_attempts',
     ];
 
     protected function casts(): array
@@ -58,6 +62,8 @@ class DatabaseBackup extends Model
             'started_at' => 'datetime',
             'finished_at' => 'datetime',
             'size_bytes' => 'integer',
+            'cleanup_pending_at' => 'datetime',
+            'cleanup_attempts' => 'integer',
         ];
     }
 

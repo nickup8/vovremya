@@ -17,6 +17,7 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Facades\Storage;
+use Illuminate\Support\Str;
 use ReflectionMethod;
 use RuntimeException;
 use Tests\Support\Backups\BackupDiskStub;
@@ -400,16 +401,28 @@ class DatabaseBackupServiceTest extends TestCase
     {
         $backup = $this->makeQueued();
 
-        $day = $backup->requested_at;
-        $expectedKey = sprintf(
-            'irsi-app/testing/manual/%s/%s/%s/%s.dump',
-            $day->format('Y'),
-            $day->format('m'),
-            $day->format('d'),
-            $backup->getKey(),
-        );
+        // Объект уже лежит по ключу, который это исполнение собирается
+        // занять: ключ зарезервирован, но объект не наш.
+        $stub = new class(Storage::disk('backups_s3')) extends BackupDiskStub
+        {
+            public bool $seeded = false;
 
-        Storage::disk('backups_s3')->put($expectedKey, 'pre-existing');
+            public string $seededKey = '';
+
+            public string $seededContent = "pre-existing\0bytes";
+
+            public function exists($path)
+            {
+                if (! $this->seeded && str_ends_with((string) $path, '.dump')) {
+                    $this->seeded = true;
+                    $this->seededKey = (string) $path;
+                    $this->put($this->seededKey, $this->seededContent);
+                }
+
+                return parent::exists($path);
+            }
+        };
+        Storage::set('backups_s3', $stub);
 
         try {
             $this->service->run($backup);
@@ -421,10 +434,277 @@ class DatabaseBackupServiceTest extends TestCase
         $backup->refresh();
         $this->assertSame(BackupStatus::Failed, $backup->status);
 
-        // Намерение было записано до HTTP: cleanup удаляет ключ нашего запуска
-        // (уникален по id, ownership разрешает). Перезаписи не было, копия
-        // не помечена success.
-        $this->assertFalse(Storage::disk('backups_s3')->exists($expectedKey));
+        // Отказ при exists=true: найденный объект остаётся байт-в-байт.
+        // Намерение загрузки не даёт права его удалить.
+        $this->assertTrue($stub->seeded);
+        $this->assertTrue(Storage::disk('backups_s3')->exists($stub->seededKey));
+        $this->assertSame($stub->seededContent, Storage::disk('backups_s3')->get($stub->seededKey));
+    }
+
+    public function test_rotation_exception_after_success_keeps_new_copy_and_records_prune_error(): void
+    {
+        config(['backups.keep.manual' => 1]);
+
+        $old = $this->makeSuccess(BackupTrigger::Manual, 100);
+
+        $service = new class(app(BackupProcessRunner::class)) extends DatabaseBackupService
+        {
+            protected function pruneOld(DatabaseBackup $current): void
+            {
+                throw new BackupException('Ротация недоступна (тест).');
+            }
+        };
+
+        $backup = $this->makeQueued(BackupTrigger::Manual);
+        $service->run($backup);
+
+        $fresh = $backup->fresh();
+        $this->assertSame(BackupStatus::Success, $fresh->status);
+        $this->assertNull($fresh->error_message);
+        $this->assertNotNull($fresh->sha256);
+
+        // Новая копия и manifest после подтверждённого success не тронуты
+        // cleanup'ом; SHA сходится с содержимым объекта.
+        $disk = Storage::disk('backups_s3');
+        $this->assertNotNull($fresh->object_key);
+        $disk->assertExists((string) $fresh->object_key);
+        $disk->assertExists((string) $fresh->manifest_key);
+        $this->assertSame($fresh->sha256, hash('sha256', (string) $disk->get((string) $fresh->object_key)));
+
+        // Ошибка ротации записана отдельно, копия не переведена в failed.
+        $this->assertStringContainsString('Ротация недоступна', (string) $fresh->prune_error_message);
+        $this->assertDatabaseHas('database_backups', ['id' => $old->getKey()]);
+        $this->assertTrue($disk->exists((string) $old->object_key));
+    }
+
+    public function test_late_execution_after_stale_reclaim_keeps_new_run_success_and_files(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $backup = $this->makeQueued(BackupTrigger::Manual, $admin);
+
+        // Исполнение A зависло на загрузке дампа: started_at устаревает,
+        // другой воркер перехватывает копию и доводит её до success.
+        $stub = new class(Storage::disk('backups_s3')) extends BackupDiskStub
+        {
+            public ?DatabaseBackupService $service = null;
+
+            public ?DatabaseBackup $backup = null;
+
+            public bool $intercepted = false;
+
+            /** @var list<string> */
+            public array $written = [];
+
+            public function writeStream($path, $resource, array $options = [])
+            {
+                if (! $this->intercepted) {
+                    $this->intercepted = true;
+
+                    DatabaseBackup::query()->update(['started_at' => now()->subHours(2)]);
+                    $this->service->run($this->backup->fresh());
+                }
+
+                $this->written[] = (string) $path;
+
+                return parent::writeStream($path, $resource, $options);
+            }
+        };
+        $stub->service = $this->service;
+        $stub->backup = $backup;
+        Storage::set('backups_s3', $stub);
+
+        try {
+            $this->service->run($backup);
+            $this->fail('Ожидалось исключение BackupException');
+        } catch (BackupException) {
+            // запоздавшее исполнение A проиграло владение — ожидаемо
+        }
+
+        $fresh = $backup->fresh();
+        $this->assertSame(BackupStatus::Success, $fresh->status);
+        $this->assertNull($fresh->execution_token);
+        $this->assertNull($fresh->error_message);
+
+        // Файлы успешного исполнения B не удалены и не перезаписаны.
+        $disk = Storage::disk('backups_s3');
+        $this->assertTrue($disk->exists((string) $fresh->object_key));
+        $this->assertTrue($disk->exists((string) $fresh->manifest_key));
+        $this->assertSame($fresh->sha256, hash('sha256', (string) $disk->get((string) $fresh->object_key)));
+
+        // Cleanup запоздавшего A убрал только собственный объект:
+        // записи — dump B, manifest B, затем dump A; удалён только A.
+        $this->assertCount(3, $stub->written);
+        $this->assertSame($fresh->object_key, $stub->written[0]);
+        $lateKey = $stub->written[2];
+        $this->assertNotSame($fresh->object_key, $lateKey);
+        $this->assertFalse($disk->exists($lateKey));
+
+        // Ложное уведомление о сбое чужого запуска не отправлено.
+        $this->assertSame(0, $admin->notifications()->count());
+        $this->assertDatabaseHas('super_admin_audit_logs', [
+            'super_admin_id' => $admin->id,
+            'action' => 'backup.succeeded',
+        ]);
+        $this->assertDatabaseMissing('super_admin_audit_logs', [
+            'super_admin_id' => $admin->id,
+            'action' => 'backup.failed',
+        ]);
+    }
+
+    public function test_recovery_does_not_interrupt_execution_reclaimed_during_scan(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+
+        $stale = DatabaseBackup::create([
+            'trigger_type' => BackupTrigger::Manual->value,
+            'status' => BackupStatus::Running,
+            'requested_at' => now()->subHours(2),
+            'started_at' => now()->subHours(2),
+            'execution_token' => (string) Str::uuid(),
+        ]);
+
+        // Гонка: recover прочитал stale-снимок, а до UPDATE другой процесс
+        // перехватил копию (новый токен, свежий started_at).
+        $state = (object) ['fired' => false];
+        $reclaimedToken = (string) Str::uuid();
+
+        DatabaseBackup::retrieved(function (DatabaseBackup $model) use ($state, $stale, $reclaimedToken) {
+            if ($state->fired || $model->getKey() !== $stale->getKey()) {
+                return;
+            }
+
+            $state->fired = true;
+
+            DatabaseBackup::query()
+                ->whereKey($stale->getKey())
+                ->update([
+                    'started_at' => now(),
+                    'execution_token' => $reclaimedToken,
+                ]);
+        });
+
+        Storage::disk('backups_s3')->put('irsi-app/testing/manual/leftover.dump', 'keep');
+
+        $this->service->recoverActiveBackups();
+
+        $fresh = $stale->fresh();
+        $this->assertSame(BackupStatus::Running, $fresh->status);
+        $this->assertSame($reclaimedToken, $fresh->execution_token);
+        $this->assertNull($fresh->error_message);
+        $this->assertSame(0, $admin->notifications()->count());
+        $this->assertTrue(Storage::disk('backups_s3')->exists('irsi-app/testing/manual/leftover.dump'));
+    }
+
+    public function test_failed_cleanup_is_retried_by_recovery_and_scoped_to_unfinished_objects(): void
+    {
+        $healthyDisk = Storage::disk('backups_s3');
+
+        $stub = new BackupDiskStub($healthyDisk);
+        $stub->tamperReads = true;
+        $stub->failDeletes = true;
+        Storage::set('backups_s3', $stub);
+
+        $backup = $this->makeQueued();
+
+        try {
+            $this->service->run($backup);
+        } catch (BackupException) {
+            // ожидаемо
+        }
+
+        $failed = $backup->fresh();
+        $this->assertSame(BackupStatus::Failed, $failed->status);
+        $this->assertNotNull($failed->object_key);
+        $this->assertNotNull($failed->cleanup_pending_at);
+        $this->assertNotEmpty($failed->prune_error_message);
+        $this->assertTrue($healthyDisk->exists((string) $failed->object_key));
+
+        // S3 восстановился; рядом — успешная копия и чужой файл.
+        Storage::set('backups_s3', $healthyDisk);
+
+        $successCopy = $this->makeSuccess(BackupTrigger::Scheduled, 60);
+        $healthyDisk->put('other-app/production/manual/x.dump', 'foreign');
+
+        $this->service->recoverActiveBackups();
+
+        $cleaned = $backup->fresh();
+        $this->assertNull($cleaned->cleanup_pending_at);
+        $this->assertSame(1, (int) $cleaned->cleanup_attempts);
+        $this->assertFalse($healthyDisk->exists((string) $failed->object_key));
+
+        // Success-копия и чужой файл не тронуты; бакет не сканируется.
+        $this->assertSame(BackupStatus::Success, $successCopy->fresh()->status);
+        $this->assertTrue($healthyDisk->exists((string) $successCopy->object_key));
+        $this->assertTrue($healthyDisk->exists('other-app/production/manual/x.dump'));
+    }
+
+    public function test_recovery_stops_cleanup_retries_after_limit(): void
+    {
+        config(['backups.cleanup_retry_max' => 2]);
+
+        $backup = DatabaseBackup::create([
+            'trigger_type' => BackupTrigger::Manual->value,
+            'status' => BackupStatus::Failed,
+            'requested_at' => now()->subHours(3),
+            'finished_at' => now()->subHours(3),
+            'error_message' => 'старый сбой',
+        ]);
+
+        $objectKey = sprintf(
+            'irsi-app/testing/manual/2026/01/01/%s/%s.dump',
+            (string) Str::uuid(),
+            $backup->getKey(),
+        );
+
+        DatabaseBackup::query()->whereKey($backup->getKey())->update([
+            'object_key' => $objectKey,
+            'cleanup_pending_at' => now()->subHour(),
+            'cleanup_attempts' => 2,
+        ]);
+
+        Storage::disk('backups_s3')->put($objectKey, 'leftover');
+
+        $stub = new BackupDiskStub(Storage::disk('backups_s3'));
+        Storage::set('backups_s3', $stub);
+
+        $this->service->recoverActiveBackups();
+
+        $this->assertSame([], $stub->deleted);
+        $this->assertTrue(Storage::disk('backups_s3')->exists($objectKey));
+        $this->assertNotNull($backup->fresh()->cleanup_pending_at);
+    }
+
+    public function test_cleanup_errors_are_sanitized_before_persisting(): void
+    {
+        $secret = 'S3Secret-MARKER-cleanup';
+        config(['filesystems.disks.backups_s3.secret' => $secret]);
+
+        $stub = new class(Storage::disk('backups_s3')) extends BackupDiskStub
+        {
+            public function delete($paths)
+            {
+                foreach ((array) $paths as $path) {
+                    $this->deleted[] = (string) $path;
+                }
+
+                throw new BackupException('S3 delete failed secret=S3Secret-MARKER-cleanup');
+            }
+        };
+        $stub->tamperReads = true;
+        Storage::set('backups_s3', $stub);
+
+        $backup = $this->makeQueued();
+
+        try {
+            $this->service->run($backup);
+        } catch (BackupException) {
+            // ожидаемо
+        }
+
+        $fresh = $backup->fresh();
+        $this->assertNotNull($fresh->cleanup_pending_at);
+        $this->assertStringNotContainsString($secret, (string) $fresh->prune_error_message);
+        $this->assertStringContainsString('***', (string) $fresh->prune_error_message);
     }
 
     public function test_parallel_request_is_blocked_by_running_backup(): void
@@ -642,6 +922,8 @@ class DatabaseBackupServiceTest extends TestCase
 
     public function test_late_safe_record_failure_with_old_token_does_not_fail_new_run(): void
     {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+
         $backup = $this->makeQueued();
         $tokenA = $this->invokePrivate('begin', $backup->fresh());
 
@@ -657,6 +939,9 @@ class DatabaseBackupServiceTest extends TestCase
         $this->assertSame(BackupStatus::Running, $fresh->status);
         $this->assertSame($tokenB, $fresh->execution_token);
         $this->assertNull($fresh->error_message);
+
+        // Проигрыш CAS не должен слать ложное уведомление о сбое чужого запуска.
+        $this->assertSame(0, $admin->notifications()->count());
     }
 
     public function test_late_owner_does_not_trigger_rotation(): void
