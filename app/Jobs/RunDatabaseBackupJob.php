@@ -31,9 +31,14 @@ class RunDatabaseBackupJob implements ShouldQueue
     public int $timeout;
 
     /**
-     * Токен этой доставки — он же execution_token копии. Хранится в job,
-     * чтобы failed()-хук (отдельная десериализация команды) мог fenced-
-     * прервать ТОЛЬКО своё исполнение, а не чужой/перехваченный запуск.
+     * Токен этой доставки — он же execution_token копии. Создаётся при
+     * постановке (в конструкторе) и попадает в сериализованный payload:
+     * handle() начинает исполнение тем токеном, что видит в payload, а
+     * failed() (новый экземпляр из ИСХОДНОГО payload'а, восстановленный
+     * Laravel уже после handle()) — тем же. Fencing: разные доставки
+     * получают разные токены, поэтому поздний failed() одной доставки не
+     * прерывает исполнение другой; payload без токена (старые задания)
+     * закрывает ??= в handle().
      */
     public ?string $executionToken = null;
 
@@ -41,7 +46,7 @@ class RunDatabaseBackupJob implements ShouldQueue
         private readonly string $backupId,
         ?string $executionToken = null,
     ) {
-        $this->executionToken = $executionToken;
+        $this->executionToken = $executionToken ?? (string) Str::uuid();
         $this->timeout = (int) config('backups.job_timeout', 900);
     }
 
@@ -65,6 +70,8 @@ class RunDatabaseBackupJob implements ShouldQueue
             return;
         }
 
+        // Legacy-payload без токена (задания, поставленные до его
+        // внедрения): доставка сама создаёт токен на время исполнения.
         $this->executionToken ??= (string) Str::uuid();
 
         try {

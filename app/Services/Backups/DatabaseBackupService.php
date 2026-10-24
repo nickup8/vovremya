@@ -141,8 +141,11 @@ class DatabaseBackupService
      * BackupException (без исходного previous).
      *
      * Завершение отделено от ротации: после подтверждённого success сбой
-     * ротации/аудита/дальнейших действий не вызывает cleanup новой копии и
-     * не меняет статус — ошибка пишется отдельно (prune_error_message).
+     * ротации/аудита/дальнейших действий (в т.ч. чтения строки после UPDATE
+     * успеха) не вызывает cleanup новой копии и не меняет статус — ошибка
+     * пишется отдельно (prune_error_message). Если же исход самой записи
+     * success неизвестен (UPDATE бросил), потенциально успешные объекты
+     * тоже не удаляются.
      *
      * @param  string|null  $executionToken  токен доставки job: он же
      *                                       execution_token, по нему поздние
@@ -157,6 +160,17 @@ class DatabaseBackupService
 
         /** @var list<string> $claimedKeys Ключи, свободность которых подтвердило это исполнение. */
         $claimedKeys = [];
+
+        /**
+         * Исход записи успеха: pending — успех ещё не пытались писать
+         * (обычный failure-путь, cleanup разрешён); uncertain — UPDATE
+         * отправлен, результат неизвестен (потенциально успешные объекты
+         * не удаляем); confirmed — success подтверждён (destructive
+         * cleanup запрещён, статус не переписывается).
+         *
+         * @var 'pending'|'uncertain'|'confirmed' $successState
+         */
+        $successState = 'pending';
 
         try {
             $tmpDir = $this->createTempDirectory($backup, $token);
@@ -192,17 +206,32 @@ class DatabaseBackupService
                 'app_version' => $appVersion,
             ]);
 
-            $this->markSucceeded($backup, $token, $objectKey, $manifestKey, $size, $sha, $pgVersion, $appVersion);
+            $this->markSucceeded($backup, $token, $objectKey, $manifestKey, $size, $sha, $pgVersion, $appVersion, $successState);
         } catch (Throwable $e) {
-            $this->safeRecordFailure($backup, $token, $e);
+            if ($successState === 'confirmed') {
+                // Успех уже подтверждён записью: статус и объекты не трогаем,
+                // destructive cleanup не запускаем — ошибка пишется отдельно.
+                $this->recordPostSuccessError($backup, $e);
+            } else {
+                $this->safeRecordFailure($backup, $token, $e);
 
-            // Только подтверждённые этим исполнением ключи (токен-скоуп:
-            // чужие исполнения того же id не делят удаляемые объекты).
-            $this->cleanupIntendedObjects($backup, $claimedKeys, $token);
+                if ($successState === 'pending') {
+                    // Только подтверждённые этим исполнением ключи (токен-скоуп:
+                    // чужие исполнения того же id не делят удаляемые объекты).
+                    $this->cleanupIntendedObjects($backup, $claimedKeys, $token);
+                } else {
+                    // Исход записи success неизвестен: объекты могут оказаться
+                    // подтверждённой копией — удалять их нельзя.
+                    Log::error('Backups: неизвестный исход записи успеха — очистка отменена', [
+                        'backup_id' => $backup->getKey(),
+                        'error' => BackupError::fromThrowable($e),
+                    ]);
+                }
 
-            // Не пробрасываем исходное исключение: оно может содержать
-            // секреты и попадёт в failed_jobs/логи воркера через цепочку.
-            throw new BackupException(BackupError::fromThrowable($e));
+                // Не пробрасываем исходное исключение: оно может содержать
+                // секреты и попадёт в failed_jobs/логи воркера через цепочку.
+                throw new BackupException(BackupError::fromThrowable($e));
+            }
         } finally {
             if ($tmpDir !== null) {
                 self::deleteTree($tmpDir);
@@ -557,7 +586,15 @@ class DatabaseBackupService
     }
 
     /**
-     * @throws BackupException
+     * @param  string  $successState  out-параметр исхода записи успеха:
+     *                                'uncertain' — UPDATE отправлен, дальше
+     *                                результат неизвестен; 'confirmed' —
+     *                                success подтверждён; 'pending' — запись
+     *                                определённо не применилась.
+     *
+     * @throws BackupException CAS проигран (исполнение устарело) — объекты
+     *                         остаются на cleanup этого запуска; либо запись
+     *                         бросила исключение — исход неизвестен.
      */
     private function markSucceeded(
         DatabaseBackup $backup,
@@ -568,27 +605,40 @@ class DatabaseBackupService
         string $sha,
         string $pgVersion,
         string $appVersion,
+        string &$successState = 'pending',
     ): void {
-        $affected = DatabaseBackup::query()
-            ->whereKey($backup->getKey())
-            ->where('status', BackupStatus::Running->value)
-            ->where('execution_token', $token)
-            ->update([
-                'status' => BackupStatus::Success->value,
-                'finished_at' => now(),
-                'object_key' => $objectKey,
-                'manifest_key' => $manifestKey,
-                'size_bytes' => $size,
-                'sha256' => $sha,
-                'pg_version' => Str::limit($pgVersion, 255, ''),
-                'app_version' => Str::limit($appVersion, 64, ''),
-                'error_message' => null,
-                'execution_token' => null,
-            ]);
+        $successState = 'uncertain';
+
+        try {
+            $affected = DatabaseBackup::query()
+                ->whereKey($backup->getKey())
+                ->where('status', BackupStatus::Running->value)
+                ->where('execution_token', $token)
+                ->update([
+                    'status' => BackupStatus::Success->value,
+                    'finished_at' => now(),
+                    'object_key' => $objectKey,
+                    'manifest_key' => $manifestKey,
+                    'size_bytes' => $size,
+                    'sha256' => $sha,
+                    'pg_version' => Str::limit($pgVersion, 255, ''),
+                    'app_version' => Str::limit($appVersion, 64, ''),
+                    'error_message' => null,
+                    'execution_token' => null,
+                ]);
+        } catch (Throwable $e) {
+            throw new BackupException('Не удалось записать результат копии: '.BackupError::fromThrowable($e));
+        }
 
         if ($affected !== 1) {
+            // WHERE не совпал — запись определённо не применилась,
+            // объекты этого исполнения остаются cleanup'у запуска.
+            $successState = 'pending';
+
             throw new BackupException('Результат не записан: исполнение устарело или передано другому процессу.');
         }
+
+        $successState = 'confirmed';
 
         $backup->refresh();
 
@@ -599,6 +649,33 @@ class DatabaseBackupService
                 'sha256' => $sha,
             ]);
         }
+    }
+
+    /**
+     * Ошибка ПОСЛЕ подтверждённого success (чтение строки, аудит и т.п.):
+     * статус и объекты не меняются, ничего не удаляется — пишется отдельно.
+     * Запись под guard'ом status=success: не затирает чужую или изменившуюся
+     * строку; недоступность БД гасится — успех уже подтверждён.
+     */
+    private function recordPostSuccessError(DatabaseBackup $backup, Throwable $e): void
+    {
+        $message = BackupError::sanitize('После записи результата: '.BackupError::fromThrowable($e));
+
+        try {
+            DatabaseBackup::query()
+                ->whereKey($backup->getKey())
+                ->where('status', BackupStatus::Success->value)
+                ->update(['prune_error_message' => $message]);
+        } catch (Throwable $dbError) {
+            Log::error('Backups: не удалось записать ошибку после успеха: '.BackupError::fromThrowable($dbError), [
+                'backup_id' => $backup->getKey(),
+            ]);
+        }
+
+        Log::error('Backups: ошибка после подтверждённого успеха', [
+            'backup_id' => $backup->getKey(),
+            'error' => BackupError::fromThrowable($e),
+        ]);
     }
 
     /**
@@ -709,9 +786,15 @@ class DatabaseBackupService
      * Удалить незавершённые объекты этого запуска. Удаляются только ключи
      * нашего namespace с полным id копии; при известном токене — ещё и
      * токен-скоуп исполнения (разные исполнения одного id объекты не
-     * делят). Скан бакета не выполняется. Сбой очистки переводит запись
-     * в состояние ожидания повтора (cleanup_pending_at) — повтор делает
-     * backups:recover в пределах cleanup_retry_max.
+     * делят). Скан бакета не выполняется.
+     *
+     * Сбой очистки переводит запись в состояние ожидания повтора
+     * (cleanup_pending_at) ВМЕСТЕ с ключами и владельцем-токеном этого
+     * исполнения — backups:recover повторит удаление только по ним, а не
+     * по текущим object_key/manifest_key строки (строка могла уже
+     * принадлежать другому, например успешному, исполнению). Поздний
+     * проигравший не затирает уже записанное чужое ожидание (CAS по
+     * владельцу) и не сбрасывает чужие попытки.
      *
      * @param  list<string|null>  $keys
      */
@@ -759,24 +842,47 @@ class DatabaseBackupService
         if ($errors !== []) {
             $message = 'Очистка незавершённых объектов: '.implode(' | ', array_unique($errors));
 
-            DatabaseBackup::query()
+            $recorded = DatabaseBackup::query()
                 ->whereKey($backup->getKey())
+                ->where(function ($query) use ($token) {
+                    $query->whereNull('cleanup_pending_at')
+                        ->orWhereNull('cleanup_execution_token')
+                        ->when($token !== null, fn ($q) => $q->orWhere('cleanup_execution_token', $token));
+                })
                 ->update([
                     'prune_error_message' => BackupError::sanitize($message),
                     'cleanup_pending_at' => now(),
+                    'cleanup_keys' => json_encode($keys),
+                    'cleanup_execution_token' => $token,
                 ]);
+
+            if ($recorded !== 1) {
+                // У строки уже висит чужое записанное ожидание очистки —
+                // не перетираем его своим поздним сбоем.
+                Log::warning('Backups: поздний сбой очистки не записан — ожидание уже принадлежит другому исполнению', [
+                    'backup_id' => $backup->getKey(),
+                    'token' => $token,
+                ]);
+            }
 
             $backup->refresh();
 
             return;
         }
 
-        // Очистка прошла: снимаем ожидание повтора и устаревшее сообщение.
+        // Очистка прошла: снимаем своё ожидание повтора и устаревшее
+        // сообщение; чужое записанное ожидание (CAS по владельцу) не трогаем.
         DatabaseBackup::query()
             ->whereKey($backup->getKey())
             ->whereNotNull('cleanup_pending_at')
+            ->where(function ($query) use ($token) {
+                $query->whereNull('cleanup_execution_token')
+                    ->when($token !== null, fn ($q) => $q->orWhere('cleanup_execution_token', $token));
+            })
             ->update([
                 'cleanup_pending_at' => null,
+                'cleanup_keys' => null,
+                'cleanup_execution_token' => null,
                 'prune_error_message' => null,
             ]);
 
@@ -785,8 +891,9 @@ class DatabaseBackupService
 
     /**
      * Ограниченный повтор очистки незавершённых объектов: только ключи,
-     * записанные в самой строке (без сканирования бакета) и только пока
-     * cleanup_attempts не достиг лимита.
+     * записанные в самой строке при сбое (cleanup_keys + владелец
+     * cleanup_execution_token; для legacy-записей — текущие ключи строки),
+     * без сканирования бакета и пока cleanup_attempts не достиг лимита.
      */
     private function retryPendingCleanup(): void
     {
@@ -811,10 +918,14 @@ class DatabaseBackupService
 
                 $backup->refresh();
 
-                $this->cleanupIntendedObjects($backup, [
-                    $backup->object_key,
-                    $backup->manifest_key,
-                ]);
+                $keys = $backup->cleanup_keys;
+
+                if (! is_array($keys) || $keys === []) {
+                    // Legacy-состояние до выделения ключей: текущие ключи строки.
+                    $keys = [$backup->object_key, $backup->manifest_key];
+                }
+
+                $this->cleanupIntendedObjects($backup, array_values($keys), $backup->cleanup_execution_token);
             });
     }
 

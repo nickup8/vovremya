@@ -551,6 +551,166 @@ class DatabaseBackupServiceTest extends TestCase
         ]);
     }
 
+    /**
+     * Полный сценарий позднего исполнения: A зависла на первой загрузке,
+     * исполнение B перехватило строку и завершилось успехом; продолживший A
+     * потерял владение, его cleanup отказался (S3 delete падает). Возвращает
+     * копию и stub диска, чтобы тест сами проверяли исход очистки/recovery.
+     *
+     * @return array{DatabaseBackup, BackupDiskStub}
+     */
+    private function simulateLateCleanupAfterSupersededRun(): array
+    {
+        $healthy = Storage::disk('backups_s3');
+        $backup = $this->makeQueued(BackupTrigger::Manual);
+
+        $stub = new class($healthy) extends BackupDiskStub
+        {
+            public ?DatabaseBackupService $service = null;
+
+            public ?DatabaseBackup $backup = null;
+
+            public bool $intercepted = false;
+
+            /** @var list<string> */
+            public array $written = [];
+
+            public function writeStream($path, $resource, array $options = [])
+            {
+                if (! $this->intercepted) {
+                    $this->intercepted = true;
+
+                    // A зависла на загрузке: строка устаревает, воркер B
+                    // перехватывает копию и доводит её до success.
+                    DatabaseBackup::query()->update(['started_at' => now()->subHours(2)]);
+                    $this->service->run($this->backup->fresh());
+
+                    // Отказ S3 delete достаётся только позднему A.
+                    $this->failDeletes = true;
+                }
+
+                $this->written[] = (string) $path;
+
+                return parent::writeStream($path, $resource, $options);
+            }
+        };
+        $stub->service = $this->service;
+        $stub->backup = $backup;
+        Storage::set('backups_s3', $stub);
+
+        try {
+            $this->service->run($backup);
+            $this->fail('Ожидалось исключение BackupException');
+        } catch (BackupException) {
+            // позднее исполнение A проиграло владение — ожидаемо
+        }
+
+        return [$backup, $stub];
+    }
+
+    public function test_recovery_after_late_cleanup_failure_keeps_successful_copy_of_new_execution(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $healthy = Storage::disk('backups_s3');
+
+        [$backup, $stub] = $this->simulateLateCleanupAfterSupersededRun();
+
+        $afterA = $backup->fresh();
+        $successKey = (string) $afterA->object_key;
+        $successManifest = (string) $afterA->manifest_key;
+        $lateKey = $stub->written[2];
+
+        // Строка принадлежит успешному исполнению B, остаток A лежит в бакете.
+        $this->assertSame(BackupStatus::Success, $afterA->status);
+        $this->assertNotSame($lateKey, $successKey);
+        $this->assertTrue($healthy->exists($lateKey));
+        $this->assertTrue($healthy->exists($successKey));
+        $this->assertNotNull($afterA->cleanup_pending_at);
+
+        // S3 восстановился — backups:recover повторяет отложенную очистку.
+        Storage::set('backups_s3', $healthy);
+        $this->service->recoverActiveBackups();
+
+        $recovered = $backup->fresh();
+        $this->assertSame(BackupStatus::Success, $recovered->status);
+        $this->assertSame($afterA->sha256, $recovered->sha256);
+
+        // Копия и manifest B пережили recovery, SHA сходится с содержимым.
+        $this->assertTrue($healthy->exists($successKey), 'успешная копия B должна пережить recovery');
+        $this->assertTrue($healthy->exists($successManifest), 'manifest B должен пережить recovery');
+        $this->assertSame($recovered->sha256, hash('sha256', (string) $healthy->get($successKey)));
+
+        // Остаток A убран — и только по принадлежавшим A ключам.
+        $this->assertFalse($healthy->exists($lateKey), 'остаток A должен быть убран recovery');
+
+        $this->assertNull($recovered->cleanup_pending_at);
+        $this->assertNull($recovered->prune_error_message);
+        $this->assertSame(0, $admin->notifications()->count());
+    }
+
+    public function test_late_cleanup_failure_records_owned_keys_and_token_for_recovery(): void
+    {
+        [$backup, $stub] = $this->simulateLateCleanupAfterSupersededRun();
+
+        $fresh = $backup->fresh();
+        $lateKey = $stub->written[2];
+
+        // Отложенная очистка фиксирует КОНКРЕТНЫЕ ключи и исполняющий токен,
+        // а не текущие object_key/manifest_key строки (там уже ключи B).
+        $this->assertSame(BackupStatus::Success, $fresh->status);
+        $this->assertSame([$lateKey], $fresh->cleanup_keys);
+
+        $segments = explode('/', $lateKey);
+        $lateToken = (string) $segments[count($segments) - 2];
+        $this->assertSame($lateToken, $fresh->cleanup_execution_token);
+        $this->assertNotSame($fresh->execution_token, $lateToken);
+    }
+
+    public function test_read_error_after_successful_update_keeps_success_copy_and_status(): void
+    {
+        $backup = $this->makeQueued();
+
+        // Первое чтение строки в статусе success — это refresh() в
+        // markSucceeded сразу после UPDATE успеха: читаемая ошибка модели
+        // падает именно там, между записью успеха и дальнейшими действиями.
+        $state = (object) ['armed' => true];
+
+        DatabaseBackup::retrieved(function (DatabaseBackup $model) use ($state) {
+            if ($state->armed && $model->status === BackupStatus::Success) {
+                $state->armed = false;
+
+                throw new RuntimeException('connection reset while reading row');
+            }
+        });
+
+        try {
+            $this->service->run($backup);
+        } catch (BackupException) {
+            // после подтверждённого успеха копия не должна считаться сбоем;
+            // главное — статус и объекты (проверяются ниже)
+        }
+
+        $state->armed = false;
+
+        $fresh = $backup->fresh();
+        $this->assertSame(BackupStatus::Success, $fresh->status);
+        $this->assertNotNull($fresh->sha256);
+        $this->assertSame(hash('sha256', $this->runner->dumpContent), $fresh->sha256);
+
+        // Dump и manifest подтверждённого успеха не удалены cleanup'ом.
+        $disk = Storage::disk('backups_s3');
+        $this->assertNotNull($fresh->object_key);
+        $disk->assertExists((string) $fresh->object_key);
+        $disk->assertExists((string) $fresh->manifest_key);
+        $this->assertSame($fresh->sha256, hash('sha256', (string) $disk->get((string) $fresh->object_key)));
+
+        // Ошибка после успеха пишется отдельно, а не в error_message
+        // (BackupError сводит исходное исключение к безопасному описанию).
+        $this->assertNull($fresh->error_message);
+        $this->assertStringContainsString('После записи результата', (string) $fresh->prune_error_message);
+        $this->assertStringContainsString('RuntimeException', (string) $fresh->prune_error_message);
+    }
+
     public function test_recovery_does_not_interrupt_execution_reclaimed_during_scan(): void
     {
         $admin = User::factory()->master()->create(['is_super_admin' => true]);

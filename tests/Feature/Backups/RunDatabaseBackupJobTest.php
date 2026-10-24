@@ -11,8 +11,10 @@ use App\Models\User;
 use App\Services\Backups\BackupProcessRunner;
 use App\Services\Backups\DatabaseBackupService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
+use ReflectionMethod;
 use Tests\Support\Backups\FakeBackupProcessRunner;
 use Tests\TestCase;
 
@@ -200,5 +202,184 @@ class RunDatabaseBackupJobTest extends TestCase
 
         $this->assertSame(BackupStatus::Success, $backup->fresh()->status);
         $this->assertNull($backup->fresh()->error_message);
+    }
+
+    /**
+     * Сериализованный command из payload'а ПОСЛЕ обычной постановки и ДО
+     * handle() — именно такой экземпляр Laravel воссоздаёт в failed().
+     */
+    private function originalJobCommand(): RunDatabaseBackupJob
+    {
+        return $this->commandFromPayload($this->originalJobPayload());
+    }
+
+    private function originalJobPayload(): string
+    {
+        $row = DB::table('jobs')->where('queue', 'backups')->orderByDesc('id')->first();
+
+        $this->assertNotNull($row, 'job должен быть поставлен в очередь обычным способом');
+
+        $payload = json_decode((string) $row->payload, true);
+
+        $this->assertIsArray($payload);
+        $this->assertArrayHasKey('command', $payload['data'] ?? []);
+
+        return (string) $payload['data']['command'];
+    }
+
+    private function commandFromPayload(string $serialized): RunDatabaseBackupJob
+    {
+        $command = unserialize($serialized);
+
+        $this->assertInstanceOf(RunDatabaseBackupJob::class, $command);
+
+        return $command;
+    }
+
+    private function invokePrivate(string $method, mixed ...$args): mixed
+    {
+        $ref = new ReflectionMethod(DatabaseBackupService::class, $method);
+        $ref->setAccessible(true);
+
+        return $ref->invoke($this->app->make(DatabaseBackupService::class), ...$args);
+    }
+
+    public function test_handle_uses_execution_token_from_original_payload(): void
+    {
+        $service = $this->app->make(DatabaseBackupService::class);
+        $backup = $service->request(BackupTrigger::Manual);
+
+        $original = $this->originalJobCommand();
+        $token = $original->executionToken;
+
+        $this->assertNotNull($token, 'токен доставки должен лежать в исходном payload ДО handle()');
+
+        // handle() должен работать именно токеном из payload'а — иначе
+        // failed() (десериализация исходного payload'а) свое исполнение
+        // не найдёт, а fencing между доставками сломается.
+        $probe = new class(app(BackupProcessRunner::class)) extends DatabaseBackupService
+        {
+            public ?string $observedToken = 'not-called';
+
+            public function run(DatabaseBackup $backup, ?string $executionToken = null): void
+            {
+                $this->observedToken = $executionToken;
+            }
+        };
+
+        $original->handle($probe);
+
+        $this->assertSame($token, $probe->observedToken);
+        $this->assertSame(BackupStatus::Queued, $backup->fresh()->status, 'probe не должен менять статус');
+    }
+
+    public function test_failed_hook_restored_from_original_payload_interrupts_its_own_running_execution(): void
+    {
+        config(['filesystems.disks.backups_s3.secret' => 'S3Secret-MARKER-hook']);
+
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $service = $this->app->make(DatabaseBackupService::class);
+
+        // Обычная постановка: payload сериализуется ДО handle().
+        $backup = $service->request(BackupTrigger::Manual);
+        $payload = $this->originalJobPayload();
+
+        $original = $this->commandFromPayload($payload);
+        $token = $original->executionToken;
+        $this->assertNotNull($token, 'токен доставки должен лежать в исходном payload ДО handle()');
+
+        // Воркер начал исполнение этим токеном (begin в handle()) и был
+        // убит до завершения: строка осталась running, остаток загружен.
+        $this->invokePrivate('begin', $backup->fresh(), $token);
+
+        $leftoverKey = sprintf(
+            'irsi-app/testing/manual/2026/01/01/%s/%s.dump',
+            $token,
+            $backup->getKey(),
+        );
+        Storage::disk('backups_s3')->put($leftoverKey, 'partial-upload');
+        DatabaseBackup::query()->whereKey($backup->getKey())->update(['object_key' => $leftoverKey]);
+
+        // Laravel вызывает failed() на новом экземпляре из ИСХОДНОГО
+        // payload'а — как здесь, с сохранённой до handle() сериализации.
+        $restored = $this->commandFromPayload($payload);
+        $restored->failed(new \RuntimeException('worker died secret=S3Secret-MARKER-hook'));
+
+        $fresh = $backup->fresh();
+        $this->assertSame(BackupStatus::Failed, $fresh->status, 'свое running-исполнение должно завершиться');
+        $this->assertStringContainsString('прерван', (string) $fresh->error_message);
+        $this->assertStringNotContainsString('S3Secret-MARKER-hook', (string) $fresh->error_message);
+        $this->assertNull($fresh->execution_token);
+        $this->assertFalse(
+            Storage::disk('backups_s3')->exists($leftoverKey),
+            'остатки своего исполнения должны убираться',
+        );
+        $this->assertGreaterThan(0, $admin->notifications()->count());
+    }
+
+    public function test_failed_hook_restored_from_original_payload_does_not_interrupt_foreign_execution(): void
+    {
+        $admin = User::factory()->master()->create(['is_super_admin' => true]);
+        $service = $this->app->make(DatabaseBackupService::class);
+
+        $backup = $service->request(BackupTrigger::Manual);
+        $payload = $this->originalJobPayload();
+
+        $original = $this->commandFromPayload($payload);
+        $token = $original->executionToken;
+        $this->assertNotNull($token, 'токен доставки должен лежать в исходном payload ДО handle()');
+
+        // Своя доставка начала исполнение, затем строку перехватило чужое
+        // исполнение (stale-захват с новым токеном); запоздавший failed()
+        // этой доставки не должен трогать чужой живой запуск.
+        $this->invokePrivate('begin', $backup->fresh(), $token);
+        DatabaseBackup::query()->whereKey($backup->getKey())->update(['started_at' => now()->subHours(2)]);
+        $foreignToken = (string) $this->invokePrivate('begin', $backup->fresh());
+
+        $foreignKey = sprintf(
+            'irsi-app/testing/manual/2026/01/01/%s/%s.dump',
+            $foreignToken,
+            $backup->getKey(),
+        );
+        Storage::disk('backups_s3')->put($foreignKey, 'foreign-partial');
+        DatabaseBackup::query()->whereKey($backup->getKey())->update(['object_key' => $foreignKey]);
+
+        $restored = $this->commandFromPayload($payload);
+        $restored->failed(new \RuntimeException('late foreign failure'));
+
+        $fresh = $backup->fresh();
+        $this->assertSame(BackupStatus::Running, $fresh->status, 'чужой запуск должен остаться нетронутым');
+        $this->assertSame($foreignToken, $fresh->execution_token);
+        $this->assertNull($fresh->error_message);
+        $this->assertTrue(Storage::disk('backups_s3')->exists($foreignKey));
+        $this->assertSame(0, $admin->notifications()->count());
+    }
+
+    public function test_each_dispatched_delivery_carries_a_distinct_execution_token(): void
+    {
+        $backup = $this->makeBackup(BackupStatus::Queued);
+        $service = $this->app->make(DatabaseBackupService::class);
+
+        // Реальная постановка (protected pushJob) дважды: два delivery —
+        // два исполнения — должны получать РАЗНЫЕ токены, иначе поздний
+        // failed() одной доставки совпал бы с токеном другой (нет fencing).
+        $push = new ReflectionMethod(DatabaseBackupService::class, 'pushJob');
+        $push->setAccessible(true);
+        $push->invoke($service, $backup);
+        $push->invoke($service, $backup);
+
+        $rows = DB::table('jobs')->where('queue', 'backups')->orderBy('id')->get();
+
+        $this->assertCount(2, $rows);
+
+        $tokens = $rows->map(function ($row): ?string {
+            $command = $this->commandFromPayload((string) json_decode((string) $row->payload, true)['data']['command']);
+
+            return $command->executionToken;
+        })->all();
+
+        $this->assertNotNull($tokens[0], 'каждая доставка несёт токен в payload');
+        $this->assertNotNull($tokens[1], 'каждая доставка несёт токен в payload');
+        $this->assertNotSame($tokens[0], $tokens[1], 'токены разных доставок не должны совпадать');
     }
 }
