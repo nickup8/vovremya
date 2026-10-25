@@ -38,11 +38,32 @@ class BackupConfigTest extends TestCase
         $this->assertNotSame('backups', config('queue.connections.database.queue'));
     }
 
-    public function test_app_version_is_used_for_manifest(): void
+    public function test_app_version_is_user_release_version_not_build_sha(): void
     {
-        // config(app.version) — источник app_version в manifest.
-        // deploy.sh пишет git SHA в APP_VERSION; здесь фиксируем контракт.
-        $this->assertNotEmpty(config('app.version'));
-        $this->assertSame((string) config('app.version'), config('app.version'));
+        // config(app.version) — источник app_version в manifest и UI;
+        // это пользовательская версия релиза, а не git SHA (SHA — app.build_sha).
+        $version = (string) config('app.version');
+
+        $this->assertNotEmpty($version);
+        $this->assertMatchesRegularExpression('/^\d+\.\d+\.\d+/', $version);
+        $this->assertDoesNotMatchRegularExpression('/^[0-9a-f]{40}$/', $version);
+    }
+
+    public function test_app_version_comes_from_tracked_version_file(): void
+    {
+        // Единственный источник версии релиза — файл VERSION в репозитории.
+        $this->assertSame(
+            trim(file_get_contents(base_path('VERSION'))),
+            (string) config('app.version'),
+        );
+    }
+
+    public function test_app_build_sha_is_separate_from_app_version(): void
+    {
+        // APP_BUILD_SHA (deploy.sh: git rev-parse HEAD) не подменяет версию.
+        $buildSha = (string) config('app.build_sha');
+
+        $this->assertNotEmpty($buildSha);
+        $this->assertNotSame((string) config('app.version'), $buildSha);
     }
 }

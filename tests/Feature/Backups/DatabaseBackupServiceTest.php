@@ -151,6 +151,9 @@ class DatabaseBackupServiceTest extends TestCase
         $this->assertSame($backup->size_bytes, $manifest['size_bytes']);
         $this->assertSame('manual', $manifest['trigger']);
         $this->assertSame((string) config('app.version'), $manifest['app_version']);
+        $this->assertSame((string) config('app.build_sha'), $manifest['app_build_sha']);
+        // Версия и SHA сборки — разные значения, не подменяют друг друга.
+        $this->assertNotSame($manifest['app_version'], $manifest['app_build_sha']);
 
         // Временные файлы (дамп и pgpass) убраны.
         $this->assertDirectoryDoesNotExist($this->tmpDir.'/'.$backup->getKey());
@@ -160,6 +163,46 @@ class DatabaseBackupServiceTest extends TestCase
             'super_admin_id' => $admin->id,
             'action' => 'backup.succeeded',
         ]);
+    }
+
+    public function test_historical_manifest_with_sha_in_app_version_stays_operable(): void
+    {
+        // Старые копии: app_version в БД/manifest — git SHA, app_build_sha нет.
+        // Ротация и чтение записей не должны требовать нового поля.
+        config(['backups.keep.manual' => 1]);
+
+        $old = $this->makeSuccess(BackupTrigger::Manual, 100);
+        $oldSha = str_repeat('ab', 20);
+        $old->update(['app_version' => $oldSha]);
+
+        $historicalManifest = json_encode([
+            'backup_id' => $old->getKey(),
+            'object_key' => $old->object_key,
+            'trigger' => 'manual',
+            'environment' => 'testing',
+            'size_bytes' => $old->size_bytes,
+            'sha256' => $old->sha256,
+            'pg_version' => 'PostgreSQL 16.4',
+            'app_version' => $oldSha,
+        ], JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
+        Storage::disk('backups_s3')->put((string) $old->manifest_key, $historicalManifest);
+
+        $backup = $this->makeQueued(BackupTrigger::Manual);
+        $this->service->run($backup);
+
+        // Новая копия успешна, историческая удалена ротацией без ошибок.
+        $this->assertSame(BackupStatus::Success, $backup->fresh()->status);
+        $this->assertNull($backup->fresh()->prune_error_message);
+        $this->assertDatabaseMissing('database_backups', ['id' => $old->getKey()]);
+        $this->assertFalse(Storage::disk('backups_s3')->exists((string) $old->object_key));
+
+        // Исторический manifest остаётся валидным JSON с нужными для
+        // восстановления полями и без app_build_sha.
+        $decoded = json_decode($historicalManifest, true);
+        $this->assertIsArray($decoded);
+        $this->assertSame($oldSha, $decoded['app_version']);
+        $this->assertArrayNotHasKey('app_build_sha', $decoded);
+        $this->assertNotEmpty($decoded['sha256']);
     }
 
     public function test_pg_dump_password_never_appears_in_arguments_env_or_serialized_job(): void

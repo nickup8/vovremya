@@ -15,7 +15,21 @@ return [
 
     'name' => env('APP_NAME', 'Laravel'),
 
-    'version' => env('APP_VERSION', '1.0.0'),
+    /*
+    |--------------------------------------------------------------------------
+    | Application Version
+    |--------------------------------------------------------------------------
+    |
+    | APP_VERSION — пользовательская версия релиза (единый источник — файл
+    | VERSION в корне репозитория; deploy.sh пишет её в серверный .env).
+    | APP_BUILD_SHA — полный git SHA фактически развёрнутого коммита
+    | (deploy.sh: git rev-parse HEAD). Локально по умолчанию "dev".
+    |
+    */
+
+    'version' => env('APP_VERSION') ?: trim((string) file_get_contents(base_path('VERSION'))),
+
+    'build_sha' => env('APP_BUILD_SHA') ?: 'dev',
 
     /*
     |--------------------------------------------------------------------------

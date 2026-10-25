@@ -272,7 +272,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                 {/* Version */}
                 {!collapsed && (
                     <div className="mt-2 pb-0.5 text-center text-[9px] text-[var(--color-graphite)]/50">
-                        v{(props as Record<string, unknown>).appVersion || '1.0.0'}
+                        v{(props as Record<string, unknown>).appVersion || 'dev'}
                     </div>
                 )}
             </div>

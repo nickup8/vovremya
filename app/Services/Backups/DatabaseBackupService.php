@@ -183,6 +183,7 @@ class DatabaseBackupService
             $sha = (string) hash_file('sha256', $dumpPath);
             $pgVersion = $this->postgresVersion();
             $appVersion = (string) config('app.version');
+            $appBuildSha = (string) config('app.build_sha');
 
             $objectKey = $this->objectKey($backup, $token);
             $manifestKey = $objectKey.'.manifest.json';
@@ -204,6 +205,7 @@ class DatabaseBackupService
                 'sha256' => $sha,
                 'pg_version' => $pgVersion,
                 'app_version' => $appVersion,
+                'app_build_sha' => $appBuildSha,
             ]);
 
             $this->markSucceeded($backup, $token, $objectKey, $manifestKey, $size, $sha, $pgVersion, $appVersion, $successState);

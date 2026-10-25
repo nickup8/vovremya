@@ -19,6 +19,9 @@
     </source>
     <php>
         <env name="APP_ENV" value="testing" force="true"/>
+        <!-- Пусто + force: тесты читают версию из VERSION, а не из локального .env. -->
+        <env name="APP_VERSION" value="" force="true"/>
+        <env name="APP_BUILD_SHA" value="" force="true"/>
         <env name="APP_MAINTENANCE_DRIVER" value="file" force="true"/>
         <env name="BCRYPT_ROUNDS" value="4" force="true"/>
         <env name="BROADCAST_CONNECTION" value="null" force="true"/>
