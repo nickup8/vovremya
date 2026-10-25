@@ -266,7 +266,9 @@ export default function BillingPage() {
     const receipts = props.receipts ?? null;
 
     const proPlan = plans.find((p) => p.code === 'pro');
-    const visibleProFeatures = PRO_FEATURES.filter((f) => proPlan?.features.includes(f.code));
+    // features may arrive null/undefined from the server — never crash the page on it.
+    const planFeatureCodes = Array.isArray(proPlan?.features) ? proPlan.features : [];
+    const visibleProFeatures = PRO_FEATURES.filter((f) => planFeatureCodes.includes(f.code));
 
     const [selectedPeriod, setSelectedPeriod] = useState(3);
     const [autoRenewActive, setAutoRenewActive] = useState(Boolean(current.auto_renew_enabled));
@@ -728,7 +730,7 @@ export default function BillingPage() {
             dialogLabel = 'Платёж завершён';
             dialogTitle = 'Оплата прошла';
             dialogBody =
-                'Профи продлён. Новый период уже добавлен к текущей подписке.';
+                'Оплаченный период Профи добавлен к вашей подписке.';
             dialogDetails = true;
             dialogNote =
                 'Можно продолжать работу — дополнительные действия не нужны.';
@@ -960,7 +962,7 @@ export default function BillingPage() {
                                     Базовые возможности
                                 </div>
                                 <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                    Доступны на «Старт» и остаются после перехода на «Профи».
+                                    Доступны на обоих тарифах.
                                 </div>
                                 <ul className="mt-3.5 space-y-2.5">
                                     {FREE_INCLUDES.map((item) => (
@@ -973,7 +975,6 @@ export default function BillingPage() {
                                     ))}
                                 </ul>
                             </div>
-                            {visibleProFeatures.length > 0 && (
                             <div className="min-w-0 max-md:border-t max-md:border-[var(--color-line-soft)] max-md:pt-5">
                                 <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
                                     {isPaid ? 'Включено в «Профи»' : 'Добавит «Профи»'}
@@ -981,8 +982,9 @@ export default function BillingPage() {
                                 <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
                                     {isPaid
                                         ? 'Эти возможности уже активны на вашем тарифе.'
-                                        : 'Четыре возможности — поверх базы «Старт».'}
+                                        : 'Дополнительные возможности Профи'}
                                 </div>
+                                {visibleProFeatures.length > 0 ? (
                                 <ul className="mt-3.5 overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)]">
                                     {visibleProFeatures.map((f, index) => (
                                         <li
@@ -1013,8 +1015,12 @@ export default function BillingPage() {
                                         </li>
                                     ))}
                                 </ul>
+                                ) : (
+                                <p className="mt-3.5 rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[13px] leading-[1.45] text-[var(--color-graphite)]">
+                                    Описание возможностей временно недоступно
+                                </p>
+                                )}
                             </div>
-                            )}
                         </div>
                     </section>
 

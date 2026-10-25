@@ -34,27 +34,31 @@ const ALL_PRO_FEATURES = [
     'channel_analytics',
 ];
 
-// Ориентиры production-конфигурации: цены приходят сервером, тест их не хардкодит в коде страницы.
+// Фикстура для проверки отображения переданных сервером сумм —
+// не актуальная стоимость и не алгоритм округления.
 const DISCOUNT_PRICES = [
-    { period_months: 1, base: 490, discount_percent: 0, final: 490 },
-    { period_months: 3, base: 1470, discount_percent: 5, final: 1397 },
-    { period_months: 6, base: 2940, discount_percent: 10, final: 2646 },
-    { period_months: 12, base: 5880, discount_percent: 20, final: 4704 },
+    { period_months: 1, base: 100, discount_percent: 0, final: 100 },
+    { period_months: 3, base: 300, discount_percent: 10, final: 270 },
+    { period_months: 6, base: 600, discount_percent: 10, final: 540 },
+    { period_months: 12, base: 1200, discount_percent: 20, final: 960 },
 ];
 
-function makeProps({
-    currentOverrides = {},
-    features = ALL_PRO_FEATURES,
-    prices = DISCOUNT_PRICES,
-    receipts = null,
-    paymentAttemptId = null,
-}: {
+function makeProps(options: {
     currentOverrides?: Record<string, unknown>;
-    features?: string[];
+    features?: string[] | null;
     prices?: typeof DISCOUNT_PRICES;
     receipts?: unknown;
     paymentAttemptId?: string | null;
 } = {}) {
+    const {
+        currentOverrides = {},
+        prices = DISCOUNT_PRICES,
+        receipts = null,
+        paymentAttemptId = null,
+    } = options;
+    // Ключ features может быть передан явно как null/undefined — default
+    // деструктуриры не должен их затирать.
+    const features = 'features' in options ? options.features : ALL_PRO_FEATURES;
     return {
         props: {
             plans: [
@@ -62,7 +66,7 @@ function makeProps({
                     id: 1,
                     code: 'pro',
                     name: 'Профи',
-                    price_monthly: 490,
+                    price_monthly: 100,
                     max_appointments_per_month: null,
                     features,
                     prices,
@@ -125,6 +129,7 @@ describe('admin/billing.tsx — «Старт»: current tariff and honest differ
         render(<BillingPage />);
 
         expect(screen.getByText('Базовые возможности')).toBeTruthy();
+        expect(screen.getByText('Доступны на обоих тарифах.')).toBeTruthy();
         expect(screen.getByText(/Онлайн-запись без ограничения количества записей/u)).toBeTruthy();
         expect(screen.getByText(/Календарь, услуги и клиентская база/u)).toBeTruthy();
         expect(screen.getByText(/в том числе повторяющиеся/u)).toBeTruthy();
@@ -141,10 +146,11 @@ describe('admin/billing.tsx — «Старт»: current tariff and honest differ
         expect(screen.queryByText('Что входит в Профи')).toBeNull();
     });
 
-    it('shows the four real Pro differences with action-and-benefit copy', () => {
+    it('shows the Pro differences with action-and-benefit copy', () => {
         render(<BillingPage />);
 
         expect(screen.getByText('Добавит «Профи»')).toBeTruthy();
+        expect(screen.getByText('Дополнительные возможности Профи')).toBeTruthy();
 
         expect(screen.getByText('Повторяющиеся записи')).toBeTruthy();
         expect(screen.getByText('Свободные окна')).toBeTruthy();
@@ -175,6 +181,32 @@ describe('admin/billing.tsx — «Старт»: current tariff and honest differ
         expect(screen.getByText('Повторяющиеся записи')).toBeTruthy();
         expect(screen.queryByText('Свободные окна')).toBeNull();
     });
+
+    it.each([
+        ['null', null],
+        ['undefined', undefined],
+        ['empty array', []],
+    ] as const)('features=%s keeps the page usable without inventing benefits', (_label, features) => {
+        window.history.replaceState(null, '', '/admin/billing');
+        mockUsePage.mockReturnValue(makeProps({ features }));
+        render(<BillingPage />);
+
+        expect(screen.getByText('Тариф: Старт')).toBeTruthy();
+        expect(screen.getByText('Базовые возможности')).toBeTruthy();
+        expect(screen.getByText('Доступны на обоих тарифах.')).toBeTruthy();
+        expect(screen.getByText('Добавит «Профи»')).toBeTruthy();
+        expect(screen.getByText('Описание возможностей временно недоступно')).toBeTruthy();
+
+        // Без выдуманных преимуществ и без падения.
+        expect(screen.queryByText('Повторяющиеся записи')).toBeNull();
+        expect(screen.queryByText('Свободные окна')).toBeNull();
+        expect(screen.queryByText('«Хочу раньше»')).toBeNull();
+        expect(screen.queryByText('Аналитика источников и ссылок')).toBeNull();
+
+        // Выбор периода и checkout остаются доступными.
+        expect(screen.getByText(/К оплате за 3 месяца/u)).toBeTruthy();
+        expect(screen.getByRole('button', { name: /Подключить Профи на 3 месяца/u })).toBeTruthy();
+    });
 });
 
 describe('admin/billing.tsx — period selection and payable total', () => {
@@ -189,12 +221,12 @@ describe('admin/billing.tsx — period selection and payable total', () => {
         const totalLabel = screen.getByText(/К оплате за 3 месяца/u);
         const summaryGrid = totalLabel.parentElement?.parentElement;
         // Полная сумма периода заметнее месячного эквивалента.
-        expect(summaryGrid?.textContent).toMatch(/1\s?397\s?₽/u);
-        expect(summaryGrid?.textContent).toMatch(/≈\s?466\s?₽\s?\/ мес/u);
-        expect(summaryGrid?.textContent).toMatch(/Экономия\s?73\s?₽/u);
+        expect(summaryGrid?.textContent).toMatch(/270\s?₽/u);
+        expect(summaryGrid?.textContent).toMatch(/≈\s?90\s?₽\s?\/ мес/u);
+        expect(summaryGrid?.textContent).toMatch(/Экономия\s?30\s?₽/u);
 
         expect(
-            screen.getByRole('button', { name: /Подключить Профи на 3 месяца — 1\s?397\s?₽/u }),
+            screen.getByRole('button', { name: /Подключить Профи на 3 месяца — 270\s?₽/u }),
         ).toBeTruthy();
     });
 
@@ -205,11 +237,11 @@ describe('admin/billing.tsx — period selection and payable total', () => {
 
         const totalLabel = screen.getByText(/К оплате за 12 месяцев/u);
         const summaryGrid = totalLabel.parentElement?.parentElement;
-        expect(summaryGrid?.textContent).toMatch(/4\s?704\s?₽/u);
+        expect(summaryGrid?.textContent).toMatch(/960\s?₽/u);
         // Месячный эквивалент не подменяет полную стоимость периода.
-        expect(summaryGrid?.textContent).toMatch(/≈\s?392\s?₽\s?\/ мес/u);
+        expect(summaryGrid?.textContent).toMatch(/≈\s?80\s?₽\s?\/ мес/u);
         expect(
-            screen.getByRole('button', { name: /Подключить Профи на 12 месяцев — 4\s?704\s?₽/u }),
+            screen.getByRole('button', { name: /Подключить Профи на 12 месяцев — 960\s?₽/u }),
         ).toBeTruthy();
         expect(routerGet).not.toHaveBeenCalled();
     });
@@ -348,5 +380,59 @@ describe('admin/billing.tsx — missing pro plan catalog', () => {
         expect(screen.queryByRole('button', { name: /Подключить/u })).toBeNull();
         expect(screen.queryByRole('button', { name: /Продлить/u })).toBeNull();
         expect(screen.queryByText(/₽/u)).toBeNull();
+    });
+
+    it('active Pro without proPlan keeps subscription status, receipts and auto-renew control', () => {
+        mockUsePage.mockReturnValue({
+            props: {
+                plans: [],
+                current: {
+                    tariff: 'pro',
+                    tariff_name: 'Профи',
+                    is_paid: true,
+                    expires_at: '2026-12-01T00:00:00.000Z',
+                    days_left: 30,
+                    auto_renew_enabled: true,
+                    renewal_period_months: 3,
+                },
+                auth: { user: { name: 'Test' } },
+                receipts: {
+                    data: [
+                        {
+                            id: 'r1',
+                            status_label: 'Доступен в кабинете',
+                            receipt_url: 'https://example.test/receipt/1',
+                            amount: 270,
+                            currency: 'RUB',
+                            confirmed_at: '2026-10-20T12:00:00Z',
+                            period_start: '2026-09-20T00:00:00Z',
+                            period_end: '2026-12-20T00:00:00Z',
+                            tariff_name: 'Профи',
+                        },
+                    ],
+                    current_page: 1,
+                    last_page: 1,
+                    per_page: 5,
+                    total: 1,
+                },
+            },
+        });
+        render(<BillingPage />);
+
+        expect(screen.getByText('Профи активен до 1 декабря 2026')).toBeTruthy();
+        expect(screen.getByText(/осталось 30 дн\./u)).toBeTruthy();
+
+        expect(screen.getByText('Автопродление включено')).toBeTruthy();
+        expect(screen.getByText('Следующий период: каждые 3 мес.')).toBeTruthy();
+        expect(screen.getByRole('button', { name: 'Отключить автопродление' })).toBeTruthy();
+
+        expect(screen.getByTestId('cabinet-receipts')).toBeTruthy();
+        expect(screen.getByRole('link', { name: 'Открыть чек' })).toBeTruthy();
+
+        // Каталога нет — честное состояние вместо прайса и CTA.
+        // (Суммы в чеках выше — данные кабинета, а не прайс тарифа.)
+        expect(screen.getByText('Подключение «Профи»')).toBeTruthy();
+        expect(screen.queryByRole('button', { name: /Продлить/u })).toBeNull();
+        expect(screen.queryByText(/\/ мес/u)).toBeNull();
     });
 });
