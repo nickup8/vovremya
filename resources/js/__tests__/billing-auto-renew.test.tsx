@@ -67,10 +67,10 @@ describe('admin/billing.tsx — CTA goes to own checkout', () => {
         routerGet.mockReset();
     });
 
-    it('mobile «Продлить» opens own checkout with selected period', () => {
+    it('mobile «Подключить» opens own checkout with selected period', () => {
         render(<BillingPage />);
 
-        fireEvent.click(screen.getByText('Продлить'));
+        fireEvent.click(screen.getByText('Подключить'));
 
         expect(routerGet).toHaveBeenCalledTimes(1);
         expect(routerGet).toHaveBeenCalledWith('/admin/billing/checkout?period_months=3');
@@ -79,7 +79,7 @@ describe('admin/billing.tsx — CTA goes to own checkout', () => {
     it('desktop CTA opens own checkout with selected period', () => {
         render(<BillingPage />);
 
-        fireEvent.click(screen.getByRole('button', { name: /Продлить на 3 месяца — 1.470 ₽/u }));
+        fireEvent.click(screen.getByRole('button', { name: /Подключить Профи на 3 месяца — 1.470 ₽/u }));
 
         expect(routerGet).toHaveBeenCalledWith('/admin/billing/checkout?period_months=3');
     });
@@ -88,7 +88,7 @@ describe('admin/billing.tsx — CTA goes to own checkout', () => {
         render(<BillingPage />);
 
         fireEvent.click(screen.getByText('12 мес'));
-        fireEvent.click(screen.getByText('Продлить'));
+        fireEvent.click(screen.getByText('Подключить'));
 
         expect(routerGet).toHaveBeenCalledWith('/admin/billing/checkout?period_months=12');
     });
@@ -96,7 +96,7 @@ describe('admin/billing.tsx — CTA goes to own checkout', () => {
     it('no longer opens the old confirmation modal', () => {
         render(<BillingPage />);
 
-        fireEvent.click(screen.getByText('Продлить'));
+        fireEvent.click(screen.getByText('Подключить'));
 
         expect(screen.queryByText('Переход к оплате')).toBeNull();
         expect(screen.queryByRole('button', { name: 'Продолжить' })).toBeNull();

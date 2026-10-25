@@ -72,17 +72,59 @@ interface PageProps {
 
 /* ═══════════════ Helpers ═══════════════ */
 
-const FEATURE_LABELS: Record<string, string> = {
-    calendar: 'Календарь записей',
-    basic_client_management: 'Базовая база клиентов',
-    unlimited_appointments: 'Безлимит записей',
-    client_management: 'Полная база клиентов',
-    channel_analytics: 'Аналитика каналов записи',
-    slot_autofill: 'Автозаполнение свободных окон',
-    free_windows: 'Свободные окна',
-};
+interface ProFeatureCopy {
+    code: string;
+    title: string;
+    description: string;
+    example: string | null;
+    note?: string;
+}
 
-const BENEFIT_FEATURES = ['unlimited_appointments', 'client_management', 'channel_analytics', 'slot_autofill', 'free_windows'];
+/**
+ * Эксклюзивные возможности «Профи» — строго по feature-кодам тарифа.
+ * Безлимит записей, клиентская база и базовая аналитика общие для «Старт»
+ * и «Профи», поэтому сюда не попадают.
+ */
+const PRO_FEATURES: ProFeatureCopy[] = [
+    {
+        code: 'recurring_appointments',
+        title: 'Повторяющиеся записи',
+        description:
+            'Серия регулярных визитов клиента — по дням недели или через несколько дней. Отдельный визит, несколько будущих или всю серию можно поправить или отменить.',
+        example: 'Клиент ходит каждую пятницу — серия оформляется один раз.',
+    },
+    {
+        code: 'free_windows',
+        title: 'Свободные окна',
+        description:
+            'Отметьте свободное время на ближайшие дни и получите ссылку записи: по ней клиент видит только выбранные окна. Ссылку отправляете вы.',
+        example: 'Освободилось время на выходных — публикуете окна и отправляете ссылку ожидающим.',
+    },
+    {
+        code: 'slot_autofill',
+        title: '«Хочу раньше»',
+        description:
+            'Клиент в мини-приложении просит время раньше своей записи. Когда освобождается подходящее окно, клиенту приходит предложение переноса — запись меняется только после его согласия.',
+        example: 'Отменили визит — освободившееся время может достаться тому, кто хотел раньше.',
+        note: 'Автозаполнение включается в настройках.',
+    },
+    {
+        code: 'channel_analytics',
+        title: 'Аналитика источников и ссылок',
+        description:
+            'Отдельные ссылки для площадок и объявлений: в аналитике видно, откуда пришли записи, отмены, выручка и новые клиенты.',
+        example: 'Понятно, какая площадка приводит больше записей.',
+    },
+];
+
+/** Бесплатная база — одинакова на «Старт» и «Профи». */
+const FREE_INCLUDES = [
+    'Онлайн-запись без ограничения количества записей',
+    'Календарь, услуги и клиентская база',
+    'Расписание, перерывы и блокировки времени — в том числе повторяющиеся',
+    'Базовая аналитика',
+    'Публичная страница записи',
+];
 
 const MONTHS_RU: Record<number, string> = {
     1: 'месяц',
@@ -224,6 +266,7 @@ export default function BillingPage() {
     const receipts = props.receipts ?? null;
 
     const proPlan = plans.find((p) => p.code === 'pro');
+    const visibleProFeatures = PRO_FEATURES.filter((f) => proPlan?.features.includes(f.code));
 
     const [selectedPeriod, setSelectedPeriod] = useState(3);
     const [autoRenewActive, setAutoRenewActive] = useState(Boolean(current.auto_renew_enabled));
@@ -629,8 +672,6 @@ export default function BillingPage() {
         }
     }
 
-    if (!proPlan) return null;
-
     // ─── Payment return dialog content (stage-driven) ───
     const paymentStage = paymentCheck;
 
@@ -855,7 +896,7 @@ export default function BillingPage() {
 
             <AdminLayout title="Тарифы и оплата" auth={auth} fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">
-                    <div className="w-full max-w-[1180px] space-y-4 pb-[180px] md:pb-10">
+                    <div className={`w-full max-w-[1180px] space-y-4 md:pb-10 ${proPlan ? 'pb-[180px]' : 'pb-6'}`}>
 
                     {/* ─── 1. Current Plan Strip ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
@@ -910,6 +951,72 @@ export default function BillingPage() {
                                 </div>
                             </section>
                         )}
+
+                    {/* ─── Free base vs Pro additions ─── */}
+                    <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
+                        <div className="grid min-w-0 gap-6 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.15fr)] md:gap-8">
+                            <div className="min-w-0">
+                                <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
+                                    Базовые возможности
+                                </div>
+                                <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                    Доступны на «Старт» и остаются после перехода на «Профи».
+                                </div>
+                                <ul className="mt-3.5 space-y-2.5">
+                                    {FREE_INCLUDES.map((item) => (
+                                        <li key={item} className="flex items-start gap-[9px] text-[13px] leading-[1.45] text-[var(--color-ink)]">
+                                            <svg className="mt-[2px] shrink-0 text-[var(--color-green)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                                <path d="M20 6 9 17l-5-5" />
+                                            </svg>
+                                            <span className="min-w-0">{item}</span>
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            {visibleProFeatures.length > 0 && (
+                            <div className="min-w-0 max-md:border-t max-md:border-[var(--color-line-soft)] max-md:pt-5">
+                                <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
+                                    {isPaid ? 'Включено в «Профи»' : 'Добавит «Профи»'}
+                                </div>
+                                <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                                    {isPaid
+                                        ? 'Эти возможности уже активны на вашем тарифе.'
+                                        : 'Четыре возможности — поверх базы «Старт».'}
+                                </div>
+                                <ul className="mt-3.5 overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)]">
+                                    {visibleProFeatures.map((f, index) => (
+                                        <li
+                                            key={f.code}
+                                            className={`px-4 py-3 ${index > 0 ? 'border-t border-[var(--color-line-soft)]' : ''}`}
+                                        >
+                                            <div className="flex items-center gap-2">
+                                                <svg className="shrink-0 text-[var(--color-orange)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                                                    <path d="M12 5v14M5 12h14" />
+                                                </svg>
+                                                <span className="min-w-0 text-[13px] font-bold leading-[18px] text-[var(--color-ink)]">
+                                                    {f.title}
+                                                </span>
+                                            </div>
+                                            <p className="mt-1 text-[12px] leading-[1.45] text-[var(--color-graphite)]">
+                                                {f.description}
+                                            </p>
+                                            {f.example !== null && (
+                                                <p className="mt-1 text-[12px] italic leading-[1.45] text-[var(--color-graphite)]/75">
+                                                    Например: {f.example}
+                                                </p>
+                                            )}
+                                            {f.note !== undefined && (
+                                                <p className="mt-1 text-[11px] leading-4 text-[var(--color-graphite)]/70">
+                                                    {f.note}
+                                                </p>
+                                            )}
+                                        </li>
+                                    ))}
+                                </ul>
+                            </div>
+                            )}
+                        </div>
+                    </section>
 
                     {/* ─── Auto renewal status (only while consented and active) ─── */}
                     {isPaid && autoRenewActive && (
@@ -1011,7 +1118,8 @@ export default function BillingPage() {
                         </section>
                     )}
 
-                    {/* ─── 2. Renewal Section ─── */}
+                    {/* ─── 2. Period selection & checkout ─── */}
+                    {proPlan ? (
                     <section
                         ref={renewSectionRef}
                         tabIndex={-1}
@@ -1020,10 +1128,12 @@ export default function BillingPage() {
                         <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
                             <div>
                                 <div className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">
-                                    Продлить Профи
+                                    {isPaid ? 'Продлить Профи' : 'Подключить Профи'}
                                 </div>
                                 <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                    Выберите срок. Скидка видна сразу в каждом варианте.
+                                    {isPaid
+                                        ? 'Выберите срок продления. Скидка видна сразу в каждом варианте.'
+                                        : 'Выберите срок. Полная стоимость периода указана в каждом варианте.'}
                                 </div>
                             </div>
                             <span className="shrink-0 rounded-[7px] border border-[var(--color-line)] bg-[var(--color-surface-hover)] px-2.5 py-0.5 text-[11px] font-semibold text-[var(--color-graphite)]">
@@ -1085,7 +1195,9 @@ export default function BillingPage() {
                                         {selectedPrice ? fmt(selectedPrice.final) : '—'}
                                     </div>
                                     <div className="mt-[2px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                        Подписка будет продлена на выбранный срок после текущей даты окончания.
+                                        {isPaid
+                                            ? 'Подписка будет продлена на выбранный срок после текущей даты окончания.'
+                                            : '«Профи» включится сразу после оплаты и будет действовать выбранный срок.'}
                                     </div>
                                 </div>
                                 <div className="text-right">
@@ -1105,32 +1217,36 @@ export default function BillingPage() {
                                     onClick={goToCheckout}
                                     className="h-10 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-5 text-[14px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
                                 >
-                                    {`Продлить на ${pluralizePeriod(selectedPeriod)} — ${selectedPrice ? fmt(selectedPrice.final) : ''}`}
+                                    {isPaid
+                                        ? `Продлить на ${pluralizePeriod(selectedPeriod)} — ${selectedPrice ? fmt(selectedPrice.final) : ''}`
+                                        : `Подключить Профи на ${pluralizePeriod(selectedPeriod)} — ${selectedPrice ? fmt(selectedPrice.final) : ''}`}
                                 </button>
                             </div>
                         </div>
                     </section>
-
-                    {/* ─── 3. Benefits ─── */}
-                    <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
-                        <div className="text-[14px] font-bold leading-[19px] text-[var(--color-ink)]">
-                            Что входит в Профи
+                    ) : (
+                    /* Про-plan catalog unavailable: honest empty state — no
+                       invented price, no dead CTA. Subscription management
+                       blocks and receipts above/below stay intact. */
+                    <section
+                        ref={renewSectionRef}
+                        tabIndex={-1}
+                        className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5 outline-none"
+                    >
+                        <div className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">
+                            Подключение «Профи»
                         </div>
-                        <div className="mt-3 grid gap-[7px]">
-                            {BENEFIT_FEATURES.filter((f) => proPlan.features.includes(f)).map((f) => (
-                                <div key={f} className="flex items-center gap-[9px] text-[13px] text-[var(--color-ink)]">
-                                    <svg className="shrink-0 text-[var(--color-green)]" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                                        <path d="M20 6 9 17l-5-5" />
-                                    </svg>
-                                    {FEATURE_LABELS[f] ?? f}
-                                </div>
-                            ))}
-                        </div>
+                        <p className="mt-2 text-[13px] leading-[1.5] text-[var(--color-graphite)]">
+                            Сейчас тариф «Профи» нельзя подключить: прайс не загрузился.
+                            Возможности «Старт» работают как обычно, а история оплат и чеки сохранены на этой странице.
+                        </p>
                     </section>
+                    )}
                     </div>
                 </div>
 
                 {/* ─── 4. Mobile Sticky Purchase Bar ─── */}
+                {proPlan && (
                 <div className="fixed inset-x-0 bottom-0 z-[55] border-t border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-3 pb-[max(12px,env(safe-area-inset-bottom))] pt-2.5 shadow-[0_-4px_16px_rgba(0,0,0,0.06)] md:hidden">
                     <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
@@ -1150,10 +1266,11 @@ export default function BillingPage() {
                             className="shrink-0 cursor-pointer rounded-[10px] border-0 bg-[var(--color-orange)] px-4 text-[13px] font-semibold text-white transition-colors hover:bg-[var(--color-orange-600)] disabled:cursor-not-allowed disabled:opacity-50"
                             style={{ height: 40 }}
                         >
-                            Продлить
+                            {isPaid ? 'Продлить' : 'Подключить'}
                         </button>
                     </div>
                 </div>
+                )}
 
                 {/* ─── 5. Payment Return Dialog — verifies the bound checkout attempt against Billing Core ─── */}
                 {paymentStage !== null && (
