@@ -75,7 +75,10 @@ interface PageProps {
 interface ProFeatureCopy {
     code: string;
     title: string;
-    description: string;
+    /** Короткое действие с пользой — всегда видно на карточке. */
+    summary: string;
+    /** Подтверждённые подробности — внутри раскрываемого «Подробнее». */
+    details: string;
     example: string | null;
     note?: string;
 }
@@ -89,29 +92,37 @@ const PRO_FEATURES: ProFeatureCopy[] = [
     {
         code: 'recurring_appointments',
         title: 'Повторяющиеся записи',
-        description:
+        summary:
+            'Создайте регулярные визиты одной серией, вместо того чтобы добавлять каждый отдельно',
+        details:
             'Серия регулярных визитов клиента — по дням недели или через несколько дней. Отдельный визит, несколько будущих или всю серию можно поправить или отменить.',
         example: 'Клиент ходит каждую пятницу — серия оформляется один раз.',
     },
     {
         code: 'free_windows',
         title: 'Свободные окна',
-        description:
+        summary:
+            'Выберите свободное время и отправьте клиентам ссылку для записи только на эти окна',
+        details:
             'Отметьте свободное время на ближайшие дни и получите ссылку записи: по ней клиент видит только выбранные окна. Ссылку отправляете вы.',
         example: 'Освободилось время на выходных — публикуете окна и отправляете ссылку ожидающим.',
     },
     {
         code: 'slot_autofill',
-        title: '«Хочу раньше»',
-        description:
+        title: 'Хочу раньше',
+        summary:
+            'Когда освобождается подходящее время, клиент получает предложение перенести визит. Перенос — только с его согласия',
+        details:
             'Клиент в мини-приложении просит время раньше своей записи. Когда освобождается подходящее окно, клиенту приходит предложение переноса — запись меняется только после его согласия.',
         example: 'Отменили визит — освободившееся время может достаться тому, кто хотел раньше.',
         note: 'Автозаполнение включается в настройках.',
     },
     {
         code: 'channel_analytics',
-        title: 'Аналитика источников и ссылок',
-        description:
+        title: 'Аналитика источников',
+        summary:
+            'Используйте отдельные ссылки для разных площадок и смотрите, откуда приходят записи и выручка',
+        details:
             'Отдельные ссылки для площадок и объявлений: в аналитике видно, откуда пришли записи, отмены, выручка и новые клиенты.',
         example: 'Понятно, какая площадка приводит больше записей.',
     },
@@ -954,74 +965,93 @@ export default function BillingPage() {
                             </section>
                         )}
 
-                    {/* ─── Free base vs Pro additions ─── */}
+                    {/* ─── Pro additions first (2×2 on desktop) ─── */}
                     <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-5">
-                        <div className="grid min-w-0 gap-6 md:grid-cols-[minmax(0,0.95fr)_minmax(0,1.15fr)] md:gap-8">
-                            <div className="min-w-0">
-                                <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
-                                    Базовые возможности
-                                </div>
-                                <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                    Доступны на обоих тарифах.
-                                </div>
-                                <ul className="mt-3.5 space-y-2.5">
-                                    {FREE_INCLUDES.map((item) => (
-                                        <li key={item} className="flex items-start gap-[9px] text-[13px] leading-[1.45] text-[var(--color-ink)]">
-                                            <svg className="mt-[2px] shrink-0 text-[var(--color-green)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                                                <path d="M20 6 9 17l-5-5" />
+                        <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
+                            {isPaid ? 'Включено в «Профи»' : 'Добавит «Профи»'}
+                        </div>
+                        <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
+                            {isPaid
+                                ? 'Эти возможности уже активны на вашем тарифе.'
+                                : 'Дополнительные возможности Профи'}
+                        </div>
+                        {visibleProFeatures.length > 0 ? (
+                        <div className="mt-4 grid min-w-0 gap-3 md:grid-cols-2">
+                            {visibleProFeatures.map((f) => (
+                                <article
+                                    key={f.code}
+                                    className="flex min-w-0 flex-col rounded-[14px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-4"
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <svg className="shrink-0 text-[var(--color-orange)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
+                                            <path d="M12 5v14M5 12h14" />
+                                        </svg>
+                                        <h3 className="min-w-0 text-[13px] font-bold leading-[18px] text-[var(--color-ink)]">
+                                            {f.title}
+                                        </h3>
+                                    </div>
+                                    <p className="mt-2 text-[12px] leading-[1.45] text-[var(--color-graphite)]">
+                                        {f.summary}
+                                    </p>
+                                    <details className="group mt-3 self-start">
+                                        <summary className="inline-flex cursor-pointer list-none items-center gap-1.5 rounded-[6px] text-[12px] font-semibold text-[var(--color-orange)] outline-none hover:text-[var(--color-orange-600)] focus-visible:ring-2 focus-visible:ring-[var(--color-orange)] focus-visible:ring-offset-2 focus-visible:ring-offset-[var(--color-surface)]">
+                                            Подробнее
+                                            <svg
+                                                width="14"
+                                                height="14"
+                                                viewBox="0 0 24 24"
+                                                fill="none"
+                                                stroke="currentColor"
+                                                strokeWidth="2.2"
+                                                strokeLinecap="round"
+                                                strokeLinejoin="round"
+                                                aria-hidden="true"
+                                                className="shrink-0 transition-transform duration-150 group-open:rotate-180"
+                                            >
+                                                <path d="m6 9 6 6 6-6" />
                                             </svg>
-                                            <span className="min-w-0">{item}</span>
-                                        </li>
-                                    ))}
-                                </ul>
-                            </div>
-                            <div className="min-w-0 max-md:border-t max-md:border-[var(--color-line-soft)] max-md:pt-5">
-                                <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
-                                    {isPaid ? 'Включено в «Профи»' : 'Добавит «Профи»'}
-                                </div>
-                                <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                    {isPaid
-                                        ? 'Эти возможности уже активны на вашем тарифе.'
-                                        : 'Дополнительные возможности Профи'}
-                                </div>
-                                {visibleProFeatures.length > 0 ? (
-                                <ul className="mt-3.5 overflow-hidden rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)]">
-                                    {visibleProFeatures.map((f, index) => (
-                                        <li
-                                            key={f.code}
-                                            className={`px-4 py-3 ${index > 0 ? 'border-t border-[var(--color-line-soft)]' : ''}`}
-                                        >
-                                            <div className="flex items-center gap-2">
-                                                <svg className="shrink-0 text-[var(--color-orange)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" aria-hidden="true">
-                                                    <path d="M12 5v14M5 12h14" />
-                                                </svg>
-                                                <span className="min-w-0 text-[13px] font-bold leading-[18px] text-[var(--color-ink)]">
-                                                    {f.title}
-                                                </span>
-                                            </div>
-                                            <p className="mt-1 text-[12px] leading-[1.45] text-[var(--color-graphite)]">
-                                                {f.description}
+                                        </summary>
+                                        <div className="mt-2 rounded-[10px] bg-[var(--color-surface-hover)] px-3 py-2.5">
+                                            <p className="text-[12px] leading-[1.45] text-[var(--color-graphite)]">
+                                                {f.details}
                                             </p>
                                             {f.example !== null && (
-                                                <p className="mt-1 text-[12px] italic leading-[1.45] text-[var(--color-graphite)]/75">
+                                                <p className="mt-1.5 text-[12px] italic leading-[1.45] text-[var(--color-graphite)]/75">
                                                     Например: {f.example}
                                                 </p>
                                             )}
                                             {f.note !== undefined && (
-                                                <p className="mt-1 text-[11px] leading-4 text-[var(--color-graphite)]/70">
+                                                <p className="mt-1.5 text-[11px] leading-4 text-[var(--color-graphite)]/70">
                                                     {f.note}
                                                 </p>
                                             )}
-                                        </li>
-                                    ))}
-                                </ul>
-                                ) : (
-                                <p className="mt-3.5 rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[13px] leading-[1.45] text-[var(--color-graphite)]">
-                                    Описание возможностей временно недоступно
-                                </p>
-                                )}
-                            </div>
+                                        </div>
+                                    </details>
+                                </article>
+                            ))}
                         </div>
+                        ) : (
+                        <p className="mt-3.5 rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3 text-[13px] leading-[1.45] text-[var(--color-graphite)]">
+                            Описание возможностей временно недоступно
+                        </p>
+                        )}
+                    </section>
+
+                    {/* ─── Shared free base — compact, both columns on desktop ─── */}
+                    <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4">
+                        <div className="text-[14px] font-bold leading-[19px] tracking-[-.015em] text-[var(--color-ink)]">
+                            Доступно на обоих тарифах
+                        </div>
+                        <ul className="mt-3 grid min-w-0 gap-x-4 gap-y-2 md:grid-cols-2">
+                            {FREE_INCLUDES.map((item) => (
+                                <li key={item} className="flex min-w-0 items-start gap-[9px] text-[13px] leading-[1.45] text-[var(--color-ink)]">
+                                    <svg className="mt-[2px] shrink-0 text-[var(--color-green)]" width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+                                        <path d="M20 6 9 17l-5-5" />
+                                    </svg>
+                                    <span className="min-w-0">{item}</span>
+                                </li>
+                            ))}
+                        </ul>
                     </section>
 
                     {/* ─── Auto renewal status (only while consented and active) ─── */}
@@ -1257,7 +1287,7 @@ export default function BillingPage() {
                     <div className="flex items-center justify-between gap-3">
                         <div className="min-w-0">
                             <div className="text-[12px] leading-4 text-[var(--color-graphite)]">
-                                {selectedPeriod} {MONTHS_RU_SHORT[selectedPeriod]} · ≈ {fmt(monthlyEquiv)} / мес
+                                Профи на {pluralizePeriod(selectedPeriod)}
                             </div>
                             <div className="mt-[2px] text-[17px] font-bold leading-[22px] tracking-[-.02em] text-[var(--color-ink)]">
                                 {selectedPrice ? fmt(selectedPrice.final) : '—'}

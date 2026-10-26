@@ -128,8 +128,7 @@ describe('admin/billing.tsx — «Старт»: current tariff and honest differ
     it('lists the free base without presenting it as a Pro exclusive', () => {
         render(<BillingPage />);
 
-        expect(screen.getByText('Базовые возможности')).toBeTruthy();
-        expect(screen.getByText('Доступны на обоих тарифах.')).toBeTruthy();
+        expect(screen.getByText('Доступно на обоих тарифах')).toBeTruthy();
         expect(screen.getByText(/Онлайн-запись без ограничения количества записей/u)).toBeTruthy();
         expect(screen.getByText(/Календарь, услуги и клиентская база/u)).toBeTruthy();
         expect(screen.getByText(/в том числе повторяющиеся/u)).toBeTruthy();
@@ -154,13 +153,67 @@ describe('admin/billing.tsx — «Старт»: current tariff and honest differ
 
         expect(screen.getByText('Повторяющиеся записи')).toBeTruthy();
         expect(screen.getByText('Свободные окна')).toBeTruthy();
-        expect(screen.getByText('«Хочу раньше»')).toBeTruthy();
-        expect(screen.getByText('Аналитика источников и ссылок')).toBeTruthy();
+        expect(screen.getByText('Хочу раньше')).toBeTruthy();
+        expect(screen.getByText('Аналитика источников')).toBeTruthy();
 
-        // «Хочу раньше»: перенос только после согласия клиента — без
+        // Короткое действие с пользой — всегда видно на карточке.
+        expect(
+            screen.getByText(/Создайте регулярные визиты одной серией/u),
+        ).toBeTruthy();
+        expect(
+            screen.getByText(/отправьте клиентам ссылку для записи только на эти окна/u),
+        ).toBeTruthy();
+        expect(
+            screen.getByText(/Используйте отдельные ссылки для разных площадок/u),
+        ).toBeTruthy();
+
+        // «Хочу раньше»: перенос только с согласия клиента — без
         // обещаний автоматической записи или рассылки.
-        const earlier = screen.getByText(/просит время раньше своей записи/u);
-        expect(earlier.textContent ?? '').toContain('только после его согласия');
+        const earlier = screen.getByText(
+            /Когда освобождается подходящее время, клиент получает предложение перенести визит/u,
+        );
+        expect(earlier.textContent ?? '').toContain('только с его согласия');
+    });
+
+    it('keeps confirmed details collapsed under «Подробнее» until expanded', () => {
+        render(<BillingPage />);
+
+        const summaries = screen.getAllByText('Подробнее');
+        expect(summaries).toHaveLength(4);
+
+        // Основной текст виден без раскрытия.
+        expect(
+            screen.getByText(/Создайте регулярные визиты одной серией/u),
+        ).toBeTruthy();
+
+        for (const summary of summaries) {
+            const details = summary.closest('details');
+            expect(details).toBeTruthy();
+            expect(details?.open).toBe(false);
+        }
+
+        // Раскрытие через нативный details/summary (клик / клавиатура).
+        const first = summaries[0];
+        const details = first.closest('details');
+        fireEvent.click(first);
+        expect(details?.open).toBe(true);
+
+        // Подтверждённые подробности и пример внутри раскрытия.
+        expect(
+            screen.getByText(/Серия регулярных визитов клиента/u),
+        ).toBeTruthy();
+        expect(screen.getByText(/Клиент ходит каждую пятницу/u)).toBeTruthy();
+    });
+
+    it('keeps «Хочу раньше» conditions inside the details panel', () => {
+        render(<BillingPage />);
+
+        fireEvent.click(screen.getAllByText('Подробнее')[2]);
+
+        expect(
+            screen.getByText(/просит время раньше своей записи/u),
+        ).toBeTruthy();
+        expect(screen.getByText(/Автозаполнение включается в настройках/u)).toBeTruthy();
     });
 
     it('offers «Подключить Профи», not «Продлить»', () => {
@@ -192,16 +245,15 @@ describe('admin/billing.tsx — «Старт»: current tariff and honest differ
         render(<BillingPage />);
 
         expect(screen.getByText('Тариф: Старт')).toBeTruthy();
-        expect(screen.getByText('Базовые возможности')).toBeTruthy();
-        expect(screen.getByText('Доступны на обоих тарифах.')).toBeTruthy();
+        expect(screen.getByText('Доступно на обоих тарифах')).toBeTruthy();
         expect(screen.getByText('Добавит «Профи»')).toBeTruthy();
         expect(screen.getByText('Описание возможностей временно недоступно')).toBeTruthy();
 
         // Без выдуманных преимуществ и без падения.
         expect(screen.queryByText('Повторяющиеся записи')).toBeNull();
         expect(screen.queryByText('Свободные окна')).toBeNull();
-        expect(screen.queryByText('«Хочу раньше»')).toBeNull();
-        expect(screen.queryByText('Аналитика источников и ссылок')).toBeNull();
+        expect(screen.queryByText('Хочу раньше')).toBeNull();
+        expect(screen.queryByText('Аналитика источников')).toBeNull();
 
         // Выбор периода и checkout остаются доступными.
         expect(screen.getByText(/К оплате за 3 месяца/u)).toBeTruthy();
@@ -253,6 +305,35 @@ describe('admin/billing.tsx — period selection and payable total', () => {
         fireEvent.click(screen.getByRole('button', { name: /Подключить Профи на 6 месяцев/u }));
 
         expect(routerGet).toHaveBeenCalledWith('/admin/billing/checkout?period_months=6');
+    });
+});
+
+describe('admin/billing.tsx — mobile sticky purchase bar labels the term', () => {
+    beforeEach(() => {
+        mockUsePage.mockReturnValue(START_PROPS());
+        routerGet.mockReset();
+    });
+
+    it('names the selected period with correct pluralization, without monthly equivalent', () => {
+        render(<BillingPage />);
+
+        const stickyLabel = screen.getByText('Профи на 3 месяца');
+        expect(stickyLabel).toBeTruthy();
+        expect(stickyLabel.textContent ?? '').not.toMatch(/\/ мес/u);
+        // Полная сумма остаётся заметной рядом с подписью срока.
+        expect(stickyLabel.parentElement?.textContent).toMatch(/270\s?₽/u);
+        expect(screen.getByRole('button', { name: 'Подключить' })).toBeTruthy();
+
+        fireEvent.click(screen.getByText('1 мес'));
+        expect(screen.getByText('Профи на 1 месяц')).toBeTruthy();
+
+        fireEvent.click(screen.getByText('6 мес'));
+        expect(screen.getByText('Профи на 6 месяцев')).toBeTruthy();
+
+        fireEvent.click(screen.getByText('12 мес'));
+        expect(screen.getByText('Профи на 12 месяцев')).toBeTruthy();
+        // Месячный эквивалент остаётся только в основном блоке выбора периода.
+        expect(screen.getAllByText(/≈\s?80\s?₽\s?\/ мес/u).length).toBeGreaterThanOrEqual(1);
     });
 });
 
