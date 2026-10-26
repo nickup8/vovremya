@@ -17,7 +17,9 @@ use App\Models\TariffPlan;
 use App\Models\User;
 use App\Models\Workspace;
 use App\Notifications\SystemNotification;
+use App\Services\Payment\PaymentReceiptService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
@@ -27,6 +29,8 @@ class ReceiptOwnerBackfillCommandTest extends TestCase
     use RefreshDatabase;
 
     private const URL_A = 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/aaa111/print';
+
+    private const URL_B = 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/bbb222/print';
 
     private TariffPlan $proPlan;
 
@@ -151,6 +155,102 @@ class ReceiptOwnerBackfillCommandTest extends TestCase
         $this->assertNotNull($old);
         $this->assertSame('Прежний текст', $old->data['body']);
         $this->assertSame(2, $this->owner->notifications()->count());
+    }
+
+    // ── Review defects reproduced (expected RED on the current code) ──
+
+    /**
+     * Review #6: check-then-create must be consistent — the dedupe check and
+     * the notification insert run inside one transaction that holds the
+     * receipt row lock, so a concurrent attachUrl cannot interleave between
+     * them.
+     */
+    public function test_check_then_create_runs_inside_one_transaction_with_receipt_locked(): void
+    {
+        Queue::fake();
+        $this->makeReceipt(PaymentReceiptStatus::Attached, self::URL_A, PaymentEnvironment::Live);
+
+        $baselineLevel = DB::transactionLevel();
+        $insertLevel = null;
+        $lockedBeforeInsert = false;
+        $receiptLocked = false;
+
+        DB::listen(function ($query) use (&$insertLevel, &$lockedBeforeInsert, &$receiptLocked) {
+            $sql = strtolower($query->sql);
+
+            if (str_contains($sql, 'insert into "notifications"') && $insertLevel === null) {
+                $insertLevel = DB::transactionLevel();
+                $lockedBeforeInsert = $receiptLocked;
+            }
+
+            if (str_contains($sql, 'payment_receipts') && str_contains($sql, 'for update')) {
+                $receiptLocked = true;
+            }
+        });
+
+        $this->artisan('receipts:backfill-owner-notifications')->assertExitCode(0);
+
+        $this->assertNotNull($insertLevel, 'backfill must create the notification');
+        $this->assertGreaterThan(
+            $baselineLevel,
+            $insertLevel,
+            'check-then-create must run inside its own transaction, not in ambient context',
+        );
+        $this->assertTrue(
+            $lockedBeforeInsert,
+            'the receipt row must be locked before the dedupe check and the create',
+        );
+    }
+
+    /**
+     * Review #6 (stale URL): attachUrl replaces the link after the command
+     * has read its candidate list but before it processes the receipt. The
+     * command must not create a notification holding the pre-replacement
+     * URL, and there must be no duplicate for the receipt.
+     */
+    public function test_concurrent_attach_before_processing_leaves_single_current_notification(): void
+    {
+        Queue::fake();
+        Http::preventStrayRequests();
+        $receipt = $this->makeReceipt(PaymentReceiptStatus::Attached, self::URL_A, PaymentEnvironment::Live);
+        $admin = $this->adminUser();
+
+        $service = app(PaymentReceiptService::class);
+        $fired = false;
+        DB::listen(function ($query) use (&$fired, $receipt, $service, $admin): void {
+            if ($fired) {
+                return;
+            }
+
+            // The command's candidate SELECT over payment_receipts by status
+            // (attachUrl's own read always carries "for update").
+            $sql = strtolower($query->sql);
+            if (str_contains($sql, 'from "payment_receipts"')
+                && str_contains($sql, '"status"')
+                && ! str_contains($sql, 'for update')) {
+                $fired = true;
+                $service->attachUrl($receipt, self::URL_B, $admin);
+            }
+        });
+
+        $this->artisan('receipts:backfill-owner-notifications')->assertExitCode(0);
+
+        $this->assertTrue($fired, 'the concurrent attach must actually run during the command');
+        $notifications = $this->owner->notifications()->get();
+        $this->assertCount(1, $notifications, 'no duplicate notification for the receipt');
+        $this->assertSame(self::URL_B, $notifications[0]->data['action']['url']);
+        $this->assertNull(
+            $notifications->first(fn ($n) => ($n->data['action']['url'] ?? null) === self::URL_A),
+            'a notification with the pre-replacement URL must not exist',
+        );
+        $this->assertSame(self::URL_B, $receipt->refresh()->receipt_url);
+    }
+
+    private ?User $admin = null;
+
+    private function adminUser(): User
+    {
+        return $this->admin ??= User::factory()->master()->create(['is_super_admin' => true]);
     }
 
     // ── Helpers ──

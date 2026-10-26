@@ -8,10 +8,12 @@ use App\Enums\PaymentReceiptStatus;
 use App\Jobs\SendReceiptUrlNotificationJob;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentReceipt;
+use App\Models\ReceiptDeliveryEvent;
 use App\Models\User;
 use App\Notifications\SystemNotification;
 use App\Services\SuperAdminAuditLogger;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Validation\ValidationException;
 
 /**
@@ -23,7 +25,10 @@ use Illuminate\Validation\ValidationException;
  * URL is stored exactly as entered, validated syntactically, and never
  * fetched over the network. A database-only notification with a structured
  * action link is written atomically with the link change (row lock dedupes
- * concurrent identical saves); messenger delivery is queued after commit.
+ * concurrent identical saves); messenger delivery intent is written as a
+ * receipt_delivery_events outbox row in that same transaction and the job
+ * is enqueued only after the commit (recovered by
+ * receipts:recover-delivery-events when the enqueue itself fails).
  */
 class PaymentReceiptService
 {
@@ -109,8 +114,17 @@ class PaymentReceiptService
                 return $fresh;
             }
 
+            // Every real change is a new event — including returning to an
+            // older URL. Re-saving the identical URL never reaches here, so
+            // the version (and the event) only ever moves forward. A change
+            // always lands at version ≥ 2 (its message is «Ссылка на чек
+            // обновлена»), the first attach at version ≥ 1, even for rows
+            // written before url_version existed.
+            $nextVersion = max($fresh->url_version + 1, $wasAttached ? 2 : 1);
+
             $fresh->update([
                 'receipt_url' => $url,
+                'url_version' => $nextVersion,
                 'status' => PaymentReceiptStatus::Attached,
                 'attached_by' => $admin->id,
                 'attached_at' => now(),
@@ -127,12 +141,35 @@ class PaymentReceiptService
 
             $this->notifyWorkspaceOwner($fresh, $wasAttached);
 
-            // Messenger duplication runs only after the transaction really
-            // commits: an HTTP call or a queued push must never happen
-            // inside the attach transaction, and a rollback must dispatch
-            // nothing.
-            DB::afterCommit(static function () use ($fresh): void {
-                SendReceiptUrlNotificationJob::dispatch($fresh->getKey());
+            // Outbox: the delivery intent lands in the SAME transaction as the
+            // URL, the database notification and the audit row. A rollback
+            // discards it with the change, so a rolled-back change can never
+            // produce a message; a committed change always has this durable
+            // intent even when enqueueing below fails.
+            $event = ReceiptDeliveryEvent::create([
+                'payment_receipt_id' => $fresh->getKey(),
+                'url_version' => $nextVersion,
+                'receipt_url' => $fresh->receipt_url,
+            ]);
+
+            // Enqueue only after the transaction really commits: no HTTP call
+            // and no queue push happen inside the attach transaction. If the
+            // push fails (queue outage) or the process dies right after the
+            // commit, dispatched_at stays NULL and the scheduled
+            // receipts:recover-delivery-events re-dispatches exactly those
+            // rows — the committed intent is never lost.
+            DB::afterCommit(static function () use ($event): void {
+                try {
+                    SendReceiptUrlNotificationJob::dispatch($event->getKey());
+                    ReceiptDeliveryEvent::whereKey($event->getKey())
+                        ->update(['dispatched_at' => now()]);
+                } catch (\Throwable $e) {
+                    Log::error('Receipt delivery event not enqueued; recovery will retry', [
+                        'event_id' => $event->getKey(),
+                        'receipt_id' => $event->payment_receipt_id,
+                        'error' => $e->getMessage(),
+                    ]);
+                }
             });
 
             return $fresh;

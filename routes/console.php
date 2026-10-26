@@ -11,6 +11,10 @@ Schedule::command('subscriptions:cleanup-pending')->hourly()->withoutOverlapping
 Schedule::command('billing:reconcile-payment-attempts')->everyMinute()->withoutOverlapping();
 Schedule::command('publications:cleanup-expired')->dailyAt('03:00')->withoutOverlapping();
 
+// Восстановление outbox-событий доставки чека: коммит прошёл, а постановка
+// в очередь упала/не случилась (dispatched_at IS NULL) — не потерять намерение.
+Schedule::command('receipts:recover-delivery-events')->everyFiveMinutes()->withoutOverlapping();
+
 // Резервные копии БД: 03:30 Europe/Moscow; включение — BACKUP_SCHEDULED_ENABLED
 // (сама команда выходит без действий, если флаг выключен).
 Schedule::command('backups:schedule-daily')

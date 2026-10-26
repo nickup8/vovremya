@@ -23,6 +23,7 @@ use Illuminate\Support\Carbon;
  * @property Carbon|null $attached_at
  * @property bool $refund_review_required
  * @property Carbon|null $refund_reviewed_at
+ * @property int $url_version identity of the current link attach/change; bumped on every real change
  */
 class PaymentReceipt extends Model
 {
@@ -32,6 +33,7 @@ class PaymentReceipt extends Model
         'payment_attempt_id',
         'status',
         'receipt_url',
+        'url_version',
         'attached_by',
         'attached_at',
         'refund_review_required',
@@ -46,6 +48,7 @@ class PaymentReceipt extends Model
             'attached_at' => 'datetime',
             'refund_review_required' => 'boolean',
             'refund_reviewed_at' => 'datetime',
+            'url_version' => 'integer',
         ];
     }
 

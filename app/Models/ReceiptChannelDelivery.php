@@ -8,30 +8,42 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Support\Carbon;
 
 /**
- * Per-channel delivery record for a receipt URL sent to a messenger.
+ * Per-channel delivery record for one receipt URL-change event.
  *
- * One row = «this exact URL was accepted by this channel». A retry job
- * consults it before sending, so a channel that already succeeded is
- * never messaged again for the same link; a changed link hashes
- * differently and therefore is delivered afresh.
+ * One row = one (receipt event, channel) pair. The row is created as a
+ * claim (status pending, lease_expires_at) BEFORE the HTTP call and only
+ * flips to delivered once the API accepted the message — so two workers
+ * overlapping on the same event serialize on this row instead of both
+ * reaching HTTP, and a failed send is never recorded as a success.
  *
+ * @property string $status pending|delivered
+ * @property Carbon|null $lease_expires_at
  * @property Carbon|null $delivered_at
  */
 class ReceiptChannelDelivery extends Model
 {
     use HasUuids;
 
+    public const STATUS_PENDING = 'pending';
+
+    public const STATUS_DELIVERED = 'delivered';
+
     protected $fillable = [
         'payment_receipt_id',
         'channel',
+        'url_version',
         'receipt_url',
-        'receipt_url_hash',
+        'status',
+        'lease_expires_at',
+        'provider_message_id',
         'delivered_at',
     ];
 
     protected function casts(): array
     {
         return [
+            'url_version' => 'integer',
+            'lease_expires_at' => 'datetime',
             'delivered_at' => 'datetime',
         ];
     }
@@ -42,10 +54,5 @@ class ReceiptChannelDelivery extends Model
     public function paymentReceipt(): BelongsTo
     {
         return $this->belongsTo(PaymentReceipt::class);
-    }
-
-    public static function hashUrl(string $url): string
-    {
-        return hash('sha256', $url);
     }
 }

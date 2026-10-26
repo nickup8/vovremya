@@ -15,6 +15,7 @@ use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentReceipt;
 use App\Models\ReceiptChannelDelivery;
+use App\Models\ReceiptDeliveryEvent;
 use App\Models\SuperAdminAuditLog;
 use App\Models\TariffPlan;
 use App\Models\User;
@@ -24,6 +25,7 @@ use App\Services\MaxApiClient;
 use App\Services\Payment\PaymentReceiptService;
 use App\Services\VkApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Queue\ConnectorInterface;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
@@ -218,7 +220,7 @@ class ReceiptNotificationDeliveryTest extends TestCase
         $this->assertSame(self::URL_A, $fresh->data['action']['url']);
     }
 
-    // ── Job dispatch ──
+    // ── Job dispatch (outbox intent + enqueue) ──
 
     public function test_attach_dispatches_messenger_job_after_commit(): void
     {
@@ -228,6 +230,16 @@ class ReceiptNotificationDeliveryTest extends TestCase
         app(PaymentReceiptService::class)->attachUrl($receipt, self::URL_A, $this->admin);
 
         Queue::assertPushed(SendReceiptUrlNotificationJob::class, 1);
+
+        $event = ReceiptDeliveryEvent::query()->sole();
+        $this->assertSame($receipt->getKey(), $event->payment_receipt_id);
+        $this->assertSame(1, $event->url_version);
+        $this->assertSame(self::URL_A, $event->receipt_url);
+        $this->assertNotNull($event->dispatched_at, 'after a successful enqueue the intent is marked dispatched');
+        Queue::assertPushed(
+            SendReceiptUrlNotificationJob::class,
+            fn (SendReceiptUrlNotificationJob $job) => $job->eventId === $event->getKey(),
+        );
     }
 
     public function test_same_url_save_dispatches_no_new_job(): void
@@ -240,6 +252,7 @@ class ReceiptNotificationDeliveryTest extends TestCase
         $service->attachUrl($receipt, self::URL_A, $this->admin);
 
         Queue::assertPushed(SendReceiptUrlNotificationJob::class, 1);
+        $this->assertSame(1, ReceiptDeliveryEvent::count(), 're-saving the same URL is a no-op: no new event');
     }
 
     public function test_url_change_dispatches_another_job(): void
@@ -252,6 +265,7 @@ class ReceiptNotificationDeliveryTest extends TestCase
         $service->attachUrl($receipt, self::URL_B, $this->admin);
 
         Queue::assertPushed(SendReceiptUrlNotificationJob::class, 2);
+        $this->assertSame([1, 2], ReceiptDeliveryEvent::query()->orderBy('url_version')->pluck('url_version')->all());
     }
 
     public function test_rollback_dispatches_nothing_and_sends_no_notification(): void
@@ -269,11 +283,82 @@ class ReceiptNotificationDeliveryTest extends TestCase
         }
 
         Queue::assertNothingPushed();
-        // The database notification row was written inside the transaction
-        // and rolled back with it — the owner ends up with nothing.
+        // The database notification row AND the delivery intent were written
+        // inside the transaction and rolled back with it — rollback removes
+        // the very reason to ever send something.
         $this->assertSame(0, $this->owner->notifications()->count());
+        $this->assertSame(0, ReceiptDeliveryEvent::count());
+        $this->assertSame(0, ReceiptChannelDelivery::count());
         $this->assertSame(PaymentReceiptStatus::AwaitingManual, $receipt->refresh()->status);
         $this->assertSame(0, SuperAdminAuditLog::count());
+    }
+
+    /**
+     * Review #2 (сбой постановки): when the queue push fails after the
+     * change committed, the durable outbox intent must survive and a later
+     * recovery run must enqueue it — nothing is silently lost, and the
+     * committed change is not rolled back by an unrelated queue outage.
+     */
+    public function test_enqueue_failure_keeps_intent_recoverable(): void
+    {
+        $this->fakeMessengerConfig();
+        Http::preventStrayRequests();
+
+        // Queue outage: the connection itself fails while being resolved.
+        // A PHP-level failure keeps the surrounding test transaction intact,
+        // unlike a poisoned SQL statement.
+        config([
+            'queue.default' => 'broken',
+            'queue.connections.broken' => ['driver' => 'broken'],
+        ]);
+        Queue::extend('broken', fn () => new class implements ConnectorInterface
+        {
+            public function connect(array $config)
+            {
+                throw new \RuntimeException('queue connection unavailable');
+            }
+        });
+
+        $receipt = $this->awaitingReceipt();
+
+        app(PaymentReceiptService::class)->attachUrl($receipt, self::URL_A, $this->admin);
+
+        // The change itself committed: URL, notification, audit, intent.
+        $this->assertSame(PaymentReceiptStatus::Attached, $receipt->refresh()->status);
+        $this->assertSame(self::URL_A, $receipt->receipt_url);
+        $this->assertSame(1, $this->owner->notifications()->count());
+        $this->assertSame(1, SuperAdminAuditLog::count(), 'the audit row commits with the change');
+
+        $event = ReceiptDeliveryEvent::query()->sole();
+        $this->assertNull($event->dispatched_at, 'failed enqueue must leave a recoverable intent');
+        $this->assertSame(0, DB::table('jobs')->count());
+
+        // Queue healthy again → recovery enqueues exactly the lost intent.
+        config(['queue.default' => 'database']);
+
+        $this->artisan('receipts:recover-delivery-events --min-age=0')
+            ->assertExitCode(0);
+
+        $this->assertSame(1, DB::table('jobs')->count());
+        $this->assertStringContainsString(
+            $event->getKey(),
+            (string) DB::table('jobs')->value('payload'),
+        );
+        $this->assertNotNull($event->refresh()->dispatched_at);
+    }
+
+    public function test_recovery_never_touches_already_enqueued_events(): void
+    {
+        Queue::fake();
+        $receipt = $this->awaitingReceipt();
+        app(PaymentReceiptService::class)->attachUrl($receipt, self::URL_A, $this->admin);
+
+        Queue::assertPushed(SendReceiptUrlNotificationJob::class, 1);
+
+        $this->artisan('receipts:recover-delivery-events --min-age=0')
+            ->assertExitCode(0);
+
+        Queue::assertPushed(SendReceiptUrlNotificationJob::class, 1);
     }
 
     // ── Messenger job: channels, retries, delivery accounting ──
@@ -405,24 +490,6 @@ class ReceiptNotificationDeliveryTest extends TestCase
         Http::assertNothingSent();
     }
 
-    public function test_stale_job_sends_current_url_not_replaced_one(): void
-    {
-        $this->fakeMessengerConfig();
-        Http::fake(['max.test/*' => Http::response(['message' => ['body' => ['mid' => 'mid-1']]])]);
-
-        $receipt = $this->attachedReceipt();
-        $this->owner->update(['max_id' => 'max-user-1', 'max_notifications' => true, 'vk_notifications' => false]);
-
-        // Job created for URL_A, but the link is replaced before it runs.
-        $job = new SendReceiptUrlNotificationJob($receipt->id);
-        $receipt->update(['receipt_url' => self::URL_B]);
-
-        $job->handle(app(MaxApiClient::class), app(VkApiClient::class));
-
-        Http::assertSent(fn ($request) => str_contains((string) $request['text'], self::URL_B));
-        Http::assertNotSent(fn ($request) => str_contains((string) $request['text'], self::URL_A));
-    }
-
     public function test_unattached_receipt_is_noop(): void
     {
         $this->fakeMessengerConfig();
@@ -430,6 +497,13 @@ class ReceiptNotificationDeliveryTest extends TestCase
 
         $receipt = $this->awaitingReceipt(); // no URL yet
         $this->owner->update(['max_id' => 'max-user-1', 'max_notifications' => true]);
+
+        // A defensive intent for a receipt that never reached "attached".
+        ReceiptDeliveryEvent::create([
+            'payment_receipt_id' => $receipt->getKey(),
+            'url_version' => $receipt->refresh()->url_version,
+            'receipt_url' => self::URL_A,
+        ]);
 
         $this->runJob($receipt);
 
@@ -451,6 +525,174 @@ class ReceiptNotificationDeliveryTest extends TestCase
         Http::assertNothingSent();
     }
 
+    // ── Review defects reproduced (expected RED on the current code) ──
+
+    /**
+     * Review #1: dedupe by sha256(URL) suppresses a real A → B → A change.
+     * Returning to a previous URL is a new event and must be messaged again.
+     */
+    public function test_returning_to_previous_url_delivers_again(): void
+    {
+        Queue::fake();
+        $this->fakeMessengerConfig();
+
+        $sentTexts = [];
+        Http::fake(function ($request) use (&$sentTexts) {
+            if (str_contains($request->url(), 'max.test')) {
+                $sentTexts[] = (string) $request['text'];
+
+                return Http::response(['message' => ['body' => ['mid' => 'mid-'.count($sentTexts)]]]);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $receipt = $this->awaitingReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true, 'vk_notifications' => false,
+        ]);
+        $service = app(PaymentReceiptService::class);
+
+        $service->attachUrl($receipt, self::URL_A, $this->admin);
+        $this->runJob($receipt);
+        $service->attachUrl($receipt, self::URL_B, $this->admin);
+        $this->runJob($receipt);
+        $service->attachUrl($receipt, self::URL_A, $this->admin);
+        $this->runJob($receipt);
+
+        $this->assertCount(3, $sentTexts, 'A → B → A is two real changes plus the first attach: three messages');
+        $this->assertSame(
+            2,
+            count(array_filter($sentTexts, fn ($t) => str_contains($t, self::URL_A))),
+            'URL_A must be messaged on the first attach and again when it returns',
+        );
+        $this->assertSame(
+            1,
+            count(array_filter($sentTexts, fn ($t) => str_contains($t, self::URL_B))),
+        );
+        $this->assertSame(3, ReceiptChannelDelivery::count(), 'each event needs its own delivery record');
+    }
+
+    /**
+     * Review #3: two workers delivering the SAME event to the SAME channel
+     * must not both reach HTTP — the winner is decided before the request.
+     */
+    public function test_two_overlapping_deliveries_of_one_event_send_once(): void
+    {
+        $this->fakeMessengerConfig();
+
+        $receipt = $this->attachedReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true, 'vk_notifications' => false,
+        ]);
+
+        $eventId = $this->currentEvent($receipt)->getKey();
+        $first = new SendReceiptUrlNotificationJob($eventId);
+        $second = new SendReceiptUrlNotificationJob($eventId);
+
+        $overlapStarted = false;
+        Http::fake(function ($request) use (&$overlapStarted, $second) {
+            if (! str_contains($request->url(), 'max.test')) {
+                return Http::response([], 404);
+            }
+
+            if (! $overlapStarted) {
+                $overlapStarted = true;
+                // The second worker picks the same event up while the first
+                // is still inside its HTTP call.
+                $second->handle(app(MaxApiClient::class), app(VkApiClient::class));
+            }
+
+            return Http::response(['message' => ['body' => ['mid' => 'mid-1']]]);
+        });
+
+        $first->handle(app(MaxApiClient::class), app(VkApiClient::class));
+
+        Http::assertSentCount(1, 'only the claiming worker may reach HTTP');
+        $this->assertSame(1, ReceiptChannelDelivery::count());
+    }
+
+    /**
+     * Review #4: a failure writing the MAX result must not stop VK from
+     * being processed, and the failed MAX send must not be recorded as a
+     * delivery.
+     */
+    public function test_max_result_write_failure_does_not_block_vk(): void
+    {
+        $this->fakeMessengerConfig();
+        Http::fake([
+            'max.test/*' => Http::response(['message' => ['body' => ['mid' => 'mid-1']]]),
+            'api.vk.com/*' => Http::response(['response' => 42]),
+        ]);
+
+        $receipt = $this->attachedReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true,
+            'vk_id' => '12345', 'vk_notifications' => true,
+        ]);
+
+        $failMaxResultWrite = function ($model): void {
+            if ($model->channel === 'max'
+                && $model->delivered_at !== null
+                && ($model->status ?? null) !== 'pending') {
+                throw new \RuntimeException('simulated MAX result write failure');
+            }
+        };
+        ReceiptChannelDelivery::creating($failMaxResultWrite);
+        ReceiptChannelDelivery::updating($failMaxResultWrite);
+
+        $failed = false;
+        try {
+            $this->runJob($receipt);
+        } catch (\RuntimeException) {
+            $failed = true;
+        }
+        $this->assertTrue($failed, 'the MAX failure must still fail the job so retries apply');
+
+        Http::assertSentCount(2, 'VK must be processed even though the MAX result write failed');
+        $this->assertTrue(
+            ReceiptChannelDelivery::where('channel', 'vk')->exists(),
+            'VK delivery must be recorded independently',
+        );
+        $this->assertTrue(
+            ReceiptChannelDelivery::where('channel', 'max')->get()
+                ->every(fn ($r) => $r->delivered_at === null),
+            'the failed MAX delivery must not be marked successful',
+        );
+    }
+
+    /**
+     * Review #3: a job for a superseded event (URL replaced before it ran)
+     * is stale and must be skipped; the job of the CURRENT event delivers
+     * the current URL.
+     */
+    public function test_stale_event_after_url_replacement_is_skipped(): void
+    {
+        Queue::fake();
+        $this->fakeMessengerConfig();
+        Http::fake([
+            'max.test/*' => Http::response(['message' => ['body' => ['mid' => 'mid-1']]]),
+            'api.vk.com/*' => Http::response([], 404),
+        ]);
+
+        $receipt = $this->awaitingReceipt();
+        $this->owner->update(['max_id' => 'max-user-1', 'max_notifications' => true, 'vk_notifications' => false]);
+        $service = app(PaymentReceiptService::class);
+
+        $service->attachUrl($receipt, self::URL_A, $this->admin);
+        $staleEventId = $this->currentEvent($receipt)->getKey();
+        $service->attachUrl($receipt, self::URL_B, $this->admin);
+
+        (new SendReceiptUrlNotificationJob($staleEventId))
+            ->handle(app(MaxApiClient::class), app(VkApiClient::class));
+        Http::assertNothingSent();
+
+        $this->runJob($receipt);
+        Http::assertSentCount(1);
+        Http::assertSent(fn ($request) => str_contains((string) $request['text'], self::URL_B));
+        Http::assertNotSent(fn ($request) => str_contains((string) $request['text'], self::URL_A));
+    }
+
     // ── Helpers ──
 
     private function awaitingReceipt(): PaymentReceipt
@@ -467,10 +709,34 @@ class ReceiptNotificationDeliveryTest extends TestCase
         $receipt->update([
             'status' => PaymentReceiptStatus::Attached,
             'receipt_url' => self::URL_A,
+            'url_version' => 1,
             'attached_at' => now(),
         ]);
+        $receipt->refresh();
 
-        return $receipt->refresh();
+        // The delivery intent an attach would have produced (event v1).
+        ReceiptDeliveryEvent::create([
+            'payment_receipt_id' => $receipt->getKey(),
+            'url_version' => 1,
+            'receipt_url' => self::URL_A,
+            'dispatched_at' => now(),
+        ]);
+
+        return $receipt;
+    }
+
+    /**
+     * The outbox event for the receipt's CURRENT url_version — what the
+     * queue would run after a successful dispatch.
+     */
+    private function currentEvent(PaymentReceipt $receipt): ReceiptDeliveryEvent
+    {
+        $receipt->refresh();
+
+        return ReceiptDeliveryEvent::query()
+            ->where('payment_receipt_id', $receipt->getKey())
+            ->where('url_version', $receipt->url_version)
+            ->firstOrFail();
     }
 
     private function makeAttempt(): PaymentAttempt
@@ -530,7 +796,7 @@ class ReceiptNotificationDeliveryTest extends TestCase
 
     private function runJob(PaymentReceipt $receipt): void
     {
-        (new SendReceiptUrlNotificationJob($receipt->id))->handle(
+        (new SendReceiptUrlNotificationJob($this->currentEvent($receipt)->getKey()))->handle(
             app(MaxApiClient::class),
             app(VkApiClient::class),
         );
