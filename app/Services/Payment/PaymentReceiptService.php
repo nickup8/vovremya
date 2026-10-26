@@ -156,8 +156,12 @@ class PaymentReceiptService
             // and no queue push happen inside the attach transaction. If the
             // push fails (queue outage) or the process dies right after the
             // commit, dispatched_at stays NULL and the scheduled
-            // receipts:recover-delivery-events re-dispatches exactly those
-            // rows — the committed intent is never lost.
+            // receipts:recover-delivery-events re-dispatches those rows — the
+            // committed intent is never lost. The push and the dispatched_at
+            // write are separate steps, so a crash between them can make that
+            // recovery enqueue the same event a SECOND time; the repeated job
+            // is harmless because the per-channel claim and the delivery
+            // record make it skip whatever is already delivered.
             DB::afterCommit(static function () use ($event): void {
                 try {
                     SendReceiptUrlNotificationJob::dispatch($event->getKey());

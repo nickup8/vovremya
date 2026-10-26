@@ -24,9 +24,19 @@ use App\Notifications\SystemNotification;
 use App\Services\MaxApiClient;
 use App\Services\Payment\PaymentReceiptService;
 use App\Services\VkApiClient;
+use Illuminate\Contracts\Debug\ExceptionHandler;
+use Illuminate\Contracts\Events\Dispatcher;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\ConnectorInterface;
+use Illuminate\Queue\Events\JobExceptionOccurred;
+use Illuminate\Queue\Events\JobFailed;
+use Illuminate\Queue\QueueManager;
+use Illuminate\Queue\Worker;
+use Illuminate\Queue\WorkerOptions;
+use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Notification;
 use Illuminate\Support\Facades\Queue;
@@ -693,6 +703,387 @@ class ReceiptNotificationDeliveryTest extends TestCase
         Http::assertNotSent(fn ($request) => str_contains((string) $request['text'], self::URL_A));
     }
 
+    // ── Claim ownership: takeover vs. the previous claimer's late writes ──
+
+    /**
+     * Review fix #1 — A captured the claim, its lease expired, B took the
+     * claim over with a fresh claim_token. Everything A still does afterwards
+     * (a late success on MAX, a late release on VK) must be a CAS miss: B's
+     * claim survives untouched on both channels.
+     */
+    public function test_late_success_and_release_from_superseded_worker_leave_new_claim_intact(): void
+    {
+        $this->fakeMessengerConfig();
+
+        $receipt = $this->attachedReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true,
+            'vk_id' => '12345', 'vk_notifications' => true,
+        ]);
+
+        $eventId = $this->currentEvent($receipt)->getKey();
+        $workerA = new SendReceiptUrlNotificationJob($eventId);
+
+        $takenOver = [];
+        Http::fake(function ($request) use (&$takenOver, $receipt) {
+            if (str_contains($request->url(), 'max.test')) {
+                // A is inside HTTP when its lease runs out: B captures the
+                // claim, then A's send is accepted anyway (late success).
+                $takenOver['max'] = $this->supersedeClaim($receipt, 'max');
+
+                return Http::response(['message' => ['body' => ['mid' => 'mid-a']]]);
+            }
+
+            if (str_contains($request->url(), 'api.vk.com')) {
+                // Same takeover on VK, but A's send fails afterwards — so A
+                // will try to release a claim it no longer owns.
+                $takenOver['vk'] = $this->supersedeClaim($receipt, 'vk');
+
+                return Http::response(['error' => 'boom'], 500);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $failed = false;
+        try {
+            $workerA->handle(app(MaxApiClient::class), app(VkApiClient::class));
+        } catch (\RuntimeException) {
+            $failed = true;
+        }
+        $this->assertTrue($failed, 'A\'s failed VK send must still fail the job');
+
+        // Late SUCCESS on MAX: the write is conditioned on A's own token, so
+        // it must not become the recorded result of B's claim.
+        $max = ReceiptChannelDelivery::query()
+            ->where('payment_receipt_id', $receipt->getKey())
+            ->where('channel', 'max')
+            ->sole();
+        $this->assertSame($takenOver['max'], $max->claim_token, 'A must not rewrite B\'s claim token');
+        $this->assertSame(ReceiptChannelDelivery::STATUS_PENDING, $max->status, 'A must not stamp its send over B\'s live claim');
+        $this->assertNull($max->provider_message_id, 'A\'s message id must not be recorded as a success');
+        $this->assertNotNull($max->lease_expires_at, 'B\'s lease must stay in place');
+
+        // Late RELEASE on VK: the delete is conditioned the same way, so B's
+        // claim is not dropped either.
+        $vk = ReceiptChannelDelivery::query()
+            ->where('payment_receipt_id', $receipt->getKey())
+            ->where('channel', 'vk')
+            ->sole();
+        $this->assertSame($takenOver['vk'], $vk->claim_token, 'A must not rewrite B\'s claim token');
+        $this->assertSame(ReceiptChannelDelivery::STATUS_PENDING, $vk->status, 'A\'s release must not remove B\'s claim');
+        $this->assertNotNull($vk->lease_expires_at);
+
+        Http::assertSentCount(2, 'A sent on both channels; the superseded claimer never re-sends');
+    }
+
+    /**
+     * Review fix #1 — the intersection of a result read and a takeover: A
+     * comes back from HTTP to record its send after B has already taken the
+     * claim over AND recorded its own delivery. A's CAS must miss, leaving
+     * B's recorded result (token, message id, timestamp) byte-for-byte as B
+     * wrote it, and A must not treat its own send as a confirmed success.
+     */
+    public function test_result_read_racing_takeover_leaves_new_owners_delivery_intact(): void
+    {
+        $this->fakeMessengerConfig();
+
+        $receipt = $this->attachedReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true,
+            'vk_notifications' => false,
+        ]);
+
+        $eventId = $this->currentEvent($receipt)->getKey();
+        $workerA = new SendReceiptUrlNotificationJob($eventId);
+
+        $bResult = null;
+        $depth = 0;
+        Http::fake(function ($request) use (&$bResult, &$depth, $receipt, $eventId) {
+            if (! str_contains($request->url(), 'max.test')) {
+                return Http::response([], 404);
+            }
+
+            $depth++;
+
+            if ($depth === 1) {
+                // A's lease expires mid-flight: B takes the claim over, sends
+                // (the nested request below) and records its result before A
+                // returns to its own record write.
+                ReceiptChannelDelivery::query()
+                    ->where('payment_receipt_id', $receipt->getKey())
+                    ->where('channel', 'max')
+                    ->update(['lease_expires_at' => now()->subSecond()]);
+
+                (new SendReceiptUrlNotificationJob($eventId))
+                    ->handle(app(MaxApiClient::class), app(VkApiClient::class));
+
+                $row = ReceiptChannelDelivery::query()
+                    ->where('payment_receipt_id', $receipt->getKey())
+                    ->where('channel', 'max')
+                    ->sole();
+
+                $bResult = [
+                    'claim_token' => $row->claim_token,
+                    'provider_message_id' => $row->provider_message_id,
+                    'delivered_at' => $row->delivered_at?->getTimestamp(),
+                ];
+
+                // A's own send is accepted too — its late write is the race.
+                return Http::response(['message' => ['body' => ['mid' => 'mid-a']]]);
+            }
+
+            return Http::response(['message' => ['body' => ['mid' => 'mid-b']]]);
+        });
+
+        $thrown = null;
+        try {
+            $workerA->handle(app(MaxApiClient::class), app(VkApiClient::class));
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
+        }
+
+        $this->assertNull($thrown, 'a missed CAS is not A\'s failure — the new owner is delivering');
+        Http::assertSentCount(2, 'A and B each reached HTTP once');
+
+        $row = ReceiptChannelDelivery::query()
+            ->where('payment_receipt_id', $receipt->getKey())
+            ->where('channel', 'max')
+            ->sole();
+        $this->assertSame($bResult['claim_token'], $row->claim_token, 'A must not rewrite the claim token');
+        $this->assertSame(ReceiptChannelDelivery::STATUS_DELIVERED, $row->status);
+        $this->assertSame('mid-b', $row->provider_message_id, 'A\'s message id must not replace B\'s recorded result');
+        $this->assertSame($bResult['delivered_at'], $row->delivered_at?->getTimestamp());
+        $this->assertNotSame('mid-a', $row->provider_message_id);
+    }
+
+    // ── Busy waiting vs. the real-error budget (real queue lifecycle) ──
+
+    /**
+     * Review fix #2 — a held claim costs queue attempts (one release per
+     * re-check) but must never spend the job's failure budget: attempts grow
+     * past $tries while the job stays alive, each release waits out the
+     * observed lease instead of ticking every 15s, and once the lease expires
+     * the very same job row continues and delivers.
+     */
+    public function test_busy_claim_grows_attempts_but_keeps_delivery_until_lease_expires(): void
+    {
+        config(['queue.default' => 'database']);
+        $this->fakeMessengerConfig();
+        Http::fake(['max.test/*' => Http::response(['message' => ['body' => ['mid' => 'mid-1']]])]);
+
+        $receipt = $this->attachedReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true,
+            'vk_notifications' => false,
+        ]);
+
+        $this->seedForeignClaim($receipt, 'max', now()->addSeconds(60));
+
+        SendReceiptUrlNotificationJob::dispatch($this->currentEvent($receipt)->getKey());
+
+        $deadline = (int) json_decode((string) DB::table('jobs')->value('payload'), true)['retryUntil'];
+        $this->assertGreaterThan(now()->getTimestamp(), $deadline, 'the job must carry a waiting deadline');
+
+        $worker = $this->makeWorker();
+        $options = $this->workerOptions();
+
+        $failedAttempts = 0;
+        Event::listen(JobExceptionOccurred::class, function () use (&$failedAttempts) {
+            $failedAttempts++;
+        });
+
+        // Attempt 1: another worker holds the claim → released, not failed,
+        // and the delay covers the lease we observed (not a 15s tick).
+        $this->runWorkerJob($worker, $options);
+        $this->assertSame(0, $failedAttempts, 'a busy claim must not fail the attempt');
+        Http::assertSentCount(0);
+        $job = DB::table('jobs')->sole();
+        $this->assertSame(1, (int) $job->attempts);
+        $this->assertGreaterThanOrEqual(
+            60,
+            (int) $job->available_at - now()->getTimestamp(),
+            'the re-check must wait out the remaining lease',
+        );
+
+        // Re-checks 2..4: whoever takes the claim over keeps renewing it, so
+        // every cycle costs one attempt. attempts ends above $tries = 3 —
+        // with an attempts-based cap the job would already be dead here.
+        for ($cycle = 2; $cycle <= 4; $cycle++) {
+            Carbon::setTestNow(now()->addSeconds(70));
+            $this->seedForeignClaim($receipt, 'max', now()->addSeconds(60));
+
+            $this->runWorkerJob($worker, $options);
+
+            $this->assertSame(0, $failedAttempts, 'busy re-checks must not fail the job');
+            Http::assertSentCount(0);
+            $job = DB::table('jobs')->sole();
+            $this->assertSame($cycle, (int) $job->attempts, 'every busy release grows the attempts counter');
+        }
+
+        $this->assertGreaterThan(3, (int) $job->attempts, 'attempts grew past $tries without failing the job');
+        $this->assertSame(
+            $deadline,
+            (int) json_decode((string) DB::table('jobs')->value('payload'), true)['retryUntil'],
+            'the waiting deadline is preserved across releases instead of being reset',
+        );
+
+        // The lease finally expires with no successor: the same job row
+        // continues, claims and delivers.
+        Carbon::setTestNow(now()->addSeconds(70));
+        $this->runWorkerJob($worker, $options);
+
+        $this->assertSame(0, $failedAttempts, 'the delivery run itself must not fail');
+        Http::assertSentCount(1);
+        $this->assertSame(0, DB::table('jobs')->count(), 'a delivered job is gone from the queue');
+        $delivery = ReceiptChannelDelivery::query()
+            ->where('payment_receipt_id', $receipt->getKey())
+            ->where('channel', 'max')
+            ->sole();
+        $this->assertSame(ReceiptChannelDelivery::STATUS_DELIVERED, $delivery->status);
+        $this->assertSame('mid-1', $delivery->provider_message_id);
+        $this->assertGreaterThan(now()->getTimestamp(), $deadline, 'delivery happened inside the deadline');
+    }
+
+    /**
+     * Review fix #2 — real API failures keep their own finite budget: every
+     * failed run throws once, and the queue's exception counter fails the job
+     * on the third one. The job is then terminal — no fourth send.
+     */
+    public function test_real_send_errors_have_a_finite_budget_of_their_own(): void
+    {
+        config(['queue.default' => 'database']);
+        $this->fakeMessengerConfig();
+        Http::fake(['max.test/*' => Http::response(['error' => 'boom'], 500)]);
+
+        $receipt = $this->attachedReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true,
+            'vk_notifications' => false,
+        ]);
+
+        $failedAttempts = 0;
+        $failedJobs = 0;
+        Event::listen(JobExceptionOccurred::class, function () use (&$failedAttempts) {
+            $failedAttempts++;
+        });
+        Event::listen(JobFailed::class, function () use (&$failedJobs) {
+            $failedJobs++;
+        });
+
+        SendReceiptUrlNotificationJob::dispatch($this->currentEvent($receipt)->getKey());
+
+        $worker = $this->makeWorker();
+        $options = $this->workerOptions();
+
+        // Three real failures, spaced by the job's own backoff (5s, 15s).
+        $expectedFailures = 0;
+        foreach ([0, 5, 15] as $backoff) {
+            if ($backoff > 0) {
+                Carbon::setTestNow(now()->addSeconds($backoff));
+            }
+
+            $this->runWorkerJob($worker, $options);
+
+            $expectedFailures++;
+            $this->assertSame(
+                $expectedFailures,
+                $failedAttempts,
+                'every run must fail on the API error and be released for a retry',
+            );
+            if ($expectedFailures < 3) {
+                $this->assertSame(0, $failedJobs, 'the job must survive the first two real failures');
+                $this->assertSame(1, DB::table('jobs')->count(), 'a retryable job stays queued');
+            }
+        }
+
+        $this->assertSame(3, $failedAttempts, 'exactly three attempts were spent on real errors');
+        $this->assertSame(1, $failedJobs, 'the third real failure must fail the job terminally');
+        $this->assertSame(0, DB::table('jobs')->count(), 'a failed job is not re-queued');
+        Http::assertSentCount(3, 'the error budget is exactly three sends');
+
+        Carbon::setTestNow(now()->addSeconds(60));
+        $this->runWorkerJob($worker, $options);
+        $this->assertSame(3, $failedAttempts, 'nothing is left to run');
+        Http::assertSentCount(3);
+    }
+
+    // ── Channel isolation ──
+
+    /**
+     * Review fix #3 — a failing MAX pass (API error) whose claim release
+     * ALSO blows up must not swallow either error: VK is still processed and
+     * recorded, and the job reports the primary MAX failure rather than the
+     * secondary cleanup one.
+     */
+    public function test_max_error_with_failing_release_still_processes_vk(): void
+    {
+        $this->fakeMessengerConfig();
+        Http::fake(function ($request) {
+            if (str_contains($request->url(), 'max.test')) {
+                return Http::response(['error' => 'boom'], 500);
+            }
+
+            if (str_contains($request->url(), 'api.vk.com')) {
+                return Http::response(['response' => 42]);
+            }
+
+            return Http::response([], 404);
+        });
+
+        $receipt = $this->attachedReceipt();
+        $this->owner->update([
+            'max_id' => 'max-user-1', 'max_notifications' => true,
+            'vk_id' => '12345', 'vk_notifications' => true,
+        ]);
+
+        // The MAX claim release itself fails once, before it runs.
+        $releaseAttempted = false;
+        DB::beforeExecuting(function ($query, $bindings) use (&$releaseAttempted) {
+            if (! $releaseAttempted
+                && str_contains($query, 'delete from "receipt_channel_deliveries"')
+                && in_array('max', $bindings, true)) {
+                $releaseAttempted = true;
+
+                throw new \RuntimeException('simulated releaseClaim failure');
+            }
+        });
+
+        $thrown = null;
+        try {
+            $this->runJob($receipt);
+        } catch (\RuntimeException $e) {
+            $thrown = $e;
+        }
+
+        $this->assertNotNull($thrown, 'the MAX failure must still fail the job');
+        $this->assertStringContainsString('channel(s): max', $thrown->getMessage());
+        $this->assertStringNotContainsString(
+            'simulated releaseClaim',
+            $thrown->getMessage(),
+            'the cleanup error must not replace the primary outcome',
+        );
+        $this->assertTrue($releaseAttempted, 'the release must actually have been attempted');
+
+        Http::assertSentCount(2, 'VK must be processed although the MAX release failed');
+        $this->assertTrue(
+            ReceiptChannelDelivery::query()
+                ->where('payment_receipt_id', $receipt->getKey())
+                ->where('channel', 'vk')
+                ->where('status', ReceiptChannelDelivery::STATUS_DELIVERED)
+                ->exists(),
+            'VK delivery must be recorded independently',
+        );
+        $this->assertSame(
+            0,
+            ReceiptChannelDelivery::query()
+                ->where('channel', 'max')
+                ->where('status', ReceiptChannelDelivery::STATUS_DELIVERED)
+                ->count(),
+            'the failed MAX send must not be recorded as delivered',
+        );
+    }
+
     // ── Helpers ──
 
     private function awaitingReceipt(): PaymentReceipt
@@ -809,5 +1200,101 @@ class ReceiptNotificationDeliveryTest extends TestCase
             'type' => SystemNotification::class,
             'data' => $data,
         ]);
+    }
+
+    /**
+     * Another worker's capture of a claim whose lease has just expired: the
+     * row keeps existing but now carries B's fresh claim_token and a live
+     * lease, exactly as the takeover in the job writes it.
+     *
+     * @return string B's claim_token
+     */
+    private function supersedeClaim(PaymentReceipt $receipt, string $channel): string
+    {
+        $receipt->refresh();
+        $claimToken = (string) Str::uuid();
+
+        ReceiptChannelDelivery::query()
+            ->where('payment_receipt_id', $receipt->getKey())
+            ->where('channel', $channel)
+            ->where('url_version', $receipt->url_version)
+            ->update([
+                'claim_token' => $claimToken,
+                'status' => ReceiptChannelDelivery::STATUS_PENDING,
+                'lease_expires_at' => now()->addSeconds(60),
+            ]);
+
+        return $claimToken;
+    }
+
+    /**
+     * A live claim held by ANOTHER worker on (receipt, channel) — the state
+     * that makes our own claim attempt report "busy".
+     *
+     * @return string the foreign claim_token
+     */
+    private function seedForeignClaim(PaymentReceipt $receipt, string $channel, \DateTimeInterface $leaseUntil): string
+    {
+        $receipt->refresh();
+        $claimToken = (string) Str::uuid();
+
+        ReceiptChannelDelivery::updateOrCreate(
+            [
+                'payment_receipt_id' => $receipt->getKey(),
+                'channel' => $channel,
+                'url_version' => $receipt->url_version,
+            ],
+            [
+                'receipt_url' => $receipt->receipt_url,
+                'status' => ReceiptChannelDelivery::STATUS_PENDING,
+                'claim_token' => $claimToken,
+                'lease_expires_at' => $leaseUntil,
+                'provider_message_id' => null,
+                'delivered_at' => null,
+            ],
+        );
+
+        return $claimToken;
+    }
+
+    /**
+     * A worker with the same knobs `queue:work` runs with — including the
+     * cache its exception counter (the real-error budget) lives in.
+     */
+    private function makeWorker(): Worker
+    {
+        $worker = new Worker(
+            app(QueueManager::class),
+            app(Dispatcher::class),
+            app(ExceptionHandler::class),
+            fn (): bool => false,
+        );
+
+        $worker->setCache(Cache::store());
+
+        return $worker;
+    }
+
+    private function workerOptions(): WorkerOptions
+    {
+        return new WorkerOptions(
+            name: 'default',
+            backoff: 0,
+            memory: 128,
+            timeout: 60,
+            sleep: 0,
+            maxTries: 3,
+        );
+    }
+
+    /**
+     * One real queue attempt: pop + the worker's own bookkeeping (attempts
+     * increment, release-after-exception, failure checks). Like `queue:work`,
+     * the worker reports and swallows the job's exception, so outcomes are
+     * observed through JobExceptionOccurred / JobFailed instead.
+     */
+    private function runWorkerJob(Worker $worker, WorkerOptions $options): void
+    {
+        $worker->runNextJob('database', 'default', $options);
     }
 }

@@ -16,9 +16,19 @@ use Illuminate\Support\Facades\Log;
  * the queue push failed — the row keeps dispatched_at = NULL and this
  * command re-dispatches it, so a committed intent is never lost.
  *
+ * The enqueue and the dispatched_at write are NOT one atomic step: a crash
+ * (or a failed update) between them leaves a row that was already enqueued
+ * still looking untouched, so a later run CAN put the same event on the
+ * queue a second time. Recovery must therefore not be assumed duplicate-free
+ * on its own. What makes a repeated execution safe is not this command but
+ * the job itself: every run serializes on the per-(event, channel) claim
+ * (including its claim_token CAS) and records its outcome in
+ * receipt_channel_deliveries, so a second job skips what is already
+ * delivered instead of sending it again.
+ *
  * Rows already dispatched (dispatched_at set) are owned by the queue and its
- * bounded retries; this command never re-sends those, so it cannot duplicate
- * a delivery on its own. The min-age guard simply keeps it away from rows
+ * bounded retries; this command never re-sends those, so on its own it does
+ * not add a delivery. The min-age guard simply keeps it away from rows
  * whose after-commit dispatch is still in progress.
  */
 class RecoverReceiptDeliveryEvents extends Command
