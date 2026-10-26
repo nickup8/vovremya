@@ -374,7 +374,7 @@ describe('admin/billing.tsx — active «Профи»: subscription status and r
     });
 });
 
-describe('admin/billing.tsx — pending payment and receipts survive the rework', () => {
+describe('admin/billing.tsx — pending payment survives the rework', () => {
     beforeEach(() => {
         routerGet.mockReset();
     });
@@ -396,7 +396,7 @@ describe('admin/billing.tsx — pending payment and receipts survive the rework'
         expect(screen.getByRole('button', { name: 'Проверить статус' })).toBeTruthy();
     });
 
-    it('keeps the receipts section renderable on the new layout', () => {
+    it('does not render the removed receipts section even with legacy props', () => {
         window.history.replaceState(null, '', '/admin/billing');
         mockUsePage.mockReturnValue(
             makeProps({
@@ -424,9 +424,9 @@ describe('admin/billing.tsx — pending payment and receipts survive the rework'
         );
         render(<BillingPage />);
 
-        expect(screen.getByTestId('cabinet-receipts')).toBeTruthy();
-        expect(screen.getByRole('link', { name: 'Открыть чек' })).toBeTruthy();
-        expect(screen.getByText(/Страница 1 из 2/u)).toBeTruthy();
+        expect(screen.queryByTestId('cabinet-receipts')).toBeNull();
+        expect(screen.queryByRole('link', { name: 'Открыть чек' })).toBeNull();
+        expect(screen.queryByText(/Страница 1 из 2/u)).toBeNull();
     });
 });
 
@@ -448,7 +448,6 @@ describe('admin/billing.tsx — missing pro plan catalog', () => {
                     days_left: 0,
                 },
                 auth: { user: { name: 'Test' } },
-                receipts: null,
             },
         });
         render(<BillingPage />);
@@ -463,7 +462,7 @@ describe('admin/billing.tsx — missing pro plan catalog', () => {
         expect(screen.queryByText(/₽/u)).toBeNull();
     });
 
-    it('active Pro without proPlan keeps subscription status, receipts and auto-renew control', () => {
+    it('active Pro without proPlan keeps subscription status and auto-renew control', () => {
         mockUsePage.mockReturnValue({
             props: {
                 plans: [],
@@ -477,25 +476,6 @@ describe('admin/billing.tsx — missing pro plan catalog', () => {
                     renewal_period_months: 3,
                 },
                 auth: { user: { name: 'Test' } },
-                receipts: {
-                    data: [
-                        {
-                            id: 'r1',
-                            status_label: 'Доступен в кабинете',
-                            receipt_url: 'https://example.test/receipt/1',
-                            amount: 270,
-                            currency: 'RUB',
-                            confirmed_at: '2026-10-20T12:00:00Z',
-                            period_start: '2026-09-20T00:00:00Z',
-                            period_end: '2026-12-20T00:00:00Z',
-                            tariff_name: 'Профи',
-                        },
-                    ],
-                    current_page: 1,
-                    last_page: 1,
-                    per_page: 5,
-                    total: 1,
-                },
             },
         });
         render(<BillingPage />);
@@ -507,11 +487,10 @@ describe('admin/billing.tsx — missing pro plan catalog', () => {
         expect(screen.getByText('Следующий период: каждые 3 мес.')).toBeTruthy();
         expect(screen.getByRole('button', { name: 'Отключить автопродление' })).toBeTruthy();
 
-        expect(screen.getByTestId('cabinet-receipts')).toBeTruthy();
-        expect(screen.getByRole('link', { name: 'Открыть чек' })).toBeTruthy();
+        // Секция чеков убрана с этой страницы.
+        expect(screen.queryByTestId('cabinet-receipts')).toBeNull();
 
         // Каталога нет — честное состояние вместо прайса и CTA.
-        // (Суммы в чеках выше — данные кабинета, а не прайс тарифа.)
         expect(screen.getByText('Подключение «Профи»')).toBeTruthy();
         expect(screen.queryByRole('button', { name: /Продлить/u })).toBeNull();
         expect(screen.queryByText(/\/ мес/u)).toBeNull();

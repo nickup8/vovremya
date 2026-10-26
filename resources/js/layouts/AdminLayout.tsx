@@ -31,6 +31,9 @@ interface NotificationItem {
     kind: string | null;
     title: string | null;
     body: string | null;
+    /** Structured action (e.g. receipt link) — plain fields, never HTML in body. */
+    action_url?: string | null;
+    action_label?: string | null;
     read_at: string | null;
     created_at: string;
 }
@@ -123,6 +126,35 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
         });
     }
 
+    // Shared detail body for the selected notification (desktop popover and
+    // mobile drawer) — a structured action renders as a plain external link
+    // (never an Inertia router transition to ФНС).
+    function selectedNotificationContent(notification: NotificationItem) {
+        return (
+            <>
+                <h3 className="text-[15px] leading-6 font-bold text-[var(--color-ink)] break-words">
+                    {notification.title}
+                </h3>
+                <p className="mt-3 text-[13px] leading-5 text-[var(--color-ink)] whitespace-pre-wrap break-words">
+                    {notification.body}
+                </p>
+                {notification.action_url && (
+                    <a
+                        href={notification.action_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="mt-4 inline-flex items-center rounded-[10px] border border-[var(--color-line)] bg-[var(--color-line-soft)] px-4 py-2 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-orange)] hover:text-[var(--color-orange)] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)]"
+                    >
+                        {notification.action_label || 'Открыть чек'}
+                    </a>
+                )}
+                <p className="mt-4 text-[11px] leading-4 text-[var(--color-graphite)]">
+                    {formatFullDateTime(notification.created_at)}
+                </p>
+            </>
+        );
+    }
+
     // Close mobile menu on resize
     useEffect(() => {
         const handler = () => { if (window.innerWidth > 1024) setMobileMenuOpen(false); };
@@ -182,15 +214,7 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
 
     const notificationsBody = selectedNotification ? (
         <div className="max-h-[70vh] overflow-y-auto px-4 py-4">
-            <h3 className="text-[15px] leading-6 font-bold text-[var(--color-ink)] break-words">
-                {selectedNotification.title}
-            </h3>
-            <p className="mt-3 text-[13px] leading-5 text-[var(--color-ink)] whitespace-pre-wrap break-words">
-                {selectedNotification.body}
-            </p>
-            <p className="mt-4 text-[11px] leading-4 text-[var(--color-graphite)]">
-                {formatFullDateTime(selectedNotification.created_at)}
-            </p>
+            {selectedNotificationContent(selectedNotification)}
         </div>
     ) : items.length === 0 ? (
         <div className="px-4 py-5 text-center text-[13px] text-[var(--color-graphite)]">
@@ -374,19 +398,18 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                 {notificationsOpen && !isDesktop && (
                     <div className="fixed inset-0 z-[60]">
                         <div className="fixed inset-0 bg-black/30" onClick={() => setNotificationsOpen(false)} aria-hidden="true" />
-                        <div className="fixed inset-y-0 right-0 z-10 flex w-full max-w-sm flex-col bg-white dark:bg-[var(--color-cal-surface)]">
+                        {/* Stop propagation like the desktop popover: the
+                            document outside-click handler would otherwise
+                            close the drawer on any tap inside it (list item /
+                            «Открыть чек»), making the detail unreachable. */}
+                        <div
+                            className="fixed inset-y-0 right-0 z-10 flex w-full max-w-sm flex-col bg-white dark:bg-[var(--color-cal-surface)]"
+                            onClick={(e) => e.stopPropagation()}
+                        >
                             {notificationsHeader}
                             {selectedNotification ? (
                                 <div className="flex-1 overflow-y-auto px-4 py-4">
-                                    <h3 className="text-[16px] leading-6 font-bold text-[var(--color-ink)] break-words">
-                                        {selectedNotification.title}
-                                    </h3>
-                                    <p className="mt-3 text-[14px] leading-6 text-[var(--color-ink)] whitespace-pre-wrap break-words">
-                                        {selectedNotification.body}
-                                    </p>
-                                    <p className="mt-4 text-[11px] leading-4 text-[var(--color-graphite)]">
-                                        {formatFullDateTime(selectedNotification.created_at)}
-                                    </p>
+                                    {selectedNotificationContent(selectedNotification)}
                                 </div>
                             ) : items.length === 0 ? (
                                 <div className="flex flex-1 items-center justify-center text-[13px] text-[var(--color-graphite)]">

@@ -7,11 +7,9 @@ use App\Models\Client;
 use App\Models\User;
 use App\Services\Billing\EntitlementService;
 use App\Services\Billing\TariffLimitService;
-use Illuminate\Http\RedirectResponse;
+use App\Services\Payment\NpdReceiptUrlValidator;
 use Illuminate\Http\Request;
-use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Log;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -174,20 +172,45 @@ class HandleInertiaRequests extends Middleware
             return ['unread_count' => 0, 'items' => []];
         }
 
+        $sellerInn = trim((string) config('billing.receipts.seller_inn', ''));
+        $urlValidator = app(NpdReceiptUrlValidator::class);
+
         $notifications = $user->notifications()
             ->with('systemMessage')
             ->orderByDesc('created_at')
             ->limit(10)
             ->get()
             ->filter(fn ($n) => ! $n->system_message_id || $n->systemMessage)
-            ->map(fn ($n) => [
-                'id' => $n->id,
-                'kind' => $n->data['kind'] ?? null,
-                'title' => $n->systemMessage?->title ?? $n->data['title'] ?? null,
-                'body' => $n->systemMessage?->body ?? $n->data['body'] ?? null,
-                'read_at' => $n->read_at?->toIso8601String(),
-                'created_at' => $n->created_at->toIso8601String(),
-            ]);
+            ->map(function ($n) use ($urlValidator, $sellerInn) {
+                $item = [
+                    'id' => $n->id,
+                    'kind' => $n->data['kind'] ?? null,
+                    'title' => $n->systemMessage?->title ?? $n->data['title'] ?? null,
+                    'body' => $n->systemMessage?->body ?? $n->data['body'] ?? null,
+                    'read_at' => $n->read_at?->toIso8601String(),
+                    'created_at' => $n->created_at->toIso8601String(),
+                    // Structured action; re-validated strictly (same rules
+                    // as attach time) — an unsafe or stale URL is dropped,
+                    // the notification itself keeps working.
+                    'action_url' => null,
+                    'action_label' => null,
+                ];
+
+                $action = $n->data['action'] ?? null;
+                $actionUrl = is_array($action) ? ($action['url'] ?? null) : null;
+                $actionLabel = is_array($action) ? ($action['label'] ?? null) : null;
+
+                if (is_string($actionUrl)
+                    && is_string($actionLabel)
+                    && $actionUrl !== ''
+                    && $actionLabel !== ''
+                    && $urlValidator->validate($actionUrl, $sellerInn) === null) {
+                    $item['action_url'] = $actionUrl;
+                    $item['action_label'] = $actionLabel;
+                }
+
+                return $item;
+            });
 
         return [
             'unread_count' => $user->unreadNotifications()->count(),

@@ -30,26 +30,6 @@ interface AuthUser {
     [key: string]: unknown;
 }
 
-interface CabinetReceipt {
-    id: string;
-    status_label: string;
-    receipt_url: string | null;
-    amount: number | null;
-    currency: string | null;
-    confirmed_at: string | null;
-    period_start: string | null;
-    period_end: string | null;
-    tariff_name: string | null;
-}
-
-interface PaginatedReceipts {
-    data: CabinetReceipt[];
-    current_page: number;
-    last_page: number;
-    per_page: number;
-    total: number;
-}
-
 interface PageProps {
     plans: Plan[];
     current: {
@@ -66,7 +46,6 @@ interface PageProps {
     payment_return?: 'returned' | null;
     payment_attempt_id?: string | null;
     payment_attempt_period_months?: number | null;
-    receipts?: PaginatedReceipts | null;
     [key: string]: unknown;
 }
 
@@ -252,21 +231,6 @@ function paymentCheckClosedInUrl(): boolean {
     );
 }
 
-/**
- * Чековая пагинация меняет только receipts_page: остальные параметры
- * адреса (payment_attempt / payment_check / utm) уходят в запрос как есть,
- * поэтому баннер ручной проверки и закрытый диалог переживают переход на
- * другую страницу чеков.
- */
-function receiptsPageQuery(page: number): Record<string, string | number> {
-    return {
-        ...Object.fromEntries(
-            new URLSearchParams(window.location.search).entries(),
-        ),
-        receipts_page: page,
-    };
-}
-
 /* ═══════════════ Main Page ═══════════════ */
 
 export default function BillingPage() {
@@ -274,7 +238,6 @@ export default function BillingPage() {
     const auth = props.auth;
     const { plans, current } = props;
     const tariffLimits = props.tariff_limits;
-    const receipts = props.receipts ?? null;
 
     const proPlan = plans.find((p) => p.code === 'pro');
     // features may arrive null/undefined from the server — never crash the page on it.
@@ -1078,82 +1041,6 @@ export default function BillingPage() {
                         </section>
                     )}
 
-                    {/* ─── Manual NPD receipts (attached links only) ─── */}
-                    {receipts && receipts.data.length > 0 && (
-                        <section className="rounded-[16px] border border-[var(--color-line)] bg-[var(--color-surface-elevated)] px-5 py-4" data-testid="cabinet-receipts">
-                            <div className="text-[15px] font-bold leading-[21px] tracking-[-.015em] text-[var(--color-ink)]">
-                                Чеки об оплате
-                            </div>
-                            <div className="mt-[3px] text-[12px] leading-4 text-[var(--color-graphite)]">
-                                Чеки, оформленные вручную и доступные в кабинете.
-                            </div>
-                            <ul className="mt-4 space-y-3">
-                                {receipts.data.map((receipt: CabinetReceipt) => (
-                                    <li
-                                        key={receipt.id}
-                                        className="rounded-[12px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 py-3"
-                                        data-testid="cabinet-receipt-item"
-                                    >
-                                        <div className="flex flex-wrap items-start justify-between gap-3">
-                                            <div className="min-w-0">
-                                                <div className="text-[14px] font-semibold leading-[19px] text-[var(--color-ink)]">
-                                                    {receipt.amount !== null ? fmt(receipt.amount) : '—'}
-                                                    {receipt.tariff_name ? ` · ${receipt.tariff_name}` : ''}
-                                                </div>
-                                                <div className="mt-0.5 text-[12px] leading-4 text-[var(--color-graphite)]">
-                                                    Период: {receipt.period_start && receipt.period_end
-                                                        ? `${formatExpiry(receipt.period_start)} — ${formatExpiry(receipt.period_end)}`
-                                                        : '—'}
-                                                </div>
-                                                <div className="mt-0.5 text-[12px] leading-4 text-[var(--color-graphite)]">
-                                                    Подтверждено в ИРСИ: {receipt.confirmed_at ? formatExpiry(receipt.confirmed_at) : '—'}
-                                                </div>
-                                                <span className="mt-1.5 inline-block rounded-[7px] border border-[var(--color-line)] bg-[var(--color-surface-hover)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-graphite)]">
-                                                    {receipt.status_label}
-                                                </span>
-                                            </div>
-                                            {receipt.receipt_url && (
-                                                <a
-                                                    href={receipt.receipt_url}
-                                                    target="_blank"
-                                                    rel="noopener noreferrer"
-                                                    className="shrink-0 rounded-[10px] border border-[var(--color-line)] bg-[var(--color-surface)] px-4 text-[13px] font-semibold text-[var(--color-ink)] transition-colors hover:border-[var(--color-orange)] hover:text-[var(--color-orange)]"
-                                                >
-                                                    Открыть чек
-                                                </a>
-                                            )}
-                                        </div>
-                                    </li>
-                                ))}
-                            </ul>
-                            {receipts.last_page > 1 && (
-                                <div className="mt-4 flex items-center justify-between text-[12px] text-[var(--color-graphite)]">
-                                    <span>
-                                        Страница {receipts.current_page} из {receipts.last_page}
-                                    </span>
-                                    <div className="flex gap-2">
-                                        <button
-                                            type="button"
-                                            disabled={receipts.current_page <= 1}
-                                            onClick={() => router.get('/admin/billing', receiptsPageQuery(receipts.current_page - 1), { preserveState: true })}
-                                            className="rounded-[8px] border border-[var(--color-line)] px-3 py-1 font-semibold disabled:opacity-40"
-                                        >
-                                            Назад
-                                        </button>
-                                        <button
-                                            type="button"
-                                            disabled={receipts.current_page >= receipts.last_page}
-                                            onClick={() => router.get('/admin/billing', receiptsPageQuery(receipts.current_page + 1), { preserveState: true })}
-                                            className="rounded-[8px] border border-[var(--color-line)] px-3 py-1 font-semibold disabled:opacity-40"
-                                        >
-                                            Вперёд
-                                        </button>
-                                    </div>
-                                </div>
-                            )}
-                        </section>
-                    )}
-
                     {/* ─── 2. Period selection & checkout ─── */}
                     {proPlan ? (
                     <section
@@ -1263,7 +1150,7 @@ export default function BillingPage() {
                     ) : (
                     /* Про-plan catalog unavailable: honest empty state — no
                        invented price, no dead CTA. Subscription management
-                       blocks and receipts above/below stay intact. */
+                       blocks above/below stay intact. */
                     <section
                         ref={renewSectionRef}
                         tabIndex={-1}
@@ -1274,7 +1161,7 @@ export default function BillingPage() {
                         </div>
                         <p className="mt-2 text-[13px] leading-[1.5] text-[var(--color-graphite)]">
                             Сейчас тариф «Профи» нельзя подключить: прайс не загрузился.
-                            Возможности «Старт» работают как обычно, а история оплат и чеки сохранены на этой странице.
+                            Возможности «Старт» работают как обычно, автопродление и статус оплат управляются на этой странице.
                         </p>
                     </section>
                     )}

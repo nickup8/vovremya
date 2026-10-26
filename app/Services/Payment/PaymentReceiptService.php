@@ -5,6 +5,7 @@ namespace App\Services\Payment;
 use App\Enums\BillingCycleOrigin;
 use App\Enums\PaymentEnvironment;
 use App\Enums\PaymentReceiptStatus;
+use App\Jobs\SendReceiptUrlNotificationJob;
 use App\Models\PaymentAttempt;
 use App\Models\PaymentReceipt;
 use App\Models\User;
@@ -20,9 +21,9 @@ use Illuminate\Validation\ValidationException;
  * the successful payment transition (no external calls here). Attaching or
  * changing the lknpd.nalog.ru link is an explicit superadmin action: the
  * URL is stored exactly as entered, validated syntactically, and never
- * fetched over the network. A database-only notification to the workspace
- * owner is written atomically with the link change (row lock dedupes
- * concurrent identical saves).
+ * fetched over the network. A database-only notification with a structured
+ * action link is written atomically with the link change (row lock dedupes
+ * concurrent identical saves); messenger delivery is queued after commit.
  */
 class PaymentReceiptService
 {
@@ -126,6 +127,14 @@ class PaymentReceiptService
 
             $this->notifyWorkspaceOwner($fresh, $wasAttached);
 
+            // Messenger duplication runs only after the transaction really
+            // commits: an HTTP call or a queued push must never happen
+            // inside the attach transaction, and a rollback must dispatch
+            // nothing.
+            DB::afterCommit(static function () use ($fresh): void {
+                SendReceiptUrlNotificationJob::dispatch($fresh->getKey());
+            });
+
             return $fresh;
         });
     }
@@ -193,22 +202,27 @@ class PaymentReceiptService
     }
 
     /**
-     * Database-only notification to the workspace owner. No network
-     * delivery — SystemNotification uses the database channel exclusively.
+     * Database-only notification to the workspace owner with a structured
+     * «Открыть чек» action (separate fields, never HTML in the body).
+     * Messenger channels are dispatched separately after commit.
      */
     private function notifyWorkspaceOwner(PaymentReceipt $receipt, bool $isUpdate): void
     {
         $owner = $receipt->paymentAttempt?->billingCycle?->workspace?->owner;
 
-        if ($owner === null) {
+        if ($owner === null || $receipt->receipt_url === null) {
             return;
         }
 
         $owner->notify(new SystemNotification(
-            'Чек об оплате подписки',
-            $isUpdate
-                ? 'Ссылка на чек обновлена в кабинете.'
-                : 'Ссылка на чек доступна в кабинете.',
+            title: $isUpdate ? 'Ссылка на чек обновлена' : 'Чек об оплате подписки',
+            body: $isUpdate
+                ? 'Откройте чек по обновлённой ссылке'
+                : 'Чек готов. Откройте его по ссылке ниже',
+            systemMessageId: null,
+            actionUrl: $receipt->receipt_url,
+            actionLabel: 'Открыть чек',
+            receiptId: $receipt->getKey(),
         ));
     }
 }

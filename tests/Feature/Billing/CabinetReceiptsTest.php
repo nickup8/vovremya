@@ -19,21 +19,23 @@ use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
+/**
+ * The cabinet receipt list was removed from the payment page: the receipt
+ * link now reaches the owner through the notification with the «Открыть чек»
+ * action (see ReceiptNotificationDeliveryTest). These tests pin the removal
+ * itself plus the access rules that must survive it.
+ */
 class CabinetReceiptsTest extends TestCase
 {
     use RefreshDatabase;
 
     private const URL_A = 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/aaa111/print';
 
-    private const URL_B = 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/bbb222/print';
-
     private TariffPlan $proPlan;
 
     private User $owner;
 
     private Workspace $workspace;
-
-    private int $receiptSeq = 0;
 
     protected function setUp(): void
     {
@@ -60,28 +62,22 @@ class CabinetReceiptsTest extends TestCase
         $this->owner->update(['workspace_id' => $this->workspace->id]);
     }
 
-    private function createAttachedReceipt(
-        Workspace $ws,
-        string $url,
-        ?string $confirmedAt = null,
-        ?PaymentEnvironment $paymentEnv = PaymentEnvironment::Live,
-    ): PaymentReceipt {
+    private function createAttachedReceipt(string $url): PaymentReceipt
+    {
         $billingSub = BillingSubscription::firstOrCreate(
             [
-                'workspace_id' => $ws->id,
+                'workspace_id' => $this->workspace->id,
                 'tariff_plan_id' => $this->proPlan->id,
             ],
             ['status' => BillingSubscriptionStatus::Active],
         );
 
-        $seq = ++$this->receiptSeq;
-
         $cycle = BillingCycle::create([
             'billing_subscription_id' => $billingSub->id,
-            'workspace_id' => $ws->id,
+            'workspace_id' => $this->workspace->id,
             'tariff_plan_id' => $this->proPlan->id,
-            'period_start' => now()->subMonths($seq),
-            'period_end' => now()->subMonths($seq - 1),
+            'period_start' => now()->subMonth(),
+            'period_end' => now(),
             'status' => BillingCycleStatus::Paid,
             'amount' => 490,
             'currency' => 'RUB',
@@ -91,7 +87,7 @@ class CabinetReceiptsTest extends TestCase
         $attempt = PaymentAttempt::create([
             'billing_cycle_id' => $cycle->id,
             'provider' => 'tbank',
-            'payment_env' => $paymentEnv,
+            'payment_env' => PaymentEnvironment::Live,
             'attempt_number' => 1,
             'amount' => 490,
             'currency' => 'RUB',
@@ -100,7 +96,7 @@ class CabinetReceiptsTest extends TestCase
             'status' => PaymentAttemptStatus::Succeeded,
             'initiated_at' => now(),
             'finished_at' => now(),
-            'confirmed_at' => $confirmedAt ?? now(),
+            'confirmed_at' => now(),
         ]);
 
         return PaymentReceipt::create([
@@ -111,96 +107,46 @@ class CabinetReceiptsTest extends TestCase
         ]);
     }
 
-    public function test_owner_sees_attached_receipts_with_amount_period_and_link(): void
+    public function test_billing_page_has_no_receipts_list_prop(): void
     {
-        $this->createAttachedReceipt($this->workspace, self::URL_A);
+        $this->createAttachedReceipt(self::URL_A);
 
         $this->actingAs($this->owner)
             ->get(route('admin.billing'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
                 ->component('admin/billing')
-                ->has('receipts.data', 1)
-                ->where('receipts.data.0.receipt_url', self::URL_A)
-                ->where('receipts.data.0.amount', 490)
-                ->where('receipts.data.0.status_label', 'Доступен в кабинете')
-                ->where('receipts.data.0.tariff_name', 'Профи')
-                ->has('receipts.data.0.confirmed_at'));
+                ->missing('receipts'));
     }
 
-    public function test_awaiting_manual_receipts_are_not_shown_to_customer(): void
+    public function test_billing_page_renders_without_receipts_prop_at_all(): void
     {
-        $receipt = $this->createAttachedReceipt($this->workspace, self::URL_A);
-        $receipt->update(['status' => PaymentReceiptStatus::AwaitingManual, 'receipt_url' => null]);
-
-        $this->actingAs($this->owner)
-            ->get(route('admin.billing'))
-            ->assertOk()
-            ->assertInertia(fn ($page) => $page->has('receipts.data', 0));
-    }
-
-    public function test_other_workspace_receipts_are_isolated(): void
-    {
-        $otherOwner = User::factory()->create(['role' => UserRole::Owner]);
-        $otherWs = Workspace::create([
-            'name' => 'ws-'.$otherOwner->id,
-            'owner_id' => $otherOwner->id,
-        ]);
-        $otherWs->ensureSlug();
-        $otherOwner->update(['workspace_id' => $otherWs->id]);
-
-        $this->createAttachedReceipt($this->workspace, self::URL_A);
-        $this->createAttachedReceipt($otherWs, self::URL_B);
-
-        $this->actingAs($this->owner)
-            ->get(route('admin.billing'))
-            ->assertInertia(fn ($page) => $page
-                ->has('receipts.data', 1)
-                ->where('receipts.data.0.receipt_url', self::URL_A));
-
-        $this->actingAs($otherOwner)
-            ->get(route('admin.billing'))
-            ->assertInertia(fn ($page) => $page
-                ->has('receipts.data', 1)
-                ->where('receipts.data.0.receipt_url', self::URL_B));
-    }
-
-    public function test_receipts_props_are_small_page_not_full_history(): void
-    {
-        foreach (range(1, 7) as $i) {
-            $this->createAttachedReceipt(
-                $this->workspace,
-                'https://lknpd.nalog.ru/api/v1/receipt/5248061993/receipt'.$i.'/print',
-            );
-        }
-
-        $this->actingAs($this->owner)
-            ->get(route('admin.billing'))
-            ->assertInertia(fn ($page) => $page
-                ->has('receipts.data', 5)
-                ->where('receipts.total', 7)
-                ->where('receipts.last_page', 2));
-    }
-
-    public function test_only_live_tbank_receipts_are_returned(): void
-    {
-        // Rows are created directly (not via PaymentReceiptService) so the
-        // regression targets the cabinet selection itself: demo attempts and
-        // legacy rows with payment_env = NULL must never surface.
-        $this->createAttachedReceipt($this->workspace, self::URL_A, null, PaymentEnvironment::Live);
-        $this->createAttachedReceipt($this->workspace, self::URL_B, null, PaymentEnvironment::Demo);
-        $this->createAttachedReceipt($this->workspace, 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/ccc333/print', null, null);
-
         $this->actingAs($this->owner)
             ->get(route('admin.billing'))
             ->assertOk()
             ->assertInertia(fn ($page) => $page
-                ->has('receipts.data', 1)
-                ->where('receipts.data.0.receipt_url', self::URL_A)
-                ->where('receipts.total', 1));
+                ->component('admin/billing')
+                ->missing('receipts')
+                ->has('plans')
+                ->has('current'));
     }
 
-    public function test_non_owner_role_cannot_see_receipts_page(): void
+    public function test_payment_return_params_survive_without_receipts_loading(): void
+    {
+        $this->createAttachedReceipt(self::URL_A);
+
+        $this->actingAs($this->owner)
+            ->get(route('admin.billing', [
+                'payment_attempt' => 'prov_unknown',
+                'payment_check' => 'closed',
+            ]))
+            ->assertOk()
+            ->assertInertia(fn ($page) => $page
+                ->component('admin/billing')
+                ->missing('receipts'));
+    }
+
+    public function test_non_owner_role_cannot_see_billing_page(): void
     {
         // canManageBilling is Owner-only; a non-owner member of the
         // workspace must not reach the billing cabinet at all.

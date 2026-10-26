@@ -211,7 +211,10 @@ class ReceiptsAdminTest extends TestCase
         $notification = $this->owner->notifications()->latest('created_at')->first();
         $this->assertNotNull($notification);
         $this->assertSame('Чек об оплате подписки', $notification->data['title'] ?? null);
-        $this->assertSame('Ссылка на чек доступна в кабинете.', $notification->data['body'] ?? null);
+        $this->assertSame('Чек готов. Откройте его по ссылке ниже', $notification->data['body'] ?? null);
+        $this->assertSame(self::VALID_URL, $notification->data['action']['url'] ?? null);
+        $this->assertSame('Открыть чек', $notification->data['action']['label'] ?? null);
+        $this->assertSame($this->receipt->id, $notification->data['receipt_id'] ?? null);
     }
 
     public function test_resaving_same_url_creates_no_new_audit_or_notification(): void
@@ -251,11 +254,17 @@ class ReceiptsAdminTest extends TestCase
         $this->assertSame($newUrl, $this->receipt->refresh()->receipt_url);
         $this->assertSame(1, SuperAdminAuditLog::where('action', 'receipt.url_changed')->count());
 
-        $bodies = $this->owner->notifications()->get()
-            ->map(fn ($n) => $n->data['body'] ?? null)
-            ->all();
-        $this->assertContains('Ссылка на чек обновлена в кабинете.', $bodies);
-        $this->assertCount(2, $bodies);
+        $notifications = $this->owner->notifications()->get();
+        $this->assertCount(2, $notifications);
+
+        $update = $notifications->first(fn ($n) => ($n->data['title'] ?? null) === 'Ссылка на чек обновлена');
+        $this->assertNotNull($update);
+        $this->assertSame('Откройте чек по обновлённой ссылке', $update->data['body'] ?? null);
+        $this->assertSame($newUrl, $update->data['action']['url'] ?? null);
+
+        $first = $notifications->first(fn ($n) => ($n->data['title'] ?? null) === 'Чек об оплате подписки');
+        $this->assertNotNull($first);
+        $this->assertSame(self::VALID_URL, $first->data['action']['url'] ?? null);
     }
 
     public function test_invalid_urls_are_rejected(): void

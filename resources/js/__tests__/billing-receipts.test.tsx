@@ -1,15 +1,14 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { render, screen, fireEvent, within } from '@testing-library/react';
+import { render, screen } from '@testing-library/react';
 import React from 'react';
 import BillingPage from '@/pages/admin/billing';
 
 const mockUsePage = vi.fn();
-const { routerGet } = vi.hoisted(() => ({ routerGet: vi.fn() }));
 
 vi.mock('@inertiajs/react', () => ({
     Head: () => null,
     usePage: () => mockUsePage(),
-    router: { get: routerGet, post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), visit: vi.fn() },
+    router: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn(), visit: vi.fn() },
 }));
 
 vi.mock('@/layouts/AdminLayout', () => ({
@@ -29,21 +28,7 @@ vi.mock('sonner', () => ({
 
 const URL_A = 'https://lknpd.nalog.ru/api/v1/receipt/5248061993/200glz8o7h/print';
 
-function makeReceipt(id: string, url: string) {
-    return {
-        id,
-        status_label: 'Доступен в кабинете',
-        receipt_url: url,
-        amount: 1470,
-        currency: 'RUB',
-        confirmed_at: '2026-10-20T12:00:00Z',
-        period_start: '2026-09-20T00:00:00Z',
-        period_end: '2026-10-20T00:00:00Z',
-        tariff_name: 'Профи',
-    };
-}
-
-function makeProps(receipts: unknown, currentOverrides: Record<string, unknown> = {}) {
+function makeProps(overrides: Record<string, unknown> = {}) {
     return {
         props: {
             plans: [
@@ -68,10 +53,11 @@ function makeProps(receipts: unknown, currentOverrides: Record<string, unknown> 
                 is_paid: true,
                 expires_at: '2026-11-20T00:00:00Z',
                 days_left: 27,
-                ...currentOverrides,
+                auto_renew_enabled: true,
+                renewal_period_months: 3,
             },
             auth: { user: { name: 'Test' } },
-            receipts,
+            ...overrides,
         },
     };
 }
@@ -83,157 +69,64 @@ function renderAtWidth(node: React.ReactElement, width: number) {
     return render(node);
 }
 
-describe('admin/billing.tsx — cabinet receipts', () => {
+describe('admin/billing.tsx — cabinet receipts section removed', () => {
     beforeEach(() => {
-        routerGet.mockReset();
-        // Пагинация читает window.location.search — каждый тест стартует
-        // с чистого адреса.
+        mockUsePage.mockReset();
         window.history.replaceState(null, '', '/admin/billing');
     });
 
-    it('desktop: shows amount, period, confirmation date, status and open link', () => {
-        mockUsePage.mockReturnValue(makeProps({
-            data: [makeReceipt('r-1', URL_A)],
-            current_page: 1,
-            last_page: 1,
-            per_page: 5,
-            total: 1,
-        }));
-
-        renderAtWidth(<BillingPage />, 1280);
-
-        const section = screen.getByTestId('cabinet-receipts');
-        expect(section).toBeInTheDocument();
-        expect(within(section).getByText(/1\s?470\s?₽/u)).toBeInTheDocument();
-        expect(within(section).getByText('Доступен в кабинете')).toBeInTheDocument();
-        expect(within(section).getByText(/Подтверждено в ИРСИ/u)).toBeInTheDocument();
-
-        const link = within(section).getByRole('link', { name: 'Открыть чек' });
-        expect(link).toHaveAttribute('href', URL_A);
-        expect(link).toHaveAttribute('target', '_blank');
-        expect(link).toHaveAttribute('rel', expect.stringContaining('noopener'));
-    });
-
-    it('mobile 360px: receipts section renders with the open link', () => {
-        mockUsePage.mockReturnValue(makeProps({
-            data: [makeReceipt('r-1', URL_A)],
-            current_page: 1,
-            last_page: 1,
-            per_page: 5,
-            total: 1,
-        }));
-
-        renderAtWidth(<BillingPage />, 360);
-
-        expect(screen.getByTestId('cabinet-receipt-item')).toBeInTheDocument();
-        expect(screen.getByRole('link', { name: 'Открыть чек' })).toBeInTheDocument();
-    });
-
-    it('hides the section when there are no receipts', () => {
-        mockUsePage.mockReturnValue(makeProps({
-            data: [],
-            current_page: 1,
-            last_page: 1,
-            per_page: 5,
-            total: 0,
-        }));
+    it('renders no receipts section even when a legacy receipts prop is present', () => {
+        // An old server (or cached props) may still send the list — the
+        // page must not render it anymore.
+        mockUsePage.mockReturnValue(
+            makeProps({
+                receipts: {
+                    data: [
+                        {
+                            id: 'r-1',
+                            status_label: 'Доступен в кабинете',
+                            receipt_url: URL_A,
+                            amount: 1470,
+                            currency: 'RUB',
+                            confirmed_at: '2026-10-20T12:00:00Z',
+                            period_start: '2026-09-20T00:00:00Z',
+                            period_end: '2026-10-20T00:00:00Z',
+                            tariff_name: 'Профи',
+                        },
+                    ],
+                    current_page: 1,
+                    last_page: 1,
+                    per_page: 5,
+                    total: 1,
+                },
+            }),
+        );
 
         renderAtWidth(<BillingPage />, 1280);
 
         expect(screen.queryByTestId('cabinet-receipts')).not.toBeInTheDocument();
+        expect(screen.queryByTestId('cabinet-receipt-item')).not.toBeInTheDocument();
+        expect(screen.queryByText('Чеки об оплате')).not.toBeInTheDocument();
+        expect(screen.queryByRole('link', { name: 'Открыть чек' })).not.toBeInTheDocument();
     });
 
-    it('paginates with receipts_page param', () => {
-        mockUsePage.mockReturnValue(makeProps({
-            data: [makeReceipt('r-1', URL_A)],
-            current_page: 1,
-            last_page: 2,
-            per_page: 5,
-            total: 7,
-        }));
+    it('renders no receipts section on mobile without the prop', () => {
+        mockUsePage.mockReturnValue(makeProps());
+
+        renderAtWidth(<BillingPage />, 360);
+
+        expect(screen.queryByTestId('cabinet-receipts')).not.toBeInTheDocument();
+        expect(screen.queryByText('Чеки об оплате')).not.toBeInTheDocument();
+    });
+
+    it('keeps auto renewal block available on the page', () => {
+        mockUsePage.mockReturnValue(makeProps());
 
         renderAtWidth(<BillingPage />, 1280);
 
-        fireEvent.click(screen.getByText('Вперёд'));
-
-        expect(routerGet).toHaveBeenCalledWith(
-            '/admin/billing',
-            { receipts_page: 2 },
-            { preserveState: true },
-        );
-    });
-
-    it('keeps payment and utm params while changing only receipts_page', () => {
-        window.history.replaceState(
-            null,
-            '',
-            '/admin/billing?payment_attempt=pay_pending&payment_check=closed&utm_source=test',
-        );
-
-        const receipts = {
-            data: [makeReceipt('r-1', URL_A)],
-            current_page: 1,
-            last_page: 2,
-            per_page: 5,
-            total: 7,
-        };
-        mockUsePage.mockReturnValue({
-            props: {
-                ...makeProps(receipts).props,
-                payment_attempt_id: 'pay_pending',
-            },
-        });
-
-        const view = renderAtWidth(<BillingPage />, 1280);
-
-        // Закрытый диалог не переоткрывается, баннер ручной проверки жив.
-        expect(screen.queryByRole('dialog')).toBeNull();
-        expect(screen.getByRole('button', { name: 'Проверить статус' })).toBeInTheDocument();
-
-        fireEvent.click(screen.getByText('Вперёд'));
-
-        expect(routerGet).toHaveBeenCalledWith(
-            '/admin/billing',
-            {
-                payment_attempt: 'pay_pending',
-                payment_check: 'closed',
-                utm_source: 'test',
-                receipts_page: 2,
-            },
-            { preserveState: true },
-        );
-
-        expect(screen.queryByRole('dialog')).toBeNull();
-        expect(screen.getByRole('button', { name: 'Проверить статус' })).toBeInTheDocument();
-
-        // Та же картинка на второй странице: «Назад» возвращает ту же
-        // тройку параметров и меняет только receipts_page.
-        view.unmount();
-        mockUsePage.mockReturnValue({
-            props: {
-                ...makeProps({
-                    data: [makeReceipt('r-2', URL_A)],
-                    current_page: 2,
-                    last_page: 2,
-                    per_page: 5,
-                    total: 7,
-                }).props,
-                payment_attempt_id: 'pay_pending',
-            },
-        });
-        renderAtWidth(<BillingPage />, 1280);
-
-        fireEvent.click(screen.getByText('Назад'));
-
-        expect(routerGet).toHaveBeenLastCalledWith(
-            '/admin/billing',
-            {
-                payment_attempt: 'pay_pending',
-                payment_check: 'closed',
-                utm_source: 'test',
-                receipts_page: 1,
-            },
-            { preserveState: true },
-        );
+        expect(screen.getByText('Автопродление включено')).toBeInTheDocument();
+        expect(
+            screen.getByRole('button', { name: 'Отключить автопродление' }),
+        ).toBeInTheDocument();
     });
 });

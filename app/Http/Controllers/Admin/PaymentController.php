@@ -4,13 +4,10 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\BillingSubscriptionStatus;
 use App\Enums\PaymentAttemptStatus;
-use App\Enums\PaymentEnvironment;
-use App\Enums\PaymentReceiptStatus;
 use App\Http\Controllers\Controller;
 use App\Models\BillingCycle;
 use App\Models\BillingSubscription;
 use App\Models\PaymentAttempt;
-use App\Models\PaymentReceipt;
 use App\Models\PlanPrice;
 use App\Models\TariffPlan;
 use App\Services\Billing\BillingCoreWriter;
@@ -19,7 +16,6 @@ use App\Services\Billing\EntitlementService;
 use App\Services\Payment\PaymentReconciliationService;
 use App\Support\PlanDefaults;
 use Carbon\Carbon;
-use Illuminate\Contracts\Pagination\LengthAwarePaginator;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
@@ -86,7 +82,6 @@ class PaymentController extends Controller
                 'payment_return' => $paymentReturn['signal'] ? 'returned' : null,
                 'payment_attempt_id' => $paymentReturn['attempt_id'],
                 'payment_attempt_period_months' => $paymentReturn['attempt_period_months'],
-                'receipts' => $this->workspaceReceipts($request),
             ]);
         }
 
@@ -104,68 +99,7 @@ class PaymentController extends Controller
             'payment_return' => $paymentReturn['signal'] ? 'returned' : null,
             'payment_attempt_id' => $paymentReturn['attempt_id'],
             'payment_attempt_period_months' => $paymentReturn['attempt_period_months'],
-            'receipts' => $this->workspaceReceipts($request),
         ]);
-    }
-
-    /**
-     * Manual NPD receipts of this workspace, attached and visible in the
-     * cabinet. Only the workspace owner reaches this page (canManageBilling);
-     * the query is additionally scoped by workspace_id. Small page — the
-     * full history is never dumped into Inertia props.
-     *
-     * @return array{data: array<int, array<string, mixed>>, current_page: int, last_page: int, per_page: int, total: int}|LengthAwarePaginator<int, PaymentReceipt>
-     */
-    private function workspaceReceipts(Request $request)
-    {
-        $workspaceId = $request->user()->workspace_id;
-
-        if ($workspaceId === null) {
-            return [
-                'data' => [],
-                'current_page' => 1,
-                'last_page' => 1,
-                'per_page' => 5,
-                'total' => 0,
-            ];
-        }
-
-        $receipts = PaymentReceipt::query()
-            ->where('status', PaymentReceiptStatus::Attached)
-            ->whereNotNull('receipt_url')
-            ->whereHas('paymentAttempt', function ($q) {
-                // Only real T-Bank live charges: demo and legacy rows
-                // (payment_env IS NULL) must never surface in the cabinet.
-                $q->where('provider', 'tbank')
-                    ->where('payment_env', PaymentEnvironment::Live);
-            })
-            ->whereHas('paymentAttempt.billingCycle', function ($q) use ($workspaceId) {
-                $q->where('workspace_id', $workspaceId);
-            })
-            ->with(['paymentAttempt.billingCycle.tariffPlan'])
-            ->orderByDesc('attached_at')
-            ->paginate(5, ['*'], 'receipts_page')
-            ->withQueryString();
-
-        $receipts->getCollection()->transform(function (PaymentReceipt $receipt) {
-            $attempt = $receipt->paymentAttempt;
-            $cycle = $attempt?->billingCycle;
-
-            return [
-                'id' => $receipt->id,
-                // Cabinet status wording: availability, never delivery.
-                'status_label' => 'Доступен в кабинете',
-                'receipt_url' => $receipt->receipt_url,
-                'amount' => $attempt?->amount,
-                'currency' => $attempt?->currency,
-                'confirmed_at' => $attempt?->confirmed_at?->toIso8601String(),
-                'period_start' => $cycle?->period_start?->toIso8601String(),
-                'period_end' => $cycle?->period_end?->toIso8601String(),
-                'tariff_name' => $cycle?->tariffPlan?->name,
-            ];
-        });
-
-        return $receipts;
     }
 
     /**
