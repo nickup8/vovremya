@@ -48,7 +48,7 @@ export default function Profile() {
 
     return (
         <>
-            <Head title="Мой профиль — Вовремя" />
+            <Head title="Мой профиль" />
 
             <div className="space-y-6">
                 {/* Greeting */}

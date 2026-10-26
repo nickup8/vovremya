@@ -49,7 +49,7 @@ export default function Status({ appointment }: PageProps) {
     if (!appointment) {
         return (
             <>
-                <Head title="Статус записи — Вовремя" />
+                <Head title="Статус записи" />
                 <div className="flex min-h-screen flex-col items-center justify-center px-5">
                     <AlertCircle className="size-12 text-stone-300 dark:text-stone-600" />
                     <p className="mt-4 text-sm text-stone-500 dark:text-stone-400">Запись не найдена</p>
@@ -67,7 +67,7 @@ export default function Status({ appointment }: PageProps) {
 
     return (
         <>
-            <Head title="Статус записи — Вовремя" />
+            <Head title="Статус записи" />
 
             <div className="flex min-h-screen flex-col items-center px-5 py-12">
                 {/* Header */}

@@ -105,7 +105,7 @@ export default function Notifications() {
 
     return (
         <>
-            <Head title="Уведомления — ИРСИ" />
+            <Head title="Уведомления" />
 
             <div className="min-h-screen bg-[#F7F5F1]">
                 <div className="mx-auto max-w-4xl px-4 py-10">

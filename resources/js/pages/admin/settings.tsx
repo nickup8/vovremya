@@ -463,7 +463,7 @@ return;
 
     return (
         <>
-            <Head title="Настройки профиля — Вовремя" />
+            <Head title="Настройки профиля" />
 
             <AdminLayout title="Настройки профиля" auth={auth} hideNewAppointment fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">

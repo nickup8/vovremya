@@ -405,7 +405,7 @@ export default function AnalyticsPage() {
 
     return (
         <>
-            <Head title="Аналитика — Вовремя" />
+            <Head title="Аналитика" />
 
             <AdminLayout title="Аналитика" auth={auth} hideNewAppointment fullBleed>
                 <div className="min-w-0 min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">

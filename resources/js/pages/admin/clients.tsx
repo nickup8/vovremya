@@ -330,7 +330,7 @@ export default function ClientsPage() {
 
     return (
         <>
-            <Head title="Клиенты — Вовремя" />
+            <Head title="Клиенты" />
 
             <AdminLayout
                 title="Клиенты"

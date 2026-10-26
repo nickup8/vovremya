@@ -30,7 +30,7 @@ export default function Dashboard() {
 
     return (
         <>
-            <Head title="Обзор платформы — ИРСИ" />
+            <Head title="Обзор платформы" />
 
             <div className="min-h-screen bg-[#F7F5F1]">
                 <div className="mx-auto max-w-3xl px-4 py-10">

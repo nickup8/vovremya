@@ -62,7 +62,7 @@ export default function Choose({ maxBotName }: PageProps) {
 
     return (
         <>
-            <Head title="Вход — ИРСИ" />
+            <Head title="Вход" />
 
             <main className="grid min-h-dvh place-items-center bg-[var(--color-warm)] px-5 py-8 max-md:items-start max-md:py-[calc(64px+env(safe-area-inset-top))] dark:bg-[#121110]">
                 <section className="grid w-full max-w-[400px] gap-8 max-md:w-full max-md:gap-7">

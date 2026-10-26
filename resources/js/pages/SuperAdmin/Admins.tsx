@@ -57,7 +57,7 @@ export default function Admins() {
 
     return (
         <>
-            <Head title="Администраторы — ИРСИ" />
+            <Head title="Администраторы" />
 
             <div className="min-h-screen bg-[#F7F5F1]">
                 <div className="mx-auto max-w-3xl px-4 py-10">

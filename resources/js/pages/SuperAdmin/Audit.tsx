@@ -116,7 +116,7 @@ export default function Audit() {
 
     return (
         <>
-            <Head title="Журнал действий — ИРСИ" />
+            <Head title="Журнал действий" />
 
             <div className="min-h-screen bg-[#F7F5F1]">
                 <div className="mx-auto max-w-4xl px-4 py-10">

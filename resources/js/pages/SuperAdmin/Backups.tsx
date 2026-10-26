@@ -161,7 +161,7 @@ export default function Backups() {
 
     return (
         <>
-            <Head title="Резервные копии — ИРСИ" />
+            <Head title="Резервные копии" />
             <div className="min-h-screen bg-[#F7F5F1]">
                 <div className="mx-auto max-w-4xl px-4 py-10">
                     <h1 className="text-2xl font-bold tracking-tight text-[#181818]">

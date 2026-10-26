@@ -544,7 +544,7 @@ return [];
 
     return (
         <>
-            <Head title="Календарь — Вовремя" />
+            <Head title="Календарь" />
 
             <AdminLayout title="Календарь" auth={auth} todayCount={todayCount} fullBleed onNewAppointment={openNewAppointment}>
                         <div className="flex h-full flex-col overflow-hidden">

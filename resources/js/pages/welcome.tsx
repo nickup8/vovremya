@@ -570,7 +570,7 @@ function Footer() {
 export default function Welcome() {
     return (
         <>
-            <Head title="Вовремя — онлайн-запись для мастеров" />
+            <Head title="Онлайн-запись для мастеров" />
 
             {/* Header */}
             <header className="sticky top-0 z-40 border-b border-stone-200/50 bg-[#FAF8F5]/80 backdrop-blur-xl dark:border-stone-800/60 dark:bg-[#121110]/80">

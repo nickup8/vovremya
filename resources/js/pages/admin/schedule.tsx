@@ -22,7 +22,7 @@ export default function SchedulePage() {
 
     return (
         <>
-            <Head title="Расписание — Вовремя" />
+            <Head title="Расписание" />
 
             <AdminLayout title="Расписание" auth={auth}>
                 <div className="max-w-[1280px] space-y-0">

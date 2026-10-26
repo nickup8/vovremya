@@ -953,7 +953,7 @@ export default function Widget() {
 
     return (
         <>
-            <Head title="Запись — Вовремя" />
+            <Head title="Запись" />
 
             <div className="flex min-h-screen flex-col" style={{ background: C.milk }}>
             <div className="mx-auto flex w-full flex-1 flex-col" style={{ maxWidth: '480px', background: C.white }}>

@@ -103,7 +103,7 @@ export default function Users() {
 
     return (
         <>
-            <Head title="Пользователи — ИРСИ" />
+            <Head title="Пользователи" />
 
             <div className="min-h-screen bg-[#F7F5F1]">
                 <div className="mx-auto max-w-4xl px-4 py-10">

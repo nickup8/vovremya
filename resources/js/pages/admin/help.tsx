@@ -108,7 +108,7 @@ const SECTIONS: HelpSection[] = [
 export default function HelpPage() {
     return (
         <>
-            <Head title="Помощь — Вовремя" />
+            <Head title="Помощь" />
 
             <AdminLayout title="Помощь" hideNewAppointment fullBleed>
                 <div className="min-h-full bg-[var(--color-admin-page-bg)] p-3 md:p-7">

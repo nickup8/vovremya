@@ -236,7 +236,7 @@ export default function ServiceCatalogPage() {
 
     return (
         <>
-            <Head title="Услуги — Вовремя" />
+            <Head title="Услуги" />
 
             <AdminLayout
                 title="Услуги"
