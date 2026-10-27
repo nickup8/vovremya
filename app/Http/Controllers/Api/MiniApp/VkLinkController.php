@@ -7,7 +7,9 @@ use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Exceptions\AmbiguousClientMatchException;
+use App\Exceptions\DuplicateClientPhoneException;
 use App\Exceptions\ProviderLinkConflictException;
+use App\Exceptions\StaleClientConfirmationException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -117,8 +119,10 @@ class VkLinkController extends Controller
             }
 
             // Привязка через общий защищённый механизм: проверка занятости
-            // и запись атомарны, чужая привязка не перезаписывается.
-            $clientMerge->linkProvider($client, 'vk', $vkUserId);
+            // и запись атомарны, чужая привязка не перезаписывается; после
+            // ожидания блокировок карточка должна соответствовать
+            // подтверждённому номеру.
+            $clientMerge->linkProvider($client, 'vk', $vkUserId, $normalizedPhone);
 
             if ($pendingConsentVersion !== null) {
                 if (empty($client->pdn_consent_at) || $client->pdn_consent_version !== $pendingConsentVersion) {
@@ -134,6 +138,14 @@ class VkLinkController extends Controller
             DB::rollBack();
 
             return response()->json(['error' => 'ambiguous_client'], 409);
+        } catch (DuplicateClientPhoneException) {
+            DB::rollBack();
+
+            return response()->json(['error' => 'phone_conflict'], 409);
+        } catch (StaleClientConfirmationException) {
+            DB::rollBack();
+
+            return response()->json(['error' => 'stale_client'], 409);
         } catch (ProviderLinkConflictException) {
             DB::rollBack();
 

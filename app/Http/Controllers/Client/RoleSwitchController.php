@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Client;
 
 use App\Exceptions\AmbiguousClientMatchException;
+use App\Exceptions\DuplicateClientPhoneException;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\User;
@@ -40,6 +41,8 @@ class RoleSwitchController extends Controller
             );
         } catch (AmbiguousClientMatchException) {
             return back()->with('error', 'Найдено несколько карточек клиентов с вашим номером. Обратитесь в поддержку.');
+        } catch (DuplicateClientPhoneException) {
+            return back()->with('error', 'Клиент с таким номером телефона уже существует.');
         }
 
         Auth::guard('client')->login($client);

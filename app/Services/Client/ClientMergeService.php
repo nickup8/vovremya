@@ -5,6 +5,7 @@ namespace App\Services\Client;
 use App\Exceptions\AmbiguousClientMatchException;
 use App\Exceptions\DuplicateClientPhoneException;
 use App\Exceptions\ProviderLinkConflictException;
+use App\Exceptions\StaleClientConfirmationException;
 use App\Models\Client;
 use App\Models\User;
 use App\Support\Phone;
@@ -126,13 +127,31 @@ class ClientMergeService
 
         $masterId = (string) $client->user_id;
         $ws = $this->scopeWorkspaceId($client);
+        $oldNormalized = Phone::normalize($client->phone);
 
-        return $this->withPhoneLock($masterId, $normalized, $ws, function () use ($client, $masterId, $normalized, $ws, $name, $notes) {
-            $others = $this->queryInScope($masterId, $normalized, $ws)
+        // Блокируются и старый, и новый номер (в едином порядке захвата):
+        // подтверждение по старому номеру ждёт смену, а смена — подтверждение.
+        $phones = $oldNormalized !== null && $oldNormalized !== $normalized
+            ? [$oldNormalized, $normalized]
+            : [$normalized];
+
+        return $this->withPhoneLocks($phones, $masterId, $ws, function () use ($client, $masterId, $normalized, $name, $notes) {
+            // Повтор чтения после ожидания блокировок: карточку могли
+            // изменить, пока операция ждала старый/новый номер.
+            $fresh = Client::query()
+                ->whereKey($client->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if ($fresh === null) {
+                return $client;
+            }
+
+            $others = $this->queryInScope($masterId, $normalized, $this->scopeWorkspaceId($fresh))
                 ->orderBy('created_at')
                 ->orderBy('id')
                 ->get()
-                ->filter(fn (Client $c) => (string) $c->id !== (string) $client->id);
+                ->filter(fn (Client $c) => (string) $c->id !== (string) $fresh->id);
 
             if ($others->count() > 1) {
                 throw AmbiguousClientMatchException::forPhone($normalized);
@@ -142,11 +161,13 @@ class ClientMergeService
                 throw DuplicateClientPhoneException::create();
             }
 
-            $client->update([
+            $fresh->update([
                 'phone' => $normalized,
                 'name' => $name,
                 'notes' => $notes,
             ]);
+
+            $client->refresh();
 
             return $client;
         });
@@ -155,11 +176,15 @@ class ClientMergeService
     /**
      * Атомарная привязка мессенджера: актуальное состояние карточки читается
      * под блокировкой строки, проверка занятости provider_id в области —
-     * под advisory-блокировкой, запись выполняется только при отсутствии конфликта.
+     * под advisory-блокировкой, запись выполняется только при отсутствии
+     * конфликта. Если передан $expectedPhone (подтверждение по номеру),
+     * после ожидания блокировок дополнительно проверяется, что карточка
+     * всё ещё соответствует подтверждённому номеру и разрешённой области.
      *
      * @throws ProviderLinkConflictException
+     * @throws StaleClientConfirmationException
      */
-    public function linkProvider(Client $client, string $provider, string $providerId): Client
+    public function linkProvider(Client $client, string $provider, string $providerId, ?string $expectedPhone = null): Client
     {
         $field = $this->providerField($provider);
 
@@ -170,7 +195,7 @@ class ClientMergeService
         $masterId = (string) $client->user_id;
         $ws = $this->scopeWorkspaceId($client);
 
-        return $this->linkProviderScoped($client, $provider, $providerId, $masterId, $ws);
+        return $this->linkProviderScoped($client, $provider, $providerId, $masterId, $ws, $expectedPhone);
     }
 
     public function updateTelegramId(Client $client, string $telegramId): Client
@@ -194,6 +219,10 @@ class ClientMergeService
      * Вставка карточки внутри существующей транзакции блокировки.
      * На PostgreSQL уникальный конфликт ловится через savepoint (вложенная
      * транзакция), чтобы не продолжать работу в aborted-состоянии.
+     *
+     * @throws DuplicateClientPhoneException конфликт unique-индекса с карточкой
+     *                                       вне разрешённой области: обработанный
+     *                                       отказ без раскрытия/изменения чужой карточки
      */
     private function insertClient(
         string $masterId,
@@ -210,44 +239,21 @@ class ClientMergeService
                 'notes' => $notes,
                 'workspace_id' => $workspaceId,
             ]));
-        } catch (UniqueConstraintViolationException $e) {
-            $client = $this->findUniqueByPhone($masterId, $normalizedPhone, $workspaceId)
-                ?? $this->findByExactUniqueKeys($masterId, $normalizedPhone, $workspaceId);
+        } catch (UniqueConstraintViolationException) {
+            // Карточка в ТЕКУЩЕЙ области с точным строковым совпадением
+            // (тот же индекс) — переиспользуем: блокировку области мы держим,
+            // поэтому её не могло появиться конкурентно.
+            $client = $this->findUniqueByPhone($masterId, $normalizedPhone, $workspaceId);
 
             if ($client !== null) {
-                // База данных гарантировала уникальность (user_id, phone) /
-                // (workspace_id, phone): это та же карточка, переиспользуем её.
                 return $client;
             }
 
-            throw $e;
+            // Индекс занят карточкой другой области (например, того же
+            // мастера в другом workspace): нельзя ни вернуть её наружу,
+            // ни изменить. Отказ без раскрытия чужой карточки.
+            throw DuplicateClientPhoneException::create();
         }
-    }
-
-    /**
-     * Fallback после unique violation: точное совпадение строки phone
-     * вне текущей области (например, карточка того же мастера в другом
-     * workspace). Поиск по вариантах его не видит, но индекс — видит.
-     */
-    private function findByExactUniqueKeys(string $masterId, string $normalizedPhone, ?string $workspaceId): ?Client
-    {
-        $byMaster = Client::query()
-            ->where('user_id', $masterId)
-            ->where('phone', $normalizedPhone)
-            ->first();
-
-        if ($byMaster !== null) {
-            return $byMaster;
-        }
-
-        if ($workspaceId !== null && $workspaceId !== '') {
-            return Client::query()
-                ->where('workspace_id', $workspaceId)
-                ->where('phone', $normalizedPhone)
-                ->first();
-        }
-
-        return null;
     }
 
     /**
@@ -302,14 +308,17 @@ class ClientMergeService
                 $phoneScope->whereIn('phone', $variants);
 
                 foreach ($digitForms as $form) {
-                    // Legacy: phone с маской "+7 (900) 123-45-67", "8 (900)..." и т.п.
-                    $phoneScope->orWhereRaw("regexp_replace(phone, '[^0-9]', '', 'g') = ?", [$form]);
+                    // Legacy: phone с маской "+7 (900) 123-45-67", "8 (900)..."
+                    // и т.п. «+» сохраняется: он значим для международных
+                    // номеров и не должен стираться при сопоставлении.
+                    $phoneScope->orWhereRaw("regexp_replace(phone, '[^0-9+]', '', 'g') = ?", [$form]);
                 }
             });
     }
 
     /**
      * @throws ProviderLinkConflictException
+     * @throws StaleClientConfirmationException
      */
     private function linkProviderScoped(
         Client $client,
@@ -317,6 +326,7 @@ class ClientMergeService
         string $providerId,
         string $masterId,
         ?string $workspaceId,
+        ?string $expectedPhone = null,
     ): Client {
         $field = $this->providerField($provider);
 
@@ -331,8 +341,9 @@ class ClientMergeService
             $providerId,
             $masterId,
             $workspaceId,
+            $expectedPhone,
         ) {
-            $run = function () use ($client, $field, $provider, $providerId, $masterId, $workspaceId) {
+            $run = function () use ($client, $field, $provider, $providerId, $masterId, $workspaceId, $expectedPhone) {
                 $fresh = Client::query()
                     ->whereKey($client->getKey())
                     ->lockForUpdate()
@@ -340,6 +351,17 @@ class ClientMergeService
 
                 if ($fresh === null) {
                     throw ProviderLinkConflictException::forProvider($provider);
+                }
+
+                // После ожидания блокировок карточка должна всё ещё
+                // соответствовать подтверждённому номеру и разрешенной
+                // области — иначе мессенджер привязался бы к уже
+                // изменённому телефону.
+                if ($expectedPhone !== null
+                    && (! Phone::sameNumber($fresh->phone, $expectedPhone)
+                        || ! $this->queryInScopeById($masterId, $workspaceId)->whereKey($fresh->getKey())->exists())
+                ) {
+                    throw StaleClientConfirmationException::create();
                 }
 
                 $existing = $fresh->{$field};
@@ -458,14 +480,41 @@ class ClientMergeService
      */
     private function withPhoneLock(string $masterId, string $normalizedPhone, ?string $workspaceId, \Closure $callback): mixed
     {
+        return $this->withPhoneLocks([$normalizedPhone], $masterId, $workspaceId, $callback);
+    }
+
+    /**
+     * Блокировки одной/нескольких телефонных позиций области: ключи
+     * захватываются в едином порядке (по возрастанию), чтобы конкурирующие
+     * смены старого/нового номеров не перегрызались между собой.
+     *
+     * @template TReturn
+     *
+     * @param  list<string>  $phones
+     * @param  \Closure(): TReturn  $callback
+     * @return TReturn
+     */
+    private function withPhoneLocks(array $phones, string $masterId, ?string $workspaceId, \Closure $callback): mixed
+    {
         $run = fn (): mixed => $callback();
 
         if (DB::getDriverName() !== 'pgsql') {
             return $run();
         }
 
-        return DB::transaction(function () use ($masterId, $normalizedPhone, $workspaceId, $run) {
-            DB::select('SELECT pg_advisory_xact_lock(?::bigint)', [$this->phoneLockKey($masterId, $normalizedPhone, $workspaceId)]);
+        $keys = [];
+
+        foreach ($phones as $phone) {
+            $keys[$this->phoneLockKey($masterId, $phone, $workspaceId)] = true;
+        }
+
+        $keys = array_keys($keys);
+        sort($keys, SORT_NUMERIC);
+
+        return DB::transaction(function () use ($keys, $run) {
+            foreach ($keys as $key) {
+                DB::select('SELECT pg_advisory_xact_lock(?::bigint)', [$key]);
+            }
 
             return $run();
         });

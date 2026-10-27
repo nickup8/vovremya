@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Exceptions\DuplicateClientPhoneException;
 use App\Models\Client;
 use App\Models\User;
 use App\Models\Workspace;
@@ -89,17 +90,25 @@ class ClientWorkspaceCreationTest extends TestCase
 
         $this->assertSame($workspace->id, $client->workspace_id);
 
-        $sameClient = $service->findOrCreateByPhone(
-            $master->id,
-            '+79001112233',
-            '',
-            'Второй',
-            $workspaceB->id,
-        );
+        // Конфликт unique-индекса с карточкой другого workspace —
+        // обработанный отказ: чужая карточка не возвращается и не изменяется.
+        try {
+            $service->findOrCreateByPhone(
+                $master->id,
+                '+79001112233',
+                '',
+                'Второй',
+                $workspaceB->id,
+            );
+            $this->fail('Ожидался DuplicateClientPhoneException');
+        } catch (DuplicateClientPhoneException) {
+            // ожидаемый отказ без раскрытия карточки другой области
+        }
 
-        $this->assertSame($client->id, $sameClient->id, 'Must return same client (firstOrCreate)');
-        $sameClient->refresh();
-        $this->assertSame($workspace->id, $sameClient->workspace_id, 'Existing client must NOT be overwritten');
+        $client->refresh();
+        $this->assertSame($workspace->id, $client->workspace_id, 'Existing client must NOT be overwritten');
+        $this->assertSame('Первый', $client->name);
+        $this->assertSame(1, Client::where('user_id', $master->id)->count());
     }
 
     public function test_role_switch_sets_workspace_id(): void

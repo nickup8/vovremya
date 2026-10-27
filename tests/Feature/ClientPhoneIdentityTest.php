@@ -4,7 +4,10 @@ namespace Tests\Feature;
 
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
+use App\Enums\AppointmentStatus;
+use App\Events\AppointmentCreated;
 use App\Exceptions\AmbiguousClientMatchException;
+use App\Exceptions\DuplicateClientPhoneException;
 use App\Exceptions\ProviderLinkConflictException;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -17,6 +20,7 @@ use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
 use Carbon\Carbon;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Http\JsonResponse;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Queue;
@@ -187,6 +191,30 @@ class ClientPhoneIdentityTest extends TestCase
         ]);
     }
 
+    /**
+     * Подтверждение записи кнопкой (message_callback) через публичный webhook MAX.
+     *
+     * @return TestResponse<JsonResponse>
+     */
+    private function confirmViaMaxCallback(
+        Appointment $appointment,
+        string $userId,
+        string $callbackId,
+    ): TestResponse {
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.$userId, (string) $appointment->id, 3600);
+
+        return $this->postJson('/webhooks/max', [
+            'update_type' => 'message_callback',
+            'callback' => [
+                'callback_id' => $callbackId,
+                'payload' => 'max_confirm_'.$appointment->id,
+                'user' => ['user_id' => $userId],
+            ],
+        ], [
+            'X-Max-Bot-Api-Secret' => 'max-webhook-secret',
+        ]);
+    }
+
     private function vkSignedHeaders(string $vkUserId): array
     {
         $appId = '6736218';
@@ -284,6 +312,85 @@ class ClientPhoneIdentityTest extends TestCase
         $this->assertSame('Анна Ручная', $fresh->name);
         $this->assertSame('важная заметка', $fresh->notes);
         $this->assertSame(2, $fresh->appointments()->count());
+    }
+
+    // ─── А2. Международный номер: «+» переживает весь конвейер ───
+
+    public function test_international_phone_keeps_plus_through_controller_storage_and_research(): void
+    {
+        // Контроллер: ручное создание хранит канонику со значимым «+».
+        $client = $this->createManualClient('+84 912 345 678');
+        $this->assertSame('+84912345678', $client->phone);
+
+        // Сервис и повторный поиск: номер не превращается в российский.
+        $found = $this->merge->findByPhone($this->master->id, '+84912345678', $this->ws->id);
+        $this->assertNotNull($found);
+        $this->assertSame($client->id, $found->id);
+
+        $again = $this->merge->findOrCreateByPhone($this->master->id, '+84 912 345 678', '', null, $this->ws->id);
+        $this->assertSame($client->id, $again->id);
+        $this->assertSame('+84912345678', $again->fresh()->phone);
+
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame(0, Client::where('phone', '74912345678')->count());
+    }
+
+    public function test_max_confirmation_with_international_phone_does_not_touch_russian_card(): void
+    {
+        // Отдельная российская карточка с «конфликтующими» цифрами.
+        $russian = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '74912345678',
+            'name' => 'Российский номер',
+            'notes' => 'российские заметки',
+        ]);
+
+        $widgetAppointment = $this->bookViaWidget();
+        $this->confirmViaMaxWebhook($widgetAppointment, '+84 912 345 678', 'max_uid_vn')->assertOk();
+
+        $widgetAppointment->refresh();
+        $this->assertNotNull($widgetAppointment->client_id);
+        $this->assertNotSame($russian->id, $widgetAppointment->client_id);
+
+        $intl = Client::find($widgetAppointment->client_id);
+        $this->assertSame('+84912345678', $intl->phone);
+        $this->assertSame('max_uid_vn', $intl->max_id);
+
+        // Российская карточка не тронута и не «нашла» международный номер.
+        $fresh = $russian->fresh();
+        $this->assertSame('74912345678', $fresh->phone);
+        $this->assertSame('Российский номер', $fresh->name);
+        $this->assertSame('российские заметки', $fresh->notes);
+        $this->assertNull($fresh->max_id);
+
+        $this->assertSame(2, Client::where('user_id', $this->master->id)->count());
+    }
+
+    public function test_vk_confirmation_with_international_phone_does_not_touch_russian_card(): void
+    {
+        $russian = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '74912345678',
+            'name' => 'Российский номер',
+        ]);
+
+        $widgetAppointment = $this->bookViaWidget();
+        $this->confirmViaVk($widgetAppointment, '+84912345678', '494075')->assertOk();
+
+        $widgetAppointment->refresh();
+        $this->assertNotSame($russian->id, $widgetAppointment->client_id);
+
+        $intl = Client::find($widgetAppointment->client_id);
+        $this->assertSame('+84912345678', $intl->phone);
+        $this->assertSame('494075', $intl->vk_id);
+
+        $fresh = $russian->fresh();
+        $this->assertSame('74912345678', $fresh->phone);
+        $this->assertNull($fresh->vk_id);
+
+        $this->assertSame(2, Client::where('user_id', $this->master->id)->count());
     }
 
     public function test_blocked_client_confirmation_via_max_is_refused_and_card_kept(): void
@@ -421,12 +528,11 @@ class ClientPhoneIdentityTest extends TestCase
     }
 
     /**
-     * Строка phone идентична (user_id, phone) уникальности БД: вставка в
-     * новой области упирается в unique violation. Ошибка должна переживаться
-     * через savepoint (без aborted-транзакции PostgreSQL), а карточка —
-     * переиспользоваться по точному совпадению, без дубля и без 500.
+     * Конфликт unique-индекса (user_id, phone) с карточкой ДРУГОГО
+     * workspace: возврат этой карточки раскрыл бы её и выдал бы конфликт
+     * за успех. Ожидается обработанный отказ без изменений.
      */
-    public function test_unique_conflict_with_identical_phone_resolves_without_aborted_transaction(): void
+    public function test_unique_conflict_with_card_of_another_workspace_is_refused_without_disclosure(): void
     {
         $oldWs = Workspace::create(['name' => 'WS Old Raw', 'owner_id' => $this->master->id]);
 
@@ -435,22 +541,66 @@ class ClientPhoneIdentityTest extends TestCase
             'workspace_id' => $oldWs->id,
             'phone' => '79001234567',
             'name' => 'Тот же сырой номер',
+            'notes' => 'чужая заметка',
+            'max_id' => 'max_foreign_ws',
         ]);
 
-        $resolved = $this->merge->findOrCreateByPhone(
-            $this->master->id,
-            '89001234567',
-            '',
-            'Не должна появиться вторая',
-            $this->ws->id,
-        );
+        try {
+            $this->merge->findOrCreateByPhone(
+                $this->master->id,
+                '89001234567',
+                '',
+                'Не должна появиться вторая',
+                $this->ws->id,
+            );
+            $this->fail('Ожидался DuplicateClientPhoneException');
+        } catch (DuplicateClientPhoneException) {
+            // ожидаемый обработанный отказ
+        }
 
-        $this->assertSame($oldCard->id, $resolved->id);
+        // Карточка другого workspace не раскрыта и не изменена.
+        $fresh = $oldCard->fresh();
+        $this->assertSame('79001234567', $fresh->phone);
+        $this->assertSame($oldWs->id, $fresh->workspace_id);
+        $this->assertSame('Тот же сырой номер', $fresh->name);
+        $this->assertSame('чужая заметка', $fresh->notes);
+        $this->assertSame('max_foreign_ws', $fresh->max_id);
+
+        // Новой карточки в текущей области нет; транзакция не aborted.
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
-        $this->assertSame('Тот же сырой номер', $resolved->fresh()->name);
-
-        // Транзакция не осталась в aborted-состоянии: следующий запрос работает.
+        $this->assertNull($this->merge->findByPhone($this->master->id, '79001234567', $this->ws->id));
         $this->assertNotNull($this->merge->findByPhone($this->master->id, '+79001234567', $oldWs->id));
+    }
+
+    /**
+     * Ручное создание: конфликт unique-индекса с карточкой другого
+     * workspace нельзя выдать за успешное создание.
+     */
+    public function test_admin_store_conflict_with_another_workspace_card_is_refused_not_created(): void
+    {
+        $oldWs = Workspace::create(['name' => 'WS Old Store', 'owner_id' => $this->master->id]);
+
+        $oldCard = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $oldWs->id,
+            'phone' => '79001234567',
+            'name' => 'Старая карточка',
+        ]);
+
+        $response = $this->actingAs($this->master, 'web')
+            ->postJson(route('admin.clients.store'), [
+                'name' => 'Поздний дубль',
+                'phone' => '79001234567',
+            ]);
+
+        $this->assertSame(422, $response->getStatusCode(), (string) $response->getContent());
+        $errors = $response->json('errors') ?? [];
+        $this->assertArrayHasKey('phone', $errors);
+
+        // Успешным созданием это не стало: ни новой карточки, ни возврата чужой.
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame('Старая карточка', $oldCard->fresh()->name);
+        $this->assertSame($oldWs->id, $oldCard->fresh()->workspace_id);
     }
 
     public function test_workspace_shared_client_is_reused_across_masters(): void
@@ -894,6 +1044,187 @@ class ClientPhoneIdentityTest extends TestCase
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
     }
 
+    // ─── MAX: подтверждается только ещё не привязанная запись ───
+
+    public function test_max_contact_after_cancellation_refuses_without_side_effects(): void
+    {
+        $widgetAppointment = $this->bookViaWidget();
+        $widgetAppointment->update(['status' => AppointmentStatus::Cancelled]);
+
+        Cache::put(CacheKeys::MAX_CONSENT_PENDING.'max_uid_1', config('legal.version'), 3600);
+
+        $this->confirmViaMaxWebhook($widgetAppointment, '+79001234567');
+
+        $widgetAppointment->refresh();
+        $this->assertSame(AppointmentStatus::Cancelled, $widgetAppointment->status);
+        $this->assertNull($widgetAppointment->client_id);
+
+        // Отказ откатывает всё: ни карточки, ни привязки, ни погашенного
+        // отложенного согласия.
+        $this->assertSame(0, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame(0, Client::where('max_id', 'max_uid_1')->count());
+        $this->assertSame(config('legal.version'), Cache::get(CacheKeys::MAX_CONSENT_PENDING.'max_uid_1'));
+    }
+
+    public function test_late_max_contact_does_not_relink_already_confirmed_appointment(): void
+    {
+        $ownerCard = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Первый',
+            'max_id' => 'max_uid_owner',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+        ]);
+
+        $widgetAppointment = $this->bookViaWidget();
+        $this->confirmViaMaxCallback($widgetAppointment, 'max_uid_owner', 'cb_owner')->assertOk();
+
+        $widgetAppointment->refresh();
+        $this->assertSame($ownerCard->id, $widgetAppointment->client_id);
+
+        // Запоздалое подтверждение другим аккаунтом со своим номером.
+        $this->confirmViaMaxWebhook($widgetAppointment, '79009998877', 'max_uid_late');
+
+        $widgetAppointment->refresh();
+        $this->assertSame($ownerCard->id, $widgetAppointment->client_id, 'запоздалое подтверждение не перепривязывает запись');
+        $this->assertSame(AppointmentSource::Max, $widgetAppointment->source);
+        $this->assertSame(AppointmentStatus::Booked, $widgetAppointment->status);
+
+        // При отказе не осталось ни новой карточки, ни привязки, ни
+        // изменений карточки/согласия/привязки победителя.
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame(0, Client::where('max_id', 'max_uid_late')->count());
+
+        $fresh = $ownerCard->fresh();
+        $this->assertSame('79001234567', $fresh->phone);
+        $this->assertSame('Первый', $fresh->name);
+        $this->assertSame('max_uid_owner', $fresh->max_id);
+        $this->assertSame('v1', $fresh->pdn_consent_version);
+    }
+
+    public function test_repeated_same_max_confirmation_has_single_effect(): void
+    {
+        $card = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Повтор',
+            'max_id' => 'max_uid_1',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+        ]);
+
+        $widgetAppointment = $this->bookViaWidget();
+
+        Event::fake();
+
+        $this->confirmViaMaxCallback($widgetAppointment, 'max_uid_1', 'cb_first')->assertOk();
+
+        $widgetAppointment->refresh();
+        $clientId = $widgetAppointment->client_id;
+        $this->assertSame($card->id, $clientId);
+        Event::assertDispatchedTimes(AppointmentCreated::class, 1);
+
+        // Повтор того же подтверждения (черновик открыт заново тем же
+        // пользователем): успех без повторных эффектов.
+        $this->confirmViaMaxCallback($widgetAppointment, 'max_uid_1', 'cb_repeat');
+
+        $widgetAppointment->refresh();
+        $this->assertSame($clientId, $widgetAppointment->client_id);
+        Event::assertDispatchedTimes(AppointmentCreated::class, 1);
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame('max_uid_1', $card->fresh()->max_id);
+    }
+
+    public function test_two_different_max_confirmations_of_one_appointment_single_winner(): void
+    {
+        $cardA = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Первый',
+            'max_id' => 'max_uid_a',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+        ]);
+        $cardB = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001110002',
+            'name' => 'Второй',
+            'max_id' => 'max_uid_b',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+        ]);
+
+        $widgetAppointment = $this->bookViaWidget();
+
+        Event::fake();
+
+        $this->confirmViaMaxCallback($widgetAppointment, 'max_uid_a', 'cb_a')->assertOk();
+
+        $widgetAppointment->refresh();
+        $this->assertSame($cardA->id, $widgetAppointment->client_id);
+
+        // Второе подтверждение того же appointment другим аккаунтом.
+        $this->confirmViaMaxCallback($widgetAppointment, 'max_uid_b', 'cb_b');
+
+        $widgetAppointment->refresh();
+        $this->assertSame($cardA->id, $widgetAppointment->client_id);
+        $this->assertSame(AppointmentStatus::Booked, $widgetAppointment->status);
+
+        // Карточка второго участника без изменений; эффект подтверждения один.
+        $this->assertSame('79001110002', $cardB->fresh()->phone);
+        $this->assertSame('max_uid_b', $cardB->fresh()->max_id);
+        $this->assertSame('Второй', $cardB->fresh()->name);
+        $this->assertSame(2, Client::where('user_id', $this->master->id)->count());
+
+        Event::assertDispatchedTimes(AppointmentCreated::class, 1);
+    }
+
+    public function test_blocked_foreign_confirmation_does_not_delete_claimed_appointment(): void
+    {
+        $ownerCard = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Владелец',
+            'max_id' => 'max_uid_owner',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+        ]);
+        $blockedCard = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001110003',
+            'name' => 'Заблокированный',
+            'max_id' => 'max_uid_blocked',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+            'is_blocked' => true,
+        ]);
+
+        $widgetAppointment = $this->bookViaWidget();
+        $this->confirmViaMaxCallback($widgetAppointment, 'max_uid_owner', 'cb_owner');
+
+        $widgetAppointment->refresh();
+        $this->assertSame($ownerCard->id, $widgetAppointment->client_id);
+
+        // Чужое запоздалое подтверждение заблокированного профиля не
+        // удаляет и не трогает уже занятую запись.
+        $this->confirmViaMaxCallback($widgetAppointment, 'max_uid_blocked', 'cb_blocked');
+
+        $this->assertDatabaseHas('appointments', [
+            'id' => $widgetAppointment->id,
+            'client_id' => $ownerCard->id,
+            'status' => AppointmentStatus::Booked,
+        ]);
+        $this->assertSame('Заблокированный', $blockedCard->fresh()->name);
+        $this->assertTrue($blockedCard->fresh()->is_blocked);
+    }
+
     // ─── Админ: ручное создание и изменение ───
 
     public function test_admin_store_rejects_duplicate_in_another_format(): void
@@ -906,7 +1237,7 @@ class ClientPhoneIdentityTest extends TestCase
                 'phone' => '8 (900) 123-45-67',
             ]);
 
-        $this->assertSame(422, $response->getStatusCode(), $response->getContent());
+        $this->assertSame(422, $response->getStatusCode(), (string) $response->getContent());
         $errors = $response->json('errors') ?? [];
         $this->assertArrayHasKey('phone', $errors);
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
@@ -933,7 +1264,7 @@ class ClientPhoneIdentityTest extends TestCase
                 'phone' => '79001234567',
             ]);
 
-        $this->assertSame(422, $response->getStatusCode(), $response->getContent());
+        $this->assertSame(422, $response->getStatusCode(), (string) $response->getContent());
         $this->assertSame(2, Client::where('user_id', $this->master->id)->count());
     }
 
@@ -950,7 +1281,7 @@ class ClientPhoneIdentityTest extends TestCase
                 'notes' => 'важная заметка',
             ]);
 
-        $this->assertSame(422, $response->getStatusCode(), $response->getContent());
+        $this->assertSame(422, $response->getStatusCode(), (string) $response->getContent());
         $this->assertSame('79001234567', $client->fresh()->phone);
         $this->assertSame($other->fresh()->phone, '79009998877');
 
@@ -962,7 +1293,7 @@ class ClientPhoneIdentityTest extends TestCase
                 'notes' => 'важная заметка',
             ]);
 
-        $this->assertSame(302, $response->getStatusCode(), $response->getContent());
+        $this->assertSame(302, $response->getStatusCode(), (string) $response->getContent());
         $this->assertSame('79001112233', $client->fresh()->phone);
         $this->assertSame('важная заметка', $client->fresh()->notes);
     }

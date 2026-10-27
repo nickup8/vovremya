@@ -9,7 +9,9 @@ use App\Enums\SlotOfferStatus;
 use App\Events\AppointmentCreated;
 use App\Events\UserChannelsUpdated;
 use App\Exceptions\AmbiguousClientMatchException;
+use App\Exceptions\DuplicateClientPhoneException;
 use App\Exceptions\ProviderLinkConflictException;
+use App\Exceptions\StaleClientConfirmationException;
 use App\Jobs\MatchSlotOpportunityJob;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -619,46 +621,78 @@ class MaxWebhookHandler
         $masterId = $appointment->master_id;
         $fullName = trim($firstName.' '.$lastName);
         $pendingConsent = Cache::get(CacheKeys::MAX_CONSENT_PENDING.$userId);
+        $expectedPhone = Phone::normalize($phone);
 
         // Поиск/создание, привязка и подтверждение записи атомарны:
         // конфликт не оставляет ни частично подтверждённой записи,
-        // ни изменённой карточки. HTTP к мессенджерам — только после commit.
+        // ни изменённой карточки/согласия/привязки. HTTP к мессенджерам —
+        // только после завершения транзакции.
+        $client = null;
+
+        DB::beginTransaction();
+
         try {
-            $state = DB::transaction(function () use (
-                $appointment,
+            $client = $this->clientMergeService->findOrCreateByPhone(
                 $masterId,
-                $userId,
                 $phone,
-                $fullName,
-                $pendingConsent,
-            ) {
-                $client = $this->clientMergeService->findOrCreateByPhone(
-                    $masterId,
-                    $phone,
-                    '',
-                    $fullName ?: null,
-                    $appointment->master?->workspace_id,
-                );
+                '',
+                $fullName ?: null,
+                $appointment->master?->workspace_id,
+            );
 
-                // Привязываем max_id только из проверенного MAX-контакта;
-                // чужую существующую привязку не перезаписываем.
-                $this->clientMergeService->linkProvider($client, 'max', $userId);
+            // Привязываем max_id только из проверенного MAX-контакта; чужую
+            // существующую привязку не перезаписываем. После ожидания
+            // блокировок карточка должна всё ещё соответствовать
+            // подтверждённому номеру и разрешённой области.
+            $this->clientMergeService->linkProvider($client, 'max', $userId, $expectedPhone);
 
-                if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
-                    $client->pdn_consent_at = now();
-                    $client->pdn_consent_version = $pendingConsent;
-                    $client->save();
-                }
+            if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
+                $client->pdn_consent_at = now();
+                $client->pdn_consent_version = $pendingConsent;
+                $client->save();
+            }
 
-                if ($client->isBlocked()) {
-                    return ['blocked' => true, 'client' => $client];
-                }
+            if ($client->isBlocked()) {
+                DB::rollBack();
 
-                $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
+                // Запись удаляется только пока она не подтверждена другим
+                // способом; запоздалое подтверждение её не трогает.
+                Appointment::whereKey($appointment->id)->whereNull('client_id')->delete();
+                Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+                $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
 
-                return ['blocked' => false, 'client' => $client];
-            });
+                return;
+            }
+
+            // Подтверждается только ещё не привязанная запись в допустимом
+            // статусе: отменённая или уже занятая запись не перепривязывается,
+            // а отказ откатывает карточку/согласие/привязку целиком.
+            $claimed = Appointment::whereKey($appointment->id)
+                ->whereNull('client_id')
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                ])
+                ->update([
+                    'client_id' => $client->id,
+                    'source' => AppointmentSource::Max,
+                ]);
+
+            if ($claimed === 0) {
+                DB::rollBack();
+
+                Log::warning('[MAX] handleBookingContact: appointment claim refused', [
+                    'appointment_id' => $appointmentId,
+                    'master_id' => $masterId,
+                ]);
+                Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+                $this->sendMessage($userId, __('bot.errors.appointment_not_found'));
+
+                return;
+            }
         } catch (AmbiguousClientMatchException) {
+            DB::rollBack();
+
             Log::warning('[MAX] handleBookingContact: ambiguous client match', [
                 'appointment_id' => $appointmentId,
                 'master_id' => $masterId,
@@ -666,27 +700,48 @@ class MaxWebhookHandler
             $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
 
             return;
+        } catch (StaleClientConfirmationException) {
+            DB::rollBack();
+
+            Log::warning('[MAX] handleBookingContact: card changed while confirming', [
+                'appointment_id' => $appointmentId,
+                'master_id' => $masterId,
+            ]);
+            $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
+
+            return;
+        } catch (DuplicateClientPhoneException) {
+            DB::rollBack();
+
+            Log::warning('[MAX] handleBookingContact: phone occupied outside scope', [
+                'appointment_id' => $appointmentId,
+                'master_id' => $masterId,
+            ]);
+            $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
+
+            return;
         } catch (ProviderLinkConflictException) {
+            DB::rollBack();
+
             Log::warning('[MAX] handleBookingContact: max_id already linked elsewhere', [
                 'appointment_id' => $appointmentId,
             ]);
             $this->sendMessage($userId, '❌ Этот аккаунт MAX уже привязан к другому профилю.');
 
             return;
+        } catch (\Throwable $e) {
+            DB::rollBack();
+
+            throw $e;
         }
 
-        $client = $state['client'];
+        DB::commit();
 
         if ($pendingConsent) {
             Cache::forget(CacheKeys::MAX_CONSENT_PENDING.$userId);
         }
 
-        if ($state['blocked']) {
-            $appointment->delete();
-            $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
-
-            return;
-        }
+        $appointment->refresh();
 
         broadcast(new AppointmentCreated(
             $appointment->load(['client'])
@@ -964,74 +1019,132 @@ class MaxWebhookHandler
             return;
         }
 
-        $client = Client::byMaxId($userId)
-            ->where('user_id', $appointment->master_id)
-            ->first();
+        // Проверки и захват записи — в одной транзакции под блокировкой
+        // строки: подтверждается только ещё не привязанная запись в
+        // допустимом статусе, отказ не меняет карточку/согласие/привязку,
+        // а HTTP-ответы выполняются после завершения транзакции.
+        $phone = '';
+        $clientName = '';
 
-        if (! $client) {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.client_not_found'));
+        /** @var array{result: string} $state */
+        $state = DB::transaction(function () use ($appointmentId, $userId, &$phone, &$clientName) {
+            $fresh = Appointment::query()
+                ->whereKey($appointmentId)
+                ->lockForUpdate()
+                ->first();
 
-            return;
-        }
+            if ($fresh === null) {
+                return ['result' => 'not_found'];
+            }
 
-        $hasGlobalConsent = Client::where('max_id', $userId)
-            ->whereNotNull('pdn_consent_at')
-            ->where('pdn_consent_version', config('legal.version'))
-            ->exists();
+            $client = Client::byMaxId($userId)
+                ->where('user_id', $fresh->master_id)
+                ->lockForUpdate()
+                ->first();
 
-        if (! $hasGlobalConsent) {
+            if (! $client) {
+                return ['result' => 'not_found'];
+            }
+
+            $hasGlobalConsent = Client::where('max_id', $userId)
+                ->whereNotNull('pdn_consent_at')
+                ->where('pdn_consent_version', config('legal.version'))
+                ->exists();
+
+            if (! $hasGlobalConsent) {
+                return ['result' => 'not_found'];
+            }
+
+            // Повтор того же подтверждения (запись уже закреплена за этой
+            // карточкой): отвечаем успехом без повторных эффектов —
+            // без повторного broadcast и уведомления мастера.
+            if ($fresh->client_id !== null) {
+                return (string) $fresh->client_id === (string) $client->id
+                    ? ['result' => 'already']
+                    : ['result' => 'not_found'];
+            }
+
+            // Допустимый статус проверяется тем же условием, которым
+            // выполняется захват: отменённая запись не подтверждается.
+            $claimable = Appointment::query()
+                ->whereKey($appointmentId)
+                ->whereNull('client_id')
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                ])
+                ->exists();
+
+            if (! $claimable) {
+                return ['result' => 'not_found'];
+            }
+
+            if ($client->isBlocked()) {
+                // Удаляется только пока не подтверждённая запись:
+                // чужое/запоздалое подтверждение не трогает занятую запись.
+                $fresh->delete();
+
+                return ['result' => 'blocked'];
+            }
+
+            $affected = Appointment::query()
+                ->whereKey($appointmentId)
+                ->whereNull('client_id')
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                ])
+                ->update([
+                    'client_id' => $client->id,
+                    'source' => AppointmentSource::Max,
+                ]);
+
+            if ($affected === 0) {
+                return ['result' => 'not_found'];
+            }
+
+            $phone = $client->phone ?? __('bot.fallback.phone');
+            $clientName = $client->name ?? __('bot.fallback.client_name');
+
+            return ['result' => 'ok'];
+        });
+
+        if ($state['result'] === 'not_found') {
             $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
 
-        if ($client->isBlocked()) {
-            $appointment->delete();
+        if ($state['result'] === 'blocked') {
             $this->maxApi->answerCallback($callbackId, __('bot.errors.booking_unavailable'));
             Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
 
             return;
         }
 
-        $affected = Appointment::where('id', $appointmentId)
-            ->whereNull('client_id')
-            ->whereIn('status', [
-                AppointmentStatus::Booked,
-                AppointmentStatus::PendingPayment,
-            ])
-            ->update([
-                'client_id' => $client->id,
-                'source' => AppointmentSource::Max,
-            ]);
-
-        if ($affected === 0) {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
-
-            return;
-        }
-
-        $appointment->refresh();
-
-        broadcast(new AppointmentCreated($appointment->load(['client'])));
-
         $master = $appointment->master;
         $tz = $master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $lockKey = 'master_notified_'.$appointment->id;
-        if (Cache::add($lockKey, true, now()->addMinutes(10))) {
-            $phone = $client->phone ?? __('bot.fallback.phone');
-            $clientName = $client->name ?? __('bot.fallback.client_name');
+        // HTTP к мессенджерам и broadcast — только после коммита.
+        if ($state['result'] === 'ok') {
+            $appointment->refresh();
 
-            app(MasterNotificationService::class)
-                ->sendToMaster($master, __('bot.master.new_booking', [
-                    'client' => $clientName,
-                    'phone' => $phone,
-                    'service' => $appointment->display_name,
-                    'date' => $date,
-                    'time' => $time,
-                ]));
+            broadcast(new AppointmentCreated($appointment->load(['client'])));
+
+            $lockKey = 'master_notified_'.$appointment->id;
+
+            if (Cache::add($lockKey, true, now()->addMinutes(10))) {
+                app(MasterNotificationService::class)
+                    ->sendToMaster($master, __('bot.master.new_booking', [
+                        'client' => $clientName,
+                        'phone' => $phone,
+                        'service' => $appointment->display_name,
+                        'date' => $date,
+                        'time' => $time,
+                    ]));
+            }
         }
 
         Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
@@ -1058,7 +1171,7 @@ class MaxWebhookHandler
         Log::info('[MAX] booking confirmed', [
             'user_id' => $userId,
             'appointment_id' => $appointmentId,
-            'client_id' => $client->id,
+            'result' => $state['result'],
         ]);
     }
 

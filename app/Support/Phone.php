@@ -5,9 +5,11 @@ namespace App\Support;
 /**
  * Единая серверная нормализация телефонов для поиска, создания и изменения.
  *
- * Каноническая форма — цифры без форматирования:
- * - российские 8/7/10-значные мобильные приводятся к 7XXXXXXXXXX;
- * - явно международные номера (+84, +90 и т.п.) не «российизируются»;
+ * Однозначное представление номера:
+ * - российские 8/7/10-значные формы хранятся голыми цифрами 7XXXXXXXXXX;
+ * - явно международные номера (+84, +90, +1 …) хранятся со знаком «+»,
+ *   поэтому повторная нормализация хранящегося значения никогда не
+ *   переинтерпретирует его как российский;
  * - буквы и произвольный мусор не принимаются как номер.
  */
 final class Phone
@@ -18,6 +20,7 @@ final class Phone
 
     /**
      * Нормализует входной телефон. null — пустой/непригодный для хранения.
+     * Функция идемпотентна: normalize(normalize(x)) === normalize(x).
      */
     public static function normalize(?string $raw): ?string
     {
@@ -71,12 +74,45 @@ final class Phone
             return null;
         }
 
-        return $digits;
+        // Международный номер: значимый «+» сохраняется в канонической
+        // форме, иначе повторная нормализация «84912345678» превратила бы
+        // его в российский «74912345678».
+        return $hasPlus ? '+'.$digits : $digits;
+    }
+
+    /**
+     * Хранится ли $stored тем же номером, что и канонический $canonical:
+     * точное совпадение канона либо однозначная голая форма
+     * («14155552671» для «+14155552671»), никогда не означающая другое.
+     */
+    public static function sameNumber(?string $stored, string $canonical): bool
+    {
+        $normalized = self::normalize($stored);
+
+        if ($normalized === null) {
+            return false;
+        }
+
+        if ($normalized === $canonical) {
+            return true;
+        }
+
+        if (! str_starts_with($canonical, '+')) {
+            return false;
+        }
+
+        $bare = substr($canonical, 1);
+
+        return $normalized === $bare && self::normalize($bare) === $bare;
     }
 
     /**
      * Все записываемые/поисковые варианты, которые должны сопоставляться
      * с уже существующими (возможно, ненормализованными) значениями phone.
+     *
+     * Кандидат включается только тогда, когда его повторная нормализация
+     * даёт тот же номер: это исключает переинтерпретацию (например,
+     * «84912345678» с плюсом не подмешивается к российскому «74912345678»).
      *
      * @return list<string>
      */
@@ -86,47 +122,50 @@ final class Phone
             return [];
         }
 
-        $variants = [$normalized, '+'.$normalized];
+        $candidates = [$normalized];
 
-        if (preg_match('/^7\d{10}$/', $normalized) === 1) {
-            $eightPrefixed = '8'.substr($normalized, 1);
-            $variants[] = $eightPrefixed;
-            $variants[] = '+'.$eightPrefixed;
+        if (str_starts_with($normalized, '+')) {
+            // Голая форма международного номера (legacy-хранилище).
+            $candidates[] = substr($normalized, 1);
+        } elseif (preg_match('/^7\d{10}$/', $normalized) === 1) {
+            // Восьмичастный и десятизначный российские legacy-формы.
+            $candidates[] = '8'.substr($normalized, 1);
+            $candidates[] = substr($normalized, 1);
+        }
 
-            // Десятизначная российская мобильная форма («9001234567»).
-            if (preg_match('/^79\d{9}$/', $normalized) === 1) {
-                $variants[] = substr($normalized, 1);
+        $variants = [];
+
+        foreach ($candidates as $candidate) {
+            if ($candidate === ''
+                || self::normalize($candidate) === $candidate
+                || self::normalize($candidate) === $normalized
+            ) {
+                $variants[] = $candidate;
+
+                if (! str_starts_with($candidate, '+')) {
+                    $plusForm = '+'.$candidate;
+
+                    if (self::normalize($plusForm) === $normalized) {
+                        $variants[] = $plusForm;
+                    }
+                }
             }
+
         }
 
         return array_values(array_unique($variants));
     }
 
     /**
-     * «Голые» цифровые формы для сравнения с legacy-значениями,
-     * в которых могли остаться пробелы, скобки и дефисы.
+     * Формы для сравнения с legacy-значениями phone, в которых могли
+     * остаться пробелы, скобки, дефисы и значимый ведущий «+»
+     * (regexp_replace оставляет «+», поэтому формы включают и его).
      *
      * @return list<string>
      */
     public static function digitForms(?string $normalized): array
     {
-        if ($normalized === null || $normalized === '') {
-            return [];
-        }
-
-        $forms = [$normalized];
-
-        if (preg_match('/^7\d{10}$/', $normalized) === 1) {
-            $forms[] = '8'.substr($normalized, 1);
-
-            // Уже сохранённый 10-значный вид («9001234567») должен
-            // сопоставляться с каноническим «79001234567» и наоборот.
-            if (preg_match('/^79\d{9}$/', $normalized) === 1) {
-                $forms[] = substr($normalized, 1);
-            }
-        }
-
-        return array_values(array_unique($forms));
+        return self::storageVariants($normalized);
     }
 
     /**
