@@ -470,6 +470,25 @@ class ClientMergeService
     }
 
     /**
+     * Адvisory-блокировка телефона в ТЕКУЩЕЙ транзакции вызывающего:
+     * захват до строки записи выдерживает единый порядок
+     * телефонный advisory → запись → advisory привязки → карточка.
+     * Повторный захват того же ключа в той же транзакции безопасен.
+     */
+    public function acquirePhoneLock(string $masterId, string $phone, ?string $workspaceId): void
+    {
+        $normalized = Phone::normalize($phone);
+
+        if ($normalized === null || DB::getDriverName() !== 'pgsql') {
+            return;
+        }
+
+        $key = $this->phoneLockKey($masterId, $normalized, $workspaceId);
+
+        DB::select('SELECT pg_advisory_xact_lock(?::bigint)', [$key]);
+    }
+
+    /**
      * PostgreSQL: сериализуем операции по (область, телефон), чтобы
      * конкурентные запросы не создали две карточки.
      *

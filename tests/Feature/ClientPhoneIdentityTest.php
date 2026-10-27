@@ -1332,6 +1332,74 @@ class ClientPhoneIdentityTest extends TestCase
         $this->assertAuthenticatedAs($fresh, 'client');
     }
 
+    // ─── RoleSwitch: полный переход мастер → клиент → мастер ───
+
+    public function test_role_switch_round_trip_with_plus_phone_restores_master(): void
+    {
+        $master = User::factory()->master()->create([
+            'phone' => '+79001234567',
+        ]);
+
+        $this->actingAs($master, 'web')->post(route('switch.to.client'))
+            ->assertRedirect(route('client.profile'));
+
+        $client = Client::where('user_id', $master->id)->first();
+        $this->assertNotNull($client, 'toClient должен создать новую карточку');
+        $this->assertSame('79001234567', $client->phone);
+        $this->assertAuthenticatedAs($client, 'client');
+
+        $this->post(route('switch.to.master'))
+            ->assertRedirect(route('admin.calendar'));
+
+        $this->assertAuthenticatedAs($master, 'web');
+    }
+
+    public function test_role_switch_round_trip_with_plain_phone_restores_master(): void
+    {
+        $master = User::factory()->master()->create([
+            'phone' => '79001234567',
+        ]);
+
+        $this->actingAs($master, 'web')->post(route('switch.to.client'))
+            ->assertRedirect(route('client.profile'));
+
+        $client = Client::where('user_id', $master->id)->first();
+        $this->assertNotNull($client, 'toClient должен создать новую карточку');
+        $this->assertSame('79001234567', $client->phone);
+        $this->assertAuthenticatedAs($client, 'client');
+
+        $this->post(route('switch.to.master'))
+            ->assertRedirect(route('admin.calendar'));
+
+        $this->assertAuthenticatedAs($master, 'web');
+    }
+
+    public function test_role_switch_to_master_refuses_ambiguous_accounts_with_same_number(): void
+    {
+        $master = User::factory()->master()->create([
+            'phone' => '+79001234567',
+        ]);
+        User::factory()->master()->create([
+            'phone' => '89001234567',
+        ]);
+
+        $this->actingAs($master, 'web')->post(route('switch.to.client'))
+            ->assertRedirect(route('client.profile'));
+
+        $client = Client::where('user_id', $master->id)->first();
+        $this->assertNotNull($client);
+        $this->assertSame('79001234567', $client->phone);
+
+        $this->post(route('switch.to.master'))
+            ->assertRedirect(route('auth.choose'))
+            ->assertSessionHas(
+                'info',
+                'Найдено несколько аккаунтов с вашим номером. Обратитесь в поддержку.',
+            );
+
+        $this->assertAuthenticatedAs($master, 'web');
+    }
+
     // ─── Диагностическая команда ───
 
     public function test_diagnostic_command_reports_duplicates_without_secrets(): void

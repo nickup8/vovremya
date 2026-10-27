@@ -72,6 +72,21 @@ class RoleSwitchController extends Controller
             $user = User::where('phone', $client->phone)->first();
         }
 
+        if (! $user && $normalized !== null) {
+            // Тот же номер в допустимых формах хранения users.phone
+            // (например, «+7…» при канонической карточке «7…»):
+            // контракт — совпадение номера, а не строки; несколько
+            // аккаунтов — однозначный отказ без выбора первого попавшегося.
+            $matches = User::whereIn('phone', Phone::storageVariants($normalized))->get();
+
+            if ($matches->count() > 1) {
+                return redirect()->route('auth.choose')
+                    ->with('info', 'Найдено несколько аккаунтов с вашим номером. Обратитесь в поддержку.');
+            }
+
+            $user = $matches->first();
+        }
+
         if (! $user) {
             return redirect()->route('auth.choose')
                 ->with('info', 'Для перехода в режим мастера необходимо создать профиль.');

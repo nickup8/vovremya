@@ -2,6 +2,7 @@
 
 namespace Tests\Feature;
 
+use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -400,6 +401,139 @@ class ClientConcurrencyTest extends TestCase
         $this->assertSame(2, Client::where('user_id', $master->id)->count());
     }
 
+    // ─── Пересечение contact и callback внутри операций ───
+
+    /**
+     * Контакт и callback пересекаются ВНУТРИ операций, а не просто стартуют
+     * одновременно: держатель занимает строку карточки, contact зависает
+     * на ней внутри транзакции, callback входит в confirmMaxBooking и
+     * упирается в занятые ресурсы; освобождение карточки разрешает гонку.
+     * Взаимной блокировки, перепривязки и повторных эффектов быть не должно.
+     */
+    public function test_contact_and_callback_intersect_inside_operations_without_deadlock(): void
+    {
+        [$master, $ws] = $this->makeMasterWithWorkspace();
+
+        $catalog = ServiceCatalog::create([
+            'workspace_id' => $ws->id,
+            'title' => 'Стрижка',
+            'base_price' => 1000,
+            'base_duration' => 60,
+        ]);
+        $masterService = MasterService::create([
+            'master_id' => $master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
+        ]);
+        $appointment = Appointment::factory()
+            ->forMaster($master)
+            ->withMasterService($masterService)
+            ->create([
+                'status' => AppointmentStatus::Booked,
+                'start_time' => Carbon::tomorrow()->setTime(14, 0),
+                'duration' => 60,
+                'price' => 1000,
+                'client_id' => null,
+            ]);
+
+        $client = Client::create([
+            'user_id' => $master->id,
+            'workspace_id' => $ws->id,
+            'phone' => '79001110001',
+            'name' => 'Постоянный клиент',
+            'max_id' => 'max_race_uid',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => config('legal.version'),
+        ]);
+
+        $configs = $this->launchWorkers([
+            [
+                'id' => 'holder',
+                'op' => 'hold_client',
+                'client_id' => $client->id,
+                'signal' => 'holder_c',
+                'await' => 'release_c',
+            ],
+            [
+                'id' => 'contact',
+                'op' => 'max_contact',
+                'user_id' => 'max_race_uid',
+                'phone' => '79001110001',
+                'appointment_id' => (string) $appointment->id,
+                'await' => 'holder_c',
+            ],
+            [
+                'id' => 'callback',
+                'op' => 'max_confirm',
+                'user_id' => 'max_race_uid',
+                'appointment_id' => (string) $appointment->id,
+                'await' => 'contact_waiting',
+            ],
+        ]);
+
+        $this->assertTrue($this->waitForSignal('holder_c', 15), 'держатель не занял строку карточки');
+        $this->assertTrue(
+            $this->waitForBackendLockWait('contact', 15),
+            'contact не дошёл до ожидания блокировки внутри операции',
+        );
+
+        $this->signal('contact_waiting');
+
+        $this->assertTrue(
+            $this->waitForBackendLockWait('callback', 15),
+            'callback не дошёл до ожидания блокировки внутри операции',
+        );
+
+        $this->signal('release_c');
+
+        $results = $this->collectWorkers($configs);
+
+        $this->assertWorkerSucceeded('holder', $results['holder']);
+        $this->assertWorkerSucceeded('contact', $results['contact']);
+        $this->assertWorkerSucceeded('callback', $results['callback']);
+
+        $contact = $results['contact']['outcome'];
+        $callback = $results['callback']['outcome'];
+
+        // Одна привязка: запись закреплена за исходной карточкой, без перепривязки.
+        $fresh = $appointment->fresh();
+        $this->assertSame($client->id, (string) $fresh->client_id);
+        $this->assertSame(AppointmentStatus::Booked, $fresh->status);
+        $this->assertSame(AppointmentSource::Max, $fresh->source);
+        $this->assertSame(1, Client::where('user_id', $master->id)->count());
+
+        // Contact подтвердил запись ровно один раз.
+        $this->assertSame('done', $contact['result']);
+        $this->assertSame($client->id, (string) $contact['client_id']);
+        $this->assertSame(1, $contact['broadcasts'], 'broadcast только у подтвердившего contact');
+        $this->assertSame(1, $contact['notifies'], 'уведомление мастеру только у подтвердившего contact');
+        $this->assertStringContainsString(
+            'Запись подтверждена',
+            implode("\n", $contact['messages']),
+            'contact должен подтвердить запись: '.json_encode($contact, JSON_UNESCAPED_UNICODE),
+        );
+
+        // Повторный callback — без повторных эффектов.
+        $this->assertSame('done', $callback['result']);
+        $this->assertSame($client->id, (string) $callback['client_id']);
+        $this->assertSame(0, $callback['broadcasts'], 'повторный callback без повторного broadcast');
+        $this->assertSame(0, $callback['notifies'], 'повторный callback без повторного уведомления');
+        $this->assertSame(
+            [],
+            $callback['callbacks'],
+            'повторный callback не должен получать отказ: '.json_encode($callback, JSON_UNESCAPED_UNICODE),
+        );
+        $this->assertStringContainsString(
+            'Запись подтверждена',
+            implode("\n", $callback['callback_messages']),
+            'повторный callback отвечает идемпотентным успехом: '.json_encode($callback, JSON_UNESCAPED_UNICODE),
+        );
+
+        $client->refresh();
+        $this->assertSame('max_race_uid', $client->max_id);
+        $this->assertSame('79001110001', $client->phone);
+    }
+
     // ─── Инфраструктура независимых процессов ───
 
     /**
@@ -532,6 +666,32 @@ class ClientConcurrencyTest extends TestCase
     }
 
     /**
+     * Ожидание, пока backend worker'а реально завис на блокировке (pg_stat_activity).
+     */
+    private function waitForBackendLockWait(string $workerId, int $timeoutSeconds = 15): bool
+    {
+        $deadline = microtime(true) + $timeoutSeconds;
+
+        while (microtime(true) < $deadline) {
+            $pid = DB::table(self::BARRIER_TABLE)->where('key', 'pgpid:'.$workerId)->value('value');
+
+            if ($pid !== null && $pid !== '') {
+                $rows = DB::select(
+                    'SELECT wait_event_type FROM pg_stat_activity WHERE pid = '.(int) $pid,
+                );
+
+                if (($rows[0]->wait_event_type ?? null) === 'Lock') {
+                    return true;
+                }
+            }
+
+            usleep(10_000);
+        }
+
+        return false;
+    }
+
+    /**
      * @param  array<string, mixed>  $result
      */
     private function assertWorkerSucceeded(string $id, array $result): void
@@ -644,8 +804,55 @@ require $config['base_path'].'/vendor/autoload.php';
 $app = require $config['base_path'].'/bootstrap/app.php';
 $app->make(Illuminate\Contracts\Console\Kernel::class)->bootstrap();
 
+class ChildMaxApiStub extends App\Services\MaxApiClient
+{
+    public array $messages = [];
+
+    public array $callbacks = [];
+
+    public array $callbackMessages = [];
+
+    public function __construct() {}
+
+    public function sendMessage(string $chatId, string $text, array $extra = []): ?string
+    {
+        $this->messages[] = $text;
+
+        return 'child-stub';
+    }
+
+    public function answerCallback(string $callbackId, string $notification = ''): bool
+    {
+        $this->callbacks[] = $notification;
+
+        return true;
+    }
+
+    public function answerCallbackWithMessage(string $callbackId, string $text, array $extra = []): bool
+    {
+        $this->callbackMessages[] = $text;
+
+        return true;
+    }
+}
+
+class ChildNotifyRecorder extends App\Services\Notification\MasterNotificationService
+{
+    public array $sent = [];
+
+    public function sendToMaster(App\Models\User $master, string $text): void
+    {
+        $this->sent[] = $text;
+    }
+}
+
 try {
     Illuminate\Support\Facades\DB::statement("SET lock_timeout = '20s'");
+    $pgPid = (int) Illuminate\Support\Facades\DB::select('SELECT pg_backend_pid() AS pid')[0]->pid;
+    Illuminate\Support\Facades\DB::table('concurrency_barriers')->updateOrInsert(
+        ['key' => 'pgpid:'.$config['id']],
+        ['value' => (string) $pgPid],
+    );
     Illuminate\Support\Facades\DB::table('concurrency_barriers')->insert([
         'key' => 'ready:'.$config['id'],
         'value' => gmdate('c'),
@@ -882,6 +1089,100 @@ try {
             } catch (App\Exceptions\ProviderLinkConflictException) {
                 $outcome = ['result' => 'conflict'];
             }
+            break;
+
+        case 'hold_client':
+            try {
+                Illuminate\Support\Facades\DB::beginTransaction();
+
+                App\Models\Client::whereKey($config['client_id'])->lockForUpdate()->first();
+
+                $signal($config['signal']);
+                $requireAwait($config['await']);
+
+                Illuminate\Support\Facades\DB::commit();
+
+                $outcome = ['result' => 'released'];
+            } catch (Throwable $e) {
+                try {
+                    Illuminate\Support\Facades\DB::rollBack();
+                } catch (Throwable) {
+                    // транзакция уже завершена
+                }
+
+                throw $e;
+            }
+            break;
+
+        // Реальный handleBookingContact: ждёт занятую карточку, затем
+        // выполняет полный путь привязки и подтверждения записи.
+        case 'max_contact':
+            $requireAwait($config['await']);
+
+            $apiStub = new ChildMaxApiStub();
+            $notifyRecorder = new ChildNotifyRecorder();
+            $app->instance(App\Services\MaxApiClient::class, $apiStub);
+            $app->instance(App\Services\Notification\MasterNotificationService::class, $notifyRecorder);
+            Illuminate\Support\Facades\Event::fake([App\Events\AppointmentCreated::class]);
+
+            $handler = $app->make(App\Webhooks\MaxWebhookHandler::class);
+            $method = new ReflectionMethod(App\Webhooks\MaxWebhookHandler::class, 'handleBookingContact');
+            $method->setAccessible(true);
+            $method->invoke(
+                $handler,
+                $config['user_id'],
+                $config['user_id'],
+                $config['phone'],
+                'Тест',
+                'Контакт',
+                $config['appointment_id'],
+            );
+
+            $freshAppointment = App\Models\Appointment::find($config['appointment_id']);
+            $outcome = [
+                'result' => 'done',
+                'broadcasts' => Illuminate\Support\Facades\Event::dispatched(App\Events\AppointmentCreated::class)->count(),
+                'notifies' => count($notifyRecorder->sent),
+                'messages' => $apiStub->messages,
+                'client_id' => $freshAppointment?->client_id !== null ? (string) $freshAppointment->client_id : null,
+                'status' => $freshAppointment?->status?->value,
+                'source' => $freshAppointment?->source?->value,
+            ];
+            break;
+
+        // Реальный confirmMaxBooking: ждёт точку пересечения, затем
+        // выполняет полный путь callback-подтверждения.
+        case 'max_confirm':
+            $requireAwait($config['await']);
+
+            $apiStub = new ChildMaxApiStub();
+            $notifyRecorder = new ChildNotifyRecorder();
+            $app->instance(App\Services\MaxApiClient::class, $apiStub);
+            $app->instance(App\Services\Notification\MasterNotificationService::class, $notifyRecorder);
+            Illuminate\Support\Facades\Event::fake([App\Events\AppointmentCreated::class]);
+            Illuminate\Support\Facades\Cache::put(
+                App\Constants\CacheKeys::MAX_BOOKING_DRAFT.$config['user_id'],
+                $config['appointment_id'],
+                3600,
+            );
+
+            $handler = $app->make(App\Webhooks\MaxWebhookHandler::class);
+            $method = new ReflectionMethod(App\Webhooks\MaxWebhookHandler::class, 'confirmMaxBooking');
+            $method->setAccessible(true);
+            $method->invoke($handler, $config['user_id'], 'cb_race', $config['appointment_id']);
+
+            $freshAppointment = App\Models\Appointment::find($config['appointment_id']);
+            $outcome = [
+                'result' => 'done',
+                'broadcasts' => Illuminate\Support\Facades\Event::dispatched(App\Events\AppointmentCreated::class)->count(),
+                'notifies' => count($notifyRecorder->sent),
+                'messages' => $apiStub->messages,
+                'callbacks' => $apiStub->callbacks,
+                'callback_messages' => $apiStub->callbackMessages,
+                'client_id' => $freshAppointment?->client_id !== null ? (string) $freshAppointment->client_id : null,
+                'status' => $freshAppointment?->status?->value,
+                'source' => $freshAppointment?->source?->value,
+            ];
             break;
 
         default:

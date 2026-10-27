@@ -622,22 +622,48 @@ class MaxWebhookHandler
         $fullName = trim($firstName.' '.$lastName);
         $pendingConsent = Cache::get(CacheKeys::MAX_CONSENT_PENDING.$userId);
         $expectedPhone = Phone::normalize($phone);
+        $workspaceId = $appointment->master?->workspace_id;
 
         // Поиск/создание, привязка и подтверждение записи атомарны:
         // конфликт не оставляет ни частично подтверждённой записи,
         // ни изменённой карточки/согласия/привязки. HTTP к мессенджерам —
         // только после завершения транзакции.
+        //
+        // Единый порядок блокировок MAX-путей: телефонный advisory →
+        // строка записи → advisory привязки → карточка (confirmMaxBooking
+        // участвует подмножеством «запись → карточка»). Строка записи
+        // занимается раньше карточки, поэтому contact и callback не
+        // пересекаются в обратном порядке client → appointment.
         $client = null;
 
         DB::beginTransaction();
 
         try {
+            $this->clientMergeService->acquirePhoneLock(
+                $masterId,
+                $phone,
+                $workspaceId,
+            );
+
+            $fresh = Appointment::query()
+                ->whereKey($appointment->id)
+                ->lockForUpdate()
+                ->first();
+
+            if ($fresh === null) {
+                DB::rollBack();
+
+                $this->sendMessage($userId, __('bot.errors.appointment_not_found'));
+
+                return;
+            }
+
             $client = $this->clientMergeService->findOrCreateByPhone(
                 $masterId,
                 $phone,
                 '',
                 $fullName ?: null,
-                $appointment->master?->workspace_id,
+                $workspaceId,
             );
 
             // Привязываем max_id только из проверенного MAX-контакта; чужую
@@ -1055,28 +1081,29 @@ class MaxWebhookHandler
                 return ['result' => 'not_found'];
             }
 
-            // Повтор того же подтверждения (запись уже закреплена за этой
-            // карточкой): отвечаем успехом без повторных эффектов —
-            // без повторного broadcast и уведомления мастера.
-            if ($fresh->client_id !== null) {
-                return (string) $fresh->client_id === (string) $client->id
-                    ? ['result' => 'already']
-                    : ['result' => 'not_found'];
-            }
-
-            // Допустимый статус проверяется тем же условием, которым
-            // выполняется захват: отменённая запись не подтверждается.
-            $claimable = Appointment::query()
+            // Допустимый статус проверяется ДО успешной идемпотентной
+            // ветки: отменённая (или иная недопустимая) запись не
+            // получает ответа об успешном подтверждении.
+            $statusAllowed = Appointment::query()
                 ->whereKey($appointmentId)
-                ->whereNull('client_id')
                 ->whereIn('status', [
                     AppointmentStatus::Booked,
                     AppointmentStatus::PendingPayment,
                 ])
                 ->exists();
 
-            if (! $claimable) {
+            if (! $statusAllowed) {
                 return ['result' => 'not_found'];
+            }
+
+            // Повтор того же подтверждения (действующая запись уже
+            // закреплена за этой карточкой): отвечаем успехом без
+            // повторных эффектов — без повторного broadcast и уведомления
+            // мастера.
+            if ($fresh->client_id !== null) {
+                return (string) $fresh->client_id === (string) $client->id
+                    ? ['result' => 'already']
+                    : ['result' => 'not_found'];
             }
 
             if ($client->isBlocked()) {

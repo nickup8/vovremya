@@ -11,14 +11,17 @@ use App\Models\Client;
 use App\Models\MasterService;
 use App\Models\ServiceCatalog;
 use App\Models\User;
-use App\Models\Workspace;
 use App\Models\WorkingHour;
+use App\Models\Workspace;
+use App\Services\AppointmentStatusService;
 use App\Services\MaxApiClient;
+use App\Services\Notification\MasterNotificationService;
 use App\Webhooks\MaxWebhookHandler;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
+use Illuminate\Support\Facades\Queue;
 use Mockery;
 use Tests\TestCase;
 
@@ -27,9 +30,13 @@ class MaxBookingFastPathTest extends TestCase
     use RefreshDatabase;
 
     private MaxApiClient $maxApi;
+
     private MaxWebhookHandler $handler;
+
     private User $master;
+
     private Workspace $ws;
+
     private MasterService $masterService;
 
     protected function setUp(): void
@@ -420,6 +427,93 @@ class MaxBookingFastPathTest extends TestCase
         $this->assertEquals($client->id, $appointment->client_id);
         $this->assertEquals(AppointmentSource::Max, $appointment->source);
         $this->assertEquals(AppointmentStatus::PendingPayment, $appointment->status);
+    }
+
+    // ─── Отменённая запись с уже установленным client_id ───
+
+    public function test_repeat_confirm_on_cancelled_appointment_is_refused(): void
+    {
+        $client = $this->createReturningClient();
+        $appointment = $this->createDraftAppointment();
+
+        $sentMessages = [];
+        $callbackReplies = [];
+
+        $this->maxApi->shouldReceive('answerCallbackWithMessage')
+            ->andReturnUsing(function (string $callbackId, string $text) use (&$sentMessages): bool {
+                $sentMessages[] = $text;
+
+                return true;
+            })
+            ->zeroOrMoreTimes();
+        $this->maxApi->shouldReceive('answerCallback')
+            ->andReturnUsing(function (string $callbackId, string $notification = '') use (&$callbackReplies): bool {
+                $callbackReplies[] = $notification;
+
+                return true;
+            })
+            ->zeroOrMoreTimes();
+        $this->maxApi->shouldReceive('sendMessage')->andReturnNull()->zeroOrMoreTimes();
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+
+        Queue::fake();
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_first', (string) $appointment->id);
+
+        $this->assertCount(1, $sentMessages);
+        $this->assertStringContainsString('Запись подтверждена', $sentMessages[0]);
+        $this->assertSame([], $callbackReplies);
+        Event::assertDispatchedTimes(AppointmentCreated::class, 1);
+        $notifySpy->shouldHaveReceived('sendToMaster')->once();
+
+        $appointment->refresh();
+        $this->assertSame($client->id, $appointment->client_id);
+
+        app(AppointmentStatusService::class)->transition($appointment, AppointmentStatus::Cancelled);
+        $appointment->refresh();
+        $this->assertSame(AppointmentStatus::Cancelled, $appointment->status);
+        $this->assertSame($client->id, $appointment->client_id);
+
+        $phoneBefore = $client->phone;
+        $nameBefore = $client->name;
+        $maxIdBefore = $client->max_id;
+        $pdnVersionBefore = $client->pdn_consent_version;
+        $cancelledAtBefore = $appointment->cancelled_at;
+
+        // Старая кнопка при активном черновике (draft снова открыт).
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
+
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_second', (string) $appointment->id);
+
+        $this->assertSame(
+            [__('bot.errors.appointment_not_found')],
+            $callbackReplies,
+            'отменённая запись должна получать отказ с реальным текстом API',
+        );
+        $this->assertCount(
+            1,
+            $sentMessages,
+            'сообщение об успешном подтверждении не должно повторяться: '.json_encode($sentMessages, JSON_UNESCAPED_UNICODE),
+        );
+        Event::assertDispatchedTimes(AppointmentCreated::class, 1);
+        $notifySpy->shouldHaveReceived('sendToMaster')->once();
+
+        $appointment->refresh();
+        $this->assertSame(AppointmentStatus::Cancelled, $appointment->status);
+        $this->assertSame($client->id, $appointment->client_id);
+        $this->assertSame(
+            $cancelledAtBefore?->toDateTimeString(),
+            $appointment->cancelled_at?->toDateTimeString(),
+        );
+
+        $client->refresh();
+        $this->assertSame($phoneBefore, $client->phone);
+        $this->assertSame($nameBefore, $client->name);
+        $this->assertSame($maxIdBefore, $client->max_id);
+        $this->assertSame($pdnVersionBefore, $client->pdn_consent_version);
     }
 
     // ─── Helpers ───
