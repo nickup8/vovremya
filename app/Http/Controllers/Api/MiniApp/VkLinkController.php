@@ -6,6 +6,8 @@ use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
+use App\Exceptions\AmbiguousClientMatchException;
+use App\Exceptions\ProviderLinkConflictException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
@@ -13,11 +15,11 @@ use App\Services\Auth\VkPhoneNumberVerifier;
 use App\Services\Client\ClientMergeService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\VkLinkTokenService;
+use App\Support\Phone;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\DB;
-use Illuminate\Support\Facades\Log;
 
 class VkLinkController extends Controller
 {
@@ -44,7 +46,7 @@ class VkLinkController extends Controller
 
         $pendingConsentVersion = $hasGlobalConsent
             ? null
-            : Cache::get(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+            : Cache::get(CacheKeys::VK_CONSENT_PENDING.$vkUserId);
 
         if (! $hasGlobalConsent && $pendingConsentVersion === null) {
             return response()->json(['error' => 'pdn_consent_required'], 403);
@@ -60,7 +62,10 @@ class VkLinkController extends Controller
             return response()->json(['error' => 'invalid_phone_sign'], 422);
         }
 
-        $normalizedPhone = preg_replace('/[^0-9]/', '', $rawPhone);
+        $normalizedPhone = Phone::normalize($rawPhone);
+        if ($normalizedPhone === null) {
+            return response()->json(['error' => 'invalid_phone_sign'], 422);
+        }
 
         $appointment = Appointment::find($appointmentId);
         if ($appointment === null) {
@@ -69,14 +74,21 @@ class VkLinkController extends Controller
 
         $vkName = $this->resolveVkName($request, $vkUserId);
 
-        $client = $clientMerge->findOrCreateByPhone(
-            $appointment->master_id,
-            $normalizedPhone,
-            '',
-            $vkName,
-        );
+        try {
+            $client = $clientMerge->findOrCreateByPhone(
+                $appointment->master_id,
+                $normalizedPhone,
+                '',
+                $vkName,
+                $appointment->master?->workspace_id,
+            );
 
-        if ($client->vk_id !== null && $client->vk_id !== $vkUserId) {
+            if ($client->vk_id !== null && $client->vk_id !== $vkUserId) {
+                return response()->json(['error' => 'client_already_linked'], 409);
+            }
+        } catch (AmbiguousClientMatchException) {
+            return response()->json(['error' => 'ambiguous_client'], 409);
+        } catch (ProviderLinkConflictException) {
             return response()->json(['error' => 'client_already_linked'], 409);
         }
 
@@ -84,7 +96,7 @@ class VkLinkController extends Controller
             $appointment->delete();
             $tokenService->consume($request->input('token'));
             if ($pendingConsentVersion !== null) {
-                Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+                Cache::forget(CacheKeys::VK_CONSENT_PENDING.$vkUserId);
             }
 
             return response()->json(['error' => 'booking_unavailable'], 403);
@@ -140,7 +152,7 @@ class VkLinkController extends Controller
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $lockKey = 'master_notified_' . $appointment->id;
+        $lockKey = 'master_notified_'.$appointment->id;
         if (Cache::add($lockKey, true, now()->addMinutes(10))) {
             $phone = $client->phone ?? '';
             $clientName = $client->name ?? '';
@@ -158,7 +170,7 @@ class VkLinkController extends Controller
         $tokenService->consume($request->input('token'));
 
         if ($pendingConsentVersion !== null) {
-            Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+            Cache::forget(CacheKeys::VK_CONSENT_PENDING.$vkUserId);
         }
 
         return response()->json(['ok' => true]);

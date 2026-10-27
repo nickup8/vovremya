@@ -2,9 +2,12 @@
 
 namespace App\Http\Controllers\Client;
 
+use App\Exceptions\AmbiguousClientMatchException;
 use App\Http\Controllers\Controller;
 use App\Models\Client;
 use App\Models\User;
+use App\Services\Client\ClientMergeService;
+use App\Support\Phone;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -15,7 +18,7 @@ class RoleSwitchController extends Controller
      * Мастер → Клиент.
      * Находит (или создаёт) Client-запись по телефону мастера и логинит в guard 'client'.
      */
-    public function toClient(Request $request): RedirectResponse
+    public function toClient(Request $request, ClientMergeService $clientMerge): RedirectResponse
     {
         $user = $request->user();
 
@@ -27,29 +30,16 @@ class RoleSwitchController extends Controller
             return back()->with('error', 'Укажите номер телефона в профиле для входа в режим клиента.');
         }
 
-        // Ищем существующего клиента по user_id + phone
-        $client = Client::where('user_id', $user->id)
-            ->where('phone', $user->phone)
-            ->first();
-
-        // Если не нашли и есть workspace_id — проверяем partial unique (workspace_id, phone)
-        if (! $client && $user->workspace_id) {
-            $client = Client::where('workspace_id', $user->workspace_id)
-                ->where('phone', $user->phone)
-                ->first();
-
-            if ($client) {
-                $client->update(['user_id' => $user->id]);
-            }
-        }
-
-        if (! $client) {
-            $client = Client::create([
-                'user_id' => $user->id,
-                'workspace_id' => $user->workspace_id,
-                'name' => $user->name,
-                'phone' => $user->phone,
-            ]);
+        try {
+            $client = $clientMerge->findOrCreateByPhone(
+                $user->id,
+                $user->phone,
+                '',
+                $user->name,
+                $user->workspace_id,
+            );
+        } catch (AmbiguousClientMatchException) {
+            return back()->with('error', 'Найдено несколько карточек клиентов с вашим номером. Обратитесь в поддержку.');
         }
 
         Auth::guard('client')->login($client);
@@ -69,7 +59,15 @@ class RoleSwitchController extends Controller
             return redirect()->route('auth.choose');
         }
 
-        $user = User::where('phone', $client->phone)->first();
+        $normalized = Phone::normalize($client->phone);
+
+        $user = $normalized !== null
+            ? User::where('phone', $normalized)->first()
+            : null;
+
+        if (! $user && $client->phone) {
+            $user = User::where('phone', $client->phone)->first();
+        }
 
         if (! $user) {
             return redirect()->route('auth.choose')

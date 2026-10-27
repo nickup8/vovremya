@@ -7,18 +7,22 @@ use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Events\UserChannelsUpdated;
+use App\Exceptions\AmbiguousClientMatchException;
 use App\Exceptions\CancellationNotAllowedException;
 use App\Exceptions\InvalidStatusTransitionException;
 use App\Exceptions\PastAppointmentException;
+use App\Exceptions\ProviderLinkConflictException;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\AppointmentVisitConfirmationService;
 use App\Services\Avatars\AvatarStorageService;
+use App\Services\Client\ClientMergeService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
+use App\Support\Phone;
 use DefStudio\Telegraph\Client\TelegraphResponse;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\Button;
@@ -976,7 +980,8 @@ class TelegramWebhookHandler extends WebhookHandler
      */
     private function handleBookingContact(array $contact, string $chatId, string $appointmentId): void
     {
-        $phone = preg_replace('/[^0-9]/', '', $contact['phone_number'] ?? '');
+        // Телефон берётся только из подтверждённого Telegram-контакта.
+        $phone = Phone::normalize($contact['phone_number'] ?? '');
         $telegramId = (string) ($contact['user_id'] ?? $contact['from']['id'] ?? '');
         $firstName = $contact['first_name'] ?? '';
         $lastName = $contact['last_name'] ?? '';
@@ -985,10 +990,10 @@ class TelegramWebhookHandler extends WebhookHandler
         Log::info('[TG] handleBookingContact()', [
             'chat_id' => $chatId,
             'appointment_id' => $appointmentId,
-            'phone' => $phone,
+            'phone' => $phone !== null ? Phone::mask($phone) : null,
         ]);
 
-        if (empty($phone)) {
+        if ($phone === null) {
             $this->chat->html(__('bot.errors.phone_detection_failed'))->send();
 
             return;
@@ -1004,40 +1009,55 @@ class TelegramWebhookHandler extends WebhookHandler
 
         $masterId = $appointment->master_id;
 
-        // Ищем или создаём клиента
-        $client = Client::where('user_id', $masterId)
-            ->where('phone', $phone)
-            ->first();
-
-        if (! $client) {
-            $client = Client::create([
-                'user_id' => $masterId,
-                'workspace_id' => $appointment->master?->workspace_id,
-                'name' => $fullName ?: __('bot.fallback.client_name')." {$phone}",
-                'phone' => $phone,
-                'telegram_id' => $telegramId,
-                'auth_token' => Client::generateAuthToken(),
-                'pdn_consent_at' => now(),
-                'pdn_consent_version' => Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId) ?? config('legal.version'),
+        try {
+            $client = app(ClientMergeService::class)->findOrCreateByPhone(
+                $masterId,
+                $phone,
+                $telegramId,
+                $fullName ?: null,
+                $appointment->master?->workspace_id,
+            );
+        } catch (AmbiguousClientMatchException) {
+            Log::warning('[TG] handleBookingContact: ambiguous client match', [
+                'appointment_id' => $appointmentId,
+                'master_id' => $masterId,
             ]);
+            $this->chat->html(__('bot.errors.booking_unavailable'))->send();
 
-            Log::info('[TG] handleBookingContact: client created', ['client_id' => $client->id]);
-        } else {
-            $clientUpdates = [];
-            if ($client->telegram_id !== $telegramId) {
-                $clientUpdates['telegram_id'] = $telegramId;
-            }
-            $pendingConsent = Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId);
-            if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
-                $clientUpdates['pdn_consent_at'] = now();
-                $clientUpdates['pdn_consent_version'] = $pendingConsent;
-            }
-            if ($clientUpdates) {
-                $client->update($clientUpdates);
-            }
+            return;
+        } catch (ProviderLinkConflictException) {
+            Log::warning('[TG] handleBookingContact: telegram_id already linked elsewhere', [
+                'appointment_id' => $appointmentId,
+                'master_id' => $masterId,
+            ]);
+            $this->chat->html('❌ Этот Telegram-аккаунт уже привязан к другому профилю.')->send();
 
-            Log::info('[TG] handleBookingContact: existing client', ['client_id' => $client->id]);
+            return;
         }
+
+        $pendingConsent = Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId);
+        $clientUpdates = [];
+
+        if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
+            $clientUpdates['pdn_consent_at'] = now();
+            $clientUpdates['pdn_consent_version'] = $pendingConsent;
+        } elseif ($client->wasRecentlyCreated) {
+            $clientUpdates['pdn_consent_at'] = now();
+            $clientUpdates['pdn_consent_version'] = $pendingConsent ?? config('legal.version');
+        }
+
+        if (empty($client->auth_token)) {
+            $clientUpdates['auth_token'] = Client::generateAuthToken();
+        }
+
+        if ($clientUpdates !== []) {
+            $client->update($clientUpdates);
+        }
+
+        Log::info('[TG] handleBookingContact: client resolved', [
+            'client_id' => $client->id,
+            'created' => $client->wasRecentlyCreated,
+        ]);
 
         $this->syncClientTelegramAvatar($client, $telegramId);
 

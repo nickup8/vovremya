@@ -7,6 +7,7 @@ import {
     Command, CommandInput, CommandList, CommandEmpty, CommandGroup, CommandItem,
 } from '@/components/ui/command';
 import { PhoneInput } from '@/components/PhoneInput';
+import { stripPhoneMask } from '@/lib/phone';
 import { cn } from '@/lib/utils';
 import type { ClientOption } from './types';
 
@@ -136,7 +137,7 @@ export function ClientCombobox({ clients, value, onChange, onClientCreated }: Pr
         try {
             const res = await axios.post('/admin/clients', {
                 name: newName.trim(),
-                phone: newPhone.trim(),
+                phone: stripPhoneMask(newPhone.trim()),
             });
 
             const created: ClientOption = {

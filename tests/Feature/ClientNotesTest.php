@@ -5,6 +5,7 @@ namespace Tests\Feature;
 use App\Models\Client;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Support\Phone;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -13,6 +14,7 @@ class ClientNotesTest extends TestCase
     use RefreshDatabase;
 
     private User $master;
+
     private Workspace $workspace;
 
     protected function setUp(): void
@@ -42,7 +44,7 @@ class ClientNotesTest extends TestCase
 
         $response->assertStatus(200);
 
-        $client = Client::where('phone', '+79001112233')->first();
+        $client = Client::where('phone', Phone::normalize('+79001112233'))->first();
         $this->assertNotNull($client);
         $this->assertSame('Любит кофе', $client->notes);
     }
@@ -58,7 +60,7 @@ class ClientNotesTest extends TestCase
 
         $response->assertStatus(200);
 
-        $client = Client::where('phone', '+79001112244')->first();
+        $client = Client::where('phone', Phone::normalize('+79001112244'))->first();
         $this->assertNotNull($client);
         $this->assertNull($client->notes);
     }
@@ -171,7 +173,7 @@ class ClientNotesTest extends TestCase
 
         $response->assertStatus(200);
 
-        $client = Client::where('phone', '+79005553344')->first();
+        $client = Client::where('phone', Phone::normalize('+79005553344'))->first();
         $this->assertNotNull($client);
         $this->assertSame('Новый', $client->name);
         $this->assertSame('Заметки', $client->notes);

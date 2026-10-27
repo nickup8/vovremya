@@ -3,18 +3,23 @@
 namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
+use App\Exceptions\AmbiguousClientMatchException;
 use App\Exceptions\PastAppointmentException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\Booking\BookingService;
+use App\Services\Client\ClientMergeService;
+use App\Support\Phone;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class ClientController extends Controller
 {
     public function __construct(
         private BookingService $bookingService,
+        private ClientMergeService $clientMergeService,
     ) {}
 
     public function index(Request $request)
@@ -55,7 +60,7 @@ class ClientController extends Controller
         if ($search !== '') {
             $query->where(function ($q) use ($search) {
                 $q->where('name', 'ilike', "%{$search}%")
-                  ->orWhere('phone', 'ilike', "%{$search}%");
+                    ->orWhere('phone', 'ilike', "%{$search}%");
             });
         }
 
@@ -122,11 +127,48 @@ class ClientController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $existing = Client::where('user_id', $master->id)
-            ->where('phone', $validated['phone'])
-            ->first();
+        $normalizedPhone = Phone::normalize($validated['phone']);
+
+        if ($normalizedPhone === null) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Укажите корректный номер телефона.',
+                    'errors' => ['phone' => 'Укажите корректный номер телефона.'],
+                ], 422);
+            }
+
+            throw ValidationException::withMessages([
+                'phone' => 'Укажите корректный номер телефона.',
+            ]);
+        }
+
+        try {
+            $existing = $this->clientMergeService->findByPhone(
+                $master->id,
+                $normalizedPhone,
+                $master->workspace_id,
+            );
+        } catch (AmbiguousClientMatchException) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.',
+                    'errors' => ['phone' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.'],
+                ], 422);
+            }
+
+            throw ValidationException::withMessages([
+                'phone' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.',
+            ]);
+        }
 
         if ($existing) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Клиент с таким номером телефона уже существует.',
+                    'errors' => ['phone' => 'Клиент с таким номером телефона уже существует.'],
+                ], 422);
+            }
+
             return back()->withErrors([
                 'phone' => 'Клиент с таким номером телефона уже существует.',
             ])->withInput();
@@ -134,7 +176,7 @@ class ClientController extends Controller
 
         $client = $master->clients()->create([
             'name' => $validated['name'],
-            'phone' => $validated['phone'],
+            'phone' => $normalizedPhone,
             'notes' => $validated['notes'] ?? null,
             'workspace_id' => $master->workspace_id,
         ]);
@@ -162,18 +204,44 @@ class ClientController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $duplicate = Client::where('user_id', $master->id)
-            ->where('phone', $validated['phone'])
-            ->where('id', '!=', $client->id)
-            ->first();
+        $normalizedPhone = Phone::normalize($validated['phone']);
 
-        if ($duplicate) {
+        if ($normalizedPhone === null) {
+            throw ValidationException::withMessages([
+                'phone' => 'Укажите корректный номер телефона.',
+            ]);
+        }
+
+        try {
+            $duplicate = $this->clientMergeService->findByPhone(
+                $master->id,
+                $normalizedPhone,
+                $master->workspace_id,
+            );
+        } catch (AmbiguousClientMatchException) {
+            throw ValidationException::withMessages([
+                'phone' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.',
+            ]);
+        }
+
+        if ($duplicate && $duplicate->id !== $client->id) {
+            if ($request->expectsJson()) {
+                return response()->json([
+                    'message' => 'Клиент с таким номером телефона уже существует',
+                    'errors' => ['phone' => 'Клиент с таким номером телефона уже существует'],
+                ], 422);
+            }
+
             return back()->withErrors([
-                'phone' => 'Клиент с таким номером уже существует',
+                'phone' => 'Клиент с таким номером телефона уже существует',
             ])->withInput();
         }
 
-        $client->update($validated);
+        $client->update([
+            'name' => $validated['name'],
+            'phone' => $normalizedPhone,
+            'notes' => $validated['notes'] ?? null,
+        ]);
 
         return back()->with('success', 'Данные клиента обновлены');
     }

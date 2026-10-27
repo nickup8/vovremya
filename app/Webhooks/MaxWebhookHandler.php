@@ -5,20 +5,30 @@ namespace App\Webhooks;
 use App\Constants\CacheKeys;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Enums\SlotOfferStatus;
 use App\Events\AppointmentCreated;
 use App\Events\UserChannelsUpdated;
+use App\Exceptions\AmbiguousClientMatchException;
+use App\Exceptions\ProviderLinkConflictException;
+use App\Jobs\MatchSlotOpportunityJob;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Models\SlotOffer;
 use App\Models\User;
-use App\Services\Client\ClientMergeService;
 use App\Services\AppointmentStatusService;
+use App\Services\AppointmentVisitConfirmationService;
+use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
 use App\Services\Notification\MasterNotificationService;
+use App\Services\SlotOfferAcceptanceService;
+use App\Services\SlotOfferService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
+use App\Support\Phone;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -597,17 +607,33 @@ class MaxWebhookHandler
         $masterId = $appointment->master_id;
         $fullName = trim($firstName.' '.$lastName);
 
-        $client = $this->clientMergeService->findOrCreateByPhone(
-            $masterId,
-            $phone,
-            '',
-            $fullName ?: __('bot.fallback.client_name')." {$phone}",
-            $appointment->master?->workspace_id,
-        );
+        try {
+            $client = $this->clientMergeService->findOrCreateByPhone(
+                $masterId,
+                $phone,
+                '',
+                $fullName ?: null,
+                $appointment->master?->workspace_id,
+            );
 
-        // Link max_id to client
-        if (empty($client->max_id)) {
+            // Привязываем max_id только из проверенного MAX-контакта;
+            // чужую существующую привязку не перезаписываем.
             $this->clientMergeService->linkProvider($client, 'max', $userId);
+        } catch (AmbiguousClientMatchException) {
+            Log::warning('[MAX] handleBookingContact: ambiguous client match', [
+                'appointment_id' => $appointmentId,
+                'master_id' => $masterId,
+            ]);
+            $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
+
+            return;
+        } catch (ProviderLinkConflictException) {
+            Log::warning('[MAX] handleBookingContact: max_id already linked elsewhere', [
+                'appointment_id' => $appointmentId,
+            ]);
+            $this->sendMessage($userId, '❌ Этот аккаунт MAX уже привязан к другому профилю.');
+
+            return;
         }
 
         // Persist PDN consent
@@ -681,7 +707,7 @@ class MaxWebhookHandler
     private function extractPhoneFromVcf(string $vcfInfo): string
     {
         if (preg_match('/TEL[^:]*:(.+)/', $vcfInfo, $matches)) {
-            return preg_replace('/[^0-9]/', '', $matches[1]);
+            return Phone::normalize($matches[1]) ?? '';
         }
 
         return '';
@@ -1088,7 +1114,7 @@ class MaxWebhookHandler
             return;
         }
 
-        $result = app(\App\Services\AppointmentVisitConfirmationService::class)
+        $result = app(AppointmentVisitConfirmationService::class)
             ->confirm($appointment, $client);
 
         match ($result['result']) {
@@ -1118,10 +1144,11 @@ class MaxWebhookHandler
 
     private function handleAutofillAccept(string $userId, string $callbackId, string $offerUuid, string $messageId): void
     {
-        $offer = \App\Models\SlotOffer::with(['request.client'])->find($offerUuid);
+        $offer = SlotOffer::with(['request.client'])->find($offerUuid);
 
         if ($offer === null) {
             $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+
             return;
         }
 
@@ -1132,10 +1159,11 @@ class MaxWebhookHandler
                 'offer_id' => $offerUuid,
             ]);
             $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+
             return;
         }
 
-        $result = app(\App\Services\SlotOfferAcceptanceService::class)->acceptEarlier($offer);
+        $result = app(SlotOfferAcceptanceService::class)->acceptEarlier($offer);
 
         if ($result['success']) {
             $ok = $this->maxApi->answerCallbackWithMessage($callbackId, 'Готово, запись перенесена.');
@@ -1144,6 +1172,7 @@ class MaxWebhookHandler
                 $this->sendMessage($userId, 'Готово, запись перенесена.');
             }
             $this->removeKeyboardBestEffort($messageId);
+
             return;
         }
 
@@ -1156,8 +1185,7 @@ class MaxWebhookHandler
             'master_mismatch', 'master_service_mismatch', 'snapshot_missing',
             'snapshot_drift', 'invalid_duration', 'duration_mismatch',
             'not_earlier', 'service_inactive', 'client_conflict',
-            'opportunity_not_open', 'opportunity_past', 'missing_relations' =>
-                'Поиск по этой записи уже неактуален.',
+            'opportunity_not_open', 'opportunity_past', 'missing_relations' => 'Поиск по этой записи уже неактуален.',
             'expired', 'not_pending' => 'Предложение уже недоступно.',
             default => 'Предложение уже недоступно.',
         };
@@ -1172,10 +1200,11 @@ class MaxWebhookHandler
 
     private function handleAutofillDecline(string $userId, string $callbackId, string $offerUuid, string $messageId): void
     {
-        $offer = \App\Models\SlotOffer::with(['request.client'])->find($offerUuid);
+        $offer = SlotOffer::with(['request.client'])->find($offerUuid);
 
         if ($offer === null) {
             $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+
             return;
         }
 
@@ -1186,12 +1215,13 @@ class MaxWebhookHandler
                 'offer_id' => $offerUuid,
             ]);
             $this->maxApi->answerCallback($callbackId, 'Предложение недоступно');
+
             return;
         }
 
-        $freshOffer = \App\Models\SlotOffer::find($offerUuid);
+        $freshOffer = SlotOffer::find($offerUuid);
 
-        if ($freshOffer === null || $freshOffer->status !== \App\Enums\SlotOfferStatus::Pending) {
+        if ($freshOffer === null || $freshOffer->status !== SlotOfferStatus::Pending) {
             $status = $freshOffer?->status?->value ?? 'missing';
             $message = $status === 'accepted'
                 ? 'Запись уже перенесена.'
@@ -1202,23 +1232,25 @@ class MaxWebhookHandler
                 $this->maxApi->answerCallback($callbackId);
                 $this->sendMessage($userId, $message);
             }
+
             return;
         }
 
         try {
-            app(\App\Services\SlotOfferService::class)->decline($freshOffer);
+            app(SlotOfferService::class)->decline($freshOffer);
         } catch (\Throwable $e) {
             Log::warning('[MAX] autofill decline: service error', [
                 'offer_id' => $offerUuid,
                 'error' => $e->getMessage(),
             ]);
             $this->maxApi->answerCallback($callbackId, 'Предложение уже недоступно');
+
             return;
         }
 
         $opportunityId = $freshOffer->slot_opportunity_id;
-        \Illuminate\Support\Facades\DB::afterCommit(
-            fn () => \App\Jobs\MatchSlotOpportunityJob::dispatch($opportunityId),
+        DB::afterCommit(
+            fn () => MatchSlotOpportunityJob::dispatch($opportunityId),
         );
 
         $ok = $this->maxApi->answerCallbackWithMessage($callbackId, 'Хорошо, это время не подойдёт. Продолжим искать.');

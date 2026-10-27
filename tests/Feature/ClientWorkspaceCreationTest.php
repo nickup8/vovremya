@@ -7,6 +7,7 @@ use App\Models\User;
 use App\Models\Workspace;
 use App\Policies\ClientPolicy;
 use App\Services\Client\ClientMergeService;
+use App\Support\Phone;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Tests\TestCase;
 
@@ -47,7 +48,7 @@ class ClientWorkspaceCreationTest extends TestCase
 
         $response->assertStatus(200);
 
-        $client = Client::where('phone', '+79001112233')->first();
+        $client = Client::where('phone', Phone::normalize('+79001112233'))->first();
         $this->assertNotNull($client);
         $this->assertSame($workspace->id, $client->workspace_id);
     }
@@ -111,7 +112,9 @@ class ClientWorkspaceCreationTest extends TestCase
 
         $response->assertRedirect();
 
-        $client = Client::where('user_id', $master->id)->where('phone', $master->phone)->first();
+        $client = Client::where('user_id', $master->id)
+            ->where('phone', Phone::normalize($master->phone))
+            ->first();
         $this->assertNotNull($client);
         $this->assertSame($workspace->id, $client->workspace_id);
     }
