@@ -15,25 +15,18 @@ use App\Models\WorkingHour;
 use App\Models\Workspace;
 use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
-use App\Support\Phone;
-use App\Webhooks\MaxWebhookHandler;
-use App\Webhooks\TelegramWebhookHandler;
 use Carbon\Carbon;
-use DefStudio\Telegraph\Models\TelegraphBot;
-use DefStudio\Telegraph\Models\TelegraphChat;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Event;
-use Illuminate\Support\Facades\Http;
-use Illuminate\Support\Str;
+use Illuminate\Support\Facades\Queue;
+use Illuminate\Testing\TestResponse;
 use Mockery;
-use ReflectionMethod;
 use Tests\TestCase;
 
 /**
  * Воспроизведение и защита от дублей клиентов:
- * ручное создание → виджет → подтверждение в MAX/VK/Telegram.
+ * ручное создание → виджет → подтверждение в MAX/VK.
  */
 class ClientPhoneIdentityTest extends TestCase
 {
@@ -54,9 +47,14 @@ class ClientPhoneIdentityTest extends TestCase
         Event::fake();
         $this->merge = app(ClientMergeService::class);
 
-        config(['services.telegram.bot_token' => 'fake-token']);
-        config(['services.telegram.secret_token' => 'tg-secret']);
-        config(['legal.version' => 'v1']);
+        config([
+            'legal.version' => 'v1',
+            'services.max.secret_token' => 'max-webhook-secret',
+            'services.max.bot_token' => 'max-bot-token',
+            'booking.draft_ttl' => 3600,
+        ]);
+
+        $this->mockMaxApi();
 
         $this->master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow'],
@@ -93,6 +91,15 @@ class ClientPhoneIdentityTest extends TestCase
         ]);
     }
 
+    private function mockMaxApi(): void
+    {
+        $maxApi = Mockery::mock(MaxApiClient::class);
+        $maxApi->shouldReceive('sendMessage')->andReturnNull();
+        $maxApi->shouldReceive('answerCallback')->andReturnNull();
+        $maxApi->shouldReceive('answerCallbackWithMessage')->andReturnNull();
+        $this->app->instance(MaxApiClient::class, $maxApi);
+    }
+
     private function createManualClient(string $rawPhone, array $attrs = []): Client
     {
         $response = $this->actingAs($this->master, 'web')
@@ -121,79 +128,70 @@ class ClientPhoneIdentityTest extends TestCase
         return Appointment::findOrFail($response->json('appointment_id'));
     }
 
-    private function confirmViaTelegram(Appointment $appointment, string $phoneDigits, string $tgId = '555001'): void
+    private function masterCreatesAppointmentFor(Client $client, string $time = '11:00'): Appointment
     {
-        Http::fake([
-            'api.telegram.org/*' => Http::response(['ok' => true, 'result' => true]),
-        ]);
+        $response = $this->actingAs($this->master, 'web')
+            ->postJson(route('admin.calendar.store'), [
+                'client_id' => $client->id,
+                'service_id' => $this->masterService->id,
+                'date' => Carbon::tomorrow()->format('Y-m-d'),
+                'time' => $time,
+            ]);
 
-        $bot = TelegraphBot::firstOrCreate(
-            ['token' => 'fake-tg-bot-token'],
-            ['name' => 'identity-bot'],
-        );
-        $chat = new TelegraphChat([
-            'chat_id' => 424242,
-            'name' => 'Test chat',
-        ]);
-        $chat->telegraph_bot_id = $bot->id;
-        $chat->save();
+        $response->assertStatus(302);
 
-        $handler = app(TelegramWebhookHandler::class);
-
-        $ref = new \ReflectionClass($handler);
-        while ($ref && ! $ref->hasProperty('chat')) {
-            $ref = $ref->getParentClass();
-        }
-        $this->assertNotNull($ref, 'chat property not found');
-        $prop = $ref->getProperty('chat');
-        $prop->setAccessible(true);
-        $prop->setValue($handler, $chat);
-
-        $method = new ReflectionMethod(TelegramWebhookHandler::class, 'handleBookingContact');
-        $method->setAccessible(true);
-        $method->invoke($handler, [
-            'phone_number' => $phoneDigits,
-            'user_id' => (int) $tgId,
-            'first_name' => 'Анна',
-            'last_name' => 'Иванова',
-        ], '424242', (string) $appointment->id);
+        return Appointment::where('client_id', $client->id)->firstOrFail();
     }
 
-    private function confirmViaMax(Appointment $appointment, string $phoneDigits, string $maxUserId = 'max_uid_1'): void
-    {
-        $maxApi = Mockery::mock(MaxApiClient::class);
-        $maxApi->shouldReceive('sendMessage')->andReturnNull();
-        $this->app->instance(MaxApiClient::class, $maxApi);
+    /**
+     * Подтверждение записи через публичный webhook MAX (contact attachment).
+     */
+    private function confirmViaMaxWebhook(
+        Appointment $appointment,
+        string $vcfPhone,
+        string $senderId = 'max_uid_1',
+        array $overrides = [],
+    ): TestResponse {
+        $vcf = "BEGIN:VCARD\nVERSION:3.0\nN:Ivanova;Anna;;;\nFN:Anna Ivanova\nTEL;TYPE=CELL:{$vcfPhone}\nEND:VCARD";
+        $vcfNormalized = rtrim(preg_replace("/\r\n|\r|\n/", "\r\n", $vcf))."\r\n";
+        $hash = hash_hmac('sha256', $vcfNormalized, 'max-bot-token');
 
-        $handler = app(MaxWebhookHandler::class);
-        $method = new ReflectionMethod(MaxWebhookHandler::class, 'handleBookingContact');
-        $method->setAccessible(true);
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.$senderId, (string) $appointment->id, 3600);
 
-        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.$maxUserId, $appointment->id, 3600);
+        $payload = array_replace_recursive([
+            'update_type' => 'message_created',
+            'message' => [
+                'sender' => ['user_id' => $senderId],
+                'recipient' => ['chat_id' => 777],
+                'body' => [
+                    'mid' => 'mid_'.uniqid('', true),
+                    'text' => '',
+                    'attachments' => [[
+                        'type' => 'contact',
+                        'payload' => [
+                            'vcf_info' => $vcf,
+                            'max_info' => [
+                                'user_id' => $senderId,
+                                'first_name' => 'Анна',
+                                'last_name' => 'Иванова',
+                            ],
+                            'hash' => $hash,
+                        ],
+                    ]],
+                ],
+            ],
+        ], $overrides);
 
-        $method->invoke(
-            $handler,
-            $maxUserId,
-            $maxUserId,
-            Phone::normalize($phoneDigits),
-            'Анна',
-            'Иванова',
-            (string) $appointment->id,
-        );
+        return $this->postJson('/webhooks/max', $payload, [
+            'X-Max-Bot-Api-Secret' => 'max-webhook-secret',
+        ]);
     }
 
-    private function confirmViaVk(Appointment $appointment, string $rawPhone, string $vkUserId = '494075'): void
+    private function vkSignedHeaders(string $vkUserId): array
     {
         $appId = '6736218';
         $appSecret = 'wvl68m4dR1UpLrVRli';
         config(['services.vk.app_id' => $appId, 'services.vk.app_secret' => $appSecret]);
-
-        $token = 'link_vk_test_'.uniqid();
-        Cache::put(CacheKeys::VK_LINK_TOKEN.$token, $appointment->id, 900);
-        Cache::put(CacheKeys::VK_CONSENT_PENDING.$vkUserId, config('legal.version'), 900);
-
-        $raw = hash('sha256', $appId.$appSecret.$vkUserId.'phone_number'.$rawPhone, true);
-        $sign = rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
 
         $vkParams = [
             'vk_user_id' => $vkUserId,
@@ -207,68 +205,269 @@ class ClientPhoneIdentityTest extends TestCase
         }
         $hmac = hash_hmac('sha256', implode('&', $parts), $appSecret, true);
         $vkSign = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($hmac));
-        $all = array_merge($vkParams, ['sign' => $vkSign]);
 
-        $this->withHeaders(['Authorization' => 'Bearer '.http_build_query($all)])
+        return ['Authorization' => 'Bearer '.http_build_query(array_merge($vkParams, ['sign' => $vkSign]))];
+    }
+
+    private function vkPhoneSign(string $vkUserId, string $rawPhone): string
+    {
+        $appId = '6736218';
+        $appSecret = 'wvl68m4dR1UpLrVRli';
+        $raw = hash('sha256', $appId.$appSecret.$vkUserId.'phone_number'.$rawPhone, true);
+
+        return rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
+    }
+
+    private function confirmViaVk(Appointment $appointment, string $rawPhone, string $vkUserId = '494075'): TestResponse
+    {
+        $token = 'link_vk_test_'.uniqid();
+        Cache::put(CacheKeys::VK_LINK_TOKEN.$token, $appointment->id, 900);
+        Cache::put(CacheKeys::VK_CONSENT_PENDING.$vkUserId, config('legal.version'), 900);
+
+        return $this->withHeaders($this->vkSignedHeaders($vkUserId))
             ->postJson('/api/miniapp/link', [
                 'token' => $token,
                 'phone_number' => $rawPhone,
-                'sign' => $sign,
-            ])
-            ->assertOk();
+                'sign' => $this->vkPhoneSign($vkUserId, $rawPhone),
+            ]);
     }
 
-    // ─── 1. Ручное создание → виджет → подтверждение ───
+    // ─── А. Основной сценарий: ручное создание → запись мастером → виджет → подтверждение ───
 
-    public function test_manual_create_then_telegram_confirm_reuses_client(): void
+    public function test_manual_create_master_appointment_widget_confirm_via_max_reuses_client(): void
     {
         $client = $this->createManualClient('+7 (900) 123-45-67');
         $this->assertSame('79001234567', $client->phone);
 
-        $appointment = $this->bookViaWidget();
-        $this->assertNull($appointment->client_id);
+        $masterAppointment = $this->masterCreatesAppointmentFor($client);
 
-        $this->confirmViaTelegram($appointment, '89001234567', '777001');
+        $widgetAppointment = $this->bookViaWidget();
+        $this->assertNull($widgetAppointment->client_id);
 
-        $appointment->refresh();
-        $this->assertSame($client->id, $appointment->client_id);
+        $this->confirmViaMaxWebhook($widgetAppointment, '+79001234567')->assertOk();
+
+        $widgetAppointment->refresh();
+        $this->assertSame($client->id, $widgetAppointment->client_id);
+        $this->assertSame(AppointmentSource::Max, $widgetAppointment->source);
+        $this->assertSame($client->id, $masterAppointment->refresh()->client_id);
+
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
-        $this->assertSame('Анна Ручная', $client->fresh()->name);
-        $this->assertSame('важная заметка', $client->fresh()->notes);
-        $this->assertSame('777001', $client->fresh()->telegram_id);
+
+        $fresh = $client->fresh();
+        $this->assertSame('Анна Ручная', $fresh->name);
+        $this->assertSame('важная заметка', $fresh->notes);
+        $this->assertSame('max_uid_1', $fresh->max_id);
+        $this->assertFalse($fresh->is_blocked);
+        $this->assertSame(2, $fresh->appointments()->count());
     }
 
-    public function test_manual_create_then_max_confirm_reuses_client(): void
-    {
-        $client = $this->createManualClient('89001234567');
-
-        $appointment = $this->bookViaWidget();
-        $this->confirmViaMax($appointment, '+79001234567', 'max_a1');
-
-        $appointment->refresh();
-        $this->assertSame($client->id, $appointment->client_id);
-        $this->assertSame(AppointmentSource::Max, $appointment->source);
-        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
-        $this->assertSame('Анна Ручная', $client->fresh()->name);
-        $this->assertSame('max_a1', $client->fresh()->max_id);
-    }
-
-    public function test_manual_create_then_vk_confirm_reuses_client(): void
+    public function test_manual_create_master_appointment_widget_confirm_via_vk_reuses_client(): void
     {
         $client = $this->createManualClient('79001234567');
 
-        $appointment = $this->bookViaWidget();
-        // VK может прислать 8-й префикс в подписанном номере.
-        $this->confirmViaVk($appointment, '89001234567', '494075');
+        $masterAppointment = $this->masterCreatesAppointmentFor($client);
 
-        $appointment->refresh();
-        $this->assertSame($client->id, $appointment->client_id);
+        $widgetAppointment = $this->bookViaWidget();
+        $this->assertNull($widgetAppointment->client_id);
+
+        // VK может прислать 8-й префикс в подписанном номере.
+        $this->confirmViaVk($widgetAppointment, '89001234567')->assertOk();
+
+        $widgetAppointment->refresh();
+        $this->assertSame($client->id, $widgetAppointment->client_id);
+        $this->assertSame($client->id, $masterAppointment->refresh()->client_id);
+
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
-        $this->assertSame('494075', $client->fresh()->vk_id);
+
+        $fresh = $client->fresh();
+        $this->assertSame('494075', $fresh->vk_id);
+        $this->assertSame('Анна Ручная', $fresh->name);
+        $this->assertSame('важная заметка', $fresh->notes);
+        $this->assertSame(2, $fresh->appointments()->count());
+    }
+
+    public function test_blocked_client_confirmation_via_max_is_refused_and_card_kept(): void
+    {
+        $client = $this->createManualClient('79001234567');
+        $client->update(['is_blocked' => true]);
+
+        $widgetAppointment = $this->bookViaWidget();
+
+        $this->confirmViaMaxWebhook($widgetAppointment, '+79001234567');
+
+        $this->assertDatabaseMissing('appointments', ['id' => $widgetAppointment->id]);
+        $fresh = $client->fresh();
+        $this->assertTrue($fresh->is_blocked);
+        $this->assertSame('Анна Ручная', $fresh->name);
+        $this->assertSame('важная заметка', $fresh->notes);
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+    }
+
+    public function test_messenger_profile_name_does_not_replace_master_name_via_vk(): void
+    {
+        $client = $this->createManualClient('79001234567', ['name' => 'Анна Ручная']);
+
+        $widgetAppointment = $this->bookViaWidget();
+        $this->confirmViaVk($widgetAppointment, '79001234567')->assertOk();
+
         $this->assertSame('Анна Ручная', $client->fresh()->name);
     }
 
-    // ─── 2. Варианты записи одного российского номера ───
+    // ─── Б. Один человек у двух независимых мастеров ───
+
+    public function test_same_max_account_allowed_for_independent_masters(): void
+    {
+        $other = User::factory()->master()->create(['workspace_id' => null, 'phone' => '79000000002']);
+
+        $cardA = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Клиент у мастера A',
+        ]);
+        $this->merge->linkProvider($cardA, 'max', 'max_shared_uid');
+
+        $cardB = Client::create([
+            'user_id' => $other->id,
+            'workspace_id' => null,
+            'phone' => '79001234567',
+            'name' => 'Тот же человек у мастера B',
+        ]);
+
+        // Один аккаунт MAX может принадлежать карточкам одного человека
+        // у разных независимых мастеров.
+        $this->merge->linkProvider($cardB, 'max', 'max_shared_uid');
+
+        $this->assertSame('max_shared_uid', $cardA->fresh()->max_id);
+        $this->assertSame('max_shared_uid', $cardB->fresh()->max_id);
+
+        // Истории мастеров остаются раздельными.
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame(1, Client::where('user_id', $other->id)->count());
+    }
+
+    public function test_same_vk_account_allowed_for_independent_masters(): void
+    {
+        $other = User::factory()->master()->create(['workspace_id' => null, 'phone' => '79000000003']);
+
+        $cardA = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Клиент у мастера A',
+        ]);
+        $this->merge->linkProvider($cardA, 'vk', 'vk_shared_uid');
+
+        $cardB = Client::create([
+            'user_id' => $other->id,
+            'workspace_id' => null,
+            'phone' => '79001234567',
+            'name' => 'Тот же человек у мастера B',
+        ]);
+
+        $this->merge->linkProvider($cardB, 'vk', 'vk_shared_uid');
+
+        $this->assertSame('vk_shared_uid', $cardA->fresh()->vk_id);
+        $this->assertSame('vk_shared_uid', $cardB->fresh()->vk_id);
+    }
+
+    public function test_provider_conflict_within_same_workspace_is_rejected(): void
+    {
+        $first = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001110001',
+            'name' => 'Первая',
+        ]);
+        $this->merge->linkProvider($first, 'max', 'max_uid_scope');
+
+        $second = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001110002',
+            'name' => 'Вторая',
+        ]);
+
+        $this->expectException(ProviderLinkConflictException::class);
+        $this->merge->linkProvider($second, 'max', 'max_uid_scope');
+    }
+
+    public function test_search_does_not_capture_cards_of_same_master_from_another_workspace(): void
+    {
+        $oldWs = Workspace::create(['name' => 'WS Old', 'owner_id' => $this->master->id]);
+
+        $oldCard = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $oldWs->id,
+            'phone' => '+79001234567',
+            'name' => 'Старый воркспейс',
+        ]);
+
+        // В текущей области (новый workspace) карточки старого workspace нет.
+        $this->assertNull($this->merge->findByPhone($this->master->id, '89001234567', $this->ws->id));
+
+        $created = $this->merge->findOrCreateByPhone(
+            $this->master->id,
+            '89001234567',
+            '',
+            'Новая карточка',
+            $this->ws->id,
+        );
+
+        $this->assertNotSame($oldCard->id, $created->id);
+        $this->assertSame($this->ws->id, $created->workspace_id);
+        $this->assertSame('+79001234567', $oldCard->fresh()->phone);
+        $this->assertSame($oldWs->id, $oldCard->fresh()->workspace_id);
+    }
+
+    /**
+     * Строка phone идентична (user_id, phone) уникальности БД: вставка в
+     * новой области упирается в unique violation. Ошибка должна переживаться
+     * через savepoint (без aborted-транзакции PostgreSQL), а карточка —
+     * переиспользоваться по точному совпадению, без дубля и без 500.
+     */
+    public function test_unique_conflict_with_identical_phone_resolves_without_aborted_transaction(): void
+    {
+        $oldWs = Workspace::create(['name' => 'WS Old Raw', 'owner_id' => $this->master->id]);
+
+        $oldCard = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $oldWs->id,
+            'phone' => '79001234567',
+            'name' => 'Тот же сырой номер',
+        ]);
+
+        $resolved = $this->merge->findOrCreateByPhone(
+            $this->master->id,
+            '89001234567',
+            '',
+            'Не должна появиться вторая',
+            $this->ws->id,
+        );
+
+        $this->assertSame($oldCard->id, $resolved->id);
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame('Тот же сырой номер', $resolved->fresh()->name);
+
+        // Транзакция не осталась в aborted-состоянии: следующий запрос работает.
+        $this->assertNotNull($this->merge->findByPhone($this->master->id, '+79001234567', $oldWs->id));
+    }
+
+    public function test_workspace_shared_client_is_reused_across_masters(): void
+    {
+        $masterB = User::factory()->master()->create([
+            'workspace_id' => $this->ws->id,
+            'role' => 'master',
+            'phone' => '79000000004',
+        ]);
+
+        $shared = $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '', 'Общий', $this->ws->id);
+
+        $again = $this->merge->findOrCreateByPhone($masterB->id, '89001234567', '', null, $this->ws->id);
+        $this->assertSame($shared->id, $again->id);
+    }
+
+    // ─── В. Legacy, неоднозначность, разные форматы ───
 
     public function test_russian_phone_variants_resolve_to_same_client(): void
     {
@@ -292,6 +491,30 @@ class ClientPhoneIdentityTest extends TestCase
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
     }
 
+    public function test_ten_digit_legacy_phone_is_found_on_confirm(): void
+    {
+        // Уже сохранённая legacy-карточка с десятизначным номером
+        // (формат с пробелами — путь regexp, а не точного whereIn).
+        $legacy = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '900 123-45-67',
+            'name' => 'Десять цифр',
+            'notes' => 'старые заметки',
+        ]);
+
+        $found = $this->merge->findByPhone($this->master->id, '+79001234567', $this->ws->id);
+        $this->assertNotNull($found);
+        $this->assertSame($legacy->id, $found->id);
+
+        $widgetAppointment = $this->bookViaWidget();
+        $this->confirmViaMaxWebhook($widgetAppointment, '+79001234567')->assertOk();
+
+        $this->assertSame($legacy->id, $widgetAppointment->refresh()->client_id);
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame('старые заметки', $legacy->fresh()->notes);
+    }
+
     public function test_legacy_formatted_phone_is_found(): void
     {
         $legacy = Client::create([
@@ -312,22 +535,9 @@ class ClientPhoneIdentityTest extends TestCase
         $this->assertSame('старые заметки', $viaService->fresh()->notes);
     }
 
-    // ─── 3. Разные мастера и legacy workspace_id=NULL ───
-
-    public function test_independent_masters_do_not_merge(): void
-    {
-        $other = User::factory()->master()->create(['workspace_id' => null, 'phone' => '79000000002']);
-
-        $clientA = $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '', 'Мастер A клиент', null);
-        $clientB = $this->merge->findOrCreateByPhone($other->id, '79001234567', '', 'Мастер B клиент', null);
-
-        $this->assertNotSame($clientA->id, $clientB->id);
-        $this->assertSame(2, Client::where('phone', '79001234567')->count());
-    }
-
     public function test_legacy_null_workspace_client_reused_for_same_master(): void
     {
-        $legacyMaster = User::factory()->master()->create(['workspace_id' => null, 'phone' => '79000000003']);
+        $legacyMaster = User::factory()->master()->create(['workspace_id' => null, 'phone' => '79000000005']);
 
         $legacy = Client::create([
             'user_id' => $legacyMaster->id,
@@ -351,150 +561,19 @@ class ClientPhoneIdentityTest extends TestCase
         $this->assertSame($legacy->id, $found->id);
     }
 
-    public function test_workspace_shared_client_is_reused_across_masters(): void
+    public function test_independent_masters_do_not_merge(): void
     {
-        $masterB = User::factory()->master()->create([
-            'workspace_id' => $this->ws->id,
-            'role' => 'master',
-            'phone' => '79000000004',
-        ]);
+        $other = User::factory()->master()->create(['workspace_id' => null, 'phone' => '79000000006']);
 
-        $shared = $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '', 'Общий', $this->ws->id);
+        $clientA = $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '', 'Мастер A клиент', null);
+        $clientB = $this->merge->findOrCreateByPhone($other->id, '79001234567', '', 'Мастер B клиент', null);
 
-        $again = $this->merge->findOrCreateByPhone($masterB->id, '89001234567', '', null, $this->ws->id);
-        $this->assertSame($shared->id, $again->id);
+        $this->assertNotSame($clientA->id, $clientB->id);
+        $this->assertSame(2, Client::where('phone', '79001234567')->count());
     }
-
-    // ─── 4. Блокировка, имя, заметки ───
-
-    public function test_blocked_client_is_not_bypassed_via_format_duplicate(): void
-    {
-        $blocked = Client::create([
-            'user_id' => $this->master->id,
-            'workspace_id' => $this->ws->id,
-            'phone' => '+79001234567',
-            'name' => 'Заблокирована',
-            'is_blocked' => true,
-        ]);
-
-        $appointment = $this->bookViaWidget();
-        $this->confirmViaTelegram($appointment, '89001234567', '900111');
-
-        $this->assertDatabaseMissing('appointments', ['id' => $appointment->id]);
-        $this->assertSame($blocked->id, $blocked->fresh()->id);
-        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
-        $this->assertTrue($blocked->fresh()->is_blocked);
-    }
-
-    public function test_messenger_profile_name_does_not_replace_master_name(): void
-    {
-        $client = $this->createManualClient('79001234567', ['name' => 'Анна Ручная']);
-
-        $appointment = $this->bookViaWidget();
-        $this->confirmViaTelegram($appointment, '79001234567', '900222');
-
-        $this->assertSame('Анна Ручная', $client->fresh()->name);
-    }
-
-    // ─── 5. Конфликт аккаунта мессенджера ───
-
-    public function test_telegram_id_conflict_is_rejected_without_overwrite(): void
-    {
-        $other = Client::factory()->create([
-            'user_id' => $this->master->id,
-            'workspace_id' => $this->ws->id,
-            'phone' => '79009998877',
-            'telegram_id' => '555001',
-            'name' => 'Чужая карточка TG',
-        ]);
-
-        $this->expectException(ProviderLinkConflictException::class);
-
-        $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '555001', 'Пришла', $this->ws->id);
-    }
-
-    public function test_vk_provider_conflict_returns_409(): void
-    {
-        Client::factory()->create([
-            'user_id' => $this->master->id,
-            'workspace_id' => $this->ws->id,
-            'phone' => '79001234567',
-            'vk_id' => '111222',
-            'name' => 'С привязкой',
-        ]);
-
-        $appointment = $this->bookViaWidget();
-        $appId = '6736218';
-        $appSecret = 'wvl68m4dR1UpLrVRli';
-        config(['services.vk.app_id' => $appId, 'services.vk.app_secret' => $appSecret]);
-
-        $vkUserId = '494075';
-        $token = 'link_vk_conflict_'.uniqid();
-        Cache::put(CacheKeys::VK_LINK_TOKEN.$token, $appointment->id, 900);
-        Cache::put(CacheKeys::VK_CONSENT_PENDING.$vkUserId, config('legal.version'), 900);
-
-        $rawPhone = '79001234567';
-        $raw = hash('sha256', $appId.$appSecret.$vkUserId.'phone_number'.$rawPhone, true);
-        $sign = rtrim(strtr(base64_encode($raw), '+/', '-_'), '=');
-
-        $vkParams = ['vk_user_id' => $vkUserId, 'vk_app_id' => $appId, 'vk_platform' => 'android'];
-        ksort($vkParams);
-        $parts = [];
-        foreach ($vkParams as $key => $value) {
-            $parts[] = $key.'='.$value;
-        }
-        $hmac = hash_hmac('sha256', implode('&', $parts), $appSecret, true);
-        $vkSign = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($hmac));
-
-        $this->withHeaders(['Authorization' => 'Bearer '.http_build_query(array_merge($vkParams, ['sign' => $vkSign]))])
-            ->postJson('/api/miniapp/link', [
-                'token' => $token,
-                'phone_number' => $rawPhone,
-                'sign' => $sign,
-            ])
-            ->assertStatus(409);
-
-        $this->assertSame('111222', Client::where('phone', '79001234567')->first()->vk_id);
-    }
-
-    public function test_vk_unsigned_phone_is_rejected(): void
-    {
-        $appointment = $this->bookViaWidget();
-        $appId = '6736218';
-        $appSecret = 'wvl68m4dR1UpLrVRli';
-        config(['services.vk.app_id' => $appId, 'services.vk.app_secret' => $appSecret]);
-
-        $vkUserId = '494075';
-        $token = 'link_vk_badsign_'.uniqid();
-        Cache::put(CacheKeys::VK_LINK_TOKEN.$token, $appointment->id, 900);
-        Cache::put(CacheKeys::VK_CONSENT_PENDING.$vkUserId, config('legal.version'), 900);
-
-        $vkParams = ['vk_user_id' => $vkUserId, 'vk_app_id' => $appId, 'vk_platform' => 'android'];
-        ksort($vkParams);
-        $parts = [];
-        foreach ($vkParams as $key => $value) {
-            $parts[] = $key.'='.$value;
-        }
-        $hmac = hash_hmac('sha256', implode('&', $parts), $appSecret, true);
-        $vkSign = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($hmac));
-
-        $this->withHeaders(['Authorization' => 'Bearer '.http_build_query(array_merge($vkParams, ['sign' => $vkSign]))])
-            ->postJson('/api/miniapp/link', [
-                'token' => $token,
-                'phone_number' => '79001234567',
-                'sign' => 'invalid-sign',
-            ])
-            ->assertStatus(422);
-
-        $this->assertSame(0, Client::where('phone', '79001234567')->count());
-    }
-
-    // ─── 6. Неоднозначные дубли ───
 
     public function test_ambiguous_duplicates_throw_instead_of_arbitrary_pick(): void
     {
-        // Два legacy-дубля одного мастера с одинаковым нормализованным телефоном
-        // и разными сырыми форматами (не бьётся с unique по строке).
         Client::create([
             'user_id' => $this->master->id,
             'workspace_id' => null,
@@ -514,68 +593,308 @@ class ClientPhoneIdentityTest extends TestCase
         $this->merge->findByPhone($this->master->id, '79001234567', null);
     }
 
-    public function test_exact_canonical_form_preferred_over_legacy_duplicates(): void
+    /**
+     * Вместо «предпочтения канонической формы» — отказ при неоднозначности
+     * без каких-либо побочных изменений карточек и привязок.
+     */
+    public function test_ambiguous_canonical_and_legacy_duplicates_rejected_without_side_effects(): void
     {
-        Client::create([
+        $legacy = Client::create([
             'user_id' => $this->master->id,
             'workspace_id' => null,
             'phone' => '+79001234567',
             'name' => 'Legacy',
+            'notes' => 'legacy заметка',
         ]);
         $canonical = Client::create([
             'user_id' => $this->master->id,
             'workspace_id' => null,
             'phone' => '79001234567',
             'name' => 'Канон',
+            'notes' => 'канон заметка',
+            'telegram_id' => 'tg_on_canonical',
         ]);
 
-        $found = $this->merge->findByPhone($this->master->id, '79001234567', null);
-        $this->assertSame($canonical->id, $found->id);
+        $before = Client::orderBy('id')->get(['id', 'phone', 'name', 'notes', 'telegram_id', 'max_id', 'vk_id']);
+
+        try {
+            $this->merge->findByPhone($this->master->id, '79001234567', null);
+            $this->fail('Ожидался AmbiguousClientMatchException');
+        } catch (AmbiguousClientMatchException) {
+            // ожидаемый отказ без выбора карточки
+        }
+
+        try {
+            $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '', 'Новая', null);
+            $this->fail('Ожидался AmbiguousClientMatchException');
+        } catch (AmbiguousClientMatchException) {
+            // ожидаемый отказ без создания третьей карточки
+        }
+
+        $after = Client::orderBy('id')->get(['id', 'phone', 'name', 'notes', 'telegram_id', 'max_id', 'vk_id']);
+
+        $this->assertSame(2, $after->count());
+        $this->assertEquals($before, $after);
+        $this->assertSame($canonical->id, $canonical->fresh()->id);
+        $this->assertSame('tg_on_canonical', $canonical->fresh()->telegram_id);
+        $this->assertSame($legacy->id, $legacy->fresh()->id);
     }
 
-    // ─── 7. Конкурентность ───
-
-    public function test_concurrent_create_resolves_to_single_client(): void
+    public function test_blocked_duplicate_is_not_ignored_in_ambiguous_match(): void
     {
-        $created = null;
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Заблокированный дубль',
+            'is_blocked' => true,
+        ]);
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '+79001234567',
+            'name' => 'Незаблокированный дубль',
+            'is_blocked' => false,
+        ]);
 
-        Client::creating(function (Client $model) use (&$created) {
-            if ($created !== null || $model->phone !== '79001234567') {
-                return;
-            }
+        $widgetAppointment = $this->bookViaWidget();
 
-            $created = true;
+        $this->confirmViaMaxWebhook($widgetAppointment, '+79001234567');
 
-            // Имитация параллельной вставки до нашего INSERT.
-            DB::table('clients')->insert([
-                'id' => (string) Str::uuid(),
-                'user_id' => $model->user_id,
-                'workspace_id' => $model->workspace_id,
-                'phone' => '79001234567',
-                'name' => 'Параллельный',
-                'is_personal' => true,
-                'is_blocked' => false,
-                'created_at' => now(),
-                'updated_at' => now(),
-            ]);
-        });
-
-        $client = $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '', 'Поздний', $this->ws->id);
-
-        $this->assertNotNull($client->id);
-        $this->assertSame(1, Client::where('user_id', $this->master->id)->where('phone', '79001234567')->count());
+        // Неоднозначность → отказ; незаблокированный дубль не выбирается молча.
+        $this->assertNull($widgetAppointment->refresh()->client_id);
+        $this->assertSame(2, Client::where('user_id', $this->master->id)->count());
+        $this->assertTrue(Client::where('phone', '79001234567')->first()->is_blocked);
+        $this->assertFalse(Client::where('phone', '+79001234567')->first()->is_blocked);
     }
 
-    public function test_sequential_find_or_create_is_stable(): void
-    {
-        $a = $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '', 'Первый', $this->ws->id);
-        $b = $this->merge->findOrCreateByPhone($this->master->id, '89001234567', '', 'Второй', $this->ws->id);
+    // ─── Г. Привязки ───
 
-        $this->assertSame($a->id, $b->id);
+    public function test_telegram_id_conflict_is_rejected_without_overwrite(): void
+    {
+        Client::factory()->create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79009998877',
+            'telegram_id' => '555001',
+            'name' => 'Чужая карточка TG',
+        ]);
+
+        $this->expectException(ProviderLinkConflictException::class);
+
+        $this->merge->findOrCreateByPhone($this->master->id, '79001234567', '555001', 'Пришла', $this->ws->id);
+    }
+
+    public function test_late_link_request_does_not_overwrite_existing_binding(): void
+    {
+        $client = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Карточка',
+        ]);
+
+        // Модель, загруженная до того, как «конкурентный» запрос успел привязать.
+        $stale = Client::find($client->id);
+        Client::whereKey($client->id)->update(['vk_id' => 'vk_won_the_race']);
+
+        try {
+            $this->merge->linkProvider($stale, 'vk', 'vk_late_arrival');
+            $this->fail('Ожидался ProviderLinkConflictException');
+        } catch (ProviderLinkConflictException) {
+            // ожидаемый конфликт
+        }
+
+        $this->assertSame('vk_won_the_race', $client->fresh()->vk_id);
+    }
+
+    public function test_link_provider_is_idempotent_for_same_id(): void
+    {
+        $client = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Карточка',
+            'vk_id' => 'vk_same',
+        ]);
+
+        $result = $this->merge->linkProvider($client, 'vk', 'vk_same');
+        $this->assertSame('vk_same', $result->fresh()->vk_id);
+    }
+
+    public function test_vk_provider_conflict_returns_409_and_keeps_existing_link(): void
+    {
+        $existing = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'vk_id' => '111222',
+            'name' => 'С привязкой',
+        ]);
+
+        $otherAppointment = $this->bookViaWidget();
+
+        $this->confirmViaVk($otherAppointment, '79001234567', '494075')->assertStatus(409);
+
+        $this->assertSame('111222', $existing->fresh()->vk_id);
+        $this->assertNull($otherAppointment->refresh()->client_id);
+    }
+
+    public function test_vk_link_does_not_attach_account_to_another_card_of_same_scope(): void
+    {
+        // Уже привязанный к другому номеру этого же мастера vk_id.
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001110001',
+            'vk_id' => '494075',
+            'name' => 'Прежний номер',
+        ]);
+
+        $appointment = $this->bookViaWidget();
+
+        // Подписанный номер указывает на другую карточку — привязка занята.
+        $this->confirmViaVk($appointment, '79001234567', '494075')->assertStatus(409);
+
+        $this->assertSame(1, Client::where('vk_id', '494075')->count());
+        $this->assertNull($appointment->refresh()->client_id);
+        $this->assertNull(Client::where('phone', '79001234567')->first()?->vk_id);
+    }
+
+    public function test_vk_unsigned_phone_is_rejected(): void
+    {
+        $appointment = $this->bookViaWidget();
+
+        $token = 'link_vk_badsign_'.uniqid();
+        Cache::put(CacheKeys::VK_LINK_TOKEN.$token, $appointment->id, 900);
+        Cache::put(CacheKeys::VK_CONSENT_PENDING.'494075', config('legal.version'), 900);
+
+        $this->withHeaders($this->vkSignedHeaders('494075'))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => '79001234567',
+                'sign' => 'invalid-sign',
+            ])
+            ->assertStatus(422);
+
+        $this->assertSame(0, Client::where('phone', '79001234567')->count());
+        $this->assertNull($appointment->refresh()->client_id);
+    }
+
+    public function test_vk_repeated_delivery_is_idempotent(): void
+    {
+        $appointment = $this->bookViaWidget();
+
+        $this->confirmViaVk($appointment, '79001234567', '494075')->assertOk();
+        $appointment->refresh();
+        $clientId = $appointment->client_id;
+        $this->assertNotNull($clientId);
+
+        // Повторная доставка того же события (токен уже погашен) — отказ без изменений.
+        $this->confirmViaVk($appointment, '79001234567', '494075')->assertStatus(422);
+
+        $this->assertSame($clientId, $appointment->refresh()->client_id);
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
     }
 
-    // ─── 8. Админ: дубль при ручном создании в другом формате ───
+    public function test_max_contact_with_invalid_hash_is_rejected_via_public_webhook(): void
+    {
+        $appointment = $this->bookViaWidget();
+
+        $this->confirmViaMaxWebhook($appointment, '+79001234567', 'max_uid_1', [
+            'message' => ['body' => ['attachments' => [[
+                'payload' => ['hash' => 'invalid-hash-value'],
+            ]]]],
+        ]);
+
+        $this->assertNull($appointment->refresh()->client_id);
+        $this->assertSame(0, Client::where('user_id', $this->master->id)->count());
+    }
+
+    public function test_max_contact_not_belonging_to_sender_is_rejected_via_public_webhook(): void
+    {
+        $appointment = $this->bookViaWidget();
+
+        $this->confirmViaMaxWebhook($appointment, '+79001234567', 'max_uid_sender', [
+            'message' => ['body' => ['attachments' => [[
+                'payload' => ['max_info' => ['user_id' => 'max_uid_someone_else']],
+            ]]]],
+        ]);
+
+        // Чужой контакт не даёт права привязать свой аккаунт и брать карточку.
+        $this->assertNull($appointment->refresh()->client_id);
+        $this->assertSame(0, Client::where('user_id', $this->master->id)->count());
+        $this->assertSame(0, Client::where('max_id', 'max_uid_sender')->count());
+    }
+
+    public function test_max_provider_conflict_via_public_webhook_keeps_appointment_unconfirmed(): void
+    {
+        // max_id уже привязан к другой карточке этого же мастера.
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001110001',
+            'max_id' => 'max_uid_conflict',
+            'name' => 'Прежний номер',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+        ]);
+
+        $appointment = $this->bookViaWidget();
+
+        $this->confirmViaMaxWebhook($appointment, '+79001234567', 'max_uid_conflict');
+
+        $this->assertNull($appointment->refresh()->client_id);
+        $this->assertSame('max_uid_conflict', Client::where('phone', '79001110001')->first()->max_id);
+        // Карточки с новым номером не осталось (частичных изменений нет).
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+    }
+
+    public function test_max_repeated_delivery_is_idempotent(): void
+    {
+        $appointment = $this->bookViaWidget();
+
+        $this->confirmViaMaxWebhook($appointment, '+79001234567', 'max_uid_1')->assertOk();
+        $appointment->refresh();
+        $clientId = $appointment->client_id;
+        $this->assertNotNull($clientId);
+
+        // Повторная доставка того же событие гасится дедупликацией по mid.
+        // Отправляем второй раз с тем же mid — payload идентичен.
+        $vcf = "BEGIN:VCARD\nVERSION:3.0\nN:Ivanova;Anna;;;\nFN:Anna Ivanova\nTEL;TYPE=CELL:+79001234567\nEND:VCARD";
+        $vcfNormalized = rtrim(preg_replace("/\r\n|\r|\n/", "\r\n", $vcf))."\r\n";
+        $hash = hash_hmac('sha256', $vcfNormalized, 'max-bot-token');
+        $mid = 'mid_fixed_for_replay';
+
+        $payload = [
+            'update_type' => 'message_created',
+            'message' => [
+                'sender' => ['user_id' => 'max_uid_1'],
+                'recipient' => ['chat_id' => 777],
+                'body' => [
+                    'mid' => $mid,
+                    'text' => '',
+                    'attachments' => [[
+                        'type' => 'contact',
+                        'payload' => [
+                            'vcf_info' => $vcf,
+                            'max_info' => ['user_id' => 'max_uid_1', 'first_name' => 'Анна', 'last_name' => 'Иванова'],
+                            'hash' => $hash,
+                        ],
+                    ]],
+                ],
+            ],
+        ];
+
+        // Первый delivery с фиксированным mid (уникальный в тесте).
+        $this->postJson('/webhooks/max', $payload, ['X-Max-Bot-Api-Secret' => 'max-webhook-secret'])->assertOk();
+        $this->postJson('/webhooks/max', $payload, ['X-Max-Bot-Api-Secret' => 'max-webhook-secret'])->assertOk();
+
+        $this->assertSame($clientId, $appointment->refresh()->client_id);
+        $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+    }
+
+    // ─── Админ: ручное создание и изменение ───
 
     public function test_admin_store_rejects_duplicate_in_another_format(): void
     {
@@ -591,6 +910,95 @@ class ClientPhoneIdentityTest extends TestCase
         $errors = $response->json('errors') ?? [];
         $this->assertArrayHasKey('phone', $errors);
         $this->assertSame(1, Client::where('user_id', $this->master->id)->count());
+    }
+
+    public function test_admin_store_rejects_ambiguous_duplicates_without_changes(): void
+    {
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '+79001234567',
+            'name' => 'Дубль 1',
+        ]);
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '89001234567',
+            'name' => 'Дубль 2',
+        ]);
+
+        $response = $this->actingAs($this->master, 'web')
+            ->postJson(route('admin.clients.store'), [
+                'name' => 'Третий',
+                'phone' => '79001234567',
+            ]);
+
+        $this->assertSame(422, $response->getStatusCode(), $response->getContent());
+        $this->assertSame(2, Client::where('user_id', $this->master->id)->count());
+    }
+
+    public function test_admin_update_phone_uses_shared_scope_and_lock(): void
+    {
+        $client = $this->createManualClient('79001234567');
+        $other = $this->createManualClient('79009998877', ['name' => 'Другая']);
+
+        // Смена на номер другой карточки — отказ, данные не меняются.
+        $response = $this->actingAs($this->master, 'web')
+            ->putJson(route('admin.clients.update', $client->id), [
+                'name' => 'Анна Ручная',
+                'phone' => '8 (900) 999-88-77',
+                'notes' => 'важная заметка',
+            ]);
+
+        $this->assertSame(422, $response->getStatusCode(), $response->getContent());
+        $this->assertSame('79001234567', $client->fresh()->phone);
+        $this->assertSame($other->fresh()->phone, '79009998877');
+
+        // Успешная смена телефона нормализует номер.
+        $response = $this->actingAs($this->master, 'web')
+            ->putJson(route('admin.clients.update', $client->id), [
+                'name' => 'Анна Ручная',
+                'phone' => '8 (900) 111-22-33',
+                'notes' => 'важная заметка',
+            ]);
+
+        $this->assertSame(302, $response->getStatusCode(), $response->getContent());
+        $this->assertSame('79001112233', $client->fresh()->phone);
+        $this->assertSame('важная заметка', $client->fresh()->notes);
+    }
+
+    // ─── RoleSwitch: регрессии без смены владельца ───
+
+    public function test_role_switch_to_client_does_not_change_card_owner(): void
+    {
+        $owner = User::factory()->master()->create([
+            'workspace_id' => $this->ws->id,
+            'role' => 'owner',
+            'phone' => '79000000010',
+        ]);
+
+        // Карточка в общем workspace с телефоном второго мастера,
+        // но владельцем остаётся owner.
+        $sharedCard = Client::create([
+            'user_id' => $owner->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79000000011',
+            'name' => 'Общий клиент',
+        ]);
+
+        $member = User::factory()->master()->create([
+            'workspace_id' => $this->ws->id,
+            'role' => 'master',
+            'phone' => '79000000011',
+        ]);
+
+        $response = $this->actingAs($member, 'web')->post(route('switch.to.client'));
+
+        $response->assertRedirect();
+
+        $fresh = $sharedCard->fresh();
+        $this->assertSame($owner->id, $fresh->user_id, 'Владелец карточки не должен меняться');
+        $this->assertAuthenticatedAs($fresh, 'client');
     }
 
     // ─── Диагностическая команда ───
@@ -615,6 +1023,97 @@ class ClientPhoneIdentityTest extends TestCase
 
         $this->artisan('clients:find-duplicates')
             ->expectsOutputToContain('Найдено групп-дублей: 1')
+            ->doesntExpectOutputToContain('secret-token-should-not-appear')
+            ->doesntExpectOutputToContain('max_secret_id')
+            ->doesntExpectOutputToContain('999888777')
             ->assertExitCode(0);
+    }
+
+    public function test_diagnostic_command_groups_workspace_and_legacy_cards_of_same_master_together(): void
+    {
+        // Карточка workspace и legacy-карточка того же мастера — одна область
+        // рабочего поиска, команда должна увидеть неоднозначность.
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '+79001234567',
+            'name' => 'Воркспейс-дубль',
+        ]);
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => null,
+            'phone' => '89001234567',
+            'name' => 'Legacy-дубль',
+        ]);
+
+        $this->artisan('clients:find-duplicates')
+            ->expectsOutputToContain('Найдено групп-дублей: 1')
+            ->assertExitCode(0);
+    }
+
+    public function test_diagnostic_command_workspace_filter_excludes_foreign_legacy_cards(): void
+    {
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '+79001234567',
+            'name' => 'WS карточка',
+        ]);
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => null,
+            'phone' => '89001234567',
+            'name' => 'Legacy этого мастера',
+        ]);
+
+        $foreignMaster = User::factory()->master()->create(['workspace_id' => null, 'phone' => '79000000012']);
+        $foreign = Client::create([
+            'user_id' => $foreignMaster->id,
+            'workspace_id' => null,
+            'phone' => '79001234567',
+            'name' => 'Чужой legacy',
+        ]);
+
+        // В области workspace есть неоднозначность (2 карточки),
+        // но чужая legacy-карточка в вывод не попадает.
+        $this->artisan('clients:find-duplicates --workspace='.$this->ws->id)
+            ->expectsOutputToContain('Найдено групп-дублей: 1')
+            ->doesntExpectOutputToContain($foreign->id)
+            ->assertExitCode(0);
+    }
+
+    public function test_diagnostic_command_is_read_only_and_masks_phones(): void
+    {
+        $card = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '79001234567',
+            'name' => 'Дубль 1',
+        ]);
+        Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '89001234567',
+            'name' => 'Дубль 2',
+        ]);
+
+        Queue::fake();
+
+        $before = Client::orderBy('id')->get(['id', 'phone', 'name', 'is_blocked', 'updated_at']);
+
+        $this->artisan('clients:find-duplicates')
+            ->expectsOutputToContain('Найдено групп-дублей: 1')
+            ->assertExitCode(0);
+
+        $after = Client::orderBy('id')->get(['id', 'phone', 'name', 'is_blocked', 'updated_at']);
+        $this->assertEquals($before, $after, 'Команда не должна менять данные');
+        Queue::assertNothingPushed();
+
+        // Полный номер не раскрывается.
+        $this->artisan('clients:find-duplicates')
+            ->doesntExpectOutputToContain('79001234567')
+            ->assertExitCode(0);
+
+        $this->assertNotNull($card->fresh());
     }
 }

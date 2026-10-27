@@ -464,6 +464,18 @@ class MaxWebhookHandler
         $loginToken = Cache::get(CacheKeys::MAX_CHAT_TOKEN.$userId);
         $draftAppointmentId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
 
+        // Телефон берётся только из контакта самого отправителя:
+        // чужой контакт не даёт права привязать свой аккаунт к карточке.
+        if ((string) $contactUserId !== (string) $userId) {
+            Log::warning('[MAX] contact does not belong to sender', [
+                'user_id' => $userId,
+                'appointment_id' => $draftAppointmentId,
+            ]);
+            $this->sendMessage($userId, __('bot.errors.phone_detection_failed'));
+
+            return;
+        }
+
         if ($loginToken) {
             $this->handleAuthContact($userId, $contactUserId, $phone, $firstName, $lastName, $loginToken);
         } elseif ($draftAppointmentId) {
@@ -606,19 +618,46 @@ class MaxWebhookHandler
 
         $masterId = $appointment->master_id;
         $fullName = trim($firstName.' '.$lastName);
+        $pendingConsent = Cache::get(CacheKeys::MAX_CONSENT_PENDING.$userId);
 
+        // Поиск/создание, привязка и подтверждение записи атомарны:
+        // конфликт не оставляет ни частично подтверждённой записи,
+        // ни изменённой карточки. HTTP к мессенджерам — только после commit.
         try {
-            $client = $this->clientMergeService->findOrCreateByPhone(
+            $state = DB::transaction(function () use (
+                $appointment,
                 $masterId,
+                $userId,
                 $phone,
-                '',
-                $fullName ?: null,
-                $appointment->master?->workspace_id,
-            );
+                $fullName,
+                $pendingConsent,
+            ) {
+                $client = $this->clientMergeService->findOrCreateByPhone(
+                    $masterId,
+                    $phone,
+                    '',
+                    $fullName ?: null,
+                    $appointment->master?->workspace_id,
+                );
 
-            // Привязываем max_id только из проверенного MAX-контакта;
-            // чужую существующую привязку не перезаписываем.
-            $this->clientMergeService->linkProvider($client, 'max', $userId);
+                // Привязываем max_id только из проверенного MAX-контакта;
+                // чужую существующую привязку не перезаписываем.
+                $this->clientMergeService->linkProvider($client, 'max', $userId);
+
+                if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
+                    $client->pdn_consent_at = now();
+                    $client->pdn_consent_version = $pendingConsent;
+                    $client->save();
+                }
+
+                if ($client->isBlocked()) {
+                    return ['blocked' => true, 'client' => $client];
+                }
+
+                $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
+
+                return ['blocked' => false, 'client' => $client];
+            });
         } catch (AmbiguousClientMatchException) {
             Log::warning('[MAX] handleBookingContact: ambiguous client match', [
                 'appointment_id' => $appointmentId,
@@ -636,22 +675,18 @@ class MaxWebhookHandler
             return;
         }
 
-        // Persist PDN consent
-        $pendingConsent = Cache::pull(CacheKeys::MAX_CONSENT_PENDING.$userId);
-        if ($pendingConsent && $client->pdn_consent_version !== $pendingConsent) {
-            $client->pdn_consent_at = now();
-            $client->pdn_consent_version = $pendingConsent;
-            $client->save();
+        $client = $state['client'];
+
+        if ($pendingConsent) {
+            Cache::forget(CacheKeys::MAX_CONSENT_PENDING.$userId);
         }
 
-        if ($client->isBlocked()) {
+        if ($state['blocked']) {
             $appointment->delete();
             $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
 
             return;
         }
-
-        $appointment->update(['client_id' => $client->id, 'source' => AppointmentSource::Max]);
 
         broadcast(new AppointmentCreated(
             $appointment->load(['client'])

@@ -7,7 +7,8 @@ namespace App\Support;
  *
  * Каноническая форма — цифры без форматирования:
  * - российские 8/7/10-значные мобильные приводятся к 7XXXXXXXXXX;
- * - иностранные/невалидные номера не «российизируются».
+ * - явно международные номера (+84, +90 и т.п.) не «российизируются»;
+ * - буквы и произвольный мусор не принимаются как номер.
  */
 final class Phone
 {
@@ -24,28 +25,47 @@ final class Phone
             return null;
         }
 
-        $digits = preg_replace('/\D+/', '', $raw);
+        $trimmed = trim($raw);
+
+        if ($trimmed === '') {
+            return null;
+        }
+
+        // Допустимы только цифры, разделители формата и ведущий «+»:
+        // буквы и прочий мусор не должны превращаться в «номер».
+        if (preg_match('/^\+?[0-9\s\-\(\)\.]*$/', $trimmed) !== 1) {
+            return null;
+        }
+
+        $hasPlus = str_starts_with($trimmed, '+');
+        $digits = preg_replace('/\D+/', '', $trimmed);
 
         if ($digits === null || $digits === '') {
             return null;
         }
 
-        // 8XXXXXXXXXX (RU) → 7XXXXXXXXXX
-        if (strlen($digits) === 11 && $digits[0] === '8') {
-            return '7'.substr($digits, 1);
+        $length = strlen($digits);
+
+        // 8XXXXXXXXXX → 7XXXXXXXXXX. Без «+» это российский домашний формат
+        // (в т.ч. legacy «8495…»). С явным «+» конвертируем только мобильный
+        // вид «89…» («+8 900…»); «+84…», «+90…» остаются международными.
+        if ($length === 11 && $digits[0] === '8') {
+            if (! $hasPlus || $digits[1] === '9') {
+                return '7'.substr($digits, 1);
+            }
         }
 
         // 7XXXXXXXXXX (RU E.164 без +) — уже канонично
-        if (strlen($digits) === 11 && $digits[0] === '7') {
+        if ($length === 11 && $digits[0] === '7') {
             return $digits;
         }
 
-        // XXXXXXXXXX (RU мобильный без префикса) → 7XXXXXXXXXX
-        if (strlen($digits) === 10 && $digits[0] === '9') {
+        // XXXXXXXXXX (RU мобильный без префикса) → 7XXXXXXXXXX.
+        // При явном «+» это может быть международный номер (например +90…),
+        // поэтому с плюсом не превращаем.
+        if ($length === 10 && $digits[0] === '9' && ! $hasPlus) {
             return '7'.$digits;
         }
-
-        $length = strlen($digits);
 
         if ($length < self::MIN_DIGITS || $length > self::MAX_DIGITS) {
             return null;
@@ -72,6 +92,11 @@ final class Phone
             $eightPrefixed = '8'.substr($normalized, 1);
             $variants[] = $eightPrefixed;
             $variants[] = '+'.$eightPrefixed;
+
+            // Десятизначная российская мобильная форма («9001234567»).
+            if (preg_match('/^79\d{9}$/', $normalized) === 1) {
+                $variants[] = substr($normalized, 1);
+            }
         }
 
         return array_values(array_unique($variants));
@@ -93,6 +118,12 @@ final class Phone
 
         if (preg_match('/^7\d{10}$/', $normalized) === 1) {
             $forms[] = '8'.substr($normalized, 1);
+
+            // Уже сохранённый 10-значный вид («9001234567») должен
+            // сопоставляться с каноническим «79001234567» и наоборот.
+            if (preg_match('/^79\d{9}$/', $normalized) === 1) {
+                $forms[] = substr($normalized, 1);
+            }
         }
 
         return array_values(array_unique($forms));

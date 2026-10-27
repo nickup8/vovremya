@@ -4,15 +4,16 @@ namespace App\Http\Controllers\Admin;
 
 use App\Enums\AppointmentStatus;
 use App\Exceptions\AmbiguousClientMatchException;
+use App\Exceptions\DuplicateClientPhoneException;
 use App\Exceptions\PastAppointmentException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\Booking\BookingService;
 use App\Services\Client\ClientMergeService;
-use App\Support\Phone;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
-use Illuminate\Validation\ValidationException;
 use Inertia\Inertia;
 
 class ClientController extends Controller
@@ -127,59 +128,21 @@ class ClientController extends Controller
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $normalizedPhone = Phone::normalize($validated['phone']);
-
-        if ($normalizedPhone === null) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'message' => 'Укажите корректный номер телефона.',
-                    'errors' => ['phone' => 'Укажите корректный номер телефона.'],
-                ], 422);
-            }
-
-            throw ValidationException::withMessages([
-                'phone' => 'Укажите корректный номер телефона.',
-            ]);
-        }
-
         try {
-            $existing = $this->clientMergeService->findByPhone(
+            $client = $this->clientMergeService->createManualClient(
                 $master->id,
-                $normalizedPhone,
+                $validated['phone'],
+                $validated['name'],
+                $validated['notes'] ?? null,
                 $master->workspace_id,
             );
+        } catch (DuplicateClientPhoneException) {
+            return $this->phoneError($request, 'Клиент с таким номером телефона уже существует.');
         } catch (AmbiguousClientMatchException) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'message' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.',
-                    'errors' => ['phone' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.'],
-                ], 422);
-            }
-
-            throw ValidationException::withMessages([
-                'phone' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.',
-            ]);
+            return $this->phoneError($request, 'Найдено несколько карточек с этим номером. Уточните данные клиента.');
+        } catch (\InvalidArgumentException) {
+            return $this->phoneError($request, 'Укажите корректный номер телефона.');
         }
-
-        if ($existing) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'message' => 'Клиент с таким номером телефона уже существует.',
-                    'errors' => ['phone' => 'Клиент с таким номером телефона уже существует.'],
-                ], 422);
-            }
-
-            return back()->withErrors([
-                'phone' => 'Клиент с таким номером телефона уже существует.',
-            ])->withInput();
-        }
-
-        $client = $master->clients()->create([
-            'name' => $validated['name'],
-            'phone' => $normalizedPhone,
-            'notes' => $validated['notes'] ?? null,
-            'workspace_id' => $master->workspace_id,
-        ]);
 
         if (! $request->header('X-Inertia')) {
             return response()->json([
@@ -196,54 +159,42 @@ class ClientController extends Controller
     {
         $this->authorize('update', $client);
 
-        $master = auth()->user();
-
         $validated = $request->validate([
             'name' => 'required|string|max:255',
             'phone' => 'required|string|max:20',
             'notes' => 'nullable|string|max:1000',
         ]);
 
-        $normalizedPhone = Phone::normalize($validated['phone']);
-
-        if ($normalizedPhone === null) {
-            throw ValidationException::withMessages([
-                'phone' => 'Укажите корректный номер телефона.',
-            ]);
-        }
-
         try {
-            $duplicate = $this->clientMergeService->findByPhone(
-                $master->id,
-                $normalizedPhone,
-                $master->workspace_id,
+            $this->clientMergeService->updateManualClient(
+                $client,
+                $validated['phone'],
+                $validated['name'],
+                $validated['notes'] ?? null,
             );
+        } catch (DuplicateClientPhoneException) {
+            return $this->phoneError($request, 'Клиент с таким номером телефона уже существует');
         } catch (AmbiguousClientMatchException) {
-            throw ValidationException::withMessages([
-                'phone' => 'Найдено несколько карточек с этим номером. Уточните данные клиента.',
-            ]);
+            return $this->phoneError($request, 'Найдено несколько карточек с этим номером. Уточните данные клиента.');
+        } catch (\InvalidArgumentException) {
+            return $this->phoneError($request, 'Укажите корректный номер телефона.');
         }
-
-        if ($duplicate && $duplicate->id !== $client->id) {
-            if ($request->expectsJson()) {
-                return response()->json([
-                    'message' => 'Клиент с таким номером телефона уже существует',
-                    'errors' => ['phone' => 'Клиент с таким номером телефона уже существует'],
-                ], 422);
-            }
-
-            return back()->withErrors([
-                'phone' => 'Клиент с таким номером телефона уже существует',
-            ])->withInput();
-        }
-
-        $client->update([
-            'name' => $validated['name'],
-            'phone' => $normalizedPhone,
-            'notes' => $validated['notes'] ?? null,
-        ]);
 
         return back()->with('success', 'Данные клиента обновлены');
+    }
+
+    private function phoneError(Request $request, string $message): JsonResponse|RedirectResponse
+    {
+        if ($request->expectsJson()) {
+            return response()->json([
+                'message' => $message,
+                'errors' => ['phone' => $message],
+            ], 422);
+        }
+
+        return back()->withErrors([
+            'phone' => $message,
+        ])->withInput();
     }
 
     public function toggleBlock(Client $client)

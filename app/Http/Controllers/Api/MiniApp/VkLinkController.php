@@ -74,6 +74,10 @@ class VkLinkController extends Controller
 
         $vkName = $this->resolveVkName($request, $vkUserId);
 
+        // Вся операция (поиск/создание, привязка, подтверждение записи)
+        // атомарна: конфликт не оставляет ни записи, ни изменённой карточки.
+        DB::beginTransaction();
+
         try {
             $client = $clientMerge->findOrCreateByPhone(
                 $appointment->master_id,
@@ -83,28 +87,18 @@ class VkLinkController extends Controller
                 $appointment->master?->workspace_id,
             );
 
-            if ($client->vk_id !== null && $client->vk_id !== $vkUserId) {
-                return response()->json(['error' => 'client_already_linked'], 409);
-            }
-        } catch (AmbiguousClientMatchException) {
-            return response()->json(['error' => 'ambiguous_client'], 409);
-        } catch (ProviderLinkConflictException) {
-            return response()->json(['error' => 'client_already_linked'], 409);
-        }
+            if ($client->isBlocked()) {
+                DB::rollBack();
 
-        if ($client->isBlocked()) {
-            $appointment->delete();
-            $tokenService->consume($request->input('token'));
-            if ($pendingConsentVersion !== null) {
-                Cache::forget(CacheKeys::VK_CONSENT_PENDING.$vkUserId);
+                $appointment->delete();
+                $tokenService->consume($request->input('token'));
+                if ($pendingConsentVersion !== null) {
+                    Cache::forget(CacheKeys::VK_CONSENT_PENDING.$vkUserId);
+                }
+
+                return response()->json(['error' => 'booking_unavailable'], 403);
             }
 
-            return response()->json(['error' => 'booking_unavailable'], 403);
-        }
-
-        DB::beginTransaction();
-
-        try {
             $affected = Appointment::where('id', $appointmentId)
                 ->whereNull('client_id')
                 ->whereIn('status', [
@@ -122,20 +116,31 @@ class VkLinkController extends Controller
                 return response()->json(['error' => 'appointment_unavailable'], 422);
             }
 
-            $clientUpdates = ['vk_id' => $vkUserId];
+            // Привязка через общий защищённый механизм: проверка занятости
+            // и запись атомарны, чужая привязка не перезаписывается.
+            $clientMerge->linkProvider($client, 'vk', $vkUserId);
 
             if ($pendingConsentVersion !== null) {
                 if (empty($client->pdn_consent_at) || $client->pdn_consent_version !== $pendingConsentVersion) {
-                    $clientUpdates['pdn_consent_at'] = now();
-                    $clientUpdates['pdn_consent_version'] = $pendingConsentVersion;
+                    $client->update([
+                        'pdn_consent_at' => now(),
+                        'pdn_consent_version' => $pendingConsentVersion,
+                    ]);
                 }
             }
 
-            $client->update($clientUpdates);
-
             DB::commit();
+        } catch (AmbiguousClientMatchException) {
+            DB::rollBack();
+
+            return response()->json(['error' => 'ambiguous_client'], 409);
+        } catch (ProviderLinkConflictException) {
+            DB::rollBack();
+
+            return response()->json(['error' => 'client_already_linked'], 409);
         } catch (\Throwable $e) {
             DB::rollBack();
+
             throw $e;
         }
 

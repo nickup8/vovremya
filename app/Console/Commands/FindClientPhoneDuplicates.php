@@ -3,6 +3,7 @@
 namespace App\Console\Commands;
 
 use App\Models\Client;
+use App\Models\User;
 use App\Support\Phone;
 use Illuminate\Console\Command;
 use Illuminate\Support\Collection;
@@ -10,12 +11,17 @@ use Illuminate\Support\Collection;
 /**
  * Диагностический поиск дублей клиентов по нормализованному телефону.
  * Только чтение: без изменений данных, отправок и удаления файлов.
+ *
+ * Группы соответствуют областям рабочего поиска (ClientMergeService):
+ * область workspace = карточки workspace + legacy workspace_id=NULL
+ * каждого мастера этого workspace; область legacy-мастера — только его
+ * персональные карточки.
  */
 class FindClientPhoneDuplicates extends Command
 {
     protected $signature = 'clients:find-duplicates
-        {--master= : Ограничить одним master (user_id)}
-        {--workspace= : Ограничить одним workspace_id}
+        {--master= : Ограничить одной областью master (user_id)}
+        {--workspace= : Ограничить одной областью workspace_id}
         {--limit=50 : Максимум групп в выводе}';
 
     protected $description = 'Показать группы клиентов с одним нормализованным телефоном (диагностика, без изменений данных)';
@@ -26,23 +32,43 @@ class FindClientPhoneDuplicates extends Command
         $workspaceId = $this->option('workspace');
         $limit = max(1, (int) $this->option('limit'));
 
-        $query = Client::query()
-            ->withCount('appointments')
-            ->orderBy('user_id')
-            ->orderBy('phone');
+        $query = Client::query()->withCount('appointments');
 
-        if ($masterId) {
-            $query->where('user_id', $masterId);
-        }
+        $mastersInWorkspace = null;
 
         if ($workspaceId) {
-            $query->where(function ($q) use ($workspaceId) {
+            // Legacy-карточки workspace_id=NULL включаем только для мастеров
+            // этого workspace — чужие персональные карточки не подмешиваем.
+            $mastersInWorkspace = User::where('workspace_id', $workspaceId)->pluck('id');
+
+            $query->where(function ($q) use ($workspaceId, $mastersInWorkspace) {
                 $q->where('workspace_id', $workspaceId)
-                    ->orWhereNull('workspace_id');
+                    ->orWhere(function ($own) use ($mastersInWorkspace) {
+                        $own->whereNull('workspace_id')
+                            ->whereIn('user_id', $mastersInWorkspace);
+                    });
             });
         }
 
-        $rows = $query->get([
+        if ($masterId) {
+            $masterWorkspace = User::where('id', $masterId)->value('workspace_id');
+
+            // Та же область, что видит рабочий поиск по этому мастеру.
+            $query->where(function ($q) use ($masterId, $masterWorkspace) {
+                if ($masterWorkspace !== null && $masterWorkspace !== '') {
+                    $q->where('workspace_id', $masterWorkspace)
+                        ->orWhere(function ($own) use ($masterId) {
+                            $own->whereNull('workspace_id')
+                                ->where('user_id', $masterId);
+                        });
+                } else {
+                    $q->where('user_id', $masterId)
+                        ->whereNull('workspace_id');
+                }
+            });
+        }
+
+        $rows = $query->orderBy('user_id')->orderBy('phone')->get([
             'id',
             'user_id',
             'workspace_id',
@@ -55,21 +81,9 @@ class FindClientPhoneDuplicates extends Command
             'appointments_count',
         ]);
 
-        $groups = $rows
-            ->groupBy(function (Client $client) {
-                $normalized = (string) Phone::normalize($client->phone);
+        $groups = $this->buildGroups($rows);
 
-                // В пределах workspace или персонально в пределах мастера.
-                $scope = $client->workspace_id !== null
-                    ? 'ws:'.$client->workspace_id
-                    : 'master:'.$client->user_id;
-
-                return $scope.'|'.$normalized;
-            })
-            ->filter(fn (Collection $group) => $group->count() > 1 && Phone::normalize($group->first()->phone) !== null)
-            ->sortKeys();
-
-        $totalGroups = $groups->count();
+        $totalGroups = count($groups);
 
         if ($totalGroups === 0) {
             $this->info('Дубли по нормализованному телефону не найдены.');
@@ -88,17 +102,13 @@ class FindClientPhoneDuplicates extends Command
                 break;
             }
 
-            $first = $group->first();
-            $normalized = (string) Phone::normalize($first->phone);
-
             $this->line(sprintf(
-                'Группа: master=%s workspace=%s phone_norm=%s',
-                $first->user_id,
-                $first->workspace_id ?? 'NULL',
-                Phone::mask($normalized),
+                'Группа: %s phone_norm=%s',
+                $group['label'],
+                Phone::mask($group['phone']),
             ));
 
-            foreach ($group as $client) {
+            foreach ($group['cards'] as $client) {
                 $providers = [];
                 if (! empty($client->telegram_id)) {
                     $providers[] = 'tg';
@@ -121,8 +131,7 @@ class FindClientPhoneDuplicates extends Command
                 ));
             }
 
-            $conflicts = $this->providerConflicts($group);
-            foreach ($conflicts as $conflict) {
+            foreach ($this->providerConflicts($group['cards']) as $conflict) {
                 $this->warn('  CONFLICT: '.$conflict);
             }
 
@@ -131,6 +140,83 @@ class FindClientPhoneDuplicates extends Command
         }
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Группы, в которых рабочий поиск увидел бы неоднозначность:
+     * все карточки одной группы лежат в одной области (мастер/workspace)
+     * и имеют один нормализованный телефон.
+     *
+     * @param  Collection<int, Client>  $rows
+     * @return list<array{label: string, phone: string, cards: Collection<int, Client>}>
+     */
+    private function buildGroups(Collection $rows): array
+    {
+        $groups = [];
+
+        $byPhone = $rows
+            ->groupBy(function (Client $client) {
+                $normalized = Phone::normalize($client->phone);
+
+                return $normalized ?? 'invalid:'.$client->phone;
+            })
+            ->filter(function ($phoneRows, string $key) {
+                return ! str_starts_with($key, 'invalid:');
+            });
+
+        $masterWorkspaces = User::whereIn('id', $rows->pluck('user_id')->unique())
+            ->pluck('workspace_id', 'id');
+
+        foreach ($byPhone as $normalized => $phoneRows) {
+            /** @var Collection<int, Client> $phoneRows */
+            $wsGroups = $phoneRows->whereNotNull('workspace_id')->groupBy('workspace_id');
+            $nullGroups = $phoneRows->whereNull('workspace_id')->groupBy('user_id');
+
+            foreach ($wsGroups as $wsId => $wsCards) {
+                if ($wsCards->count() > 1) {
+                    $groups[] = [
+                        'label' => sprintf('master=ALL workspace=%s', $wsId),
+                        'phone' => (string) $normalized,
+                        'cards' => $wsCards->values(),
+                    ];
+                }
+
+                foreach ($nullGroups as $masterId => $nullCards) {
+                    if ((string) $masterWorkspaces->get($masterId) !== (string) $wsId) {
+                        continue;
+                    }
+
+                    $combined = $wsCards->concat($nullCards)->values();
+
+                    if ($combined->count() > 1) {
+                        $groups[] = [
+                            'label' => sprintf('master=%s workspace=%s', $masterId, $wsId),
+                            'phone' => (string) $normalized,
+                            'cards' => $combined,
+                        ];
+                    }
+                }
+            }
+
+            foreach ($nullGroups as $masterId => $nullCards) {
+                $masterWs = $masterWorkspaces->get($masterId);
+
+                // Уже показано вместе с карточками workspace мастера.
+                if ($masterWs !== null && $wsGroups->has($masterWs)) {
+                    continue;
+                }
+
+                if ($nullCards->count() > 1) {
+                    $groups[] = [
+                        'label' => sprintf('master=%s workspace=NULL', $masterId),
+                        'phone' => (string) $normalized,
+                        'cards' => $nullCards->values(),
+                    ];
+                }
+            }
+        }
+
+        return $groups;
     }
 
     /**
