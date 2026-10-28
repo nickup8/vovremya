@@ -42,7 +42,7 @@ const FILTER_TABS: { key: FilterType; label: string }[] = [
 ];
 
 function formatDate(dateStr: string | null): string {
-    if (!dateStr) return '—';
+    if (!dateStr) return 'Ещё не было';
     const months = ['янв', 'фев', 'мар', 'апр', 'май', 'июн', 'июл', 'авг', 'сен', 'окт', 'ноя', 'дек'];
     const d = new Date(dateStr);
     return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;

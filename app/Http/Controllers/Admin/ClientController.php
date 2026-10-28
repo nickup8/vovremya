@@ -14,6 +14,7 @@ use App\Services\Client\ClientMergeService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
 use Inertia\Inertia;
 
 class ClientController extends Controller
@@ -55,7 +56,12 @@ class ClientController extends Controller
             ->withCount(['appointments as completed_bookings' => function ($q) {
                 $q->where('status', AppointmentStatus::Paid);
             }])
-            ->withMax('appointments as last_visit', 'start_time');
+            // Последний визит — MAX(start_time) только по прошедшим записям Paid:
+            // будущие записи и неоплаченные статусы визитом не считаются.
+            ->withAggregate(['appointments as last_visit' => function ($q) {
+                $q->where('status', AppointmentStatus::Paid)
+                    ->where('start_time', '<=', now());
+            }], 'start_time', 'max');
 
         // 2. Search (ILIKE for case-insensitive)
         if ($search !== '') {
@@ -83,7 +89,8 @@ class ClientController extends Controller
         $paginator = $query->paginate($perPage, ['*'], 'page', (int) $request->query('page', 1));
 
         // 6. Map to DTO (LTV computed from eager-loaded paid appointments)
-        $data = $paginator->getCollection()->map(function (Client $client) {
+        $timezone = $user->getTimezone();
+        $data = $paginator->getCollection()->map(function (Client $client) use ($timezone) {
             $ltv = $client->appointments
                 ->where('status', AppointmentStatus::Paid)
                 ->sum(fn ($a) => $a->display_price);
@@ -99,7 +106,7 @@ class ClientController extends Controller
                 'total_bookings' => $client->total_bookings,
                 'completed_bookings' => $client->completed_bookings,
                 'ltv' => (float) $ltv,
-                'last_visit' => $client->last_visit,
+                'last_visit' => $this->formatLastVisit($client->last_visit, $timezone),
             ];
         });
 
@@ -114,6 +121,22 @@ class ClientController extends Controller
                 'to' => $paginator->lastItem(),
             ],
         ]);
+    }
+
+    /**
+     * start_time хранится в UTC: один сдвиг в пояс мастера, дальше строка
+     * уходит как есть, чтобы фронтенд (парсит её как локальное время) не
+     * сдвинул день повторно через UTC.
+     */
+    private function formatLastVisit(?string $lastVisit, string $timezone): ?string
+    {
+        if ($lastVisit === null || $lastVisit === '') {
+            return null;
+        }
+
+        return Carbon::parse($lastVisit, 'UTC')
+            ->setTimezone($timezone)
+            ->format('Y-m-d H:i:s');
     }
 
     public function store(Request $request)
