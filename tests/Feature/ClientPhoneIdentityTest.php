@@ -1400,6 +1400,97 @@ class ClientPhoneIdentityTest extends TestCase
         $this->assertAuthenticatedAs($master, 'web');
     }
 
+    public function test_role_switch_to_master_does_not_authorize_canonical_twin_when_plus_master_is_active(): void
+    {
+        $plusMaster = User::factory()->master()->create([
+            'phone' => '+79001234567',
+        ]);
+        $canonicalTwin = User::factory()->master()->create([
+            'phone' => '79001234567',
+        ]);
+
+        $this->actingAs($plusMaster, 'web')->post(route('switch.to.client'))
+            ->assertRedirect(route('client.profile'));
+
+        $client = Client::where('user_id', $plusMaster->id)->first();
+        $this->assertNotNull($client);
+        $this->assertSame('79001234567', $client->phone);
+        $this->assertAuthenticatedAs($client, 'client');
+
+        $this->post(route('switch.to.master'))
+            ->assertRedirect(route('auth.choose'))
+            ->assertSessionHas(
+                'info',
+                'Найдено несколько аккаунтов с вашим номером. Обратитесь в поддержку.',
+            );
+
+        $this->assertAuthenticatedAs($client, 'client');
+        $this->assertAuthenticatedAs($plusMaster, 'web');
+
+        $webUser = $this->app->make('auth')->guard('web')->user();
+        $this->assertNotNull($webUser);
+        $this->assertNotSame(
+            $canonicalTwin->id,
+            $webUser->id,
+            'toMaster не должен авторизовать второго мастера с тем же номером в другом формате',
+        );
+    }
+
+    public function test_role_switch_to_master_refuses_ambiguous_accounts_on_raw_client_phone_match(): void
+    {
+        $rawMaster = User::factory()->master()->create([
+            'phone' => '89001234567',
+        ]);
+        $legacyTwin = User::factory()->master()->create([
+            'phone' => '9001234567',
+        ]);
+
+        $client = Client::create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'phone' => '89001234567',
+            'name' => 'Сырой телефон',
+        ]);
+
+        $this->actingAs($client, 'client')
+            ->post(route('switch.to.master'))
+            ->assertRedirect(route('auth.choose'))
+            ->assertSessionHas(
+                'info',
+                'Найдено несколько аккаунтов с вашим номером. Обратитесь в поддержку.',
+            );
+
+        $this->assertAuthenticatedAs($client, 'client');
+
+        $webUser = $this->app->make('auth')->guard('web')->user();
+        $this->assertTrue(
+            $webUser === null
+                || ($webUser->id !== $rawMaster->id && $webUser->id !== $legacyTwin->id),
+            'toMaster не должен логинить ни одного из неоднозначных мастеров',
+        );
+    }
+
+    public function test_role_switch_round_trip_still_works_for_single_plus_storage_user(): void
+    {
+        $master = User::factory()->master()->create([
+            'phone' => '+79001234567',
+        ]);
+
+        $this->actingAs($master, 'web')->post(route('switch.to.client'))
+            ->assertRedirect(route('client.profile'));
+
+        $client = Client::where('user_id', $master->id)->first();
+        $this->assertNotNull($client);
+        $this->assertSame('79001234567', $client->phone);
+        $this->assertAuthenticatedAs($client, 'client');
+
+        $this->post(route('switch.to.master'))
+            ->assertRedirect(route('admin.calendar'));
+
+        $this->assertAuthenticatedAs($master, 'web');
+        $this->assertSame($master->id, $this->app->make('auth')->guard('web')->user()->id);
+    }
+
     // ─── Диагностическая команда ───
 
     public function test_diagnostic_command_reports_duplicates_without_secrets(): void

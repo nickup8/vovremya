@@ -64,28 +64,27 @@ class RoleSwitchController extends Controller
 
         $normalized = Phone::normalize($client->phone);
 
-        $user = $normalized !== null
-            ? User::where('phone', $normalized)->first()
-            : null;
+        // Контракт — совпадение номера, а не строки: до выбора аккаунта
+        // собираем все допустимые формы users.phone (канон, legacy, «+»).
+        // Ранний first() здесь недопустим: он обходит отказ при дублях.
+        $candidates = $normalized !== null
+            ? Phone::storageVariants($normalized)
+            : [];
 
-        if (! $user && $client->phone) {
-            $user = User::where('phone', $client->phone)->first();
+        if ($client->phone !== null && $client->phone !== '' && ! in_array($client->phone, $candidates, true)) {
+            $candidates[] = $client->phone;
         }
 
-        if (! $user && $normalized !== null) {
-            // Тот же номер в допустимых формах хранения users.phone
-            // (например, «+7…» при канонической карточке «7…»):
-            // контракт — совпадение номера, а не строки; несколько
-            // аккаунтов — однозначный отказ без выбора первого попавшегося.
-            $matches = User::whereIn('phone', Phone::storageVariants($normalized))->get();
+        $matches = $candidates === []
+            ? collect()
+            : User::whereIn('phone', $candidates)->get();
 
-            if ($matches->count() > 1) {
-                return redirect()->route('auth.choose')
-                    ->with('info', 'Найдено несколько аккаунтов с вашим номером. Обратитесь в поддержку.');
-            }
-
-            $user = $matches->first();
+        if ($matches->count() > 1) {
+            return redirect()->route('auth.choose')
+                ->with('info', 'Найдено несколько аккаунтов с вашим номером. Обратитесь в поддержку.');
         }
+
+        $user = $matches->first();
 
         if (! $user) {
             return redirect()->route('auth.choose')
