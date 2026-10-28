@@ -67,6 +67,23 @@ class AppointmentNotificationRecorder
     ): ?AppointmentNotificationEvent {
         $version = $eventVersion ?? (int) $appointment->notification_version;
 
+        // Создание ещё не доставлено (job не начинал работу) — правка не
+        // должна молча подавить первое полное уведомление: объединяем
+        // недоставленное создание с изменениями в одно понятное сообщение.
+        // Флаг вычисляется до compose(): текст зависит от него.
+        if (in_array($type, [
+            AppointmentNotificationEventType::FieldsChanged,
+            AppointmentNotificationEventType::Rescheduled,
+        ], true)
+            && AppointmentNotificationEvent::query()
+                ->where('appointment_id', $appointment->getKey())
+                ->where('event_type', AppointmentNotificationEventType::CreatedByMaster)
+                ->where('event_version', '<', $version)
+                ->whereDoesntHave('deliveries')
+                ->exists()) {
+            $payload['full_notice'] = true;
+        }
+
         $text = $this->composer->compose($appointment, $type, $payload);
 
         if ($text === null) {
@@ -75,14 +92,25 @@ class AppointmentNotificationRecorder
 
         $payload['text'] = $text;
 
+        // Получатель фиксируется в событии: job сверяет его со свежим
+        // appointment->client_id и не уходит старым снимком новому клиенту.
+        if (! array_key_exists('client_id', $payload)) {
+            $payload['client_id'] = $appointment->client_id;
+        }
+
         try {
-            $event = AppointmentNotificationEvent::create([
-                'appointment_id' => $appointment->getKey(),
-                'recurring_series_id' => $recurringSeriesId,
-                'event_type' => $type,
-                'event_version' => $version,
-                'payload' => $payload,
-            ]);
+            // Вложенный DB::transaction даёт SAVEPOINT в PostgreSQL:
+            // unique-конфликт откатывается только до savepoint'а и не
+            // переводит внешнюю транзакцию в aborted-состояние.
+            $event = DB::transaction(static function () use ($appointment, $type, $payload, $version, $recurringSeriesId): AppointmentNotificationEvent {
+                return AppointmentNotificationEvent::create([
+                    'appointment_id' => $appointment->getKey(),
+                    'recurring_series_id' => $recurringSeriesId,
+                    'event_type' => $type,
+                    'event_version' => $version,
+                    'payload' => $payload,
+                ]);
+            });
         } catch (\Throwable $e) {
             // Уже созданное событие той же идентичности (повтор запроса при
             // гонке) — не ошибка, второй job не нужен. В PostgreSQL unique

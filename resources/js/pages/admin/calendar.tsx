@@ -328,6 +328,12 @@ export default function CalendarPage() {
     // ═══════════════ Appointments Data ═══════════════
     const weekDateKeys = useMemo(() => weekDates.map(dateToKey), [weekDates]);
 
+    // Терминальный исход доставки уведомления (WS): сводка в карточке
+    // записи обновляется частичным reload'ом без полного обновления страницы.
+    const handleNotificationUpdated = useCallback(() => {
+        router.reload({ only: ['appointments'] });
+    }, []);
+
     const {
         localAppointments,
         getAppointmentsForDay,
@@ -346,6 +352,7 @@ export default function CalendarPage() {
             setSelected(null);
             setSheetOpen(false);
         },
+        onNotificationUpdated: handleNotificationUpdated,
     });
 
     const {

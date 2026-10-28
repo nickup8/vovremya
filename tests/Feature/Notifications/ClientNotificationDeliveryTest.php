@@ -57,6 +57,10 @@ class ClientNotificationDeliveryTest extends TestCase
             'services.vk.app_id' => '1',
         ]);
 
+        // outbox-dispatch при записи события не должен выполнять job в
+        // sync: тесты запускают handle() явно с подменёнными API.
+        Queue::fake();
+
         $this->master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow'],
             'address' => 'ул. Тестовая, 1',

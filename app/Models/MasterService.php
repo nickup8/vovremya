@@ -8,6 +8,13 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 
+/**
+ * @property string $id
+ * @property string $master_id
+ * @property string|null $catalog_id
+ * @property-read float|null $effective_price
+ * @property-read int|null $effective_duration
+ */
 class MasterService extends Model
 {
     use HasFactory, HasUuids;
@@ -35,11 +42,17 @@ class MasterService extends Model
         ];
     }
 
+    /**
+     * @return BelongsTo<User, $this>
+     */
     public function master(): BelongsTo
     {
         return $this->belongsTo(User::class, 'master_id');
     }
 
+    /**
+     * @return BelongsTo<ServiceCatalog, $this>
+     */
     public function catalog(): BelongsTo
     {
         return $this->belongsTo(ServiceCatalog::class, 'catalog_id');

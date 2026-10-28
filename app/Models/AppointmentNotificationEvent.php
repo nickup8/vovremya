@@ -7,6 +7,7 @@ use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasMany;
+use Illuminate\Support\Carbon;
 
 /**
  * Transactional outbox строка клиентского уведомления о записи.
@@ -15,6 +16,14 @@ use Illuminate\Database\Eloquent\Relations\HasMany;
  * означает «намерение закоммичено, job не поставлен» — recovery переставит.
  * event_version связывает событие с версией записи: job перед отправкой
  * сверяет, что запись не ушла вперёд.
+ *
+ * @property string $id
+ * @property string $appointment_id
+ * @property string|null $recurring_series_id
+ * @property AppointmentNotificationEventType $event_type
+ * @property int $event_version
+ * @property array<string, mixed> $payload
+ * @property Carbon|null $dispatched_at
  */
 class AppointmentNotificationEvent extends Model
 {
@@ -39,11 +48,17 @@ class AppointmentNotificationEvent extends Model
         ];
     }
 
+    /**
+     * @return BelongsTo<Appointment, $this>
+     */
     public function appointment(): BelongsTo
     {
         return $this->belongsTo(Appointment::class);
     }
 
+    /**
+     * @return BelongsTo<RecurringAppointmentSeries, $this>
+     */
     public function recurringSeries(): BelongsTo
     {
         return $this->belongsTo(RecurringAppointmentSeries::class);

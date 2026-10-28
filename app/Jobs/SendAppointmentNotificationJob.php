@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\AppointmentNotificationEventType;
+use App\Events\AppointmentNotificationUpdated;
 use App\Exceptions\VkMessagesNotAllowedException;
 use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
@@ -28,19 +29,28 @@ use Illuminate\Support\Str;
  * Контракт (зеркалит SendReceiptUrlNotificationJob):
  * - событие = (appointment_id, event_type, event_version). Если запись уже
  *   ушла вперёд (notification_version > event_version), событие устарело:
- *   delivery помечается superseded, HTTP не выполняется;
- * - перед HTTP — короткий claim-транзакционный insert/lock строки
- *   appointment_notification_deliveries по (event, channel) со свежим
- *   claim_token; два worker'а сериализуются, второй отступает (busy);
+ *   delivery переводится в superseded устойчиво (включая отсутствие строк
+ *   до первого claim), HTTP не выполняется;
+ * - событие, у которого уже есть доставленный канал, повторно НЕ
+ *   отправляется в другой канал только из-за смены resolver'а;
+ * - получатель зафиксирован в payload['client_id'] при записи события:
+ *   смена клиента записи переводит событие в superseded, старый снимок
+ *   не уходит новому клиенту;
+ * - перед HTTP — claim-транзакция по (event, channel) со свежим
+ *   claim_token; если маршрут сменился между claim и HTTP, своё владение
+ *   исходного канала освобождается, новое владение берётся для
+ *   фактического канала; HTTP выполняется только под claim канала,
+ *   который реально используется;
  * - HTTP вне какой-либо DB-транзакции; null от API / исключение ≠ успех;
- * - success-write и release — CAS по (event, channel, pending, own token);
+ * - success-write и release — CAS по (event, channel, pending, own token):
+ *   поздний исполнитель не затирает чужое владение и не подтверждает
+ *   чужой успех;
  * - lease 60s > job timeout 30s > API timeout 10s; просроченный lease
  *   перехватывается с новым токеном;
- * - НЕ exactly-once: если API принял сообщение, а запись результата упала
- *   (или HTTP-исход неизвестен), ретрай может отправить дубль. Дубли
- *   ограничены deadline'ом, lease и строкой delivery;
- * - канал клиента перечитывается перед HTTP; исчезнувший канал →
- *   no_channel (терминально);
+ * - терминальные исходы хранятся устойчиво: failed() (исчерпание попыток /
+ *   deadline / timeout) доводит delivery до failed; markFailed /
+ *   markSuperseded не требуют предварительного claim и не трогают чужой
+ *   живой claim; временная ошибка с предстоящим retry остаётся pending;
  * - для booking_confirmed ВК-клавиатура «Открыть» воспроизводится по
  *   типу события.
  */
@@ -93,6 +103,14 @@ class SendAppointmentNotificationJob implements ShouldQueue
             return;
         }
 
+        // Уже доставленный канал: повтор не уходит в другой канал
+        // только из-за смены resolver'а.
+        if ($event->deliveries()
+            ->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED)
+            ->exists()) {
+            return;
+        }
+
         $appointment = Appointment::with(['master', 'client', 'masterService.catalog'])
             ->find($event->appointment_id);
 
@@ -102,7 +120,17 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
         // Устаревшее событие: запись уже описана более новым событием.
         // Напоминание/подтверждение по старому расписанию не шлём.
-        if ((int) $appointment->notification_version !== (int) $event->event_version) {
+        if ($this->eventIsStale($event, $appointment)) {
+            $this->markSuperseded($event);
+
+            return;
+        }
+
+        // Получатель зафиксирован в событии: смена клиента записи —
+        // старый снимок не уходит новому клиенту.
+        $payloadClientId = $event->payload['client_id'] ?? null;
+        if ($payloadClientId !== null
+            && (string) $payloadClientId !== (string) $appointment->client_id) {
             $this->markSuperseded($event);
 
             return;
@@ -132,17 +160,70 @@ class SendAppointmentNotificationJob implements ShouldQueue
             );
         }
 
+        if ($result === 'delivered') {
+            $this->broadcastUpdated($event);
+        }
+
         if ($this->needsRecheck && $this->job !== null) {
             $this->job->release($this->busyRecheckDelay());
         }
     }
 
+    /**
+     * Исчерпание попыток / deadline / timeout: терминальный итог должен
+     * храниться устойчиво, а не растворяться вместе с освобождённым
+     * claim'ом — иначе Summary навсегда показывает «Ожидает отправки».
+     */
     public function failed(\Throwable $exception): void
     {
         Log::error('SendAppointmentNotificationJob: all retries exhausted', [
             'event_id' => $this->eventId,
             'error' => $exception->getMessage(),
         ]);
+
+        try {
+            $event = AppointmentNotificationEvent::find($this->eventId);
+
+            if ($event === null) {
+                return;
+            }
+
+            $appointment = Appointment::with(['client'])->find($event->appointment_id);
+
+            if ($appointment !== null
+                && ($this->eventIsStale($event, $appointment)
+                    || (($event->payload['client_id'] ?? null) !== null
+                        && (string) $event->payload['client_id'] !== (string) $appointment->client_id))) {
+                $this->markSuperseded($event);
+
+                return;
+            }
+
+            // Любые оставшиеся pending-строки без чужого живого claim'а
+            // доводятся до терминального failed.
+            $this->markAllPendingFailed($event, 'retries_exhausted');
+
+            if ($appointment === null) {
+                return;
+            }
+
+            $channel = app(AppointmentChannelResolver::class)->resolve($appointment);
+
+            if ($channel === null) {
+                $this->recordNoChannel($event);
+
+                return;
+            }
+
+            // Строк могло не быть вовсе (отсечена до первого claim'а) —
+            // создаём терминальную строку для фактического канала.
+            $this->markFailed($event, $channel, 'retries_exhausted');
+        } catch (\Throwable $e) {
+            Log::error('SendAppointmentNotificationJob: failed() could not persist terminal state', [
+                'event_id' => $this->eventId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     /**
@@ -150,6 +231,8 @@ class SendAppointmentNotificationJob implements ShouldQueue
      * любого шага — это failed канала, не mask'ит основной исход.
      *
      * @return 'delivered'|'already'|'busy'|'stale'|'failed'
+     *
+     * @phpstan-impure
      */
     private function deliver(
         AppointmentNotificationEvent $event,
@@ -179,8 +262,16 @@ class SendAppointmentNotificationJob implements ShouldQueue
             $step = 'freshness';
             $fresh = Appointment::with(['master', 'client'])->find($event->appointment_id);
 
-            if ($fresh === null
-                || (int) $fresh->notification_version !== (int) $event->event_version) {
+            if ($fresh === null || $this->eventIsStale($event, $fresh)) {
+                $this->releaseClaimSafely($event, $channel, $claimToken, $step);
+                $this->markSuperseded($event);
+
+                return 'stale';
+            }
+
+            $payloadClientId = $event->payload['client_id'] ?? null;
+            if ($payloadClientId !== null
+                && (string) $payloadClientId !== (string) $fresh->client_id) {
                 $this->releaseClaimSafely($event, $channel, $claimToken, $step);
                 $this->markSuperseded($event);
 
@@ -188,6 +279,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
             }
 
             // Канал перечитываем: клиент мог потерять привязку/согласие.
+            $step = 'route';
             $channelNow = app(AppointmentChannelResolver::class)->resolve($fresh);
 
             if ($channelNow === null) {
@@ -197,7 +289,26 @@ class SendAppointmentNotificationJob implements ShouldQueue
                 return 'stale';
             }
 
-            $channel = $channelNow;
+            if ($channelNow !== $channel) {
+                // Маршрут сменился: освобождаем ТОЛЬКО своё владение
+                // исходного канала и корректно берём claim нового. HTTP
+                // выполняется исключительно под claim фактического канала.
+                $this->releaseClaimSafely($event, $channel, $claimToken, $step);
+
+                $reclaim = $this->claim($event, $channelNow);
+
+                if ($reclaim['state'] !== 'claimed') {
+                    if ($reclaim['state'] === 'busy') {
+                        $this->noteBusyRecheck($reclaim['lease_expires_at'] ?? null);
+                    }
+
+                    return $reclaim['state'];
+                }
+
+                $claimToken = $reclaim['token'];
+                $channel = $channelNow;
+            }
+
             $appointment = $fresh;
 
             $step = 'send';
@@ -229,11 +340,14 @@ class SendAppointmentNotificationJob implements ShouldQueue
                 $appointment->client->update(['vk_messages_allowed' => false]);
             }
 
+            // 901 терминален: сначала фиксируем failed ПОД своим claim'ом
+            // (release до записи терминала терял строку), затем освобождение.
             if ($claimToken !== null) {
-                $this->releaseClaimSafely($event, $channel, $claimToken, $step);
+                $this->markFailed($event, $channel, 'vk_messages_not_allowed', $claimToken);
+                $this->releaseClaimSafely($event, $channel, $claimToken, 'vk_901');
+            } else {
+                $this->markFailed($event, $channel, 'vk_messages_not_allowed');
             }
-
-            $this->markFailed($event, $channel, 'vk_messages_not_allowed');
 
             // Терминально: 901 — клиент запретил сообщения сообщества.
             return 'failed';
@@ -246,6 +360,10 @@ class SendAppointmentNotificationJob implements ShouldQueue
             ]);
 
             if ($claimToken !== null) {
+                // Whatever failed above, give OUR claim back so the bounded
+                // retry can re-attempt this channel instead of waiting for
+                // the lease. A failing release is logged separately and must
+                // not replace the primary error recorded here.
                 $this->releaseClaimSafely($event, $channel, $claimToken, $step);
             }
 
@@ -254,7 +372,14 @@ class SendAppointmentNotificationJob implements ShouldQueue
     }
 
     /**
-     * @return array{state: 'claimed'|'delivered'|'busy'|'failed', token?: string, lease_expires_at?: \DateTimeInterface|null}
+     * Claim (event, channel) before HTTP. Runs in its own short transaction
+     * that is committed before any network call.
+     *
+     * Every capture gets a fresh claim_token — first insert AND takeover of
+     * an expired lease — which is returned to the executor: from then on the
+     * success write and the release only ever match rows carrying it.
+     *
+     * @return array{state: 'claimed', token: string}|array{state: 'delivered'|'stale'|'busy'|'failed', lease_expires_at?: \DateTimeInterface|null}
      */
     private function claim(AppointmentNotificationEvent $event, string $channel): array
     {
@@ -324,6 +449,47 @@ class SendAppointmentNotificationJob implements ShouldQueue
         }
     }
 
+    /**
+     * Актуальность события.
+     *
+     * - Обычное событие устарело, если запись описана более новым
+     *   событием (notification_version ушла вперёд);
+     * - series-событие НЕ гасится правкой якорного визита: его
+     *   актуальность определяется состоянием серии (якорь покинул серию
+     *   при split/rebind → устарело; отмена серии гасит её
+     *   создание/обновление). Изменение одного визита не должно бесследно
+     *   погасить уведомление обо всей серии.
+     */
+    private function eventIsStale(
+        AppointmentNotificationEvent $event,
+        Appointment $appointment,
+    ): bool {
+        if ($event->recurring_series_id === null) {
+            return (int) $appointment->notification_version !== (int) $event->event_version;
+        }
+
+        // Якорь больше не принадлежит серии события (split/rebind).
+        if ((string) $appointment->recurring_series_id !== (string) $event->recurring_series_id) {
+            return true;
+        }
+
+        // Отмена серии гасит её создание/обновление — но не наоборот.
+        if ($event->event_type !== AppointmentNotificationEventType::SeriesCancelled
+            && AppointmentNotificationEvent::query()
+                ->where('recurring_series_id', $event->recurring_series_id)
+                ->where('event_type', AppointmentNotificationEventType::SeriesCancelled)
+                ->exists()) {
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Освобождение СВОЕГО владения: CAS по токену, строка остаётся
+     * pending без claim'а — терминальные исходы later (failed() и т.п.)
+     * дорабатывают именно эту строку, а не теряют её.
+     */
     private function releaseClaim(
         AppointmentNotificationEvent $event,
         string $channel,
@@ -334,7 +500,10 @@ class SendAppointmentNotificationJob implements ShouldQueue
             ->where('channel', $channel)
             ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
             ->where('claim_token', $claimToken)
-            ->delete();
+            ->update([
+                'claim_token' => null,
+                'lease_expires_at' => null,
+            ]);
     }
 
     private function releaseClaimSafely(
@@ -378,27 +547,72 @@ class SendAppointmentNotificationJob implements ShouldQueue
             $row->provider_message_id = $providerMessageId;
             $row->delivered_at = Carbon::now();
             $row->lease_expires_at = null;
+            // Владение завершено успешной доставкой: токен не остаётся
+            // висеть на терминальной строке.
+            $row->claim_token = null;
             $row->save();
 
             return true;
         });
     }
 
+    /**
+     * Терминальный superseded устойчив: обновляются только pending-строки
+     * без чужого живого claim'а; если строк не было вовсе (отсечена до
+     * первого claim'а) — создаются строки, иначе Summary навсегда
+     * показывал бы «Ожидает отправки».
+     */
     private function markSuperseded(AppointmentNotificationEvent $event): void
     {
-        foreach ($event->deliveries()->where('status', AppointmentNotificationDelivery::STATUS_PENDING)->get() as $row) {
-            $row->update([
-                'status' => AppointmentNotificationDelivery::STATUS_SUPERSEDED,
-                'claim_token' => null,
-                'lease_expires_at' => null,
-            ]);
+        $pending = $event->deliveries()
+            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+            ->get();
+
+        foreach ($pending as $row) {
+            if ($this->hasForeignLiveClaim($row)) {
+                continue;
+            }
+
+            // CAS: переводим только свою/бесхозную pending-строку.
+            AppointmentNotificationDelivery::query()
+                ->whereKey($row->getKey())
+                ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+                ->where(function ($query) use ($row) {
+                    $query->whereNull('claim_token')
+                        ->orWhere('claim_token', (string) $row->claim_token);
+                })
+                ->update([
+                    'status' => AppointmentNotificationDelivery::STATUS_SUPERSEDED,
+                    'claim_token' => null,
+                    'lease_expires_at' => null,
+                ]);
         }
+
+        if ($event->deliveries()->exists()) {
+            $this->broadcastUpdated($event);
+
+            return;
+        }
+
+        foreach ([AppointmentChannelResolver::CHANNEL_MAX, AppointmentChannelResolver::CHANNEL_VK] as $channel) {
+            AppointmentNotificationDelivery::firstOrCreate(
+                [
+                    'appointment_notification_event_id' => $event->getKey(),
+                    'channel' => $channel,
+                ],
+                [
+                    'status' => AppointmentNotificationDelivery::STATUS_SUPERSEDED,
+                ],
+            );
+        }
+
+        $this->broadcastUpdated($event);
     }
 
     private function recordNoChannel(AppointmentNotificationEvent $event, string $reason = 'no_channel'): void
     {
         foreach ([AppointmentChannelResolver::CHANNEL_MAX, AppointmentChannelResolver::CHANNEL_VK] as $channel) {
-            AppointmentNotificationDelivery::firstOrCreate(
+            $row = AppointmentNotificationDelivery::firstOrCreate(
                 [
                     'appointment_notification_event_id' => $event->getKey(),
                     'channel' => $channel,
@@ -409,25 +623,143 @@ class SendAppointmentNotificationJob implements ShouldQueue
                     'failed_at' => now(),
                 ],
             );
+
+            // Строка могла остаться pending после освобождённого claim'а —
+            // доводим до терминала, не трогая чужой живой claim.
+            if ($row->status === AppointmentNotificationDelivery::STATUS_PENDING
+                && ! $this->hasForeignLiveClaim($row)) {
+                AppointmentNotificationDelivery::query()
+                    ->whereKey($row->getKey())
+                    ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+                    ->whereNull('claim_token')
+                    ->update([
+                        'status' => AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
+                        'failure_reason' => $reason,
+                        'failed_at' => now(),
+                        'lease_expires_at' => null,
+                    ]);
+            }
         }
+
+        $this->broadcastUpdated($event);
     }
 
+    /**
+     * Терминальный failed одного канала. Без предварительного claim'а:
+     * создаёт строку, если её не было; обновляет только pending без чужого
+     * живого владения — поздний исполнитель не затирает чужой claim и не
+     * переписывает подтверждённый успех.
+     */
     private function markFailed(
         AppointmentNotificationEvent $event,
         string $channel,
         string $reason,
+        ?string $claimToken = null,
     ): void {
-        AppointmentNotificationDelivery::query()
-            ->where('appointment_notification_event_id', $event->getKey())
-            ->where('channel', $channel)
-            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
-            ->update([
+        DB::transaction(function () use ($event, $channel, $reason, $claimToken): void {
+            $row = AppointmentNotificationDelivery::query()
+                ->where('appointment_notification_event_id', $event->getKey())
+                ->where('channel', $channel)
+                ->lockForUpdate()
+                ->first();
+
+            if ($row === null) {
+                AppointmentNotificationDelivery::create([
+                    'appointment_notification_event_id' => $event->getKey(),
+                    'channel' => $channel,
+                    'status' => AppointmentNotificationDelivery::STATUS_FAILED,
+                    'failure_reason' => $reason,
+                    'failed_at' => now(),
+                ]);
+
+                return;
+            }
+
+            if ($row->status !== AppointmentNotificationDelivery::STATUS_PENDING) {
+                return;
+            }
+
+            if ($claimToken !== null) {
+                if ((string) $row->claim_token !== $claimToken) {
+                    return;
+                }
+            } elseif ($this->hasForeignLiveClaim($row)) {
+                return;
+            }
+
+            $row->update([
                 'status' => AppointmentNotificationDelivery::STATUS_FAILED,
                 'claim_token' => null,
                 'lease_expires_at' => null,
                 'failure_reason' => $reason,
                 'failed_at' => now(),
             ]);
+        });
+
+        $this->broadcastUpdated($event);
+    }
+
+    /**
+     * Довести все pending-строки события до failed (без чужого живого
+     * claim'а) — используется в failed() после исчерпания попыток.
+     */
+    private function markAllPendingFailed(AppointmentNotificationEvent $event, string $reason): void
+    {
+        foreach ($event->deliveries()
+            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+            ->get() as $row) {
+            if ($this->hasForeignLiveClaim($row)) {
+                continue;
+            }
+
+            AppointmentNotificationDelivery::query()
+                ->whereKey($row->getKey())
+                ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+                ->whereNull('claim_token')
+                ->update([
+                    'status' => AppointmentNotificationDelivery::STATUS_FAILED,
+                    'failure_reason' => $reason,
+                    'failed_at' => now(),
+                    'lease_expires_at' => null,
+                ]);
+        }
+    }
+
+    /**
+     * Терминальный исход зафиксирован — сообщаем календарю, чтобы сводка
+     * «Уведомления клиенту» обновилась без ручного обновления страницы.
+     * Сбой рассылки не должен ронять delivery-проход.
+     */
+    private function broadcastUpdated(AppointmentNotificationEvent $event): void
+    {
+        try {
+            $appointment = Appointment::find($event->appointment_id);
+
+            if ($appointment === null) {
+                return;
+            }
+
+            broadcast(new AppointmentNotificationUpdated(
+                (string) $event->appointment_id,
+                (string) $appointment->master_id,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('AppointmentNotificationUpdated broadcast failed', [
+                'event_id' => $event->getKey(),
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Чужой живой claim: чужой токен и непросроченный lease — трогать
+     * строку нельзя (поздний исполнитель не затирает чужое владение).
+     */
+    private function hasForeignLiveClaim(AppointmentNotificationDelivery $row): bool
+    {
+        return $row->claim_token !== null
+            && $row->lease_expires_at !== null
+            && $row->lease_expires_at->isFuture();
     }
 
     private function httpSend(
@@ -478,9 +810,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
         AppointmentNotificationEvent $event,
         Appointment $appointment,
     ): ?array {
-        $type = $event->event_type instanceof AppointmentNotificationEventType
-            ? $event->event_type->value
-            : (string) $event->event_type;
+        $type = $event->event_type->value;
 
         if ($type !== AppointmentNotificationEventType::BookingConfirmed->value) {
             return null;
@@ -516,6 +846,12 @@ class SendAppointmentNotificationJob implements ShouldQueue
             ?->lease_expires_at;
     }
 
+    /**
+     * Запоминает, что проход упёрся в чужой живой claim и должен быть
+     * повторён после lease'а.
+     *
+     * @phpstan-impure
+     */
     private function noteBusyRecheck(?\DateTimeInterface $leaseExpiresAt): void
     {
         $this->needsRecheck = true;

@@ -11,6 +11,7 @@ interface UseCalendarDataParams {
     selectedId?: string;
     onSelectedUpdate?: (appointment: Appointment) => void;
     onSelectedExpired?: () => void;
+    onNotificationUpdated?: () => void;
 }
 
 export function useCalendarData({
@@ -21,6 +22,7 @@ export function useCalendarData({
     selectedId,
     onSelectedUpdate,
     onSelectedExpired,
+    onNotificationUpdated,
 }: UseCalendarDataParams) {
     // ═══════════════ State ═══════════════
     const [localAppointments, setLocalAppointments] = useState<Appointment[]>(
@@ -141,6 +143,11 @@ return prev;
                 setLocalAppointments((prev) =>
                     prev.map((a) => (a.id === appointment.id ? appointment : a)),
                 );
+            })
+            .listen('.AppointmentNotificationUpdated', () => {
+                // Терминальный исход доставки: обновляем сводку
+                // «Уведомления клиенту» без ручного обновления страницы.
+                onNotificationUpdated?.();
             });
 
         return () => {
@@ -148,9 +155,10 @@ return prev;
             channel.stopListening('.AppointmentStatusChanged');
             channel.stopListening('.AppointmentRescheduled');
             channel.stopListening('.AppointmentVisitConfirmed');
+            channel.stopListening('.AppointmentNotificationUpdated');
             echo<'reverb'>().leave(channelName);
         };
-    }, [authUserId]);
+    }, [authUserId, onNotificationUpdated]);
 
     // ═══════════════ Selected appointment sync ═══════════════
     useEffect(() => {

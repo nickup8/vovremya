@@ -23,6 +23,7 @@ class SendAppointmentReminderJobTest extends TestCase
     use RefreshDatabase;
 
     private User $master;
+
     private MasterService $ms;
 
     protected function setUp(): void
@@ -205,7 +206,7 @@ class SendAppointmentReminderJobTest extends TestCase
             ['source' => AppointmentSource::Vk]
         );
 
-        $lockKey = 'reminder_final_vk_'.$appointment->id;
+        $lockKey = 'reminder_final_vk_'.$appointment->id.'_v0';
 
         $vkMock = $this->mock(VkApiClient::class);
         $vkMock->shouldReceive('sendMessage')
@@ -275,7 +276,8 @@ class SendAppointmentReminderJobTest extends TestCase
             ['source' => AppointmentSource::Vk]
         );
 
-        Cache::add('reminder_24h_vk_'.$appointment->id, true, now()->addHours(12));
+        // Ключ дедупликатора содержит поколение расписания (v0).
+        Cache::add('reminder_24h_vk_'.$appointment->id.'_v0', true, now()->addHours(12));
 
         $vkMock = $this->mock(VkApiClient::class);
         $vkMock->shouldNotReceive('sendMessageWithKeyboard');

@@ -12,7 +12,31 @@ use Illuminate\Database\Eloquent\Factories\HasFactory;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
 use Illuminate\Database\Eloquent\Relations\HasOne;
+use Illuminate\Support\Carbon;
 
+/**
+ * Запись о визите.
+ *
+ * @property string $id
+ * @property string|null $client_id
+ * @property string|null $recurring_series_id
+ * @property AppointmentStatus $status
+ * @property AppointmentSource|null $source
+ * @property Carbon $start_time
+ * @property Carbon|null $reminder_24h_sent_at
+ * @property Carbon|null $reminder_24h_dispatched_at
+ * @property Carbon|null $reminder_24h_failed_at
+ * @property Carbon|null $reminder_final_sent_at
+ * @property Carbon|null $reminder_final_dispatched_at
+ * @property Carbon|null $reminder_final_failed_at
+ * @property Carbon|null $client_confirmed_at
+ * @property Carbon|null $cancelled_at
+ * @property int $notification_version
+ * @property int $schedule_version
+ * @property-read string $display_name
+ * @property-read int $display_duration
+ * @property-read float $display_price
+ */
 class Appointment extends Model
 {
     use HasFactory, HasUuids;
@@ -45,6 +69,7 @@ class Appointment extends Model
         'recurring_occurrence_date',
         'vk_confirmation_sent_at',
         'notification_version',
+        'schedule_version',
     ];
 
     protected function casts(): array
@@ -68,7 +93,24 @@ class Appointment extends Model
             'client_confirmed_at' => 'datetime',
             'vk_confirmation_sent_at' => 'datetime',
             'notification_version' => 'integer',
+            'schedule_version' => 'integer',
         ];
+    }
+
+    /**
+     * Поколение расписания: инкремент при изменении времени, мастера или
+     * получателя (клиента). Напоминания несут снимок версии на момент
+     * постановки job'а и сверяются с ней перед отправкой и при записи
+     * результата. Изменение цены/длительности/услуги поколение не двигает —
+     * оно не влияет на отправляемое расписание.
+     */
+    protected static function booted(): void
+    {
+        static::updating(function (Appointment $appointment): void {
+            if ($appointment->isDirty(['start_time', 'master_id', 'client_id'])) {
+                $appointment->schedule_version = (int) $appointment->schedule_version + 1;
+            }
+        });
     }
 
     protected function displayName(): Attribute
@@ -98,36 +140,57 @@ class Appointment extends Model
         );
     }
 
+    /**
+     * @return BelongsTo<User, $this>
+     */
     public function master(): BelongsTo
     {
         return $this->belongsTo(User::class, 'master_id');
     }
 
+    /**
+     * @return BelongsTo<Client, $this>
+     */
     public function client(): BelongsTo
     {
         return $this->belongsTo(Client::class, 'client_id');
     }
 
+    /**
+     * @return BelongsTo<MasterService, $this>
+     */
     public function masterService(): BelongsTo
     {
         return $this->belongsTo(MasterService::class, 'master_service_id');
     }
 
+    /**
+     * @return BelongsTo<TrackingLink, $this>
+     */
     public function trackingLink(): BelongsTo
     {
         return $this->belongsTo(TrackingLink::class, 'tracking_link_id');
     }
 
+    /**
+     * @return BelongsTo<User, $this>
+     */
     public function cancelledBy(): BelongsTo
     {
         return $this->belongsTo(User::class, 'cancelled_by');
     }
 
+    /**
+     * @return BelongsTo<RecurringAppointmentSeries, $this>
+     */
     public function recurringSeries(): BelongsTo
     {
         return $this->belongsTo(RecurringAppointmentSeries::class, 'recurring_series_id');
     }
 
+    /**
+     * @return HasOne<SlotRequest, $this>
+     */
     public function activeSlotRequest(): HasOne
     {
         return $this->hasOne(SlotRequest::class, 'appointment_id')

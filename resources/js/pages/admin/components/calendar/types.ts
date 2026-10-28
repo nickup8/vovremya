@@ -4,6 +4,7 @@ export interface ClientNotificationSummary {
     status: 'pending' | 'sent' | 'failed' | 'no_channel' | 'superseded';
     channel: string | null;
     event_type: string;
+    event_label: string;
     label: string;
     sent_at?: string | null;
     created_at?: string | null;
@@ -24,7 +25,9 @@ export interface Appointment {
     master_name?: string;
     client_confirmed_at?: string | null;
     reminder_24h_sent_at?: string | null;
+    reminder_24h_failed_at?: string | null;
     reminder_final_sent_at?: string | null;
+    reminder_final_failed_at?: string | null;
     client_notifications?: ClientNotificationSummary | null;
     recurring_series_id?: string | null;
     recurring_occurrence_date?: string | null;

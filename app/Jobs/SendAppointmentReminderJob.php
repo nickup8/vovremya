@@ -17,6 +17,7 @@ use Illuminate\Foundation\Bus\Dispatchable;
 use Illuminate\Queue\InteractsWithQueue;
 use Illuminate\Queue\SerializesModels;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Throwable;
@@ -24,11 +25,27 @@ use Throwable;
 /**
  * Напоминание клиенту о визите (24h / final).
  *
- * Перед отправкой перечитываются время, статус, клиент и канал.
- * Устаревшая задача (запись перенесена/отменена после постановки) не
- * отправляет напоминание по прежнему расписанию и не портит поля новой
- * версии: failed() проверяет, что sent_at не появился и что ожидаемое
- * start_time/напоминание ещё соответствуют текущей строке.
+ * Идентичность поколения расписания: job несёт снимок
+ * appointments.schedule_version на момент постановки (expectedScheduleVersion)
+ * и сверяет его с текущей строкой ПЕРЕД отправкой; запись результата
+ * (sent_at / failed_at) — условная по тому же поколению в транзакции под
+ * блокировкой строки. Это отсекает перенос A→B→A (версия уже другая, хотя
+ * start_time совпадает), смену получателя (клиент меняет версию) и поздние
+ * success/failed старого исполнителя. Изменение цены версию не двигает.
+ *
+ * Совместимость старых payload'ов: оба поля имеют значения по умолчанию,
+ * поэтому десериализация payload'а без них не падает. Политика для
+ * старых payload'ов: без поколения и без снимка start_time отправка и
+ * запись терминальных полей запрещены (нельзя доказать актуальность);
+ * payload со снимком start_time (промежуточная ревизия) сверяет время.
+ *
+ * Окно отправки проверяется внутри job'а, а не только в scheduler'е:
+ * визит не должен быть в прошлом и не дальше горизонта SEND_HORIZON_HOURS
+ * (дополнительно к нижним границам типа 2ч для 24h).
+ *
+ * Ключ кэша-дедупликатора содержит поколение: ключ прошлого поколения
+ * (12 часов TTL) не блокирует напоминание нового расписания, а дубль
+ * того же поколения по-прежнему блокируется.
  *
  * Канал — общий AppointmentChannelResolver (тот же, что у уведомлений):
  * рабочий канал записи, иначе MAX → ВК. Telegram — только telegram-источник.
@@ -41,17 +58,29 @@ class SendAppointmentReminderJob implements ShouldQueue
 
     public int $timeout = 60;
 
-    /** Snapshot start_time на момент постановки: защищает failed()-hook
-     *  от пометки failed у новой версии после переноса. */
-    public string $expectedStartTime;
+    /** Горизонт «не раньше» в job'е: визит дальше — окно не наступило. */
+    private const SEND_HORIZON_HOURS = 48;
+
+    /** Снимок start_time на момент постановки (промежуточная ревизия payload'а). */
+    public string $expectedStartTime = '';
+
+    /**
+     * Снимок appointments.schedule_version на момент постановки.
+     * null = payload старой ревизии без поля — см. политику выше.
+     */
+    public ?int $expectedScheduleVersion = null;
 
     public function __construct(
         private Appointment $appointment,
         private string $type,
     ) {
-        $this->expectedStartTime = $appointment->start_time?->toIso8601String() ?? '';
+        $this->expectedStartTime = $appointment->start_time->toIso8601String();
+        $this->expectedScheduleVersion = (int) $appointment->schedule_version;
     }
 
+    /**
+     * @return array<int, int>
+     */
     public function backoff(): array
     {
         return [30, 120, 600];
@@ -65,22 +94,33 @@ class SendAppointmentReminderJob implements ShouldQueue
             return;
         }
 
-        // Перечитываем статус, время, клиента: перенос/отмена/смена клиента
-        // до выполнения job'а отменяют отправку.
+        // Перечитываем статус: перенос/отмена/смена клиента до выполнения
+        // job'а отменяют отправку.
         if (! in_array($fresh->status, [AppointmentStatus::Booked, AppointmentStatus::Prepaid], true)) {
             return;
         }
 
-        // Слишком поздно обработанная задача не шлёт напоминание уже
-        // начавшегося визита. Окно 23–25 ч для 24h отсекает команда
-        // (whereBetween); job дополнительно не шлёт «задним числом»:
-        // если до визита < 2 ч, «завтра» уже бессмысленно.
+        // Генерация поколения: старое поколение (перенос, A→B→A, смена
+        // получателя) и payload без верифицируемых снимков не отправляются.
+        if (! $this->generationMatches($fresh)) {
+            return;
+        }
+
         if ($fresh->start_time->isPast()) {
             return;
         }
 
+        // Окно отправки проверяется и внутри job'а, не только в scheduler'е:
+        // визит дальше горизонта — напоминание ещё не наступило (защита и
+        // для legacy-payload'ов, у которых проверка генерации слабее).
+        $hoursUntil = (float) now()->diffInHours($fresh->start_time, false);
+        if ($hoursUntil > self::SEND_HORIZON_HOURS) {
+            return;
+        }
+
         if ($this->type === '24h') {
-            $hoursUntil = (float) now()->diffInHours($fresh->start_time, false);
+            // Нижняя граница: «задним числом» (в т.ч. через 2ч после старта)
+            // «завтра» уже бессмысленно.
             if ($hoursUntil < 2) {
                 return;
             }
@@ -109,37 +149,40 @@ class SendAppointmentReminderJob implements ShouldQueue
             return;
         }
 
+        // Ключ дедупликатора содержит поколение расписания: после переноса
+        // ключ прошлого поколения не блокирует новое напоминание, а дубль
+        // текущего поколения блокируется.
+        $generation = $this->expectedScheduleVersion ?? (int) $appointment->schedule_version;
+        $lockKey = "reminder_{$this->type}_{$channel}_{$appointment->id}_v{$generation}";
+
         $sent = false;
 
         if ($channel === AppointmentChannelResolver::CHANNEL_TELEGRAM) {
-            $lockTg = "reminder_{$this->type}_tg_{$appointment->id}";
-            if (Cache::add($lockTg, true, now()->addHours(12))) {
+            if (Cache::add($lockKey, true, now()->addHours(12))) {
                 try {
                     $this->sendTelegram($appointment, $client);
                     $sent = true;
                 } catch (Throwable $e) {
-                    Cache::forget($lockTg);
+                    Cache::forget($lockKey);
                     throw $e;
                 }
             }
         }
 
         if ($channel === AppointmentChannelResolver::CHANNEL_MAX) {
-            $lockMax = "reminder_{$this->type}_max_{$appointment->id}";
-            if (Cache::add($lockMax, true, now()->addHours(12))) {
+            if (Cache::add($lockKey, true, now()->addHours(12))) {
                 try {
                     $this->sendMax($appointment, $client);
                     $sent = true;
                 } catch (Throwable $e) {
-                    Cache::forget($lockMax);
+                    Cache::forget($lockKey);
                     throw $e;
                 }
             }
         }
 
         if ($channel === AppointmentChannelResolver::CHANNEL_VK) {
-            $lockVk = "reminder_{$this->type}_vk_{$appointment->id}";
-            if (Cache::add($lockVk, true, now()->addHours(12))) {
+            if (Cache::add($lockKey, true, now()->addHours(12))) {
                 try {
                     $this->sendVk($appointment, $client);
                     $sent = true;
@@ -149,7 +192,7 @@ class SendAppointmentReminderJob implements ShouldQueue
 
                     return;
                 } catch (Throwable $e) {
-                    Cache::forget($lockVk);
+                    Cache::forget($lockKey);
                     throw $e;
                 }
             }
@@ -162,6 +205,47 @@ class SendAppointmentReminderJob implements ShouldQueue
         }
 
         $this->markTerminalFailed($appointment, 'No routable channel for reminder');
+    }
+
+    /**
+     * Сверка поколения расписания. Снимок поколения главнее снимка времени:
+     * только время не различает A→B→A.
+     */
+    private function generationMatches(Appointment $fresh): bool
+    {
+        if ($this->expectedScheduleVersion !== null) {
+            return (int) $fresh->schedule_version === $this->expectedScheduleVersion;
+        }
+
+        if ($this->expectedStartTime !== '') {
+            // Payload промежуточной ревизии: сверяем снимок start_time.
+            return $fresh->start_time->toIso8601String() === $this->expectedStartTime;
+        }
+
+        // Полностью старый payload: без поколения и без снимка времени
+        // актуальность не доказуема — не отправляем и не пишем поля.
+        return false;
+    }
+
+    /**
+     * Условная запись состояния напоминания: только если поколение записи
+     * всё ещё соответствует снимку job'а (поколение ушло — поздний
+     * success/failed исполнителя старого поколения ничего не меняет).
+     */
+    private function writeReminderState(Appointment $appointment, callable $apply): void
+    {
+        DB::transaction(function () use ($appointment, $apply): void {
+            $row = Appointment::query()
+                ->whereKey($appointment->getKey())
+                ->lockForUpdate()
+                ->first();
+
+            if ($row === null || ! $this->generationMatches($row)) {
+                return;
+            }
+
+            $apply($row);
+        });
     }
 
     private function sendTelegram(Appointment $appointment, Client $client): void
@@ -298,16 +382,18 @@ class SendAppointmentReminderJob implements ShouldQueue
         $field = $this->type === '24h' ? 'reminder_24h_sent_at' : 'reminder_final_sent_at';
         $failedField = $this->type === '24h' ? 'reminder_24h_failed_at' : 'reminder_final_failed_at';
 
-        $appointment->update([$field => now(), $failedField => null]);
+        $this->writeReminderState($appointment, function (Appointment $row) use ($field, $failedField): void {
+            $row->update([$field => now(), $failedField => null]);
+        });
     }
 
     private function markTerminalFailed(Appointment $appointment, string $reason): void
     {
         $failedField = $this->type === '24h' ? 'reminder_24h_failed_at' : 'reminder_final_failed_at';
-        $sentField = $this->type === '24h' ? 'reminder_24h_sent_at' : 'reminder_final_sent_at';
 
-        $update = [$failedField => now()];
-        $appointment->update($update);
+        $this->writeReminderState($appointment, function (Appointment $row) use ($failedField): void {
+            $row->update([$failedField => now()]);
+        });
 
         Log::warning($reason, [
             'appointment_id' => $appointment->id,
@@ -324,26 +410,24 @@ class SendAppointmentReminderJob implements ShouldQueue
             return;
         }
 
-        // Поздний failed()-хук старой задачи не портит новую версию:
-        // после переноса start_time изменился — не помечаем failed.
-        if ($this->expectedStartTime !== ''
-            && $appointment->start_time?->toIso8601String() !== $this->expectedStartTime) {
-            return;
-        }
-
         $sentField = $this->type === '24h' ? 'reminder_24h_sent_at' : 'reminder_final_sent_at';
         $failedField = $this->type === '24h' ? 'reminder_24h_failed_at' : 'reminder_final_failed_at';
 
-        if ($appointment->{$sentField} !== null) {
-            return;
-        }
+        // Поздний failed()-хук не портит новую версию: запись условная по
+        // поколению (payload без снимков — политика «не писать»), и sent_at
+        // уже установленный не перекрывается.
+        $this->writeReminderState($appointment, function (Appointment $row) use ($sentField, $failedField, $exception): void {
+            if ($row->{$sentField} !== null) {
+                return;
+            }
 
-        $appointment->update([$failedField => now()]);
+            $row->update([$failedField => now()]);
 
-        Log::warning('Reminder job terminal failure', [
-            'appointment_id' => $appointment->id,
-            'reminder_type' => $this->type,
-            'error' => $exception->getMessage(),
-        ]);
+            Log::warning('Reminder job terminal failure', [
+                'appointment_id' => $row->id,
+                'reminder_type' => $this->type,
+                'error' => $exception->getMessage(),
+            ]);
+        });
     }
 }

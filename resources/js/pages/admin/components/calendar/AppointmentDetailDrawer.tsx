@@ -108,9 +108,11 @@ function ClientNotificationsBlock({ selected }: { selected: Appointment }) {
     const n = selected.client_notifications;
     const reminder24 = formatNotificationTime(selected.reminder_24h_sent_at);
     const reminderFinal = formatNotificationTime(selected.reminder_final_sent_at);
+    const reminder24Failed = formatNotificationTime(selected.reminder_24h_failed_at);
+    const reminderFinalFailed = formatNotificationTime(selected.reminder_final_failed_at);
 
     // Компактный блок: только если есть что показать
-    if (!n && !reminder24 && !reminderFinal) {
+    if (!n && !reminder24 && !reminderFinal && !reminder24Failed && !reminderFinalFailed) {
         return null;
     }
 
@@ -124,7 +126,11 @@ function ClientNotificationsBlock({ selected }: { selected: Appointment }) {
                     <div className="flex items-start gap-2">
                         <NotificationStatusIcon status={n.status} />
                         <div className="min-w-0">
-                            <span className="text-slate-700 dark:text-zinc-300">{n.label}</span>
+                            <span className="text-slate-700 dark:text-zinc-300">
+                                {n.event_label || n.event_type}
+                                {' — '}
+                                {n.label}
+                            </span>
                             {n.sent_at && (
                                 <span className="ml-1.5 text-slate-400 dark:text-zinc-500">
                                     {formatNotificationTime(n.sent_at)}
@@ -133,6 +139,17 @@ function ClientNotificationsBlock({ selected }: { selected: Appointment }) {
                             {n.status === 'sent' && (
                                 <div className="text-[10px] text-slate-400 dark:text-zinc-500">
                                     Принято мессенджером
+                                    {n.channel ? ` · ${n.channel === 'max' ? 'MAX' : n.channel === 'vk' ? 'ВК' : n.channel}` : ''}
+                                </div>
+                            )}
+                            {n.status === 'failed' && (
+                                <div className="text-[10px] text-red-500 dark:text-red-400">
+                                    Ошибка доставки{n.channel ? ` · ${n.channel === 'max' ? 'MAX' : n.channel === 'vk' ? 'ВК' : n.channel}` : ''}
+                                </div>
+                            )}
+                            {n.status === 'no_channel' && (
+                                <div className="text-[10px] text-slate-400 dark:text-zinc-500">
+                                    У клиента нет доступного мессенджера
                                 </div>
                             )}
                         </div>
@@ -144,10 +161,22 @@ function ClientNotificationsBlock({ selected }: { selected: Appointment }) {
                         <span>Напоминание 24 ч — {reminder24}</span>
                     </div>
                 )}
+                {reminder24Failed && !reminder24 && (
+                    <div className="flex items-center gap-2 text-red-500 dark:text-red-400">
+                        <CircleX className="size-3.5" />
+                        <span>Напоминание 24 ч — не отправлено</span>
+                    </div>
+                )}
                 {reminderFinal && (
                     <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
                         <BellRing className="size-3.5" />
                         <span>Финальное напоминание — {reminderFinal}</span>
+                    </div>
+                )}
+                {reminderFinalFailed && !reminderFinal && (
+                    <div className="flex items-center gap-2 text-red-500 dark:text-red-400">
+                        <CircleX className="size-3.5" />
+                        <span>Финальное напоминание — не отправлено</span>
                     </div>
                 )}
             </div>

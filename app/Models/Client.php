@@ -13,6 +13,14 @@ use Illuminate\Foundation\Auth\User as Authenticatable;
 use Illuminate\Support\Str;
 
 /**
+ * @property string $id
+ * @property string|null $name
+ * @property string|null $phone
+ * @property string|null $telegram_id
+ * @property string|null $max_id
+ * @property string|null $vk_id
+ * @property bool|null $vk_messages_allowed
+ * @property string|null $workspace_id
  * @property string|null $avatar_url
  * @property string|null $avatar_disk
  * @property string|null $avatar_path

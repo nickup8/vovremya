@@ -14,6 +14,7 @@ use App\Models\Appointment;
 use App\Models\User;
 use App\Services\Notification\AppointmentNotificationRecorder;
 use Illuminate\Contracts\Auth\Authenticatable;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
 
@@ -72,31 +73,44 @@ class AppointmentStatusService
             $updateData['completed_at'] = null;
         }
 
-        $appointment->update($updateData);
+        // Статус + версия + outbox — одна транзакция: сбой записи
+        // события откатывает и мутацию, коммит фиксирует всё разом.
+        // Вложенный вызов (внешняя транзакция) работает через savepoint.
+        DB::transaction(function () use (
+            $appointment, $updateData, $to, $notifyClient,
+        ): void {
+            $appointment->update($updateData);
 
-        // Отмена мастером/админом: «Мастер отменил запись». Инициатор
-        // достоверен по cancelled_by (User) — отмена клиентом или
-        // автоматическая (actor = null / Client) сюда не попадают.
-        // Событие фиксируется в той же транзакции, что и статус.
-        // $notifyClient=false — серийные bulk-операции шлют одно
-        // согласованное series-сообщение вместо десятков per-appointment.
-        if ($notifyClient
-            && $to === AppointmentStatus::Cancelled
-            && $appointment->cancelled_by !== null
-            && $appointment->client_id !== null) {
-            $recorder = app(AppointmentNotificationRecorder::class);
-            $version = $recorder->bumpVersion($appointment);
-            $recorder->record(
-                $appointment,
-                AppointmentNotificationEventType::CancelledByMaster,
-                [
-                    'service_name' => $appointment->display_name,
-                    'start_time' => $appointment->start_time?->toIso8601String(),
-                    'cancelled_by' => $appointment->cancelled_by,
-                ],
-                $version,
-            );
-        }
+            if ($to === AppointmentStatus::Cancelled && $appointment->client_id !== null) {
+                $recorder = app(AppointmentNotificationRecorder::class);
+
+                // Версия бампится ВСЕГДА при отмене визита с клиентом —
+                // иначе при notifyClient=false (серийные bulk-операции)
+                // старые jobs остальных визитов остаются актуальными и
+                // отправляют подтверждение уже отменённой записи.
+                $version = $recorder->bumpVersion($appointment);
+
+                // Отмена мастером/админом: «Мастер отменил запись».
+                // Инициатор достоверен по cancelled_by (User) — отмена
+                // клиентом или автоматическая (actor = null / Client)
+                // индивидуального сообщения не порождают.
+                // $notifyClient=false — серийные bulk-операции шлют одно
+                // согласованное series-сообщение вместо десятков
+                // per-appointment.
+                if ($notifyClient && $appointment->cancelled_by !== null) {
+                    $recorder->record(
+                        $appointment,
+                        AppointmentNotificationEventType::CancelledByMaster,
+                        [
+                            'service_name' => $appointment->display_name,
+                            'start_time' => $appointment->start_time->toIso8601String(),
+                            'cancelled_by' => $appointment->cancelled_by,
+                        ],
+                        $version,
+                    );
+                }
+            }
+        });
 
         // AutoFill: dispatch opportunity creation after commit
         if ($freedWindow !== null) {

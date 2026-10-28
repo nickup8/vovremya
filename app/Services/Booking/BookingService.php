@@ -345,6 +345,11 @@ class BookingService
         );
     }
 
+    /**
+     * @param  bool  $notifyClient  false — мутация без bump/record
+     *                              (вызывающий стор записывает одно
+     *                              согласованное сообщение на всё сохранение)
+     */
     public function rescheduleAppointment(
         Appointment $appointment,
         string $newDate,
@@ -353,9 +358,10 @@ class BookingService
         bool $confirmOutsideHours = false,
         ?string $newMasterId = null,
         ?string $autofillChainId = null,
+        bool $notifyClient = true,
     ): array {
         try {
-            $result = DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId, $autofillChainId) {
+            $result = DB::transaction(function () use ($appointment, $newDate, $newTime, $ignoreWarnings, $confirmOutsideHours, $newMasterId, $autofillChainId, $notifyClient) {
                 $locked = Appointment::where('id', $appointment->id)->lockForUpdate()->first();
 
                 $originalMaster = $locked->master;
@@ -433,10 +439,10 @@ class BookingService
                 $locked->update($updateData);
 
                 // Версия изменения — внутри транзакции, до создания события.
-                $recorder = app(AppointmentNotificationRecorder::class);
-                $newVersion = $recorder->bumpVersion($locked);
+                if ($notifyClient && $locked->client_id !== null && $locked->start_time->isFuture()) {
+                    $recorder = app(AppointmentNotificationRecorder::class);
+                    $newVersion = $recorder->bumpVersion($locked);
 
-                if ($locked->client_id !== null && $locked->start_time->isFuture()) {
                     $locked->load(['client', 'master', 'masterService.catalog']);
                     $recorder->record(
                         $locked,

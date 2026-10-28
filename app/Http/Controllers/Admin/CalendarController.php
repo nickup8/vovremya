@@ -6,6 +6,7 @@ use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentStatus;
 use App\Enums\RecurringSeriesStatus;
 use App\Exceptions\InvalidStatusTransitionException;
+use App\Exceptions\UpdateStatusRejectedException;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\BlockedTime;
@@ -14,12 +15,16 @@ use App\Models\MasterService;
 use App\Models\RecurringBlockedTimeSeries;
 use App\Models\User;
 use App\Models\WorkingHour;
+use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
 use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\AppointmentNotificationSummary;
 use App\Services\Recurrence\RecurrenceRule;
 use App\Services\Recurrence\RecurrenceService;
+use Illuminate\Http\JsonResponse;
+use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
+use Illuminate\Http\Response;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
@@ -94,7 +99,9 @@ class CalendarController extends Controller
                         'master_name' => $a->master?->name ?? 'Мастер',
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
+                        'reminder_24h_failed_at' => $a->reminder_24h_failed_at?->toIso8601String(),
                         'reminder_final_sent_at' => $a->reminder_final_sent_at?->toIso8601String(),
+                        'reminder_final_failed_at' => $a->reminder_final_failed_at?->toIso8601String(),
                         'client_notifications' => $notificationSummaries[$a->id] ?? null,
                         'recurring_series_id' => $a->recurring_series_id,
                         'recurring_occurrence_date' => $a->recurring_occurrence_date,
@@ -240,7 +247,9 @@ class CalendarController extends Controller
                         'status' => $a->status,
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
+                        'reminder_24h_failed_at' => $a->reminder_24h_failed_at?->toIso8601String(),
                         'reminder_final_sent_at' => $a->reminder_final_sent_at?->toIso8601String(),
+                        'reminder_final_failed_at' => $a->reminder_final_failed_at?->toIso8601String(),
                         'client_notifications' => $notificationSummaries[$a->id] ?? null,
                         'recurring_series_id' => $a->recurring_series_id,
                         'recurring_occurrence_date' => $a->recurring_occurrence_date,
@@ -397,6 +406,9 @@ class CalendarController extends Controller
         return back()->with('success', 'Запись создана');
     }
 
+    /**
+     * @return Response|RedirectResponse|JsonResponse
+     */
     public function updateStatus(Request $request, Appointment $appointment)
     {
         $this->authorize('update', $appointment);
@@ -422,161 +434,287 @@ class CalendarController extends Controller
             ]);
         }
 
-        if (isset($validated['status'])) {
-            $newStatus = AppointmentStatus::from($validated['status']);
+        try {
+            // Одно пользовательское сохранение = одна транзакция:
+            // статус, перенос и поля читаются под блокировкой, применяются
+            // атомарно и порождают максимум одно согласованное сообщение.
+            // Ошибка любой части откатывает всё, ничего не остаётся
+            // применённым частично.
+            return DB::transaction(function () use ($appointment, $validated) {
+                $locked = Appointment::whereKey($appointment->getKey())
+                    ->lockForUpdate()
+                    ->firstOrFail();
+                $locked->load(['master', 'client', 'masterService.catalog']);
 
-            if (! $appointment->status->canTransitionTo($newStatus)) {
-                return back()->withErrors([
-                    'status' => "Невозможно перевести запись из «{$appointment->status->label()}» в «{$newStatus->label()}».",
-                ]);
-            }
+                $newStatus = isset($validated['status'])
+                    ? AppointmentStatus::from($validated['status'])
+                    : null;
+                $willReschedule = isset($validated['start_time']);
 
-            try {
-                $this->bookingService->updateStatus($appointment, $newStatus, auth()->user());
-            } catch (InvalidStatusTransitionException) {
-                return back()->withErrors([
-                    'status' => 'Статус записи уже изменился. Обновите страницу и попробуйте снова.',
-                ]);
-            }
+                // ─── Валидации до каких-либо мутаций ───
 
-            unset($validated['status']);
-        }
-
-        if (isset($validated['start_time'])) {
-            if (in_array($appointment->status, [
-                AppointmentStatus::Cancelled,
-                AppointmentStatus::Paid,
-                AppointmentStatus::NoShow,
-            ], true)) {
-                return response()->json([
-                    'error' => 'invalid_status',
-                    'message' => 'Невозможно перенести запись со статусом «'.$appointment->status->label().'».',
-                ], 422);
-            }
-
-            $tz = $appointment->master->getTimezone();
-            $newDateTime = Carbon::parse($validated['start_time'], $tz);
-            $newDate = $newDateTime->format('Y-m-d');
-            $newTime = $newDateTime->format('H:i');
-
-            $newMasterId = $validated['master_id'] ?? null;
-
-            $result = $this->bookingService->rescheduleAppointment(
-                $appointment,
-                $newDate,
-                $newTime,
-                $validated['ignore_warnings'] ?? false,
-                $validated['confirm_outside_hours'] ?? false,
-                $newMasterId,
-            );
-
-            if (! $result['success']) {
-                $errorMap = [
-                    'break_intersection' => 'lunch_intersection',
-                    'outside_working_hours' => 'outside_working_hours',
-                ];
-                $errorKey = $errorMap[$result['error']] ?? 'time';
-
-                if ($request->header('X-Inertia')) {
-                    return back()->withErrors([
-                        $errorKey => $result['message'],
-                    ])->withInput();
-                }
-
-                return response()->json([
-                    'error' => $result['error'],
-                    'message' => $result['message'],
-                    'break_info' => $result['break_info'] ?? null,
-                ], 422);
-            }
-
-            unset($validated['start_time']);
-        }
-
-        if (! empty($validated)) {
-            // Фактическое изменение услуги/длительности/цены одной записью.
-            // Внутренние заметки, технические поля и сохранение без
-            // изменений не порождают сообщений. Одно сохранение нескольких
-            // полей — одно понятное сообщение fields_changed.
-            $changes = [];
-
-            // Захватываем оригиналы ДО мутаций модели.
-            $originalServiceName = $appointment->display_name;
-            $originalDuration = (int) ($appointment->duration ?? 0);
-            $originalPrice = (float) ($appointment->price ?? 0);
-
-            if (array_key_exists('service_id', $validated) && $validated['service_id'] !== null) {
-                $newService = MasterService::find($validated['service_id']);
-                if ($newService && $newService->id !== $appointment->master_service_id) {
-                    $newServiceTitle = $newService->catalog?->title ?? $originalServiceName;
-                    $changes['service_name'] = [
-                        'old' => $originalServiceName,
-                        'new' => $newServiceTitle,
-                    ];
-                    $appointment->master_service_id = $newService->id;
-                    $appointment->service_name = $newServiceTitle;
-                    // Явные override'ы ниже имеют приоритет; без них — снимок услуги.
-                    if (! array_key_exists('duration', $validated)) {
-                        $newDurationFromService = $newService->effective_duration;
-                        if ($originalDuration !== $newDurationFromService) {
-                            $appointment->duration = $newDurationFromService;
-                            $changes['duration'] = [
-                                'old' => $originalDuration,
-                                'new' => $newDurationFromService,
-                            ];
-                        }
-                    }
-                    if (! array_key_exists('price', $validated)) {
-                        $newPriceFromService = (float) $newService->effective_price;
-                        if (abs($originalPrice - $newPriceFromService) > 0.001) {
-                            $appointment->price = $newPriceFromService;
-                            $changes['price'] = [
-                                'old' => $originalPrice,
-                                'new' => $newPriceFromService,
-                            ];
-                        }
-                    }
-                }
-            }
-
-            if (array_key_exists('duration', $validated) && $validated['duration'] !== null) {
-                $newDuration = (int) $validated['duration'];
-                if ($originalDuration !== $newDuration) {
-                    $changes['duration'] = ['old' => $originalDuration, 'new' => $newDuration];
-                    $appointment->duration = $newDuration;
-                }
-            }
-
-            if (array_key_exists('price', $validated) && $validated['price'] !== null) {
-                $newPrice = (float) $validated['price'];
-                if (abs($originalPrice - $newPrice) > 0.001) {
-                    $changes['price'] = ['old' => $originalPrice, 'new' => $newPrice];
-                    $appointment->price = $newPrice;
-                }
-            }
-
-            if ($changes !== [] && $appointment->isDirty()) {
-                DB::transaction(function () use ($appointment, $changes) {
-                    $appointment->save();
-
-                    if ($appointment->client_id === null) {
-                        return;
-                    }
-
-                    $recorder = app(AppointmentNotificationRecorder::class);
-                    $version = $recorder->bumpVersion($appointment);
-                    $recorder->record(
-                        $appointment,
-                        AppointmentNotificationEventType::FieldsChanged,
-                        ['changes' => $changes],
-                        $version,
+                if ($newStatus !== null && ! $locked->status->canTransitionTo($newStatus)) {
+                    throw new UpdateStatusRejectedException(
+                        'status',
+                        "Невозможно перевести запись из «{$locked->status->label()}» в «{$newStatus->label()}».",
+                        errorsOnly: true,
                     );
-                });
-            } elseif ($appointment->isDirty()) {
-                $appointment->save();
+                }
+
+                // Итоговый статус (текущий или запрошенный) определяет
+                // допустимость остальных частей сохранения — ошибка второй
+                // части не оставляет первую уже применённой.
+                $effectiveStatus = $newStatus ?? $locked->status;
+                if ($willReschedule && in_array($effectiveStatus, [
+                    AppointmentStatus::Cancelled,
+                    AppointmentStatus::Paid,
+                    AppointmentStatus::NoShow,
+                ], true)) {
+                    throw new UpdateStatusRejectedException(
+                        'invalid_status',
+                        'Невозможно перенести запись со статусом «'.$effectiveStatus->label().'».',
+                        asJson: true,
+                    );
+                }
+
+                // Доступность итогового интервала при изменении
+                // услуги/длительности — существующим механизмом
+                // доступности, без обхода действующих ограничений.
+                if (! $willReschedule
+                    && (array_key_exists('service_id', $validated) || array_key_exists('duration', $validated))) {
+                    $plannedDuration = $this->plannedDuration($locked, $validated);
+                    if ($plannedDuration !== null
+                        && app(AvailabilityService::class)
+                            ->isSlotBookedOrBlocked(
+                                $locked->master,
+                                Carbon::parse($locked->start_time),
+                                $plannedDuration,
+                                $locked->id,
+                            )) {
+                        throw new UpdateStatusRejectedException(
+                            'time',
+                            'Этот интервал уже занят другим событием.',
+                            asJson: true,
+                        );
+                    }
+                }
+
+                // ─── Мутации под блокировкой ───
+
+                // Фактическое изменение услуги/длительности/цены одной
+                // записью; доступ к целевой услуге — по действующим правилам
+                // приложения (как при создании записи).
+                $fieldChanges = $this->applyFieldChanges($locked, $validated);
+
+                if ($newStatus !== null) {
+                    $this->bookingService->updateStatus($locked, $newStatus, auth()->user());
+                } elseif ($locked->isDirty()) {
+                    $locked->save();
+                }
+
+                $oldStartTime = null;
+                if ($willReschedule) {
+                    if ($locked->isDirty()) {
+                        // Поля сохраняются до переноса, чтобы проверка
+                        // доступности видела итоговую длительность интервала.
+                        $locked->save();
+                    }
+
+                    $tz = $locked->master->getTimezone();
+                    $newDateTime = Carbon::parse($validated['start_time'], $tz);
+                    $oldStartTime = $locked->start_time->toIso8601String();
+
+                    $result = $this->bookingService->rescheduleAppointment(
+                        $locked,
+                        $newDateTime->format('Y-m-d'),
+                        $newDateTime->format('H:i'),
+                        $validated['ignore_warnings'] ?? false,
+                        $validated['confirm_outside_hours'] ?? false,
+                        $validated['master_id'] ?? null,
+                        notifyClient: false,
+                    );
+
+                    if (! ($result['success'] ?? false)) {
+                        // Исключение откатывает и сохранение полей, и статус.
+                        $errorMap = [
+                            'break_intersection' => 'lunch_intersection',
+                            'outside_working_hours' => 'outside_working_hours',
+                        ];
+                        throw new UpdateStatusRejectedException(
+                            $errorMap[$result['error']] ?? 'time',
+                            (string) $result['message'],
+                            extra: [
+                                'error' => $result['error'],
+                                'break_info' => $result['break_info'] ?? null,
+                            ],
+                        );
+                    }
+                }
+
+                // ─── Одно согласованное сообщение на одно сохранение ───
+
+                // Отмена уже записана transition'ом (_CancelledByMaster_);
+                // поля и перенос в том же запросе применяются молча.
+                $cancelledViaStatus = $newStatus === AppointmentStatus::Cancelled;
+
+                if (! $cancelledViaStatus && $locked->client_id !== null) {
+                    $recorder = app(AppointmentNotificationRecorder::class);
+
+                    if ($willReschedule && $locked->start_time->isFuture()) {
+                        $version = $recorder->bumpVersion($locked);
+                        $recorder->record(
+                            $locked,
+                            AppointmentNotificationEventType::Rescheduled,
+                            [
+                                'old_start_time' => $oldStartTime,
+                                'new_start_time' => $locked->start_time->toIso8601String(),
+                                'old_master_id' => $locked->getOriginal('master_id'),
+                                'new_master_id' => $locked->master_id,
+                                'service_name' => $locked->display_name,
+                                'changes' => $fieldChanges,
+                            ],
+                            $version,
+                        );
+                    } elseif ($fieldChanges !== []) {
+                        $version = $recorder->bumpVersion($locked);
+                        $recorder->record(
+                            $locked,
+                            AppointmentNotificationEventType::FieldsChanged,
+                            ['changes' => $fieldChanges],
+                            $version,
+                        );
+                    }
+                }
+
+                return back();
+            });
+        } catch (UpdateStatusRejectedException $e) {
+            if ($e->errorsOnly) {
+                return back()->withErrors([$e->errorKey => $e->detail]);
+            }
+
+            if ($request->header('X-Inertia') && ! $e->asJson) {
+                return back()->withErrors([$e->errorKey => $e->detail])->withInput();
+            }
+
+            return response()->json(
+                ['error' => $e->errorKey, 'message' => $e->detail] + $e->extra,
+                $e->httpStatus,
+            );
+        } catch (InvalidStatusTransitionException) {
+            return back()->withErrors([
+                'status' => 'Статус записи уже изменился. Обновите страницу и попробуйте снова.',
+            ]);
+        }
+    }
+
+    /**
+     * Итоговая длительность интервала с учётом правок в запросе
+     * (явный duration имеет приоритет над снимком услуги).
+     *
+     * @param  array<string, mixed>  $validated
+     */
+    private function plannedDuration(Appointment $appointment, array $validated): ?int
+    {
+        if (array_key_exists('duration', $validated) && $validated['duration'] !== null) {
+            return (int) $validated['duration'];
+        }
+
+        if (array_key_exists('service_id', $validated) && $validated['service_id'] !== null) {
+            $service = MasterService::query()
+                ->whereKey($validated['service_id'])
+                ->first();
+
+            return $service?->effective_duration;
+        }
+
+        return null;
+    }
+
+    /**
+     * Применяет изменения услуги/длительности/цены к заблокированной
+     * строке (без сохранения) и возвращает сложенные изменения для
+     * единого сообщения. Чужая/неактивная услуга отклоняется без
+     * изменения записи и события.
+     *
+     * @param  array<string, mixed>  $validated
+     * @return array<string, array{old: int|float|string, new: int|float|string}>
+     */
+    private function applyFieldChanges(Appointment $appointment, array $validated): array
+    {
+        $changes = [];
+
+        $originalServiceName = $appointment->display_name;
+        $originalDuration = (int) ($appointment->duration ?? 0);
+        $originalPrice = (float) ($appointment->price ?? 0);
+
+        if (array_key_exists('service_id', $validated) && $validated['service_id'] !== null) {
+            $newService = MasterService::query()
+                ->whereKey($validated['service_id'])
+                ->firstOrFail();
+            $newService->load('catalog');
+
+            if (! $newService->catalog || ! $newService->catalog->is_active) {
+                abort(422, 'Эта услуга больше недоступна для записи.');
+            }
+
+            $authUser = User::findOrFail(auth()->id());
+            $workspaceMasterIds = $authUser->workspace
+                ? $authUser->workspace->users()->pluck('id')->all()
+                : [$authUser->id];
+
+            if (! in_array($newService->master_id, $workspaceMasterIds, true)) {
+                abort(403, 'У вас нет прав на использование этой услуги.');
+            }
+
+            if ($newService->id !== $appointment->master_service_id) {
+                $newServiceTitle = $newService->catalog->title ?? $originalServiceName;
+                $changes['service_name'] = [
+                    'old' => $originalServiceName,
+                    'new' => $newServiceTitle,
+                ];
+                $appointment->master_service_id = $newService->id;
+                $appointment->service_name = $newServiceTitle;
+                // Явные override'ы ниже имеют приоритет; без них — снимок услуги.
+                if (! array_key_exists('duration', $validated)) {
+                    $newDurationFromService = $newService->effective_duration;
+                    if ($originalDuration !== $newDurationFromService) {
+                        $appointment->duration = $newDurationFromService;
+                        $changes['duration'] = [
+                            'old' => $originalDuration,
+                            'new' => $newDurationFromService,
+                        ];
+                    }
+                }
+                if (! array_key_exists('price', $validated)) {
+                    $newPriceFromService = (float) $newService->effective_price;
+                    if (abs($originalPrice - $newPriceFromService) > 0.001) {
+                        $appointment->price = $newPriceFromService;
+                        $changes['price'] = [
+                            'old' => $originalPrice,
+                            'new' => $newPriceFromService,
+                        ];
+                    }
+                }
             }
         }
 
-        return back();
+        if (array_key_exists('duration', $validated) && $validated['duration'] !== null) {
+            $newDuration = (int) $validated['duration'];
+            if ($originalDuration !== $newDuration) {
+                $changes['duration'] = ['old' => $originalDuration, 'new' => $newDuration];
+                $appointment->duration = $newDuration;
+            }
+        }
+
+        if (array_key_exists('price', $validated) && $validated['price'] !== null) {
+            $newPrice = (float) $validated['price'];
+            if (abs($originalPrice - $newPrice) > 0.001) {
+                $changes['price'] = ['old' => $originalPrice, 'new' => $newPrice];
+                $appointment->price = $newPrice;
+            }
+        }
+
+        return $changes;
     }
 }

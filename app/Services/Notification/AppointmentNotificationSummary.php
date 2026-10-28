@@ -55,6 +55,7 @@ class AppointmentNotificationSummary
      *     status: string,
      *     channel: string|null,
      *     event_type: string,
+     *     event_label: string,
      *     label: string,
      *     sent_at: string|null,
      *     created_at: string|null,
@@ -62,7 +63,11 @@ class AppointmentNotificationSummary
      */
     public function summarize(AppointmentNotificationEvent $event): array
     {
-        $deliveries = $event->deliveries()->get();
+        // Отношение уже загружено в forAppointments() — повторный запрос
+        // deliveries на каждое событие давал N+1 на календаре.
+        $deliveries = $event->relationLoaded('deliveries')
+            ? $event->getRelation('deliveries')
+            : $event->deliveries()->get();
 
         $channel = null;
         $status = 'pending';
@@ -93,18 +98,35 @@ class AppointmentNotificationSummary
             $status = 'pending';
         }
 
-        $type = $event->event_type instanceof AppointmentNotificationEventType
-            ? $event->event_type->value
-            : (string) $event->event_type;
+        $type = $event->event_type->value;
 
         return [
             'status' => $status,
             'channel' => $channel,
             'event_type' => $type,
+            'event_label' => $this->eventLabel($type),
             'label' => $this->label($status, $channel),
             'sent_at' => $sentAt,
             'created_at' => $event->created_at?->toIso8601String(),
         ];
+    }
+
+    /**
+     * Человекочитаемое имя события для UI.
+     */
+    private function eventLabel(string $type): string
+    {
+        return match ($type) {
+            AppointmentNotificationEventType::CreatedByMaster->value => 'Запись создана',
+            AppointmentNotificationEventType::CancelledByMaster->value => 'Отмена записи',
+            AppointmentNotificationEventType::Rescheduled->value => 'Перенос',
+            AppointmentNotificationEventType::FieldsChanged->value => 'Изменение полей',
+            AppointmentNotificationEventType::SeriesCreated->value => 'Создание серии',
+            AppointmentNotificationEventType::SeriesUpdated->value => 'Изменение серии',
+            AppointmentNotificationEventType::SeriesCancelled->value => 'Отмена серии',
+            AppointmentNotificationEventType::BookingConfirmed->value => 'Подтверждение брони',
+            default => $type,
+        };
     }
 
     private function label(string $status, ?string $channel): string
@@ -121,7 +143,9 @@ class AppointmentNotificationSummary
                 ? "Отправлено в {$channelLabel}"
                 : 'Отправлено',
             'pending' => 'Ожидает отправки',
-            'failed' => 'Не удалось отправить',
+            'failed' => $channelLabel !== null
+                ? "Не удалось отправить в {$channelLabel}"
+                : 'Не удалось отправить',
             'no_channel' => 'Нет доступного канала',
             'superseded' => 'Устарело / не отправлялось',
             default => 'Ожидает отправки',

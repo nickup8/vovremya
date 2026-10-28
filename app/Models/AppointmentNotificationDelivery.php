@@ -5,6 +5,7 @@ namespace App\Models;
 use Illuminate\Database\Eloquent\Concerns\HasUuids;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\Eloquent\Relations\BelongsTo;
+use Illuminate\Support\Carbon;
 
 /**
  * Поканальная запись доставки одного события уведомления о записи.
@@ -15,8 +16,14 @@ use Illuminate\Database\Eloquent\Relations\BelongsTo;
  * no_channel — нет доступного канала у клиента (без HTTP);
  * superseded — событие устарело (версия записи ушла вперёд), не отправлялось.
  *
- * claim_token переписывается при каждом takeover просроченного lease;
- * success/release CASятся только по своему токену.
+ * @property string $id
+ * @property string $appointment_notification_event_id
+ * @property string $channel
+ * @property string $status
+ * @property string|null $claim_token
+ * @property Carbon|null $lease_expires_at
+ * @property Carbon|null $delivered_at
+ * @property Carbon|null $failed_at
  */
 class AppointmentNotificationDelivery extends Model
 {
@@ -53,6 +60,9 @@ class AppointmentNotificationDelivery extends Model
         ];
     }
 
+    /**
+     * @return BelongsTo<AppointmentNotificationEvent, $this>
+     */
     public function event(): BelongsTo
     {
         return $this->belongsTo(AppointmentNotificationEvent::class, 'appointment_notification_event_id');
