@@ -14,8 +14,23 @@ import {
     SunIcon,
     MoonIcon,
 } from '@heroicons/react/24/outline';
-import { useState, useEffect, useCallback, type ComponentType } from 'react';
+import {
+    useState,
+    useEffect,
+    useCallback,
+    useRef,
+    type ComponentType,
+} from 'react';
 import { Avatar, AvatarImage, AvatarFallback } from '@/components/ui/avatar';
+import { Button } from '@/components/ui/button';
+import {
+    Dialog,
+    DialogContent,
+    DialogDescription,
+    DialogFooter,
+    DialogHeader,
+    DialogTitle,
+} from '@/components/ui/dialog';
 import { getInitials } from '@/lib/utils';
 import { useAppearance } from '@/hooks/use-appearance';
 
@@ -49,12 +64,25 @@ interface SidebarProps {
     onToggleTheme?: () => void;
 }
 
-export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMobileClose, onToggleTheme }: SidebarProps) {
+export default function Sidebar({
+    collapsed,
+    onToggleCollapse,
+    mobileOpen,
+    onMobileClose,
+    onToggleTheme,
+}: SidebarProps) {
     const { url, props } = usePage();
     const { resolvedAppearance } = useAppearance();
     const [profileMenuOpen, setProfileMenuOpen] = useState(false);
+    const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
+    const [loggingOut, setLoggingOut] = useState(false);
+    // Synchronous guard: state alone cannot prevent a rapid double-click POST.
+    const logoutInFlightRef = useRef(false);
+    const profileTriggerRef = useRef<HTMLElement | null>(null);
+    const stayFocusedRef = useRef<HTMLButtonElement>(null);
 
-    const authUser = (props as { auth?: { user?: Record<string, unknown> } })?.auth?.user;
+    const authUser = (props as { auth?: { user?: Record<string, unknown> } })
+        ?.auth?.user;
     const userName = (authUser?.name as string) || 'Мастер';
     const tariffName = (authUser?.tariff_name as string) || 'Free';
     const avatarUrl = (authUser?.avatar_url as string | null) ?? undefined;
@@ -64,15 +92,43 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
 
     const isDark = resolvedAppearance === 'dark';
     const logoFull = isDark ? '/images/logo-white.svg' : '/images/logo.svg';
-    const logoMark = isDark ? '/images/logo-mark-white.svg' : '/images/logo-mark.svg';
+    const logoMark = isDark
+        ? '/images/logo-mark-white.svg'
+        : '/images/logo-mark.svg';
 
-    const filterVisible = (items: NavItem[]) => items.filter((item) => !item.ownerOnly || canManageTeam);
+    const filterVisible = (items: NavItem[]) =>
+        items.filter((item) => !item.ownerOnly || canManageTeam);
 
     const handleLogout = useCallback(() => {
-        router.post('/logout', {}, {
-            onFinish: () => { window.location.href = '/'; },
-        });
+        router.post(
+            '/logout',
+            {},
+            {
+                onFinish: () => {
+                    window.location.href = '/';
+                },
+            },
+        );
     }, []);
+
+    const confirmLogout = useCallback(() => {
+        if (logoutInFlightRef.current) {
+            return;
+        }
+
+        logoutInFlightRef.current = true;
+        setLoggingOut(true);
+        handleLogout();
+    }, [handleLogout]);
+
+    const handleLogoutDialogOpenChange = (open: boolean) => {
+        // While the POST is in flight the dialog must stay open.
+        if (!open && logoutInFlightRef.current) {
+            return;
+        }
+
+        setLogoutConfirmOpen(open);
+    };
 
     // Escape closes mobile sidebar and profile menu
     useEffect(() => {
@@ -92,16 +148,39 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         if (!profileMenuOpen) return;
         const handler = () => setProfileMenuOpen(false);
         // Delay to avoid the opening click immediately closing it
-        const timer = setTimeout(() => document.addEventListener('click', handler), 0);
-        return () => { clearTimeout(timer); document.removeEventListener('click', handler); };
+        const timer = setTimeout(
+            () => document.addEventListener('click', handler),
+            0,
+        );
+        return () => {
+            clearTimeout(timer);
+            document.removeEventListener('click', handler);
+        };
     }, [profileMenuOpen]);
 
     const toggleProfile = (e: React.MouseEvent) => {
         e.stopPropagation();
+        profileTriggerRef.current = e.currentTarget as HTMLElement;
         setProfileMenuOpen((prev) => !prev);
     };
 
     const closeProfile = () => setProfileMenuOpen(false);
+
+    const openLogoutConfirm = () => {
+        closeProfile();
+        onMobileClose();
+        setLogoutConfirmOpen(true);
+    };
+
+    const focusProfileTrigger = () => {
+        const trigger = profileTriggerRef.current;
+
+        // Only restore focus to a still-mounted, visible trigger —
+        // never into a closed mobile sidebar or an unmounted menu item.
+        if (trigger?.isConnected && trigger.getClientRects().length > 0) {
+            trigger.focus();
+        }
+    };
 
     const renderNavItems = (items: NavItem[]) =>
         filterVisible(items).map((item) => {
@@ -116,30 +195,37 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         collapsed ? 'justify-center px-0' : 'px-3'
                     } ${
                         isActive
-                            ? 'bg-[var(--color-orange-100)] text-[var(--color-ink)] font-semibold'
+                            ? 'bg-[var(--color-orange-100)] font-semibold text-[var(--color-ink)]'
                             : 'text-[var(--color-graphite)] hover:bg-[var(--color-line-soft)] hover:text-[var(--color-ink)]'
                     }`}
                     title={collapsed ? item.label : undefined}
                 >
                     {isActive && (
-                        <span className="absolute left-0 top-[10px] h-6 w-[3px] rounded-full bg-[var(--color-orange)]" />
+                        <span className="absolute top-[10px] left-0 h-6 w-[3px] rounded-full bg-[var(--color-orange)]" />
                     )}
-                    <item.icon className={`size-5 shrink-0 ${isActive ? 'text-[var(--color-orange)]' : 'text-[#77736E]'}`} />
-                    {!collapsed && <span className="truncate">{item.label}</span>}
+                    <item.icon
+                        className={`size-5 shrink-0 ${isActive ? 'text-[var(--color-orange)]' : 'text-[#77736E]'}`}
+                    />
+                    {!collapsed && (
+                        <span className="truncate">{item.label}</span>
+                    )}
                 </Link>
             );
         });
 
     const profileDropdown = profileMenuOpen ? (
         <div
-            className="absolute bottom-full left-0 mb-1 w-full max-w-56 rounded-xl border border-[var(--color-line)] bg-white p-1.5 shadow-lg dark:bg-zinc-900 lg:w-56 lg:max-w-none"
+            className="absolute bottom-full left-0 mb-1 w-full max-w-56 rounded-xl border border-[var(--color-line)] bg-white p-1.5 shadow-lg lg:w-56 lg:max-w-none dark:bg-zinc-900"
             onClick={(e) => e.stopPropagation()}
             role="menu"
         >
             {canBilling && (
                 <Link
                     href="/admin/billing"
-                    onClick={() => { closeProfile(); onMobileClose(); }}
+                    onClick={() => {
+                        closeProfile();
+                        onMobileClose();
+                    }}
                     className="flex h-10 items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
                     role="menuitem"
                 >
@@ -149,7 +235,11 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
             )}
             {onToggleTheme && (
                 <button
-                    onClick={() => { closeProfile(); onMobileClose(); onToggleTheme(); }}
+                    onClick={() => {
+                        closeProfile();
+                        onMobileClose();
+                        onToggleTheme();
+                    }}
                     className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)] lg:hidden"
                     role="menuitem"
                 >
@@ -168,7 +258,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
             )}
             <div className="mx-1 my-1 h-px bg-[var(--color-line-soft)]" />
             <button
-                onClick={() => { closeProfile(); onMobileClose(); handleLogout(); }}
+                onClick={openLogoutConfirm}
                 className="flex h-10 w-full items-center gap-2.5 rounded-lg px-2.5 text-[13px] font-medium text-[var(--color-ink)] transition-colors hover:bg-[var(--color-line-soft)]"
                 role="menuitem"
             >
@@ -181,25 +271,29 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
     const sidebarContent = (
         <div className="flex h-full flex-col">
             {/* Brand */}
-            <div className={`flex h-[52px] items-center border-b border-[var(--color-line-soft)] px-2 pb-4 ${collapsed ? 'justify-center' : ''}`}>
+            <div
+                className={`flex h-[52px] items-center border-b border-[var(--color-line-soft)] px-2 pb-4 ${collapsed ? 'justify-center' : ''}`}
+            >
                 <img
                     src={collapsed ? logoMark : logoFull}
                     alt="Вовремя"
-                    className={collapsed ? 'h-8 w-8 object-contain' : 'h-7 w-auto'}
+                    className={
+                        collapsed ? 'h-8 w-8 object-contain' : 'h-7 w-auto'
+                    }
                 />
             </div>
 
             {/* Navigation */}
             <nav className="mt-3 flex flex-1 flex-col gap-1">
                 {!collapsed && (
-                    <div className="px-3 pt-3 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                    <div className="px-3 pt-3 pb-1.5 text-[11px] font-semibold tracking-[.08em] text-[var(--color-graphite)] uppercase">
                         Работа
                     </div>
                 )}
                 {renderNavItems(WORK_ITEMS)}
 
                 {!collapsed && (
-                    <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold uppercase tracking-[.08em] text-[var(--color-graphite)]">
+                    <div className="px-3 pt-4 pb-1.5 text-[11px] font-semibold tracking-[.08em] text-[var(--color-graphite)] uppercase">
                         Система
                     </div>
                 )}
@@ -219,18 +313,28 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                     aria-expanded={profileMenuOpen}
                 >
                     <Avatar className="size-9 shrink-0">
-                        <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                        <AvatarImage
+                            src={avatarUrl}
+                            alt={userName}
+                            className="object-cover"
+                        />
                         <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
                             {initials}
                         </AvatarFallback>
                     </Avatar>
                     <div className="min-w-0 flex-1">
-                        <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
-                        <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                        <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">
+                            {userName}
+                        </p>
+                        <p className="text-[11px] text-[var(--color-graphite)]">
+                            Тариф · {tariffName}
+                        </p>
                     </div>
                 </button>
                 {/* Desktop: avatar + name + ellipsis */}
-                <div className={`hidden lg:flex items-center ${collapsed ? 'justify-center' : 'gap-2.5'}`}>
+                <div
+                    className={`hidden items-center lg:flex ${collapsed ? 'justify-center' : 'gap-2.5'}`}
+                >
                     <button
                         onClick={toggleProfile}
                         className="shrink-0 rounded-full focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--color-orange)]"
@@ -239,7 +343,11 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         aria-controls="profile-menu"
                     >
                         <Avatar className="size-9">
-                            <AvatarImage src={avatarUrl} alt={userName} className="object-cover" />
+                            <AvatarImage
+                                src={avatarUrl}
+                                alt={userName}
+                                className="object-cover"
+                            />
                             <AvatarFallback className="bg-[var(--color-line)] text-xs font-bold text-[var(--color-ink)]">
                                 {initials}
                             </AvatarFallback>
@@ -248,8 +356,12 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                     {!collapsed && (
                         <>
                             <div className="min-w-0 flex-1">
-                                <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">{userName}</p>
-                                <p className="text-[11px] text-[var(--color-graphite)]">Тариф · {tariffName}</p>
+                                <p className="truncate text-[13px] font-semibold text-[var(--color-ink)]">
+                                    {userName}
+                                </p>
+                                <p className="text-[11px] text-[var(--color-graphite)]">
+                                    Тариф · {tariffName}
+                                </p>
                             </div>
                             <button
                                 onClick={toggleProfile}
@@ -264,15 +376,14 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                 </div>
                 {/* Dropdown — shared content, positioned above trigger */}
                 {profileMenuOpen && (
-                    <div className="relative">
-                        {profileDropdown}
-                    </div>
+                    <div className="relative">{profileDropdown}</div>
                 )}
 
                 {/* Version */}
                 {!collapsed && (
                     <div className="mt-2 pb-0.5 text-center text-[9px] text-[var(--color-graphite)]/50">
-                        v{(props as Record<string, unknown>).appVersion || 'dev'}
+                        v
+                        {(props as Record<string, unknown>).appVersion || 'dev'}
                     </div>
                 )}
             </div>
@@ -283,8 +394,10 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
         <>
             {/* Desktop sidebar */}
             <aside
-                className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--color-line)] bg-white/88 backdrop-blur-[18px] transition-[width] duration-200 dark:bg-[var(--color-cal-sidebar)] lg:flex ${
-                    collapsed ? 'w-[76px] p-[16px_10px]' : 'w-60 p-[20px_16px_16px]'
+                className={`fixed inset-y-0 left-0 z-40 hidden flex-col border-r border-[var(--color-line)] bg-white/88 backdrop-blur-[18px] transition-[width] duration-200 lg:flex dark:bg-[var(--color-cal-sidebar)] ${
+                    collapsed
+                        ? 'w-[76px] p-[16px_10px]'
+                        : 'w-60 p-[20px_16px_16px]'
                 }`}
                 aria-label="Основная навигация"
             >
@@ -306,7 +419,7 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                         {/* Close button overlay */}
                         <button
                             onClick={onMobileClose}
-                            className="absolute right-2 top-4 z-20 flex size-10 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
+                            className="absolute top-4 right-2 z-20 flex size-10 items-center justify-center rounded-lg text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-line-soft)]"
                             aria-label="Закрыть меню"
                         >
                             <XMarkIcon className="size-5" />
@@ -318,6 +431,53 @@ export default function Sidebar({ collapsed, onToggleCollapse, mobileOpen, onMob
                     </aside>
                 </div>
             )}
+
+            {/* Logout confirmation — one instance, outside sidebarContent */}
+            <Dialog
+                open={logoutConfirmOpen}
+                onOpenChange={handleLogoutDialogOpenChange}
+            >
+                <DialogContent
+                    className={`rounded-2xl border-slate-200 bg-white sm:max-w-md dark:border-zinc-800 dark:bg-zinc-900 ${
+                        loggingOut ? '[&>button]:hidden' : ''
+                    }`}
+                    onOpenAutoFocus={(e) => {
+                        e.preventDefault();
+                        stayFocusedRef.current?.focus();
+                    }}
+                    onCloseAutoFocus={(e) => {
+                        e.preventDefault();
+                        focusProfileTrigger();
+                    }}
+                >
+                    <DialogHeader>
+                        <DialogTitle className="text-slate-900 dark:text-zinc-100">
+                            Выйти из кабинета?
+                        </DialogTitle>
+                        <DialogDescription className="text-slate-500 dark:text-zinc-400">
+                            Вы сможете войти снова через MAX или ВК.
+                        </DialogDescription>
+                    </DialogHeader>
+                    <DialogFooter className="flex flex-col gap-2 sm:flex-row">
+                        <Button
+                            ref={stayFocusedRef}
+                            variant="outline"
+                            onClick={() => handleLogoutDialogOpenChange(false)}
+                            disabled={loggingOut}
+                            className="flex-1 rounded-xl sm:flex-none"
+                        >
+                            Остаться
+                        </Button>
+                        <Button
+                            onClick={confirmLogout}
+                            disabled={loggingOut}
+                            className="flex-1 rounded-xl bg-[var(--color-orange)] text-white hover:bg-[var(--color-orange-600)] sm:flex-none"
+                        >
+                            {loggingOut ? 'Выходим…' : 'Выйти'}
+                        </Button>
+                    </DialogFooter>
+                </DialogContent>
+            </Dialog>
         </>
     );
 }
