@@ -3,6 +3,7 @@
 namespace App\Http\Controllers\Api\MiniApp;
 
 use App\Constants\CacheKeys;
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
@@ -15,6 +16,7 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\Auth\VkPhoneNumberVerifier;
 use App\Services\Client\ClientMergeService;
+use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\VkLinkTokenService;
 use App\Support\Phone;
@@ -132,6 +134,18 @@ class VkLinkController extends Controller
                     ]);
                 }
             }
+
+            // Outbox: подтверждение брони — в той же транзакции.
+            $appointment->refresh();
+            $appointment->loadMissing(['client', 'master', 'masterService.catalog']);
+            $recorder = app(AppointmentNotificationRecorder::class);
+            $version = $recorder->bumpVersion($appointment);
+            $recorder->record(
+                $appointment,
+                AppointmentNotificationEventType::BookingConfirmed,
+                [],
+                $version,
+            );
 
             DB::commit();
         } catch (AmbiguousClientMatchException) {

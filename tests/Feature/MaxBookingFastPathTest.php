@@ -270,11 +270,13 @@ class MaxBookingFastPathTest extends TestCase
 
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
 
-        $this->maxApi->shouldReceive('answerCallbackWithMessage')
+        // Callback гасится сразу; текст подтверждения уходит outbox-job'ом.
+        $this->maxApi->shouldReceive('answerCallback')
             ->once()
             ->andReturn(true);
 
         Event::fake([AppointmentCreated::class]);
+        \Illuminate\Support\Facades\Queue::fake();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_confirm', (string) $appointment->id);
 
@@ -285,6 +287,12 @@ class MaxBookingFastPathTest extends TestCase
 
         Event::assertDispatched(AppointmentCreated::class);
         $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+
+        // Outbox: подтверждение брони зафиксировано как событие.
+        $this->assertDatabaseHas('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+            'event_type' => 'booking_confirmed',
+        ]);
     }
 
     // ─── Scenario 6: Double Confirm ───
@@ -296,8 +304,7 @@ class MaxBookingFastPathTest extends TestCase
 
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
 
-        $this->maxApi->shouldReceive('answerCallbackWithMessage')->once()->andReturn(true);
-        $this->maxApi->shouldReceive('answerCallback')->once();
+        $this->maxApi->shouldReceive('answerCallback')->zeroOrMoreTimes()->andReturn(true);
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb1', (string) $appointment->id);
 
@@ -310,6 +317,11 @@ class MaxBookingFastPathTest extends TestCase
         // Still same client, no double side effects
         $appointment->refresh();
         $this->assertEquals($client->id, $appointment->client_id);
+
+        // Только одно booking_confirmed-событие
+        $this->assertSame(1, \App\Models\AppointmentNotificationEvent::where('appointment_id', $appointment->id)
+            ->where('event_type', 'booking_confirmed')
+            ->count());
     }
 
     // ─── Scenario 7: Cancel before Confirm ───
@@ -367,15 +379,14 @@ class MaxBookingFastPathTest extends TestCase
 
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
 
-        // Confirm first
-        $this->maxApi->shouldReceive('answerCallbackWithMessage')->once()->andReturn(true);
+        // Confirm first (callback гасится; текст — outbox-job)
+        $this->maxApi->shouldReceive('answerCallback')->zeroOrMoreTimes()->andReturn(true);
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_confirm', (string) $appointment->id);
 
         $appointment->refresh();
         $this->assertEquals($client->id, $appointment->client_id);
 
         // Now try to cancel
-        $this->maxApi->shouldReceive('answerCallback')->once();
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel', (string) $appointment->id);
 
         // Should still be claimed
@@ -417,7 +428,7 @@ class MaxBookingFastPathTest extends TestCase
 
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
 
-        $this->maxApi->shouldReceive('answerCallbackWithMessage')
+        $this->maxApi->shouldReceive('answerCallback')
             ->once()
             ->andReturn(true);
 
@@ -439,13 +450,6 @@ class MaxBookingFastPathTest extends TestCase
         $sentMessages = [];
         $callbackReplies = [];
 
-        $this->maxApi->shouldReceive('answerCallbackWithMessage')
-            ->andReturnUsing(function (string $callbackId, string $text) use (&$sentMessages): bool {
-                $sentMessages[] = $text;
-
-                return true;
-            })
-            ->zeroOrMoreTimes();
         $this->maxApi->shouldReceive('answerCallback')
             ->andReturnUsing(function (string $callbackId, string $notification = '') use (&$callbackReplies): bool {
                 $callbackReplies[] = $notification;
@@ -463,9 +467,8 @@ class MaxBookingFastPathTest extends TestCase
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_first', (string) $appointment->id);
 
-        $this->assertCount(1, $sentMessages);
-        $this->assertStringContainsString('Запись подтверждена', $sentMessages[0]);
-        $this->assertSame([], $callbackReplies);
+        // Callback пустой (гашение); текст подтверждения — outbox-событие.
+        $this->assertSame([''], $callbackReplies);
         Event::assertDispatchedTimes(AppointmentCreated::class, 1);
         $notifySpy->shouldHaveReceived('sendToMaster')->once();
 
@@ -488,18 +491,18 @@ class MaxBookingFastPathTest extends TestCase
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_second', (string) $appointment->id);
 
-        $this->assertSame(
-            [__('bot.errors.appointment_not_found')],
+        $this->assertContains(
+            __('bot.errors.appointment_not_found'),
             $callbackReplies,
-            'отменённая запись должна получать отказ с реальным текстом API',
-        );
-        $this->assertCount(
-            1,
-            $sentMessages,
-            'сообщение об успешном подтверждении не должно повторяться: '.json_encode($sentMessages, JSON_UNESCAPED_UNICODE),
+            'отменённая запись должна получать отказ: '.json_encode($callbackReplies, JSON_UNESCAPED_UNICODE),
         );
         Event::assertDispatchedTimes(AppointmentCreated::class, 1);
         $notifySpy->shouldHaveReceived('sendToMaster')->once();
+
+        // Ровно одно booking_confirmed-событие (повтор не создаёт второе).
+        $this->assertSame(1, \App\Models\AppointmentNotificationEvent::where('appointment_id', $appointment->id)
+            ->where('event_type', 'booking_confirmed')
+            ->count());
 
         $appointment->refresh();
         $this->assertSame(AppointmentStatus::Cancelled, $appointment->status);

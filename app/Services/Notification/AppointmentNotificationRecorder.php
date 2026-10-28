@@ -1,0 +1,134 @@
+<?php
+
+namespace App\Services\Notification;
+
+use App\Enums\AppointmentNotificationEventType;
+use App\Jobs\SendAppointmentNotificationJob;
+use App\Models\Appointment;
+use App\Models\AppointmentNotificationEvent;
+use Illuminate\Database\UniqueConstraintViolationException;
+use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Log;
+
+/**
+ * Запись outbox-события клиентского уведомления и постановка job'а.
+ *
+ * record*() вызывается ВНУТРИ той же транзакции, что и изменение записи:
+ * rollback убирает и намерение; commit оставляет устойчивую строку.
+ * HTTP-постановка в очередь — только через DB::afterCommit.
+ *
+ * Идентичность события: (appointment, event_type, event_version), где
+ * event_version = appointments.notification_version ПОСЛЕ bump'а изменения.
+ * Повтор того же запроса без фактических изменений версию не двигает —
+ * unique-индекс отклонит дубль, и второй job не создаётся.
+ */
+class AppointmentNotificationRecorder
+{
+    public function __construct(
+        private AppointmentNotificationComposer $composer,
+    ) {}
+
+    /**
+     * Увеличить версию изменения. Вызывать внутри транзакции изменения
+     * ДО создания события. Без изменений не вызывать — версия не растёт.
+     */
+    public function bumpVersion(Appointment $appointment): int
+    {
+        $affected = Appointment::query()
+            ->whereKey($appointment->getKey())
+            ->update([
+                'notification_version' => DB::raw('notification_version + 1'),
+            ]);
+
+        if ($affected !== 1) {
+            // Запись исчезла из-под транзакции — событие не фиксируем.
+            return (int) $appointment->notification_version;
+        }
+
+        $fresh = $appointment->fresh();
+        $appointment->notification_version = $fresh !== null
+            ? (int) $fresh->notification_version
+            : ((int) $appointment->notification_version + 1);
+
+        return (int) $appointment->notification_version;
+    }
+
+    /**
+     * Записать событие и поставить job после коммита.
+     *
+     * @param  array<string, mixed>  $payload  снимок изменения
+     */
+    public function record(
+        Appointment $appointment,
+        AppointmentNotificationEventType $type,
+        array $payload = [],
+        ?int $eventVersion = null,
+        ?string $recurringSeriesId = null,
+    ): ?AppointmentNotificationEvent {
+        $version = $eventVersion ?? (int) $appointment->notification_version;
+
+        $text = $this->composer->compose($appointment, $type, $payload);
+
+        if ($text === null) {
+            return null;
+        }
+
+        $payload['text'] = $text;
+
+        try {
+            $event = AppointmentNotificationEvent::create([
+                'appointment_id' => $appointment->getKey(),
+                'recurring_series_id' => $recurringSeriesId,
+                'event_type' => $type,
+                'event_version' => $version,
+                'payload' => $payload,
+            ]);
+        } catch (\Throwable $e) {
+            // Уже созданное событие той же идентичности (повтор запроса при
+            // гонке) — не ошибка, второй job не нужен. В PostgreSQL unique
+            // violation переводит транзакцию в aborted-состояние, поэтому
+            // ловим и UniqueConstraintViolationException, и QueryException.
+            $isUnique = $e instanceof UniqueConstraintViolationException
+                || str_contains($e->getMessage(), 'unique')
+                || str_contains($e->getMessage(), '23505')
+                || ($e->errorInfo[0] ?? '') === '23505';
+
+            if ($isUnique) {
+                Log::info('Appointment notification event already exists; skip duplicate', [
+                    'appointment_id' => $appointment->getKey(),
+                    'event_type' => $type->value,
+                    'event_version' => $version,
+                ]);
+
+                return null;
+            }
+
+            throw $e;
+        }
+
+        $this->dispatchAfterCommit($event);
+
+        return $event;
+    }
+
+    /**
+     * Переставить job для строк с dispatched_at IS NULL (после commit-сбоя).
+     * Используется recovery-командой; идемпотентность — на стороне job'а.
+     */
+    public function dispatchAfterCommit(AppointmentNotificationEvent $event): void
+    {
+        DB::afterCommit(static function () use ($event): void {
+            try {
+                SendAppointmentNotificationJob::dispatch($event->getKey());
+                AppointmentNotificationEvent::whereKey($event->getKey())
+                    ->update(['dispatched_at' => now()]);
+            } catch (\Throwable $e) {
+                Log::error('Appointment notification event not enqueued; recovery will retry', [
+                    'event_id' => $event->getKey(),
+                    'appointment_id' => $event->appointment_id,
+                    'error' => $e->getMessage(),
+                ]);
+            }
+        });
+    }
+}

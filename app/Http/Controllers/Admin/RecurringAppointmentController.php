@@ -13,6 +13,8 @@ use App\Services\Booking\RecurringAppointmentService;
 use Illuminate\Database\QueryException;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Carbon;
+use Illuminate\Validation\ValidationException;
 
 class RecurringAppointmentController extends Controller
 {
@@ -47,7 +49,7 @@ class RecurringAppointmentController extends Controller
         $service = MasterService::findOrFail($validated['service_id']);
         $this->authorizeService($master, $service);
 
-        $startDate = \Illuminate\Support\Carbon::parse($validated['date'], $targetMaster->getTimezone());
+        $startDate = Carbon::parse($validated['date'], $targetMaster->getTimezone());
 
         $result = $this->recurringService->preview(
             master: $targetMaster,
@@ -57,7 +59,7 @@ class RecurringAppointmentController extends Controller
             recurrenceType: RecurrenceType::from($validated['recurrence_type']),
             interval: $validated['interval'],
             weekdays: $validated['weekdays'] ?? null,
-            endsAt: !empty($validated['ends_at']) ? \Illuminate\Support\Carbon::parse($validated['ends_at'], $targetMaster->getTimezone()) : null,
+            endsAt: ! empty($validated['ends_at']) ? Carbon::parse($validated['ends_at'], $targetMaster->getTimezone()) : null,
             occurrencesCount: $validated['occurrences_count'] ?? null,
             excludeAppointmentId: $validated['exclude_appointment_id'] ?? null,
         );
@@ -187,7 +189,7 @@ class RecurringAppointmentController extends Controller
         ]);
 
         $tz = $appointment->master->getTimezone();
-        $newDateTime = \Illuminate\Support\Carbon::parse($validated['start_time'], $tz);
+        $newDateTime = Carbon::parse($validated['start_time'], $tz);
         $newDate = $newDateTime->format('Y-m-d');
         $newTime = $newDateTime->format('H:i');
 
@@ -261,7 +263,7 @@ class RecurringAppointmentController extends Controller
             recurrenceType: RecurrenceType::from($validated['recurrence_type']),
             interval: $validated['interval'],
             weekdays: $validated['weekdays'] ?? null,
-            endsAt: ! empty($validated['ends_at']) ? \Illuminate\Support\Carbon::parse($validated['ends_at']) : null,
+            endsAt: ! empty($validated['ends_at']) ? Carbon::parse($validated['ends_at']) : null,
             occurrencesCount: $validated['occurrences_count'] ?? null,
             startTime: $validated['start_time'] ?? null,
             serviceId: $validated['service_id'],
@@ -321,11 +323,11 @@ class RecurringAppointmentController extends Controller
                     'dates' => $validated['allowed_dates'],
                 ],
             );
-        } catch (\Illuminate\Validation\ValidationException $e) {
+        } catch (ValidationException $e) {
             return response()->json([
                 'message' => $e->getMessage(),
             ], 422);
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             if ($e->errorInfo[0] === '23P01') {
                 return response()->json([
                     'message' => 'Один из слотов уже занят. Проверьте расписание ещё раз.',
@@ -356,7 +358,7 @@ class RecurringAppointmentController extends Controller
             return response()->json(['message' => 'Серия не найдена.'], 422);
         }
 
-        $cancelledCount = $this->recurringService->cancelThisAndFuture($series, $appointment);
+        $cancelledCount = $this->recurringService->cancelThisAndFuture($series, $appointment, auth()->user());
 
         return response()->json([
             'cancelled' => $cancelledCount,
@@ -379,7 +381,7 @@ class RecurringAppointmentController extends Controller
             return response()->json(['message' => 'Серия не найдена.'], 422);
         }
 
-        $cancelledCount = $this->recurringService->cancelWholeSeries($series);
+        $cancelledCount = $this->recurringService->cancelWholeSeries($series, auth()->user());
 
         return response()->json([
             'cancelled' => $cancelledCount,

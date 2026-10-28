@@ -2,11 +2,12 @@
 
 namespace App\Http\Controllers\Api\MiniApp;
 
-use App\Enums\AppointmentStatus;
-use App\Events\AppointmentCreated;
+use App\Enums\AppointmentNotificationEventType;
 use App\Http\Controllers\Controller;
+use App\Jobs\SendAppointmentNotificationJob;
 use App\Models\Appointment;
-use App\Models\Client;
+use App\Models\AppointmentNotificationDelivery;
+use App\Models\AppointmentNotificationEvent;
 use App\Services\MiniAppClientResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
@@ -48,7 +49,10 @@ class VkPermissionController extends Controller
             if ($client->vk_messages_allowed !== true) {
                 $client->update(['vk_messages_allowed' => true]);
 
-                event(new AppointmentCreated($appointment->fresh()->load(['client'])));
+                // Если подтверждение брони не ушло из-за no_channel/failed —
+                // переставляем job той же идентичности события (версию не
+                // двигаем: это не новое изменение записи, а снятие запрета).
+                $this->retryUndeliveredBookingConfirmed($appointment);
             }
         } else {
             if ($client->vk_messages_allowed === null) {
@@ -57,5 +61,33 @@ class VkPermissionController extends Controller
         }
 
         return response()->json(['ok' => true]);
+    }
+
+    private function retryUndeliveredBookingConfirmed(Appointment $appointment): void
+    {
+        $events = AppointmentNotificationEvent::query()
+            ->where('appointment_id', $appointment->getKey())
+            ->where('event_type', AppointmentNotificationEventType::BookingConfirmed)
+            ->orderByDesc('event_version')
+            ->get();
+
+        foreach ($events as $event) {
+            $undelivered = $event->deliveries()
+                ->whereIn('status', [
+                    AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
+                    AppointmentNotificationDelivery::STATUS_FAILED,
+                ])
+                ->get();
+
+            if ($undelivered->isEmpty()) {
+                continue;
+            }
+
+            $undelivered->each->delete();
+
+            SendAppointmentNotificationJob::dispatch($event->getKey());
+
+            break; // достаточно одного последнего события
+        }
     }
 }

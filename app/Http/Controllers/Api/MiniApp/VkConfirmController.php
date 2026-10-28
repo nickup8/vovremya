@@ -3,17 +3,20 @@
 namespace App\Http\Controllers\Api\MiniApp;
 
 use App\Constants\CacheKeys;
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\VkLinkTokenService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class VkConfirmController extends Controller
@@ -57,21 +60,46 @@ class VkConfirmController extends Controller
         if ($client->isBlocked()) {
             $appointment->delete();
             $tokenService->consume($token);
-            Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+            Cache::forget(CacheKeys::VK_CONSENT_PENDING.$vkUserId);
 
             return response()->json(['error' => 'booking_unavailable'], 403);
         }
 
-        $affected = Appointment::where('id', $appointmentId)
-            ->whereNull('client_id')
-            ->whereIn('status', [
-                AppointmentStatus::Booked,
-                AppointmentStatus::PendingPayment,
-            ])
-            ->update([
-                'client_id' => $client->id,
-                'source' => AppointmentSource::Vk,
-            ]);
+        $affected = DB::transaction(function () use ($appointmentId, $client) {
+            $claimed = Appointment::where('id', $appointmentId)
+                ->whereNull('client_id')
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                ])
+                ->update([
+                    'client_id' => $client->id,
+                    'source' => AppointmentSource::Vk,
+                ]);
+
+            if ($claimed === 0) {
+                return 0;
+            }
+
+            // Outbox: подтверждение брони фиксируется в той же транзакции.
+            // SendVkBookingConfirmation больше не шлёт параллельно — текст
+            // доставит job (BookingConfirmed) с клавиатурой mini-app.
+            $fresh = Appointment::with(['client', 'master', 'masterService.catalog'])
+                ->find($appointmentId);
+
+            if ($fresh !== null) {
+                $recorder = app(AppointmentNotificationRecorder::class);
+                $version = $recorder->bumpVersion($fresh);
+                $recorder->record(
+                    $fresh,
+                    AppointmentNotificationEventType::BookingConfirmed,
+                    [],
+                    $version,
+                );
+            }
+
+            return $claimed;
+        });
 
         if ($affected === 0) {
             return response()->json(['error' => 'appointment_unavailable'], 422);
@@ -90,7 +118,7 @@ class VkConfirmController extends Controller
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $lockKey = 'master_notified_' . $appointment->id;
+        $lockKey = 'master_notified_'.$appointment->id;
         if (Cache::add($lockKey, true, now()->addMinutes(10))) {
             $phone = $client->phone ?? '';
             $clientName = $client->name ?? '';
@@ -106,7 +134,7 @@ class VkConfirmController extends Controller
         }
 
         $tokenService->consume($token);
-        Cache::forget(CacheKeys::VK_CONSENT_PENDING . $vkUserId);
+        Cache::forget(CacheKeys::VK_CONSENT_PENDING.$vkUserId);
 
         Log::info('[VK] booking confirmed', [
             'user_id' => $vkUserId,

@@ -3,6 +3,7 @@
 namespace App\Services;
 
 use App\DTOs\AppointmentWindowFreed;
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentStatus;
 use App\Enums\SlotOpportunitySourceType;
 use App\Events\AppointmentStatusChanged;
@@ -11,6 +12,7 @@ use App\Exceptions\InvalidStatusTransitionException;
 use App\Exceptions\PastAppointmentException;
 use App\Models\Appointment;
 use App\Models\User;
+use App\Services\Notification\AppointmentNotificationRecorder;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -21,6 +23,7 @@ class AppointmentStatusService
         Appointment $appointment,
         AppointmentStatus $to,
         ?Authenticatable $actor = null,
+        bool $notifyClient = true,
     ): Appointment {
         $from = $appointment->status;
 
@@ -70,6 +73,30 @@ class AppointmentStatusService
         }
 
         $appointment->update($updateData);
+
+        // Отмена мастером/админом: «Мастер отменил запись». Инициатор
+        // достоверен по cancelled_by (User) — отмена клиентом или
+        // автоматическая (actor = null / Client) сюда не попадают.
+        // Событие фиксируется в той же транзакции, что и статус.
+        // $notifyClient=false — серийные bulk-операции шлют одно
+        // согласованное series-сообщение вместо десятков per-appointment.
+        if ($notifyClient
+            && $to === AppointmentStatus::Cancelled
+            && $appointment->cancelled_by !== null
+            && $appointment->client_id !== null) {
+            $recorder = app(AppointmentNotificationRecorder::class);
+            $version = $recorder->bumpVersion($appointment);
+            $recorder->record(
+                $appointment,
+                AppointmentNotificationEventType::CancelledByMaster,
+                [
+                    'service_name' => $appointment->display_name,
+                    'start_time' => $appointment->start_time?->toIso8601String(),
+                    'cancelled_by' => $appointment->cancelled_by,
+                ],
+                $version,
+            );
+        }
 
         // AutoFill: dispatch opportunity creation after commit
         if ($freedWindow !== null) {

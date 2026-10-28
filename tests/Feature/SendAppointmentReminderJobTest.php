@@ -245,9 +245,9 @@ class SendAppointmentReminderJobTest extends TestCase
         $this->assertNotNull($appointment->reminder_final_sent_at);
     }
 
-    // ── 8. source=admin + vk_id → no channel → terminal failed ──
+    // ── 8. source=admin + vk_id → канал ВК по общему resolver'у ──
 
-    public function test_admin_source_with_vk_id_marks_terminal_failed(): void
+    public function test_admin_source_with_vk_id_routes_to_vk(): void
     {
         [$appointment, $client] = $this->createAppointment(
             ['vk_id' => '888'],
@@ -255,14 +255,15 @@ class SendAppointmentReminderJobTest extends TestCase
         );
 
         $vkMock = $this->mock(VkApiClient::class);
-        $vkMock->shouldNotReceive('sendMessage');
-        $vkMock->shouldNotReceive('sendMessageWithKeyboard');
+        $vkMock->shouldReceive('sendMessageWithKeyboard')
+            ->once()
+            ->andReturn('msg_1');
 
         (new SendAppointmentReminderJob($appointment, '24h'))->handle();
 
         $appointment->refresh();
-        $this->assertNull($appointment->reminder_24h_sent_at);
-        $this->assertNotNull($appointment->reminder_24h_failed_at);
+        $this->assertNotNull($appointment->reminder_24h_sent_at);
+        $this->assertNull($appointment->reminder_24h_failed_at);
     }
 
     // ── 9. Lock already exists → no send, no markAsSent ──
@@ -410,9 +411,9 @@ class SendAppointmentReminderJobTest extends TestCase
         $this->assertNull($appointment->reminder_24h_sent_at);
     }
 
-    // ── 15. VK source=null + vk_id → no routing → terminal failed ──
+    // ── 15. source=null + vk_id → fallback-канал ВК (общий resolver) ──
 
-    public function test_null_source_with_vk_id_marks_terminal_failed(): void
+    public function test_null_source_with_vk_id_routes_to_vk(): void
     {
         [$appointment, $client] = $this->createAppointment(
             ['vk_id' => '555', 'telegram_id' => null, 'max_id' => null],
@@ -420,14 +421,15 @@ class SendAppointmentReminderJobTest extends TestCase
         );
 
         $vkMock = $this->mock(VkApiClient::class);
-        $vkMock->shouldNotReceive('sendMessage');
-        $vkMock->shouldNotReceive('sendMessageWithKeyboard');
+        $vkMock->shouldReceive('sendMessageWithKeyboard')
+            ->once()
+            ->andReturn('msg_1');
 
         (new SendAppointmentReminderJob($appointment, '24h'))->handle();
 
         $appointment->refresh();
-        $this->assertNull($appointment->reminder_24h_sent_at);
-        $this->assertNotNull($appointment->reminder_24h_failed_at);
+        $this->assertNotNull($appointment->reminder_24h_sent_at);
+        $this->assertNull($appointment->reminder_24h_failed_at);
     }
 
     // ══════════════════════════════════════════════════════════

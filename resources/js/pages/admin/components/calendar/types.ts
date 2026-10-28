@@ -1,5 +1,14 @@
 import type { AppointmentStatus } from '@/types/appointment-status';
 
+export interface ClientNotificationSummary {
+    status: 'pending' | 'sent' | 'failed' | 'no_channel' | 'superseded';
+    channel: string | null;
+    event_type: string;
+    label: string;
+    sent_at?: string | null;
+    created_at?: string | null;
+}
+
 export interface Appointment {
     id: string;
     client_name: string;
@@ -15,6 +24,8 @@ export interface Appointment {
     master_name?: string;
     client_confirmed_at?: string | null;
     reminder_24h_sent_at?: string | null;
+    reminder_final_sent_at?: string | null;
+    client_notifications?: ClientNotificationSummary | null;
     recurring_series_id?: string | null;
     recurring_occurrence_date?: string | null;
     recurring_series?: {

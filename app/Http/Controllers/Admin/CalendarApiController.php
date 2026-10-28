@@ -9,6 +9,7 @@ use App\Models\BlockedTime;
 use App\Models\MasterService;
 use App\Models\RecurringBlockedTimeSeries;
 use App\Services\Booking\AvailabilityService;
+use App\Services\Notification\AppointmentNotificationSummary;
 use App\Services\Recurrence\RecurrenceRule;
 use App\Services\Recurrence\RecurrenceService;
 use Illuminate\Http\JsonResponse;
@@ -50,10 +51,15 @@ class CalendarApiController extends Controller
             ->whereBetween('start_time', [$utcStart, $utcEnd])
             ->where(function ($q) {
                 $q->whereNotNull('client_id')
-                  ->orWhereNotNull('source');
+                    ->orWhereNotNull('source');
             })
-            ->get()
-            ->map(function (Appointment $a) {
+            ->get();
+
+        $notificationSummaries = app(AppointmentNotificationSummary::class)
+            ->forAppointments($appointments);
+
+        $appointments = $appointments
+            ->map(function (Appointment $a) use ($notificationSummaries) {
                 $tz = $a->master->getTimezone();
 
                 return [
@@ -71,6 +77,8 @@ class CalendarApiController extends Controller
                     'master_name' => $a->master?->name ?? 'Мастер',
                     'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                     'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
+                    'reminder_final_sent_at' => $a->reminder_final_sent_at?->toIso8601String(),
+                    'client_notifications' => $notificationSummaries[$a->id] ?? null,
                 ];
             });
 
@@ -90,7 +98,7 @@ class CalendarApiController extends Controller
             ]);
 
         // Recurring blocked time occurrences
-        $recurringService = new RecurrenceService();
+        $recurringService = new RecurrenceService;
         $rangeStartDate = Carbon::parse($validated['start'], $tz)->startOfDay();
         $rangeEndDate = Carbon::parse($validated['end'], $tz)->endOfDay();
 

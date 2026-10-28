@@ -3,6 +3,7 @@
 namespace App\Webhooks;
 
 use App\Constants\CacheKeys;
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Enums\SlotOfferStatus;
@@ -21,6 +22,7 @@ use App\Services\AppointmentStatusService;
 use App\Services\AppointmentVisitConfirmationService;
 use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
+use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlotOfferAcceptanceService;
 use App\Services\SlotOfferService;
@@ -716,6 +718,20 @@ class MaxWebhookHandler
 
                 return;
             }
+
+            // Outbox: подтверждение брони фиксируется в той же транзакции,
+            // что и привязка. Синхронной отправки после commit нет — job
+            // доставит одно сообщение через общую дедупликацию.
+            $appointment->refresh();
+            $appointment->loadMissing(['client', 'master', 'masterService.catalog']);
+            $recorder = app(AppointmentNotificationRecorder::class);
+            $version = $recorder->bumpVersion($appointment);
+            $recorder->record(
+                $appointment,
+                AppointmentNotificationEventType::BookingConfirmed,
+                [],
+                $version,
+            );
         } catch (AmbiguousClientMatchException) {
             DB::rollBack();
 
@@ -773,25 +789,15 @@ class MaxWebhookHandler
             $appointment->load(['client'])
         ));
 
+        // Подтверждение клиенту доставляет outbox-job
+        // (AppointmentNotificationEventType::BookingConfirmed) — без
+        // параллельной синхронной отправки, чтобы не было дублей.
         $master = $appointment->master;
         $tz = $master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $message = __('bot.booking_confirmed', [
-            'service' => $appointment->display_name,
-            'date' => $date,
-            'time' => $time,
-            'price' => $appointment->display_price,
-        ]);
-
-        if ($master->address) {
-            $message .= __('bot.booking_confirmed_address', ['address' => $master->address]);
-        }
-
-        $message .= __('bot.booking_confirmed_suffix');
-
-        // Атомарная блокировка: защищаем и клиента, и мастера от дублей (retry вебхука)
+        // Атомарная блокировка: защищаем мастера от дублей (retry вебхука)
         $lockKey = 'master_notified_'.$appointment->id;
 
         if (! Cache::add($lockKey, true, now()->addMinutes(10))) {
@@ -799,8 +805,6 @@ class MaxWebhookHandler
 
             return;
         }
-
-        $this->sendMessage($userId, $message);
 
         $phone = $client->phone ?? __('bot.fallback.phone');
         $clientName = $client->name ?? __('bot.fallback.client_name');
@@ -1130,6 +1134,20 @@ class MaxWebhookHandler
                 return ['result' => 'not_found'];
             }
 
+            // Outbox: подтверждение брони — в той же транзакции, что и
+            // захват. answerCallback ниже только гасит callback; текст
+            // доставит job через общую дедупликацию.
+            $fresh->refresh();
+            $fresh->loadMissing(['client', 'master', 'masterService.catalog']);
+            $recorder = app(AppointmentNotificationRecorder::class);
+            $version = $recorder->bumpVersion($fresh);
+            $recorder->record(
+                $fresh,
+                AppointmentNotificationEventType::BookingConfirmed,
+                [],
+                $version,
+            );
+
             $phone = $client->phone ?? __('bot.fallback.phone');
             $clientName = $client->name ?? __('bot.fallback.client_name');
 
@@ -1176,24 +1194,9 @@ class MaxWebhookHandler
 
         Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
 
-        $message = __('bot.booking_confirmed', [
-            'service' => $appointment->display_name,
-            'date' => $date,
-            'time' => $time,
-            'price' => $appointment->display_price,
-        ]);
-
-        if ($master->address) {
-            $message .= __('bot.booking_confirmed_address', ['address' => $master->address]);
-        }
-
-        $message .= __('bot.booking_confirmed_suffix');
-
-        $ok = $this->maxApi->answerCallbackWithMessage($callbackId, $message);
-        if (! $ok) {
-            $this->maxApi->answerCallback($callbackId);
-            $this->sendMessage($userId, $message);
-        }
+        // Текст подтверждения доставляет outbox-job (BookingConfirmed).
+        // Здесь только гасим callback, чтобы не было второй отправки.
+        $this->maxApi->answerCallback($callbackId);
 
         Log::info('[MAX] booking confirmed', [
             'user_id' => $userId,

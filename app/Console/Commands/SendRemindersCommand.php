@@ -5,11 +5,24 @@ namespace App\Console\Commands;
 use App\Enums\AppointmentStatus;
 use App\Jobs\SendAppointmentReminderJob;
 use App\Models\Appointment;
+use App\Services\Notification\AppointmentChannelResolver;
 use Illuminate\Console\Command;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Постановка задач напоминаний (24h и final).
+ *
+ * Статусы: Booked и Prepaid — будущие действующие визиты. Cancelled, NoShow,
+ * Paid и неподтверждённые черновики (PendingPayment без привязанного клиента
+ * / widget-черновики) исключаются. PendingPayment автоматически не добавляется:
+ * это статус до предоплаты/подтверждения брони, контракт бронирования его
+ * для напоминаний не предусматривает (исторически reminders шли только по Booked).
+ *
+ * Claim — атомарный UPDATE dispatched_at; после переноса/отмены поля сбрасываются,
+ * поэтому новая версия расписания снова может получить свои напоминания.
+ */
 class SendRemindersCommand extends Command
 {
     protected $signature = 'appointments:reminders';
@@ -29,7 +42,10 @@ class SendRemindersCommand extends Command
         $now = Carbon::now();
 
         $appointments = Appointment::with(['master', 'client'])
-            ->where('status', AppointmentStatus::Booked)
+            ->whereIn('status', [
+                AppointmentStatus::Booked,
+                AppointmentStatus::Prepaid,
+            ])
             ->whereNull('reminder_24h_sent_at')
             ->whereNull('reminder_24h_dispatched_at')
             ->whereNull('reminder_24h_failed_at')
@@ -40,15 +56,14 @@ class SendRemindersCommand extends Command
             ->get();
 
         $dispatched = 0;
+        $resolver = app(AppointmentChannelResolver::class);
 
         foreach ($appointments as $appointment) {
             if (! $appointment->client) {
                 continue;
             }
 
-            if (! $appointment->client->telegram_id
-                && ! $appointment->client->max_id
-                && ! $appointment->client->vk_id) {
+            if (! $resolver->hasAnyChannel($appointment)) {
                 continue;
             }
 
@@ -90,7 +105,10 @@ class SendRemindersCommand extends Command
         $now = Carbon::now();
 
         $appointments = Appointment::with(['master', 'client'])
-            ->where('status', AppointmentStatus::Booked)
+            ->whereIn('status', [
+                AppointmentStatus::Booked,
+                AppointmentStatus::Prepaid,
+            ])
             ->whereNull('reminder_final_sent_at')
             ->whereNull('reminder_final_dispatched_at')
             ->whereNull('reminder_final_failed_at')
@@ -99,15 +117,14 @@ class SendRemindersCommand extends Command
             ->get();
 
         $dispatched = 0;
+        $resolver = app(AppointmentChannelResolver::class);
 
         foreach ($appointments as $appointment) {
             if (! $appointment->client) {
                 continue;
             }
 
-            if (! $appointment->client->telegram_id
-                && ! $appointment->client->max_id
-                && ! $appointment->client->vk_id) {
+            if (! $resolver->hasAnyChannel($appointment)) {
                 continue;
             }
 

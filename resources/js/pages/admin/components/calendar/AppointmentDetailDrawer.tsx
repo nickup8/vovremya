@@ -16,7 +16,7 @@ import {
 import { formatPhone } from '@/lib/phone';
 import { AppointmentStatus } from '@/types/appointment-status';
 import { DAYS_RU_FULL, MONTHS_RU_GENITIVE } from '@/lib/locale';
-import { Repeat } from 'lucide-react';
+import { Repeat, BellRing, BellOff, CircleAlert, CircleX, Clock } from 'lucide-react';
 import type { Appointment } from './types';
 import { STATUS_STYLES } from './constants';
 import { getEndTime, dateToKey } from './helpers';
@@ -81,6 +81,79 @@ const CANCEL_SCOPE_LABELS: Record<CancelScope, { title: string; description: str
         action: 'Да, отменить серию',
     },
 };
+
+function NotificationStatusIcon({ status }: { status: string }) {
+    switch (status) {
+        case 'sent':
+            return <BellRing className="size-3.5 text-emerald-600 dark:text-emerald-400" />;
+        case 'failed':
+            return <CircleX className="size-3.5 text-red-500 dark:text-red-400" />;
+        case 'no_channel':
+            return <CircleAlert className="size-3.5 text-amber-500 dark:text-amber-400" />;
+        case 'superseded':
+            return <BellOff className="size-3.5 text-slate-400 dark:text-zinc-500" />;
+        default:
+            return <Clock className="size-3.5 text-slate-400 dark:text-zinc-500" />;
+    }
+}
+
+function formatNotificationTime(iso: string | null | undefined): string | null {
+    if (!iso) return null;
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return null;
+    return d.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+}
+
+function ClientNotificationsBlock({ selected }: { selected: Appointment }) {
+    const n = selected.client_notifications;
+    const reminder24 = formatNotificationTime(selected.reminder_24h_sent_at);
+    const reminderFinal = formatNotificationTime(selected.reminder_final_sent_at);
+
+    // Компактный блок: только если есть что показать
+    if (!n && !reminder24 && !reminderFinal) {
+        return null;
+    }
+
+    return (
+        <div className="rounded-lg border border-slate-200 bg-slate-50/60 p-3 dark:border-zinc-700 dark:bg-zinc-900/40">
+            <div className="mb-2 text-xs font-semibold uppercase tracking-wide text-slate-500 dark:text-zinc-400">
+                Уведомления клиенту
+            </div>
+            <div className="space-y-1.5 text-xs">
+                {n && (
+                    <div className="flex items-start gap-2">
+                        <NotificationStatusIcon status={n.status} />
+                        <div className="min-w-0">
+                            <span className="text-slate-700 dark:text-zinc-300">{n.label}</span>
+                            {n.sent_at && (
+                                <span className="ml-1.5 text-slate-400 dark:text-zinc-500">
+                                    {formatNotificationTime(n.sent_at)}
+                                </span>
+                            )}
+                            {n.status === 'sent' && (
+                                <div className="text-[10px] text-slate-400 dark:text-zinc-500">
+                                    Принято мессенджером
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+                {reminder24 && (
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                        <BellRing className="size-3.5" />
+                        <span>Напоминание 24 ч — {reminder24}</span>
+                    </div>
+                )}
+                {reminderFinal && (
+                    <div className="flex items-center gap-2 text-slate-500 dark:text-zinc-400">
+                        <BellRing className="size-3.5" />
+                        <span>Финальное напоминание — {reminderFinal}</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+}
 
 export function AppointmentDetailDrawer({
     open, onOpenChange, selected, isProcessing,
@@ -342,6 +415,8 @@ export function AppointmentDetailDrawer({
                                                 )}
                                             </div>
                                         )}
+
+                                        <ClientNotificationsBlock selected={selected} />
                                     </div>
                                 )}
                             </DrawerBody>

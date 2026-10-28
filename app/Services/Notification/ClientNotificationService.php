@@ -2,19 +2,35 @@
 
 namespace App\Services\Notification;
 
-use App\Enums\AppointmentSource;
+use App\Exceptions\VkMessagesNotAllowedException;
 use App\Models\Appointment;
+use App\Models\Client;
 use App\Services\MaxApiClient;
 use App\Services\VkApiClient;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 
+/**
+ * Синхронная отправка текста клиенту (один канал).
+ *
+ * Канал выбирается общим AppointmentChannelResolver — тот же, что у
+ * напоминаний и outbox-уведомлений. Не использует глобальный
+ * Client::where(vk_id)->first(): работает только с карточкой клиента
+ * самой записи.
+ *
+ * Для клиентских уведомлений о создании/отмене/переносе/правках и
+ * widget-подтверждений предпочтительный путь — outbox
+ * (AppointmentNotificationRecorder); этот сервис оставлен для
+ * точечных синхронных сценариев (если остались) и Telegram.
+ */
 class ClientNotificationService
 {
+    public function __construct(
+        private AppointmentChannelResolver $resolver = new AppointmentChannelResolver,
+    ) {}
+
     /**
-     * Отправить клиенту уведомление в ОДИН канал — по источнику записи.
-     * telegram → TG, max → MAX, vk → VK, null → фолбэк (TG если есть, иначе MAX).
-     * Зеркалит логику выбора канала из SendAppointmentReminderJob.
+     * Отправить клиенту уведомление в ОДИН канал — по правилу resolver'а.
      */
     public function sendToClientBySource(Appointment $appointment, string $text): void
     {
@@ -24,36 +40,14 @@ class ClientNotificationService
             return;
         }
 
-        $source = $appointment->source instanceof AppointmentSource
-            ? $appointment->source->value
-            : $appointment->source;
+        $channel = $this->resolver->resolve($appointment);
 
-        $hasTelegram = ! empty($client->telegram_id);
-        $hasMax = ! empty($client->max_id);
-        $hasVk = ! empty($client->vk_id);
-
-        // VK: source == vk
-        if ($hasVk && $source === 'vk') {
-            $this->sendVk($client->vk_id, $text);
-
-            return;
-        }
-
-        // Telegram: source == telegram, либо (null-фолбэк и есть telegram_id)
-        if ($hasTelegram && ($source === 'telegram' || empty($source))) {
-            $this->sendTelegram($client->telegram_id, $text);
-
-            return;
-        }
-
-        // MAX: source == max, либо (null-фолбэк без telegram_id)
-        if ($hasMax && ($source === 'max' || empty($source))) {
-            $this->sendMax($client->max_id, $text);
-
-            return;
-        }
-
-        // source == admin или клиент не привязан к боту — уведомить некуда, тихо выходим.
+        match ($channel) {
+            AppointmentChannelResolver::CHANNEL_TELEGRAM => $this->sendTelegram((string) $client->telegram_id, $text),
+            AppointmentChannelResolver::CHANNEL_MAX => $this->sendMax((string) $client->max_id, $text),
+            AppointmentChannelResolver::CHANNEL_VK => $this->sendVk($appointment, $client, $text),
+            default => null, // нет доступного канала — явно ничего не шлём
+        };
     }
 
     private function sendTelegram(string $chatId, string $text): void
@@ -93,20 +87,12 @@ class ClientNotificationService
         }
     }
 
-    private function sendVk(string $peerId, string $text): void
+    private function sendVk(Appointment $appointment, \App\Models\Client $client, string $text): void
     {
-        $client = \App\Models\Client::where('vk_id', $peerId)->first();
-
-        if ($client && $client->vk_messages_allowed === false) {
-            return;
-        }
-
         try {
-            app(VkApiClient::class)->sendMessage($peerId, $text);
-        } catch (\App\Exceptions\VkMessagesNotAllowedException) {
-            if ($client) {
-                $client->update(['vk_messages_allowed' => false]);
-            }
+            app(VkApiClient::class)->sendMessage((string) $client->vk_id, $text);
+        } catch (VkMessagesNotAllowedException) {
+            $client->update(['vk_messages_allowed' => false]);
         }
     }
 }

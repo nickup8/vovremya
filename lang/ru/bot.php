@@ -100,7 +100,29 @@ return [
 
     // ─── Уведомления клиенту ───
     'client' => [
-        'rescheduled' => "🔄 Ваша запись перенесена\n\n💇 :service\n📅 Новое время: :date в :time\n\nЖдём вас!",
+        'rescheduled' => "🔄 Ваша запись перенесена\n\n💇 :service\n📅 Прежнее время: :old_date в :old_time\n📅 Новое время: :new_date в :new_time\n\nЖдём вас!",
+
+        'rescheduled_master_changed' => "🔄 Ваша запись перенесена\n\n💇 :service\n📅 Прежнее время: :old_date в :old_time\n📅 Новое время: :new_date в :new_time\n👤 Прежний мастер: :old_master\n👤 Новый мастер: :new_master\n\nЖдём вас!",
+
+        // Мастер создал запись вручную. Не «подтверждение визита» клиентом:
+        // client_confirmed_at не устанавливается, кнопок подтверждения нет.
+        'created_by_master' => "📅 Мастер записал вас\n\n👤 Мастер: :master\n💇 Услуга: :service\n📅 Дата: :date\n⏰ Время: :time\n⏱ Длительность: :duration мин\n💰 Стоимость: :price\n📍 Адрес: :address\n\nЖдём вас!",
+
+        'cancelled_by_master' => "❌ Мастер отменил запись\n\n💇 Услуга: :service\n📅 Дата: :date\n⏰ Время: :time\n\nЕсли у вас остались вопросы, свяжитесь с мастером.",
+
+        'fields_changed' => "✏️ Ваша запись обновлена\n\n💇 :service\n📅 :date в :time\n\n:changes\n\nЖдём вас!",
+
+        'change' => [
+            'service' => 'Услуга: :old → :new',
+            'duration' => 'Длительность: :old → :new мин',
+            'price' => 'Стоимость: :old → :new',
+        ],
+
+        'series_created' => "📅 Мастер записал вас на серию визитов\n\n👤 Мастер: :master\n💇 Услуга: :service\n⏰ Время: :time\n📋 Всего визитов: :count\n📅 Первый визит: :first_date\n📍 Адрес: :address\n\nЖдём вас!",
+
+        'series_updated' => "✏️ Серия записей обновлена\n\n💇 Услуга: :service\n📋 Затронуто визитов: :count\n📅 Начиная с: :date\n\nНапоминания придут по новому расписанию.",
+
+        'series_cancelled' => "❌ Серия записей отменена\n\n💇 Услуга: :service\n📋 Отменено визитов: :count\n📅 Начиная с: :date\n\nЕсли у вас остались вопросы, свяжитесь с мастером.",
     ],
 
     // ─── Подтверждение визита (кнопка в напоминании 24ч) ───

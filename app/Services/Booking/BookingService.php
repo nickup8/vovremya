@@ -3,6 +3,7 @@
 namespace App\Services\Booking;
 
 use App\DTOs\AppointmentWindowFreed;
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Enums\SlotOpportunitySourceType;
@@ -14,7 +15,7 @@ use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\Billing\TariffLimitService;
 use App\Services\FreedWindowDispatcher;
-use App\Services\Notification\ClientNotificationService;
+use App\Services\Notification\AppointmentNotificationRecorder;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Database\QueryException;
 use Illuminate\Support\Carbon;
@@ -185,6 +186,24 @@ class BookingService
                 broadcast(new AppointmentCreated(
                     $appointment->load(['client'])
                 ));
+
+                // Ручная запись мастером (source=admin + выбранный клиент):
+                // «Мастер записал вас» — не подтверждение визита клиентом.
+                // client_confirmed_at не трогаем. Widget-черновик (без
+                // client_id) сюда не попадает. Telegram-источник и подтверждение
+                // брони из bot MAX/VK уходят отдельным booking_confirmed.
+                if ($source === AppointmentSource::Admin
+                    && $appointment->start_time->isFuture()
+                    && $appointment->status !== AppointmentStatus::PendingPayment) {
+                    $recorder = app(AppointmentNotificationRecorder::class);
+                    $version = $recorder->bumpVersion($appointment);
+                    $recorder->record(
+                        $appointment,
+                        AppointmentNotificationEventType::CreatedByMaster,
+                        [],
+                        $version,
+                    );
+                }
             }
 
             return $appointment;
@@ -248,9 +267,9 @@ class BookingService
         ];
     }
 
-    public function updateStatus(Appointment $appointment, AppointmentStatus $status, ?Authenticatable $actor = null): Appointment
+    public function updateStatus(Appointment $appointment, AppointmentStatus $status, ?Authenticatable $actor = null, bool $notifyClient = true): Appointment
     {
-        return $this->statusService->transition($appointment, $status, $actor);
+        return $this->statusService->transition($appointment, $status, $actor, $notifyClient);
     }
 
     public function confirm(Appointment $appointment): Appointment
@@ -280,9 +299,9 @@ class BookingService
         return $this->statusService->transition($appointment, AppointmentStatus::Paid);
     }
 
-    public function cancel(Appointment $appointment, ?Authenticatable $actor = null): Appointment
+    public function cancel(Appointment $appointment, ?Authenticatable $actor = null, bool $notifyClient = true): Appointment
     {
-        return $this->statusService->transition($appointment, AppointmentStatus::Cancelled, $actor);
+        return $this->statusService->transition($appointment, AppointmentStatus::Cancelled, $actor, $notifyClient);
     }
 
     public function markNoShow(Appointment $appointment): Appointment
@@ -387,6 +406,8 @@ class BookingService
                 }
 
                 $oldStartTime = $locked->start_time->toIso8601String();
+                $oldMasterId = $locked->master_id;
+                $oldServiceName = $locked->display_name;
 
                 // AutoFill: capture freed-window snapshot BEFORE mutation
                 $freedWindow = $this->captureRescheduleFreedWindow($locked, $originalMaster, $autofillChainId);
@@ -394,8 +415,14 @@ class BookingService
                 $updateData = [
                     'start_time' => $startDateTime,
                     'client_confirmed_at' => null,
+                    // Полный сброс reminder-состояния: sent/dispatched/failed
+                    // и кэш-ключи не должны блокировать новую версию расписания.
                     'reminder_24h_sent_at' => null,
+                    'reminder_24h_dispatched_at' => null,
+                    'reminder_24h_failed_at' => null,
                     'reminder_final_sent_at' => null,
+                    'reminder_final_dispatched_at' => null,
+                    'reminder_final_failed_at' => null,
                     'reminder_24h_sent' => false,
                     'reminder_final_sent' => false,
                 ];
@@ -404,6 +431,26 @@ class BookingService
                 }
 
                 $locked->update($updateData);
+
+                // Версия изменения — внутри транзакции, до создания события.
+                $recorder = app(AppointmentNotificationRecorder::class);
+                $newVersion = $recorder->bumpVersion($locked);
+
+                if ($locked->client_id !== null && $locked->start_time->isFuture()) {
+                    $locked->load(['client', 'master', 'masterService.catalog']);
+                    $recorder->record(
+                        $locked,
+                        AppointmentNotificationEventType::Rescheduled,
+                        [
+                            'old_start_time' => $oldStartTime,
+                            'new_start_time' => $locked->start_time->toIso8601String(),
+                            'old_master_id' => $oldMasterId,
+                            'new_master_id' => $locked->master_id,
+                            'service_name' => $oldServiceName,
+                        ],
+                        $newVersion,
+                    );
+                }
 
                 // AutoFill: dispatch opportunity creation after commit
                 if ($freedWindow !== null) {
@@ -436,11 +483,12 @@ class BookingService
             throw $e;
         }
 
-        // Broadcast + notification — ПОСЛЕ коммита outermost транзакции.
-        // При вызове из SlotOfferAcceptanceService outer transaction ещё открыт;
-        // DB::afterCommit сработает только после его commit.
-        // Ошибки broadcast/notification логируются, но не превращают
-        // успешный reschedule в HTTP 500.
+        // Broadcast — ПОСЛЕ коммита outermost транзакции.
+        // Клиентское уведомление о переносе уже зафиксировано в outbox
+        // внутри транзакции (AppointmentNotificationRecorder) и будет
+        // доставлено job'ом; синхронной отправки здесь больше нет.
+        // Ошибки broadcast логируются, но не превращают успешный
+        // reschedule в HTTP 500.
         if (($result['success'] ?? false) === true) {
             $appointmentForResult = $result['appointment'];
             $oldStartTimeForResult = $result['old_start_time'];
@@ -453,42 +501,10 @@ class BookingService
                         'error' => $e->getMessage(),
                     ]);
                 }
-                $this->sendRescheduleNotifications($appointmentForResult);
             });
         }
 
         return $result;
-    }
-
-    /**
-     * Уведомить клиента о переносе записи (Telegram/MAX).
-     * Канал — по источнику записи, зеркалит логику напоминаний.
-     * Ошибки отправки логируются, но не пробрасываются.
-     */
-    private function sendRescheduleNotifications(Appointment $appointment): void
-    {
-        $master = $appointment->master;
-        $tz = $master->getTimezone();
-        $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
-        $time = $appointment->start_time->timezone($tz)->format('H:i');
-
-        // Уведомляем только клиента (мастер сам перенёс — ему уведомление не нужно).
-        // Канал — по источнику записи, зеркалит логику напоминаний.
-        try {
-            app(ClientNotificationService::class)->sendToClientBySource(
-                $appointment,
-                __('bot.client.rescheduled', [
-                    'service' => $appointment->display_name,
-                    'date' => $date,
-                    'time' => $time,
-                ]),
-            );
-        } catch (\Throwable $e) {
-            Log::error('[reschedule] client notify failed', [
-                'appointment_id' => $appointment->id,
-                'error' => $e->getMessage(),
-            ]);
-        }
     }
 
     private function captureRescheduleFreedWindow(

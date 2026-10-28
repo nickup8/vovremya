@@ -3,6 +3,7 @@
 namespace App\Services\Booking;
 
 use App\DTOs\AppointmentWindowFreed;
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Enums\RecurrenceType;
@@ -13,6 +14,7 @@ use App\Models\MasterService;
 use App\Models\RecurringAppointmentSeries;
 use App\Models\User;
 use App\Services\FreedWindowDispatcher;
+use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Recurrence\RecurrenceRule;
 use App\Services\Recurrence\RecurrenceService;
 use Carbon\Carbon;
@@ -24,8 +26,8 @@ use Illuminate\Validation\ValidationException;
 class RecurringAppointmentService
 {
     public function __construct(
-        private RecurrenceService $recurrenceService = new RecurrenceService(),
-        private AvailabilityService $availabilityService = new AvailabilityService(),
+        private RecurrenceService $recurrenceService = new RecurrenceService,
+        private AvailabilityService $availabilityService = new AvailabilityService,
     ) {}
 
     /**
@@ -109,6 +111,7 @@ class RecurringAppointmentService
                     'date' => $date->format('Y-m-d'),
                     'reason' => 'past',
                 ];
+
                 continue;
             }
 
@@ -142,8 +145,6 @@ class RecurringAppointmentService
 
     /**
      * Create series + materialize appointments in a transaction.
-     *
-     * @return RecurringAppointmentSeries
      */
     public function createSeries(
         User $master,
@@ -220,6 +221,7 @@ class RecurringAppointmentService
                         'date' => $date,
                         'master_id' => $master->id,
                     ]);
+
                     continue;
                 }
 
@@ -236,6 +238,37 @@ class RecurringAppointmentService
                     'recurring_series_id' => $series->id,
                     'recurring_occurrence_date' => $date,
                 ]);
+            }
+
+            // Одно согласованное сообщение о серии — не N per-appointment.
+            // Не уведомляем о создании «старых» визитов и о технической
+            // генерации очередного экземпляра уже объявленной серии.
+            $firstFuture = Appointment::with(['client', 'master', 'masterService.catalog'])
+                ->where('recurring_series_id', $series->id)
+                ->where('client_id', $clientId)
+                ->where('start_time', '>', now())
+                ->orderBy('start_time')
+                ->first();
+
+            if ($firstFuture !== null && $firstFuture->client !== null) {
+                $affected = Appointment::where('recurring_series_id', $series->id)
+                    ->where('client_id', $clientId)
+                    ->where('start_time', '>', now())
+                    ->count();
+
+                $recorder = app(AppointmentNotificationRecorder::class);
+                $version = $recorder->bumpVersion($firstFuture);
+                $recorder->record(
+                    $firstFuture,
+                    AppointmentNotificationEventType::SeriesCreated,
+                    [
+                        'service_name' => $firstFuture->display_name,
+                        'affected_count' => $affected,
+                        'from_date' => $firstFuture->start_time->timezone($tz)->format('d.m.Y'),
+                    ],
+                    $version,
+                    $series->id,
+                );
             }
 
             return $series;
@@ -274,7 +307,8 @@ class RecurringAppointmentService
      * Preserves existing appointment IDs where possible via exact-date + positional matching.
      * No false cancellations — existing appointments are updated in place.
      *
-     * @param array{allowed_dates: string[]} $previewResult
+     * @param  array{allowed_dates: string[]}  $previewResult
+     *
      * @throws ValidationException if Prepaid/Paid appointments are in the affected range
      */
     public function splitSeries(
@@ -309,8 +343,8 @@ class RecurringAppointmentService
         $freedWindows = [];
 
         $newSeries = DB::transaction(function () use (
-            $series, $splitAppointment, $splitDate, $newParams, $newDates,
-            $newMasterServiceId, $newStartTime, $newService, $affectedAll, $tz, &$freedWindows,
+            $series, $splitDate, $newParams, $newDates,
+            $newMasterServiceId, $newStartTime, $newService, $tz, &$freedWindows,
         ) {
             $master = $series->master;
             $service = $newService;
@@ -442,6 +476,7 @@ class RecurringAppointmentService
                         'date' => $newDate,
                         'master_id' => $master->id,
                     ]);
+
                     continue;
                 }
 
@@ -492,6 +527,35 @@ class RecurringAppointmentService
             app(FreedWindowDispatcher::class)->dispatchAfterCommit($window);
         }
 
+        // Одно согласованное сообщение об изменении серии. rebindAppointment
+        // сбрасывает reminder-*_sent_at, но не шлёт per-appointment уведомлений.
+        $anchor = Appointment::with(['client', 'master', 'masterService.catalog'])
+            ->where('recurring_series_id', $newSeries->id)
+            ->where('start_time', '>', now())
+            ->orderBy('start_time')
+            ->first();
+
+        if ($anchor !== null && $anchor->client !== null) {
+            $affected = Appointment::where('recurring_series_id', $newSeries->id)
+                ->where('start_time', '>', now())
+                ->count();
+
+            $tz = $series->timezone ?? ($anchor->master?->getTimezone() ?? 'UTC');
+            $recorder = app(AppointmentNotificationRecorder::class);
+            $version = $recorder->bumpVersion($anchor);
+            $recorder->record(
+                $anchor,
+                AppointmentNotificationEventType::SeriesUpdated,
+                [
+                    'service_name' => $anchor->display_name,
+                    'affected_count' => $affected,
+                    'from_date' => $anchor->start_time->timezone($tz)->format('d.m.Y'),
+                ],
+                $version,
+                $newSeries->id,
+            );
+        }
+
         return $newSeries;
     }
 
@@ -540,7 +604,11 @@ class RecurringAppointmentService
             'reminder_24h_sent' => false,
             'reminder_final_sent' => false,
             'reminder_24h_sent_at' => null,
+            'reminder_24h_dispatched_at' => null,
+            'reminder_24h_failed_at' => null,
             'reminder_final_sent_at' => null,
+            'reminder_final_dispatched_at' => null,
+            'reminder_final_failed_at' => null,
         ]);
     }
 
@@ -550,10 +618,11 @@ class RecurringAppointmentService
     public function cancelThisAndFuture(
         RecurringAppointmentSeries $series,
         Appointment $splitAppointment,
+        ?User $actor = null,
     ): int {
         $splitDate = $splitAppointment->recurring_occurrence_date;
 
-        return DB::transaction(function () use ($series, $splitDate) {
+        return DB::transaction(function () use ($series, $splitDate, $splitAppointment, $actor) {
             // Lock series
             $lockedSeries = RecurringAppointmentSeries::where('id', $series->id)->lockForUpdate()->first();
 
@@ -584,10 +653,13 @@ class RecurringAppointmentService
                 ->get();
 
             foreach ($futureAppointments as $appt) {
-                app(BookingService::class)->cancel($appt);
+                app(BookingService::class)->cancel($appt, $actor, notifyClient: false);
             }
 
             $lockedSeries->update(['status' => RecurringSeriesStatus::Cancelled]);
+
+            // Одно согласованное сообщение о серии вместо N per-appointment.
+            $this->recordSeriesCancelledNotification($series, $splitAppointment, $futureAppointments);
 
             return $futureAppointments->count();
         });
@@ -598,8 +670,9 @@ class RecurringAppointmentService
      */
     public function cancelWholeSeries(
         RecurringAppointmentSeries $series,
+        ?User $actor = null,
     ): int {
-        return DB::transaction(function () use ($series) {
+        return DB::transaction(function () use ($series, $actor) {
             $lockedSeries = RecurringAppointmentSeries::where('id', $series->id)->lockForUpdate()->first();
 
             $activeAppointments = Appointment::where('recurring_series_id', $series->id)
@@ -611,13 +684,53 @@ class RecurringAppointmentService
                 ->get();
 
             foreach ($activeAppointments as $appt) {
-                app(BookingService::class)->cancel($appt);
+                app(BookingService::class)->cancel($appt, $actor, notifyClient: false);
             }
 
             $lockedSeries->update(['status' => RecurringSeriesStatus::Cancelled]);
 
+            $anchor = $activeAppointments->sortBy('start_time')->first()
+                ?? Appointment::where('recurring_series_id', $series->id)->orderBy('start_time')->first();
+
+            if ($anchor !== null) {
+                $this->recordSeriesCancelledNotification($series, $anchor, $activeAppointments);
+            }
+
             return $activeAppointments->count();
         });
+    }
+
+    private function recordSeriesCancelledNotification(
+        RecurringAppointmentSeries $series,
+        Appointment $anchor,
+        $cancelledAppointments,
+    ): void {
+        $anchor = $anchor->load(['client', 'master', 'masterService.catalog']);
+
+        if ($anchor->client === null) {
+            return;
+        }
+
+        $tz = $series->timezone ?? ($anchor->master?->getTimezone() ?? 'UTC');
+        $fromDate = $cancelledAppointments
+            ->sortBy('start_time')
+            ->first()?->recurring_occurrence_date
+            ?? $anchor->recurring_occurrence_date
+            ?? $anchor->start_time->timezone($tz)->format('Y-m-d');
+
+        $recorder = app(AppointmentNotificationRecorder::class);
+        $version = $recorder->bumpVersion($anchor);
+        $recorder->record(
+            $anchor,
+            AppointmentNotificationEventType::SeriesCancelled,
+            [
+                'service_name' => $anchor->display_name,
+                'affected_count' => $cancelledAppointments->count(),
+                'from_date' => \Illuminate\Support\Carbon::parse($fromDate, $tz)->format('d.m.Y'),
+            ],
+            $version,
+            $series->id,
+        );
     }
 
     /**

@@ -15,6 +15,9 @@ Schedule::command('publications:cleanup-expired')->dailyAt('03:00')->withoutOver
 // в очередь упала/не случилась (dispatched_at IS NULL) — не потерять намерение.
 Schedule::command('receipts:recover-delivery-events')->everyFiveMinutes()->withoutOverlapping();
 
+// То же для клиентских уведомлений о записи (создание/отмена/перенос/серии).
+Schedule::command('appointments:recover-notification-events')->everyFiveMinutes()->withoutOverlapping();
+
 // Резервные копии БД: 03:30 Europe/Moscow; включение — BACKUP_SCHEDULED_ENABLED
 // (сама команда выходит без действий, если флаг выключен).
 Schedule::command('backups:schedule-daily')

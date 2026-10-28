@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentStatus;
 use App\Enums\RecurringSeriesStatus;
 use App\Exceptions\InvalidStatusTransitionException;
@@ -14,10 +15,13 @@ use App\Models\RecurringBlockedTimeSeries;
 use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Booking\BookingService;
+use App\Services\Notification\AppointmentNotificationRecorder;
+use App\Services\Notification\AppointmentNotificationSummary;
 use App\Services\Recurrence\RecurrenceRule;
 use App\Services\Recurrence\RecurrenceService;
 use Illuminate\Http\Request;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Inertia\Inertia;
 
 class CalendarController extends Controller
@@ -64,10 +68,15 @@ class CalendarController extends Controller
                 ])
                 ->where(function ($q) {
                     $q->whereNotNull('client_id')
-                      ->orWhereNotNull('source');
+                        ->orWhereNotNull('source');
                 })
-                ->get()
-                ->map(function (Appointment $a) {
+                ->get();
+
+            $notificationSummaries = app(AppointmentNotificationSummary::class)
+                ->forAppointments($appointments);
+
+            $appointments = $appointments
+                ->map(function (Appointment $a) use ($notificationSummaries) {
                     $tz = $a->master->getTimezone();
 
                     return [
@@ -85,6 +94,8 @@ class CalendarController extends Controller
                         'master_name' => $a->master?->name ?? 'Мастер',
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
+                        'reminder_final_sent_at' => $a->reminder_final_sent_at?->toIso8601String(),
+                        'client_notifications' => $notificationSummaries[$a->id] ?? null,
                         'recurring_series_id' => $a->recurring_series_id,
                         'recurring_occurrence_date' => $a->recurring_occurrence_date,
                         'recurring_series' => $a->recurringSeries ? [
@@ -117,7 +128,7 @@ class CalendarController extends Controller
                 ]);
 
             // Recurring blocked time occurrences
-            $recurringService = new RecurrenceService();
+            $recurringService = new RecurrenceService;
             $rangeStartDate = Carbon::parse($validated['start'] ?? Carbon::now($tz)->subWeeks(3)->format('Y-m-d'), $tz)->startOfDay();
             $rangeEndDate = Carbon::parse($validated['end'] ?? Carbon::now($tz)->addWeeks(3)->format('Y-m-d'), $tz)->endOfDay();
 
@@ -207,10 +218,15 @@ class CalendarController extends Controller
                 ])
                 ->where(function ($q) {
                     $q->whereNotNull('client_id')
-                      ->orWhereNotNull('source');
+                        ->orWhereNotNull('source');
                 })
-                ->get()
-                ->map(function (Appointment $a) use ($tz) {
+                ->get();
+
+            $notificationSummaries = app(AppointmentNotificationSummary::class)
+                ->forAppointments($appointments);
+
+            $appointments = $appointments
+                ->map(function (Appointment $a) use ($tz, $notificationSummaries) {
                     return [
                         'id' => $a->id,
                         'client_name' => $a->client?->name ?? 'Клиент не указан',
@@ -224,6 +240,8 @@ class CalendarController extends Controller
                         'status' => $a->status,
                         'client_confirmed_at' => $a->client_confirmed_at?->toIso8601String(),
                         'reminder_24h_sent_at' => $a->reminder_24h_sent_at?->toIso8601String(),
+                        'reminder_final_sent_at' => $a->reminder_final_sent_at?->toIso8601String(),
+                        'client_notifications' => $notificationSummaries[$a->id] ?? null,
                         'recurring_series_id' => $a->recurring_series_id,
                         'recurring_occurrence_date' => $a->recurring_occurrence_date,
                         'recurring_series' => $a->recurringSeries ? [
@@ -389,11 +407,18 @@ class CalendarController extends Controller
             'master_id' => 'sometimes|string|exists:users,id',
             'ignore_warnings' => 'sometimes|boolean',
             'confirm_outside_hours' => 'sometimes|boolean',
+            'service_id' => 'sometimes|nullable|exists:master_service,id',
+            'duration' => 'sometimes|nullable|integer|min:1',
+            'price' => 'sometimes|nullable|numeric|min:0',
         ]);
 
-        if (! isset($validated['status']) && ! isset($validated['start_time'])) {
+        $hasFieldEdit = array_key_exists('service_id', $validated)
+            || array_key_exists('duration', $validated)
+            || array_key_exists('price', $validated);
+
+        if (! isset($validated['status']) && ! isset($validated['start_time']) && ! $hasFieldEdit) {
             return back()->withErrors([
-                'status' => 'Необходимо указать статус или новое время.',
+                'status' => 'Необходимо указать статус, новое время или изменить услугу/длительность/цену.',
             ]);
         }
 
@@ -469,16 +494,86 @@ class CalendarController extends Controller
         }
 
         if (! empty($validated)) {
-            $dbFields = array_filter(
-                $validated,
-                fn ($key) => in_array($key, $appointment->getFillable()),
-                ARRAY_FILTER_USE_KEY
-            );
+            // Фактическое изменение услуги/длительности/цены одной записью.
+            // Внутренние заметки, технические поля и сохранение без
+            // изменений не порождают сообщений. Одно сохранение нескольких
+            // полей — одно понятное сообщение fields_changed.
+            $changes = [];
 
-            if (! empty($dbFields)) {
-                $appointment->update(
-                    array_filter($dbFields, fn ($v) => $v !== null)
-                );
+            // Захватываем оригиналы ДО мутаций модели.
+            $originalServiceName = $appointment->display_name;
+            $originalDuration = (int) ($appointment->duration ?? 0);
+            $originalPrice = (float) ($appointment->price ?? 0);
+
+            if (array_key_exists('service_id', $validated) && $validated['service_id'] !== null) {
+                $newService = MasterService::find($validated['service_id']);
+                if ($newService && $newService->id !== $appointment->master_service_id) {
+                    $newServiceTitle = $newService->catalog?->title ?? $originalServiceName;
+                    $changes['service_name'] = [
+                        'old' => $originalServiceName,
+                        'new' => $newServiceTitle,
+                    ];
+                    $appointment->master_service_id = $newService->id;
+                    $appointment->service_name = $newServiceTitle;
+                    // Явные override'ы ниже имеют приоритет; без них — снимок услуги.
+                    if (! array_key_exists('duration', $validated)) {
+                        $newDurationFromService = $newService->effective_duration;
+                        if ($originalDuration !== $newDurationFromService) {
+                            $appointment->duration = $newDurationFromService;
+                            $changes['duration'] = [
+                                'old' => $originalDuration,
+                                'new' => $newDurationFromService,
+                            ];
+                        }
+                    }
+                    if (! array_key_exists('price', $validated)) {
+                        $newPriceFromService = (float) $newService->effective_price;
+                        if (abs($originalPrice - $newPriceFromService) > 0.001) {
+                            $appointment->price = $newPriceFromService;
+                            $changes['price'] = [
+                                'old' => $originalPrice,
+                                'new' => $newPriceFromService,
+                            ];
+                        }
+                    }
+                }
+            }
+
+            if (array_key_exists('duration', $validated) && $validated['duration'] !== null) {
+                $newDuration = (int) $validated['duration'];
+                if ($originalDuration !== $newDuration) {
+                    $changes['duration'] = ['old' => $originalDuration, 'new' => $newDuration];
+                    $appointment->duration = $newDuration;
+                }
+            }
+
+            if (array_key_exists('price', $validated) && $validated['price'] !== null) {
+                $newPrice = (float) $validated['price'];
+                if (abs($originalPrice - $newPrice) > 0.001) {
+                    $changes['price'] = ['old' => $originalPrice, 'new' => $newPrice];
+                    $appointment->price = $newPrice;
+                }
+            }
+
+            if ($changes !== [] && $appointment->isDirty()) {
+                DB::transaction(function () use ($appointment, $changes) {
+                    $appointment->save();
+
+                    if ($appointment->client_id === null) {
+                        return;
+                    }
+
+                    $recorder = app(AppointmentNotificationRecorder::class);
+                    $version = $recorder->bumpVersion($appointment);
+                    $recorder->record(
+                        $appointment,
+                        AppointmentNotificationEventType::FieldsChanged,
+                        ['changes' => $changes],
+                        $version,
+                    );
+                });
+            } elseif ($appointment->isDirty()) {
+                $appointment->save();
             }
         }
 
