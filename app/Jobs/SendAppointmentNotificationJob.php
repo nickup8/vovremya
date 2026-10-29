@@ -108,8 +108,9 @@ class SendAppointmentNotificationJob implements ShouldQueue
             return;
         }
 
-        // Уже доставленный канал: повтор не уходит в другой канал
-        // только из-за смены resolver'а.
+        // Оптимизация до очереди: повтор не уходит в другой канал только
+        // из-за смены resolver'а. Не заменяет проверку delivered внутри
+        // claim-транзакции — между ней и claim может записаться успех.
         if ($event->deliveries()
             ->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED)
             ->exists()) {
@@ -392,6 +393,10 @@ class SendAppointmentNotificationJob implements ShouldQueue
      * an expired lease — which is returned to the executor: from then on the
      * success write and the release only ever match rows carrying it.
      *
+     * A delivered row on ANY channel of the event short-circuits to the
+     * terminal 'delivered' outcome: no new claim row, no HTTP — the early
+     * exit in handle() is only an optimization and does not replace this.
+     *
      * @return array{state: 'claimed', token: string}|array{state: 'delivered'|'stale'|'busy'|'failed', lease_expires_at?: \DateTimeInterface|null}
      */
     private function claim(AppointmentNotificationEvent $event, string $channel): array
@@ -414,6 +419,20 @@ class SendAppointmentNotificationJob implements ShouldQueue
                 if ($locked === null) {
                     // Событие исчезло — владение не нужно.
                     return ['state' => 'stale'];
+                }
+
+                // Доставка уже подтверждена по ЛЮБОМУ каналу события —
+                // завершённый исход: без нового claim'а и без HTTP. Ранняя
+                // проверка в handle() — только оптимизация, она не заменяет
+                // эту: успех мог записаться между ней и claim-транзакцией.
+                $delivered = AppointmentNotificationDelivery::query()
+                    ->where('appointment_notification_event_id', $event->getKey())
+                    ->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($delivered !== null) {
+                    return ['state' => 'delivered'];
                 }
 
                 // Согласование на уровне события: чужой живой claim на

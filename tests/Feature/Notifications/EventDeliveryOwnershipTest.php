@@ -273,6 +273,88 @@ class EventDeliveryOwnershipTest extends TestCase
     }
 
     /**
+     * B прошёл раннюю delivered-проверку в handle() → A записал delivered
+     * MAX → B продолжает claim VK. Повторного HTTP быть не должно:
+     * проверка delivered по ЛЮБОМУ каналу внутри claim-транзакции
+     * возвращает терминальный исход без нового claim'а и без сети.
+     */
+    public function test_vk_claim_after_delivered_max_performs_no_http(): void
+    {
+        $appointment = $this->appointment();
+        $event = $this->seedEvent($appointment);
+
+        $maxSends = 0;
+        $maxMock = Mockery::mock(MaxApiClient::class);
+        $maxMock->shouldReceive('sendMessage')
+            ->once()
+            ->andReturnUsing(function () use (&$maxSends) {
+                $maxSends++;
+
+                return 'mid-a';
+            });
+
+        // B не должен слать ни max, ни vk.
+        $bMaxMock = Mockery::mock(MaxApiClient::class);
+        $bMaxMock->shouldNotReceive('sendMessage');
+
+        $vkMock = Mockery::mock(VkApiClient::class);
+        $vkMock->shouldNotReceive('sendMessage');
+        $vkMock->shouldNotReceive('sendMessageWithKeyboard');
+
+        // Resolver B: первый вызов — ПОСЛЕ ранней проверки handle() и ДО
+        // claim. В этой точке A полностью доставляет MAX (delivered
+        // записан), затем B продолжает с каналом vk.
+        $runA = function () use ($event, $maxMock): void {
+            $this->runJob(
+                new SendAppointmentNotificationJob($event->id),
+                ['max', 'max'],
+                $maxMock,
+                Mockery::mock(VkApiClient::class),
+            );
+        };
+
+        $bResolver = new class($runA) extends AppointmentChannelResolver
+        {
+            private bool $fired = false;
+
+            public function __construct(private \Closure $runA) {}
+
+            public function resolve(Appointment $appointment): ?string
+            {
+                if (! $this->fired) {
+                    $this->fired = true;
+                    ($this->runA)();
+
+                    // A перепривязал свой resolver в контейнер —
+                    // возвращаем резолвер B для перечитывания канала
+                    // внутри deliver(), если claim дошёл до route.
+                    app()->instance(AppointmentChannelResolver::class, $this);
+                }
+
+                return self::CHANNEL_VK;
+            }
+        };
+
+        (new SendAppointmentNotificationJob($event->id))
+            ->handle($bResolver, $bMaxMock, $vkMock);
+
+        $this->assertSame(1, $maxSends, 'A должен доставить max ровно один раз');
+
+        $delivered = AppointmentNotificationDelivery::query()
+            ->where('appointment_notification_event_id', $event->id)
+            ->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED)
+            ->get();
+        $this->assertCount(1, $delivered, 'ровно одна доставленная строка на событие');
+        $this->assertSame('max', $delivered->first()->channel);
+
+        $vkRow = AppointmentNotificationDelivery::query()
+            ->where('appointment_notification_event_id', $event->id)
+            ->where('channel', 'vk')
+            ->first();
+        $this->assertNull($vkRow, 'claim VK не должен создаваться после подтверждённой доставки');
+    }
+
+    /**
      * Уже доставленное событие: повторный проход не уходит в другой канал.
      * (Существующий контракт, охраняемый regression-тестом.)
      */
