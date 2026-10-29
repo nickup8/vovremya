@@ -368,11 +368,24 @@ class MaxWebhookHandler
             return;
         }
 
-        Cache::put(
-            CacheKeys::MAX_BOOKING_DRAFT.$userId,
-            $appointmentId,
-            config('booking.draft_ttl'),
-        );
+        // Устаревшая/чужая/закрытая ссылка не открывает оформление и не
+        // создаёт/не продлевает черновик: проверка — до Cache::put.
+        if (! $this->isConfirmableDraft($appointment)) {
+            $this->clearDraftIfMatches($userId, $appointmentId);
+            $this->sendUnopenableBookingMessage($userId, $appointment);
+
+            Log::info('[MAX] booking_start refused', [
+                'user_id' => $userId,
+                'appointment_id' => $appointmentId,
+                'status' => $appointment->status->value,
+                'start_time' => $appointment->start_time?->toIso8601String(),
+                'client_id' => $appointment->client_id,
+            ]);
+
+            return;
+        }
+
+        $this->rememberBookingDraft($userId, $appointmentId);
 
         Log::info('[MAX] booking_start', [
             'user_id' => $userId,
@@ -654,8 +667,20 @@ class MaxWebhookHandler
 
             if ($fresh === null) {
                 DB::rollBack();
+                $this->clearDraftIfMatches($userId, (string) $appointment->id);
 
                 $this->sendMessage($userId, __('bot.errors.appointment_not_found'));
+
+                return;
+            }
+
+            // Состояние перечитывается под блокировкой: между показом
+            // кнопок и отправкой контакта запись могла устареть,
+            // отмениться или быть оформлена другим клиентом.
+            if (! $this->isConfirmableDraft($fresh)) {
+                DB::rollBack();
+                $this->clearDraftIfMatches($userId, (string) $appointment->id);
+                $this->sendUnopenableBookingMessage($userId, $fresh);
 
                 return;
             }
@@ -686,7 +711,7 @@ class MaxWebhookHandler
                 // Запись удаляется только пока она не подтверждена другим
                 // способом; запоздалое подтверждение её не трогает.
                 Appointment::whereKey($appointment->id)->whereNull('client_id')->delete();
-                Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+                $this->clearDraftIfMatches($userId, (string) $appointment->id);
                 $this->sendMessage($userId, __('bot.errors.booking_unavailable'));
 
                 return;
@@ -713,7 +738,7 @@ class MaxWebhookHandler
                     'appointment_id' => $appointmentId,
                     'master_id' => $masterId,
                 ]);
-                Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+                $this->clearDraftIfMatches($userId, (string) $appointment->id);
                 $this->sendMessage($userId, __('bot.errors.appointment_not_found'));
 
                 return;
@@ -818,7 +843,7 @@ class MaxWebhookHandler
                 'time' => $time,
             ]));
 
-        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+        $this->clearDraftIfMatches($userId, (string) $appointment->id);
     }
 
     /**
@@ -940,6 +965,16 @@ class MaxWebhookHandler
             $appointment = $appointmentId ? Appointment::find($appointmentId) : null;
 
             if ($appointment) {
+                // Черновик мог устареть/отмениться/быть оформлен, пока
+                // пользователь принимал согласие — состояние перечитываем.
+                if (! $this->isConfirmableDraft($appointment)) {
+                    $this->clearDraftIfMatches($userId, (string) $appointment->id);
+                    $this->maxApi->answerCallback($callbackId);
+                    $this->sendUnopenableBookingMessage($userId, $appointment);
+
+                    return;
+                }
+
                 $client = Client::byMaxId($userId)
                     ->where('user_id', $appointment->master_id)
                     ->first();
@@ -1067,6 +1102,12 @@ class MaxWebhookHandler
                 return ['result' => 'not_found'];
             }
 
+            // Прошедшая запись не подтверждается по старой кнопке —
+            // до каких-либо мутаций.
+            if ($fresh->start_time->isPast()) {
+                return ['result' => 'unopenable'];
+            }
+
             $client = Client::byMaxId($userId)
                 ->where('user_id', $fresh->master_id)
                 ->lockForUpdate()
@@ -1085,29 +1126,24 @@ class MaxWebhookHandler
                 return ['result' => 'not_found'];
             }
 
-            // Допустимый статус проверяется ДО успешной идемпотентной
-            // ветки: отменённая (или иная недопустимая) запись не
-            // получает ответа об успешном подтверждении.
-            $statusAllowed = Appointment::query()
-                ->whereKey($appointmentId)
-                ->whereIn('status', [
-                    AppointmentStatus::Booked,
-                    AppointmentStatus::PendingPayment,
-                ])
-                ->exists();
-
-            if (! $statusAllowed) {
-                return ['result' => 'not_found'];
-            }
+            $statusAllowed = in_array($fresh->status, [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+            ], true);
 
             // Повтор того же подтверждения (действующая запись уже
             // закреплена за этой карточкой): отвечаем успехом без
             // повторных эффектов — без повторного broadcast и уведомления
-            // мастера.
+            // мастера. Отменённая/недопустимая запись не получает
+            // ответа об успешном подтверждении.
             if ($fresh->client_id !== null) {
-                return (string) $fresh->client_id === (string) $client->id
+                return ($statusAllowed && (string) $fresh->client_id === (string) $client->id)
                     ? ['result' => 'already']
                     : ['result' => 'not_found'];
+            }
+
+            if (! $statusAllowed) {
+                return ['result' => 'unopenable'];
             }
 
             if ($client->isBlocked()) {
@@ -1118,6 +1154,8 @@ class MaxWebhookHandler
                 return ['result' => 'blocked'];
             }
 
+            // Захват только будущей незанятой записи в допустимом статусе
+            // (строка уже под блокировкой, повторная сверка — страховка).
             $affected = Appointment::query()
                 ->whereKey($appointmentId)
                 ->whereNull('client_id')
@@ -1125,6 +1163,7 @@ class MaxWebhookHandler
                     AppointmentStatus::Booked,
                     AppointmentStatus::PendingPayment,
                 ])
+                ->where('start_time', '>', now())
                 ->update([
                     'client_id' => $client->id,
                     'source' => AppointmentSource::Max,
@@ -1155,6 +1194,14 @@ class MaxWebhookHandler
         });
 
         if ($state['result'] === 'not_found') {
+            $this->clearDraftIfMatches($userId, (string) $appointmentId);
+            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($state['result'] === 'unopenable') {
+            $this->clearDraftIfMatches($userId, (string) $appointmentId);
             $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
 
             return;
@@ -1162,7 +1209,7 @@ class MaxWebhookHandler
 
         if ($state['result'] === 'blocked') {
             $this->maxApi->answerCallback($callbackId, __('bot.errors.booking_unavailable'));
-            Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+            $this->clearDraftIfMatches($userId, (string) $appointmentId);
 
             return;
         }
@@ -1192,7 +1239,7 @@ class MaxWebhookHandler
             }
         }
 
-        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+        $this->clearDraftIfMatches($userId, (string) $appointmentId);
 
         // Текст подтверждения доставляет outbox-job (BookingConfirmed).
         // Здесь только гасим callback, чтобы не было второй отправки.
@@ -1232,26 +1279,53 @@ class MaxWebhookHandler
             return;
         }
 
-        if ($appointment->status === AppointmentStatus::Cancelled) {
-            $this->maxApi->answerCallback($callbackId, __('bot.booking_cancelled.reply'));
+        // Состояние перечитывается под блокировкой перед мутацией:
+        // запись могла устареть/отмениться/быть оформлена, пока
+        // сообщение с кнопками уже было показано.
+        $state = DB::transaction(function () use ($appointment) {
+            $fresh = Appointment::query()
+                ->whereKey($appointment->id)
+                ->lockForUpdate()
+                ->first();
 
-            return;
-        }
+            if ($fresh === null) {
+                return 'not_found';
+            }
 
-        if ($appointment->client_id !== null
-            || ! in_array($appointment->status, [AppointmentStatus::Booked, AppointmentStatus::PendingPayment])
-        ) {
+            if ($fresh->status === AppointmentStatus::Cancelled) {
+                return 'already_cancelled';
+            }
+
+            if ($fresh->client_id !== null
+                || ! in_array($fresh->status, [AppointmentStatus::Booked, AppointmentStatus::PendingPayment], true)
+                || $fresh->start_time->isPast()
+            ) {
+                return 'not_found';
+            }
+
+            app(AppointmentStatusService::class)->transition(
+                $fresh,
+                AppointmentStatus::Cancelled,
+            );
+
+            return 'cancelled';
+        });
+
+        if ($state === 'not_found') {
+            $this->clearDraftIfMatches($userId, (string) $appointmentId);
             $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
 
-        app(AppointmentStatusService::class)->transition(
-            $appointment,
-            AppointmentStatus::Cancelled,
-        );
+        if ($state === 'already_cancelled') {
+            $this->clearDraftIfMatches($userId, (string) $appointmentId);
+            $this->maxApi->answerCallback($callbackId, __('bot.booking_cancelled.reply'));
 
-        Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+            return;
+        }
+
+        $this->clearDraftIfMatches($userId, (string) $appointmentId);
 
         $ok = $this->maxApi->answerCallbackWithMessage(
             $callbackId,
@@ -1453,5 +1527,91 @@ class MaxWebhookHandler
                 'error' => $e->getMessage(),
             ]);
         }
+    }
+
+    /**
+     * Будущая незанятая запись в статусе Booked/PendingPayment —
+     * единственный допустимый кандидат для открытия/продолжения
+     * сценария подтверждения брони через MAX.
+     */
+    private function isConfirmableDraft(Appointment $appointment): bool
+    {
+        return $appointment->client_id === null
+            && in_array($appointment->status, [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+            ], true)
+            && $appointment->start_time->isFuture();
+    }
+
+    /**
+     * Черновик запоминается только для допустимой записи. Повторное
+     * открытие той же ссылки не продлевает исходный TTL: если черновик
+     * уже указывает на эту запись — не трогаем кэш.
+     */
+    private function rememberBookingDraft(string $userId, string $appointmentId): void
+    {
+        $existing = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+        if ($existing !== null && (string) $existing === $appointmentId) {
+            return;
+        }
+
+        Cache::put(
+            CacheKeys::MAX_BOOKING_DRAFT.$userId,
+            $appointmentId,
+            config('booking.draft_ttl'),
+        );
+    }
+
+    /**
+     * Очищает только черновик текущей записи: устаревшая ссылка/кнопка A
+     * не должна затронуть актуальный черновик B того же пользователя.
+     */
+    private function clearDraftIfMatches(string $userId, string $appointmentId): void
+    {
+        $draftId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+        if ($draftId !== null && (string) $draftId === (string) $appointmentId) {
+            Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+        }
+    }
+
+    /**
+     * Ответ на недопустимую ссылку/кнопку без кнопок подтверждения и
+     * без мутаций. Уже оформленная будущая запись при доказанной
+     * принадлежности получает отдельное сообщение; чужие данные не
+     * раскрываются.
+     */
+    private function sendUnopenableBookingMessage(string $userId, Appointment $appointment): void
+    {
+        $isActiveStatus = in_array($appointment->status, [
+            AppointmentStatus::Booked,
+            AppointmentStatus::PendingPayment,
+            AppointmentStatus::Prepaid,
+            AppointmentStatus::Paid,
+        ], true);
+
+        // Уже оформленная будущая запись (не отменённая): при
+        // доказанной принадлежности — отдельное сообщение; чужие
+        // данные не раскрываются.
+        if ($appointment->client_id !== null
+            && $appointment->start_time->isFuture()
+            && $isActiveStatus
+        ) {
+            $client = Client::byMaxId($userId)
+                ->where('user_id', $appointment->master_id)
+                ->first();
+
+            if ($client !== null && (string) $client->id === (string) $appointment->client_id) {
+                $this->sendMessage($userId, __('bot.errors.booking_already_confirmed'));
+
+                return;
+            }
+
+            $this->sendMessage($userId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        $this->sendMessage($userId, __('bot.errors.booking_expired'));
     }
 }
