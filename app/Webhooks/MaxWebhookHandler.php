@@ -1146,6 +1146,12 @@ class MaxWebhookHandler
                 return ['result' => 'unopenable'];
             }
 
+            // Просроченный черновик (created_at старше cleanup-порога)
+            // не подтверждается, даже если cron ещё не отменил запись.
+            if ($this->isDraftPastCleanupThreshold($fresh)) {
+                return ['result' => 'unopenable'];
+            }
+
             if ($client->isBlocked()) {
                 // Удаляется только пока не подтверждённая запись:
                 // чужое/запоздалое подтверждение не трогает занятую запись.
@@ -1299,6 +1305,7 @@ class MaxWebhookHandler
             if ($fresh->client_id !== null
                 || ! in_array($fresh->status, [AppointmentStatus::Booked, AppointmentStatus::PendingPayment], true)
                 || $fresh->start_time->isPast()
+                || $this->isDraftPastCleanupThreshold($fresh)
             ) {
                 return 'not_found';
             }
@@ -1530,9 +1537,10 @@ class MaxWebhookHandler
     }
 
     /**
-     * Будущая незанятая запись в статусе Booked/PendingPayment —
-     * единственный допустимый кандидат для открытия/продолжения
-     * сценария подтверждения брони через MAX.
+     * Будущая незанятая запись в статусе Booked/PendingPayment и не
+     * старше cleanup_draft_threshold — единственный допустимый
+     * кандидат для открытия/продолжения сценария подтверждения
+     * брони через MAX.
      */
     private function isConfirmableDraft(Appointment $appointment): bool
     {
@@ -1541,7 +1549,25 @@ class MaxWebhookHandler
                 AppointmentStatus::Booked,
                 AppointmentStatus::PendingPayment,
             ], true)
-            && $appointment->start_time->isFuture();
+            && $appointment->start_time->isFuture()
+            && ! $this->isDraftPastCleanupThreshold($appointment);
+    }
+
+    /**
+     * Просроченный черновик: created_at строго старше порога очистки —
+     * та же строгая граница (created_at < now - threshold), что у
+     * CleanupDraftAppointments. Ровно на пороге черновик ещё допустим;
+     * кэш MAX_BOOKING_DRAFT при этом не является доменным сроком.
+     */
+    private function isDraftPastCleanupThreshold(Appointment $appointment): bool
+    {
+        $createdAt = $appointment->created_at;
+
+        if ($createdAt === null) {
+            return false;
+        }
+
+        return $createdAt->lt(now()->subMinutes(config('booking.cleanup_draft_threshold')));
     }
 
     /**

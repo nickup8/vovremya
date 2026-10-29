@@ -160,6 +160,13 @@ class MaxStaleBookingLinkTest extends TestCase
         );
     }
 
+    private function invokeAcceptMaxConsent(string $userId, string $callbackId, string $flow): void
+    {
+        $method = new \ReflectionMethod(MaxWebhookHandler::class, 'acceptMaxConsent');
+        $method->setAccessible(true);
+        $method->invoke($this->handler, $userId, $callbackId, $flow);
+    }
+
     /** @var list<string> */
     private array $capturedTexts = [];
 
@@ -583,6 +590,186 @@ class MaxStaleBookingLinkTest extends TestCase
             (string) Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'),
         );
         $this->assertSame(AppointmentStatus::Booked, $staleA->refresh()->status);
+    }
+
+    // ─── 11. Просроченный created_at при живом cron-окне ───
+
+    public function test_future_draft_past_cleanup_threshold_refused_without_cron(): void
+    {
+        $threshold = (int) config('booking.cleanup_draft_threshold');
+        $this->createReturningClient();
+
+        // Будущий визит, created_at старше порога, cron ещё не выполнялся.
+        $appointment = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->setTime(14, 0),
+            'created_at' => now()->subMinutes($threshold + 5),
+        ]);
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeHandleBookingStart('max_user_123', 'book_'.$appointment->id);
+
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+        $this->assertNull($appointment->refresh()->client_id);
+        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+        Event::assertNotDispatched(AppointmentCreated::class);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+        ]);
+    }
+
+    public function test_draft_within_cleanup_threshold_still_confirms(): void
+    {
+        $threshold = (int) config('booking.cleanup_draft_threshold');
+        $client = $this->createReturningClient();
+        $appointment = $this->createDraftAppointment([
+            'created_at' => now()->subMinutes($threshold - 5),
+        ]);
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+
+        $this->maxApi->shouldReceive('answerCallback')
+            ->once()
+            ->andReturn(true);
+
+        Queue::fake();
+
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_fresh', (string) $appointment->id);
+
+        $appointment->refresh();
+        $this->assertSame($client->id, $appointment->client_id);
+        $this->assertSame(AppointmentSource::Max, $appointment->source);
+        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
+        $this->assertDatabaseHas('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+            'event_type' => 'booking_confirmed',
+        ]);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+    }
+
+    public function test_cleanup_threshold_boundary_matches_cleanup_command(): void
+    {
+        $threshold = (int) config('booking.cleanup_draft_threshold');
+        $this->createReturningClient();
+
+        Carbon::setTestNow(Carbon::parse('2026-06-01 12:00:00', 'UTC'));
+
+        // Ровно на границе: created_at == now - threshold. Очистка
+        // использует строгий `<`, поэтому запись не отменяется и
+        // ссылка остаётся рабочей.
+        $onBoundary = $this->createDraftAppointment([
+            'start_time' => Carbon::parse('2026-06-02 14:00:00', 'UTC'),
+            'created_at' => Carbon::now()->subMinutes($threshold),
+        ]);
+
+        // На секунду старше границы: очистка отменяет — ссылка отказывает.
+        $pastBoundary = $this->createDraftAppointment([
+            'start_time' => Carbon::parse('2026-06-02 15:00:00', 'UTC'),
+            'created_at' => Carbon::now()->subMinutes($threshold)->subSecond(),
+        ]);
+
+        $this->captureTexts();
+        $this->invokeHandleBookingStart('max_user_123', 'book_'.$onBoundary->id);
+        $this->assertStringContainsString('Детали записи', $this->capturedTexts[0]);
+
+        $this->capturedTexts = [];
+        $this->invokeHandleBookingStart('max_user_123', 'book_'.$pastBoundary->id);
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+
+        $this->artisan('appointments:cleanup-drafts')->assertExitCode(0);
+
+        $this->assertSame(AppointmentStatus::Booked, $onBoundary->fresh()->status);
+        $this->assertSame(AppointmentStatus::Cancelled, $pastBoundary->fresh()->status);
+
+        Carbon::setTestNow();
+    }
+
+    public function test_expiry_after_showing_buttons_denies_subsequent_actions(): void
+    {
+        $threshold = (int) config('booking.cleanup_draft_threshold');
+        $this->createReturningClient();
+
+        Carbon::setTestNow(Carbon::parse('2026-06-01 12:00:00', 'UTC'));
+
+        $appointment = $this->createDraftAppointment([
+            'start_time' => Carbon::parse('2026-06-02 14:00:00', 'UTC'),
+            'created_at' => Carbon::now(),
+        ]);
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+
+        // Показ кнопок уже состоялся; порог истёк, cron не отрабатывал.
+        Carbon::setTestNow(Carbon::now()->addMinutes($threshold + 5));
+
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_after_ttl', (string) $appointment->id);
+        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+
+        // Кэш мог пережить истечение срока — возвращаем для проверки cancel/contact.
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_after_ttl', (string) $appointment->id);
+        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+        $this->invokeHandleBookingContact(
+            'max_user_123',
+            'max_user_123',
+            '+79991234567',
+            'Анна',
+            'Иванова',
+            (string) $appointment->id,
+        );
+        $this->assertContains(__('bot.errors.booking_expired'), $this->capturedTexts);
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+        $this->invokeAcceptMaxConsent('max_user_123', 'cb_consent_after_ttl', 'book');
+        $this->assertContains(__('bot.errors.booking_expired'), $this->capturedTexts);
+
+        $appointment->refresh();
+        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
+        $this->assertNull($appointment->client_id);
+        $this->assertNull($appointment->cancelled_at);
+        $this->assertDatabaseMissing('clients', ['phone' => '+79991234567']);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+        ]);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+
+        Carbon::setTestNow();
+    }
+
+    public function test_overdue_draft_a_preserves_current_draft_b(): void
+    {
+        $threshold = (int) config('booking.cleanup_draft_threshold');
+        $this->createReturningClient();
+
+        $overdueA = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->setTime(14, 0),
+            'created_at' => now()->subMinutes($threshold + 5),
+        ]);
+        $draftB = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->addDays(2)->setTime(15, 0),
+        ]);
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $draftB->id, 3600);
+
+        $this->captureTexts();
+        $this->invokeHandleBookingStart('max_user_123', 'book_'.$overdueA->id);
+
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertSame(
+            (string) $draftB->id,
+            (string) Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'),
+        );
+        $this->assertNull($overdueA->refresh()->client_id);
+        $this->assertNull($draftB->refresh()->client_id);
     }
 
     // ─── Helpers ───
