@@ -29,6 +29,7 @@ use App\Services\SlotOfferService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
 use App\Support\Phone;
+use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Model;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\Cache;
@@ -966,29 +967,56 @@ class MaxWebhookHandler
 
             if ($appointment) {
                 // Черновик мог устареть/отмениться/быть оформлен, пока
-                // пользователь принимал согласие — состояние перечитываем.
-                if (! $this->isConfirmableDraft($appointment)) {
-                    $this->clearDraftIfMatches($userId, (string) $appointment->id);
+                // пользователь принимал согласие. Перед мутацией карточки
+                // запись перечитывается под lockForUpdate в транзакции:
+                // проверка актуальности черновика и сохранение согласия
+                // атомарны относительно состояния записи (порядок
+                // блокировок «запись → карточка», как в confirmMaxBooking).
+                $state = DB::transaction(function () use ($userId, $appointment): array {
+                    $fresh = Appointment::query()
+                        ->whereKey($appointment->id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if ($fresh === null || ! $this->isConfirmableDraft($fresh)) {
+                        return ['result' => 'unopenable', 'appointment' => $fresh ?? $appointment];
+                    }
+
+                    $client = Client::byMaxId($userId)
+                        ->where('user_id', $fresh->master_id)
+                        ->lockForUpdate()
+                        ->first();
+
+                    if (! $client) {
+                        return ['result' => 'no_client'];
+                    }
+
+                    $client->pdn_consent_at = now();
+                    $client->pdn_consent_version = config('legal.version');
+                    $client->save();
+
+                    return ['result' => 'ok', 'appointment' => $fresh];
+                });
+
+                if ($state['result'] === 'unopenable') {
+                    /** @var Appointment $stale */
+                    $stale = $state['appointment'];
+                    $this->clearDraftIfMatches($userId, (string) $stale->id);
                     $this->maxApi->answerCallback($callbackId);
-                    $this->sendUnopenableBookingMessage($userId, $appointment);
+                    $this->sendUnopenableBookingMessage($userId, $stale);
 
                     return;
                 }
 
-                $client = Client::byMaxId($userId)
-                    ->where('user_id', $appointment->master_id)
-                    ->first();
-
-                if ($client) {
-                    $client->pdn_consent_at = now();
-                    $client->pdn_consent_version = config('legal.version');
-                    $client->save();
+                if ($state['result'] === 'ok') {
+                    /** @var Appointment $confirmed */
+                    $confirmed = $state['appointment'];
 
                     $this->maxApi->answerCallbackWithMessage(
                         $callbackId,
                         __('bot.consent.after_accept_client_returning'),
                     );
-                    $this->sendBookingConfirmationPrompt($userId, $appointment->load('master'));
+                    $this->sendBookingConfirmationPrompt($userId, $confirmed->load('master'));
 
                     return;
                 }
@@ -1573,32 +1601,51 @@ class MaxWebhookHandler
     /**
      * Черновик запоминается только для допустимой записи. Повторное
      * открытие той же ссылки не продлевает исходный TTL: если черновик
-     * уже указывает на эту запись — не трогаем кэш.
+     * уже указывает на эту запись — не трогаем кэш. Вся пара
+     * get→put выполняется под общим per-user локом: параллельная
+     * замена/очистка не пересекается с условной записью.
      */
     private function rememberBookingDraft(string $userId, string $appointmentId): void
     {
-        $existing = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
-        if ($existing !== null && (string) $existing === $appointmentId) {
-            return;
-        }
+        $this->bookingDraftLock($userId)->block(5, function () use ($userId, $appointmentId): void {
+            $existing = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+            if ($existing !== null && (string) $existing === $appointmentId) {
+                return;
+            }
 
-        Cache::put(
-            CacheKeys::MAX_BOOKING_DRAFT.$userId,
-            $appointmentId,
-            config('booking.draft_ttl'),
-        );
+            Cache::put(
+                CacheKeys::MAX_BOOKING_DRAFT.$userId,
+                $appointmentId,
+                config('booking.draft_ttl'),
+            );
+        });
     }
 
     /**
      * Очищает только черновик текущей записи: устаревшая ссылка/кнопка A
      * не должна затронуть актуальный черновик B того же пользователя.
+     * Пара get→forget атомарна под общим per-user локом: запоздалое
+     * условное удаление не стирает черновик, заменённый параллельным
+     * запросом между чтением и удалением.
      */
     private function clearDraftIfMatches(string $userId, string $appointmentId): void
     {
-        $draftId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
-        if ($draftId !== null && (string) $draftId === (string) $appointmentId) {
-            Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
-        }
+        $this->bookingDraftLock($userId)->block(5, function () use ($userId, $appointmentId): void {
+            $draftId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+            if ($draftId !== null && (string) $draftId === (string) $appointmentId) {
+                Cache::forget(CacheKeys::MAX_BOOKING_DRAFT.$userId);
+            }
+        });
+    }
+
+    /**
+     * Общий per-user лок для всех условных мутаций черновика
+     * MAX_BOOKING_DRAFT: и условное удаление, и условная запись
+     * берут одну и ту же блокировку — лок только удаления недостаточен.
+     */
+    private function bookingDraftLock(string $userId): Lock
+    {
+        return Cache::lock(CacheKeys::MAX_BOOKING_DRAFT_LOCK.$userId, 10);
     }
 
     /**

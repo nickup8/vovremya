@@ -17,6 +17,8 @@ use App\Models\Workspace;
 use App\Services\MaxApiClient;
 use App\Services\Notification\MasterNotificationService;
 use App\Webhooks\MaxWebhookHandler;
+use Illuminate\Cache\ArrayStore;
+use Illuminate\Cache\Repository;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
@@ -165,6 +167,20 @@ class MaxStaleBookingLinkTest extends TestCase
         $method = new \ReflectionMethod(MaxWebhookHandler::class, 'acceptMaxConsent');
         $method->setAccessible(true);
         $method->invoke($this->handler, $userId, $callbackId, $flow);
+    }
+
+    private function invokeRememberBookingDraft(string $userId, string $appointmentId): void
+    {
+        $method = new \ReflectionMethod(MaxWebhookHandler::class, 'rememberBookingDraft');
+        $method->setAccessible(true);
+        $method->invoke($this->handler, $userId, $appointmentId);
+    }
+
+    private function invokeClearDraftIfMatches(string $userId, string $appointmentId): void
+    {
+        $method = new \ReflectionMethod(MaxWebhookHandler::class, 'clearDraftIfMatches');
+        $method->setAccessible(true);
+        $method->invoke($this->handler, $userId, $appointmentId);
     }
 
     /** @var list<string> */
@@ -360,29 +376,39 @@ class MaxStaleBookingLinkTest extends TestCase
     public function test_reopening_same_link_does_not_extend_draft_ttl(): void
     {
         $this->createReturningClient();
-        $appointment = $this->createDraftAppointment();
+
+        Carbon::setTestNow(Carbon::parse('2026-06-01 12:00:00', 'UTC'));
+
+        // Доменный срок записи (created_at vs cleanup-порог) действует
+        // весь тест; проверяем только кэш-TTL.
+        $appointment = $this->createDraftAppointment([
+            'start_time' => Carbon::parse('2026-06-02 14:00:00', 'UTC'),
+        ]);
 
         $this->captureTexts();
 
-        config()->set('booking.draft_ttl', 3600);
-        $this->invokeHandleBookingStart('max_user_123', 'book_'.$appointment->id);
-
-        // Сдвигаем «время жизни» черновика искусственно: пересоздаём кэш
-        // с малым TTL и убеждаемся, что повторное открытие его не сбрасывает.
         $draftKey = CacheKeys::MAX_BOOKING_DRAFT.'max_user_123';
-        Cache::forget($draftKey);
-        Cache::put($draftKey, (string) $appointment->id, 60);
-
-        // Меняем TTL конфига — reopen не должен перезаписать кэш.
-        config()->set('booking.draft_ttl', 7200);
+        config()->set('booking.draft_ttl', 60);
 
         $this->invokeHandleBookingStart('max_user_123', 'book_'.$appointment->id);
+        $this->assertSame((string) $appointment->id, (string) Cache::get($draftKey));
 
-        // Кэш по-прежнему указывает на запись; put с новым TTL не выполнялся.
-        $this->assertSame(
-            (string) $appointment->id,
-            (string) Cache::get($draftKey),
-        );
+        // Повторное открытие до окончания исходного TTL.
+        Carbon::setTestNow(Carbon::now()->addSeconds(30));
+        $this->invokeHandleBookingStart('max_user_123', 'book_'.$appointment->id);
+        $this->assertSame((string) $appointment->id, (string) Cache::get($draftKey));
+
+        // За исходным сроком жизни ключ исчезает — повторное открытие
+        // не продлило TTL.
+        Carbon::setTestNow(Carbon::now()->addSeconds(31));
+        $this->assertNull(Cache::get($draftKey));
+
+        // Доменный срок записи всё ещё действующий: черновик можно
+        // открыть заново (и снова без продления того же ключа).
+        $this->invokeHandleBookingStart('max_user_123', 'book_'.$appointment->id);
+        $this->assertSame((string) $appointment->id, (string) Cache::get($draftKey));
+
+        Carbon::setTestNow();
     }
 
     // ─── 7. Запись стала недоступной после показа кнопок — callback ───
@@ -689,58 +715,149 @@ class MaxStaleBookingLinkTest extends TestCase
         Carbon::setTestNow();
     }
 
-    public function test_expiry_after_showing_buttons_denies_subsequent_actions(): void
+    /**
+     * Замораживает время, создаёт просроченный черновик A (кнопки уже
+     * показаны, кэш указывает на A) и свежий черновик B. Возвращает
+     * время, когда порог A уже истёк, а B ещё действителен; cron не
+     * запускался.
+     */
+    private function arrangeExpiredDraftAWithLiveDraftB(): array
     {
         $threshold = (int) config('booking.cleanup_draft_threshold');
-        $this->createReturningClient();
 
         Carbon::setTestNow(Carbon::parse('2026-06-01 12:00:00', 'UTC'));
 
-        $appointment = $this->createDraftAppointment([
+        $appointmentA = $this->createDraftAppointment([
             'start_time' => Carbon::parse('2026-06-02 14:00:00', 'UTC'),
-            'created_at' => Carbon::now(),
+            'created_at' => Carbon::now()->subMinutes($threshold - 1),
+        ]);
+        $draftB = $this->createDraftAppointment([
+            'start_time' => Carbon::parse('2026-06-02 16:00:00', 'UTC'),
         ]);
 
-        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointmentA->id, 7200);
 
         // Показ кнопок уже состоялся; порог истёк, cron не отрабатывал.
-        Carbon::setTestNow(Carbon::now()->addMinutes($threshold + 5));
+        Carbon::setTestNow(Carbon::now()->addMinutes(6));
 
+        return [$appointmentA, $draftB];
+    }
+
+    private function assertDraftAExpiredUnchangedAndBSafe(Appointment $appointmentA, Appointment $draftB): void
+    {
+        $appointmentA->refresh();
+        $this->assertSame(AppointmentStatus::Booked, $appointmentA->status);
+        $this->assertNull($appointmentA->client_id);
+        $this->assertNull($appointmentA->cancelled_at);
+
+        $draftB->refresh();
+        $this->assertSame(AppointmentStatus::Booked, $draftB->status);
+        $this->assertNull($draftB->client_id);
+
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointmentA->id,
+        ]);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $draftB->id,
+        ]);
+        Event::assertNotDispatched(AppointmentCreated::class);
+    }
+
+    public function test_confirm_denied_after_draft_age_expiry(): void
+    {
+        $this->createReturningClient();
+        [$appointmentA, $draftB] = $this->arrangeExpiredDraftAWithLiveDraftB();
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
         Queue::fake();
         $this->captureTexts();
 
-        $this->invokeConfirmMaxBooking('max_user_123', 'cb_after_ttl', (string) $appointment->id);
-        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_expired', (string) $appointmentA->id);
 
-        // Кэш мог пережить истечение срока — возвращаем для проверки cancel/contact.
-        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
-        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_after_ttl', (string) $appointment->id);
-        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
 
-        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+        Carbon::setTestNow();
+    }
+
+    public function test_cancel_denied_after_draft_age_expiry(): void
+    {
+        $this->createReturningClient();
+        [$appointmentA, $draftB] = $this->arrangeExpiredDraftAWithLiveDraftB();
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_expired', (string) $appointmentA->id);
+
+        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_contact_denied_after_draft_age_expiry(): void
+    {
+        $this->createReturningClient();
+        [$appointmentA, $draftB] = $this->arrangeExpiredDraftAWithLiveDraftB();
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
         $this->invokeHandleBookingContact(
             'max_user_123',
             'max_user_123',
             '+79991234567',
             'Анна',
             'Иванова',
-            (string) $appointment->id,
+            (string) $appointmentA->id,
         );
-        $this->assertContains(__('bot.errors.booking_expired'), $this->capturedTexts);
 
-        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
-        $this->invokeAcceptMaxConsent('max_user_123', 'cb_consent_after_ttl', 'book');
-        $this->assertContains(__('bot.errors.booking_expired'), $this->capturedTexts);
-
-        $appointment->refresh();
-        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
-        $this->assertNull($appointment->client_id);
-        $this->assertNull($appointment->cancelled_at);
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
         $this->assertDatabaseMissing('clients', ['phone' => '+79991234567']);
-        $this->assertDatabaseMissing('appointment_notification_events', [
-            'appointment_id' => $appointment->id,
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+
+        Carbon::setTestNow();
+    }
+
+    public function test_consent_denied_after_draft_age_expiry(): void
+    {
+        [$appointmentA, $draftB] = $this->arrangeExpiredDraftAWithLiveDraftB();
+
+        // Клиент со старой версией PDN: сохранение согласия при
+        // истёкшем черновике изменило бы карточку на v1.
+        $client = Client::factory()->create([
+            'user_id' => $this->master->id,
+            'workspace_id' => $this->ws->id,
+            'max_id' => 'max_user_123',
+            'pdn_consent_at' => Carbon::now()->subDay(),
+            'pdn_consent_version' => 'v0',
         ]);
-        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+        $originalConsentAt = $client->pdn_consent_at;
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeAcceptMaxConsent('max_user_123', 'cb_consent_expired', 'book');
+
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
+
+        $client->refresh();
+        $this->assertSame('v0', $client->pdn_consent_version);
+        $this->assertEquals($originalConsentAt, $client->pdn_consent_at);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
 
         Carbon::setTestNow();
     }
@@ -770,6 +887,72 @@ class MaxStaleBookingLinkTest extends TestCase
         );
         $this->assertNull($overdueA->refresh()->client_id);
         $this->assertNull($draftB->refresh()->client_id);
+    }
+
+    // ─── 12. Гонка условного очищения черновика ───
+
+    public function test_stale_clear_does_not_delete_draft_replaced_in_parallel(): void
+    {
+        $this->createReturningClient();
+
+        $staleA = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->setTime(14, 0),
+        ]);
+        $draftB = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->addDays(2)->setTime(15, 0),
+        ]);
+
+        $draftKey = CacheKeys::MAX_BOOKING_DRAFT.'max_user_123';
+        $lockKey = CacheKeys::MAX_BOOKING_DRAFT_LOCK.'max_user_123';
+
+        // Подменяем array-store на перехватывающий get: вставляем
+        // параллельную попытку записи B между чтением A и удалением —
+        // ровно то чередование, которое без лока стирало бы B.
+        $store = new class extends ArrayStore
+        {
+            /** @var (callable(string, mixed): void)|null */
+            public $onGet = null;
+
+            public function get($key)
+            {
+                $value = parent::get($key);
+
+                if ($this->onGet !== null) {
+                    ($this->onGet)($key, $value);
+                }
+
+                return $value;
+            }
+        };
+        Cache::swap(new Repository($store));
+
+        // Ранее открыта ссылка A: кэш указывает на A.
+        Cache::put($draftKey, (string) $staleA->id, 3600);
+
+        $parallelResults = [];
+        $staleId = (string) $staleA->id;
+        $draftBId = (string) $draftB->id;
+        $store->onGet = function (string $key, mixed $value) use ($draftKey, $lockKey, $staleId, &$parallelResults): void {
+            if ($key !== $draftKey || (string) $value !== $staleId) {
+                return;
+            }
+
+            // Параллельный запрос B: та же условная запись черновика.
+            // Общий лок не пускает её внутрь критической секции A
+            // (get уже выполнен, forget ещё нет).
+            $parallelResults[] = Cache::lock($lockKey, 10)->get() ? 'entered' : 'blocked';
+        };
+
+        $this->invokeClearDraftIfMatches('max_user_123', $staleId);
+
+        // Интерлюдия невозможна: мутация B ждёт общий лок и не стирается.
+        $this->assertSame(['blocked'], $parallelResults);
+        $this->assertNull(Cache::get($draftKey));
+
+        // После освобождения лока параллельный запрос дописывает B —
+        // и актуальный черновик B сохраняется.
+        $this->invokeRememberBookingDraft('max_user_123', $draftBId);
+        $this->assertSame($draftBId, (string) Cache::get($draftKey));
     }
 
     // ─── Helpers ───
