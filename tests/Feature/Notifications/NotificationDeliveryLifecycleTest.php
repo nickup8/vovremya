@@ -457,6 +457,26 @@ class NotificationDeliveryLifecycleTest extends TestCase
             'lease_expires_at' => now()->addSeconds(60),
         ]);
 
+        // Реально работающий преемник: его job присутствует в очереди.
+        // Осиротевший claim (без job) после окончательного timeout
+        // намеренно терминализируется — это фикс дефекта 2.
+        DB::table('jobs')->insert([
+            'id' => 1,
+            'queue' => 'default',
+            'payload' => json_encode([
+                'uuid' => (string) Str::uuid(),
+                'displayName' => SendAppointmentNotificationJob::class,
+                'data' => [
+                    'commandName' => SendAppointmentNotificationJob::class,
+                    'command' => 'O:30:"App\Jobs\SendAppointmentNotificationJob":1:{s:7:"eventId";s:36:"'.$event->id.'";}',
+                ],
+            ]),
+            'attempts' => 1,
+            'reserved_at' => now()->getTimestamp(),
+            'available_at' => now()->getTimestamp(),
+            'created_at' => now()->getTimestamp(),
+        ]);
+
         (new SendAppointmentNotificationJob($event->id))
             ->failed(new \RuntimeException('exhausted'));
 

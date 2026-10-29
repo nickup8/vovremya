@@ -10,6 +10,8 @@ use App\Enums\RecurrenceType;
 use App\Enums\RecurringSeriesStatus;
 use App\Enums\SlotOpportunitySourceType;
 use App\Models\Appointment;
+use App\Models\AppointmentNotificationDelivery;
+use App\Models\AppointmentNotificationEvent;
 use App\Models\MasterService;
 use App\Models\RecurringAppointmentSeries;
 use App\Models\User;
@@ -266,6 +268,10 @@ class RecurringAppointmentService
                         'service_name' => $firstFuture->display_name,
                         'affected_count' => $affected,
                         'from_date' => $firstFuture->start_time->timezone($tz)->format('d.m.Y'),
+                        // Снимок первого визита для сверки актуальности
+                        // при доставке (перенос/отмена гасят устаревший
+                        // снимок; правка цены — нет).
+                        'first_start_time' => $firstFuture->start_time->toIso8601String(),
                     ],
                     $version,
                     $series->id,
@@ -651,6 +657,7 @@ class RecurringAppointmentService
                     'affected_count' => $group->count(),
                     'from_date' => $first->start_time->timezone($tz)->format('d.m.Y'),
                     'time' => $anchor->start_time->timezone($tz)->format('H:i'),
+                    'first_start_time' => $first->start_time->toIso8601String(),
                 ],
                 $version,
                 $newSeries->id,
@@ -708,6 +715,35 @@ class RecurringAppointmentService
             // по группам получателей: визиты с разными клиентами получают
             // свои сообщения без чужих данных.
             $this->recordSeriesCancelledNotification($series, $futureAppointments);
+
+            // Частичная отмена: оставшиеся активные визиты серии не
+            // должны теряться — если создание/обновление ещё не
+            // доставлено, фиксируем SeriesUpdated по остатку.
+            $remaining = Appointment::where('recurring_series_id', $series->id)
+                ->whereIn('status', [
+                    AppointmentStatus::Booked,
+                    AppointmentStatus::PendingPayment,
+                    AppointmentStatus::Prepaid,
+                ])
+                ->where('start_time', '>', now())
+                ->get();
+
+            if ($remaining->isNotEmpty()) {
+                $hasUndeliveredSeriesEvent = AppointmentNotificationEvent::query()
+                    ->where('recurring_series_id', $series->id)
+                    ->whereIn('event_type', [
+                        AppointmentNotificationEventType::SeriesCreated,
+                        AppointmentNotificationEventType::SeriesUpdated,
+                    ])
+                    ->whereDoesntHave('deliveries', function ($query) {
+                        $query->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED);
+                    })
+                    ->exists();
+
+                if ($hasUndeliveredSeriesEvent) {
+                    $this->recordSeriesUpdatedNotification($series, $series, $remaining);
+                }
+            }
 
             return $futureAppointments->count();
         });

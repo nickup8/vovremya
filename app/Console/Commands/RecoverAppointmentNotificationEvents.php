@@ -3,8 +3,10 @@
 namespace App\Console\Commands;
 
 use App\Jobs\SendAppointmentNotificationJob;
+use App\Models\AppointmentNotificationDelivery;
 use App\Models\AppointmentNotificationEvent;
 use Illuminate\Console\Command;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 /**
@@ -16,6 +18,12 @@ use Illuminate\Support\Facades\Log;
  * dispatched_at уже принадлежат очереди и её ограниченным ретраям; команда
  * их не трогает. Повторная постановка безопасна: delivery-claim и версия
  * события не дают отправить дважды.
+ *
+ * Дополнительно: терминализирует осиротевшие pending-строки доставки —
+ * claim_token остался, lease истёк, активного преемника в очереди нет
+ * (окончательный timeout убил исполнителя до release). Истечение lease
+ * само по себе статус не меняет, поэтому без этого sweep строка висела
+ * бы в pending вечно, а Summary показывало «Ожидает отправки».
  */
 class RecoverAppointmentNotificationEvents extends Command
 {
@@ -49,13 +57,66 @@ class RecoverAppointmentNotificationEvents extends Command
             }
         }
 
+        $orphans = $this->failOrphanedPendingDeliveries();
+
         $this->info(sprintf(
-            'Восстановление уведомлений: %d поставлено в очередь, %d ошибок (найдено %d необработанных).',
+            'Восстановление уведомлений: %d поставлено в очередь, %d ошибок (найдено %d необработанных); осиротевших claim\'ов терминализировано: %d.',
             $dispatched,
             $failed,
             $events->count(),
+            $orphans,
         ));
 
         return self::SUCCESS;
+    }
+
+    /**
+     * Pending-строки с истёкшим lease и без активного преемника в очереди:
+     * владение осиротело (executor умер по timeout до release) —
+     * терминализируем, чтобы строка не висела в pending вечно.
+     */
+    private function failOrphanedPendingDeliveries(): int
+    {
+        $rows = AppointmentNotificationDelivery::query()
+            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+            ->whereNotNull('lease_expires_at')
+            ->where('lease_expires_at', '<', now())
+            ->get();
+
+        $failedCount = 0;
+
+        foreach ($rows as $row) {
+            // Активный преемник в очереди — его владение не трогаем.
+            if ($this->hasActiveJobFor((string) $row->appointment_notification_event_id)) {
+                continue;
+            }
+
+            // CAS: lease мог обновиться между чтением и UPDATE.
+            $updated = AppointmentNotificationDelivery::query()
+                ->whereKey($row->getKey())
+                ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+                ->where('claim_token', (string) $row->claim_token)
+                ->where('lease_expires_at', '<', now())
+                ->update([
+                    'status' => AppointmentNotificationDelivery::STATUS_FAILED,
+                    'claim_token' => null,
+                    'lease_expires_at' => null,
+                    'failure_reason' => 'orphaned_claim',
+                    'failed_at' => now(),
+                ]);
+
+            if ($updated === 1) {
+                $failedCount++;
+            }
+        }
+
+        return $failedCount;
+    }
+
+    private function hasActiveJobFor(string $eventId): bool
+    {
+        return DB::table('jobs')
+            ->where('payload', 'like', '%'.addslashes($eventId).'%')
+            ->exists();
     }
 }

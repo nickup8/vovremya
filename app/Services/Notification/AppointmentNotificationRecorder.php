@@ -5,6 +5,7 @@ namespace App\Services\Notification;
 use App\Enums\AppointmentNotificationEventType;
 use App\Jobs\SendAppointmentNotificationJob;
 use App\Models\Appointment;
+use App\Models\AppointmentNotificationDelivery;
 use App\Models\AppointmentNotificationEvent;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Support\Facades\DB;
@@ -67,20 +68,23 @@ class AppointmentNotificationRecorder
     ): ?AppointmentNotificationEvent {
         $version = $eventVersion ?? (int) $appointment->notification_version;
 
-        // Создание ещё не доставлено (job не начинал работу) — правка не
-        // должна молча подавить первое полное уведомление: объединяем
-        // недоставленное создание с изменениями в одно понятное сообщение.
+        // Создание ещё не доставлено — правка не должна молча подавить
+        // первое полное уведомление: объединяем недоставленное создание
+        // с изменениями в одно понятное сообщение.
+        //
+        // Считается ПОДТВЕРЖДЁННАЯ доставка (status=delivered), а не
+        // наличие любой delivery-строки: после неудачной отправки
+        // pending-delivery сохраняется, но клиент полного контекста
+        // не получил. Живой claim (lease в будущем) = первый исполнитель
+        // в полёте — full_notice не ставим, чтобы не задублировать
+        // контекст, который он вот-вот доставит.
+        //
         // Флаг вычисляется до compose(): текст зависит от него.
         if (in_array($type, [
             AppointmentNotificationEventType::FieldsChanged,
             AppointmentNotificationEventType::Rescheduled,
         ], true)
-            && AppointmentNotificationEvent::query()
-                ->where('appointment_id', $appointment->getKey())
-                ->where('event_type', AppointmentNotificationEventType::CreatedByMaster)
-                ->where('event_version', '<', $version)
-                ->whereDoesntHave('deliveries')
-                ->exists()) {
+            && ! $this->creationFullyDeliveredOrInFlight($appointment, $version)) {
             $payload['full_notice'] = true;
         }
 
@@ -158,5 +162,44 @@ class AppointmentNotificationRecorder
                 ]);
             }
         });
+    }
+
+    /**
+     * Создание уже доставлено клиенту ИЛИ первый исполнитель в полёте
+     * (живой claim). В обоих случаях полный контекст клиента достигнет
+     * или уже достиг — full_notice не нужен. После неудачной попытки
+     * (pending без живого lease, нет delivered) — full_notice обязателен.
+     */
+    private function creationFullyDeliveredOrInFlight(Appointment $appointment, int $currentVersion): bool
+    {
+        $creation = AppointmentNotificationEvent::query()
+            ->where('appointment_id', $appointment->getKey())
+            ->where('event_type', AppointmentNotificationEventType::CreatedByMaster)
+            ->where('event_version', '<', $currentVersion)
+            ->orderByDesc('event_version')
+            ->first();
+
+        if ($creation === null) {
+            // Нет события создания — нечего объединять.
+            return true;
+        }
+
+        // Подтверждённая доставка: клиент уже получил полный контекст.
+        $delivered = $creation->deliveries()
+            ->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED)
+            ->exists();
+
+        if ($delivered) {
+            return true;
+        }
+
+        // Живой claim: первый исполнитель внутри HTTP — не дублируем.
+        $inFlight = $creation->deliveries()
+            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+            ->whereNotNull('lease_expires_at')
+            ->where('lease_expires_at', '>', now())
+            ->exists();
+
+        return $inFlight;
     }
 }

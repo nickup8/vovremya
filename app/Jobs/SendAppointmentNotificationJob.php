@@ -3,6 +3,7 @@
 namespace App\Jobs;
 
 use App\Enums\AppointmentNotificationEventType;
+use App\Enums\AppointmentStatus;
 use App\Events\AppointmentNotificationUpdated;
 use App\Exceptions\VkMessagesNotAllowedException;
 use App\Models\Appointment;
@@ -203,6 +204,15 @@ class SendAppointmentNotificationJob implements ShouldQueue
             // доводятся до терминального failed.
             $this->markAllPendingFailed($event, 'retries_exhausted');
 
+            // Окончательный timeout при живом lease: наш исполнитель уже
+            // мёртв, но claim ещё не истёк. Если для события нет активного
+            // преемника в очереди — живой claim осиротел и подлежит
+            // терминализации; иначе преемник реально работает и его
+            // владение не трогаем.
+            if (! $this->hasActiveJobFor($this->eventId)) {
+                $this->markOrphanedLiveClaimsFailed($event, 'retries_exhausted');
+            }
+
             if ($appointment === null) {
                 return;
             }
@@ -387,6 +397,26 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
         try {
             return DB::transaction(function () use ($event, $channel, $claimToken): array {
+                // Согласование на уровне события: чужой живой claim на
+                // ДРУГОМ канале блокирует новый проход — одно событие не
+                // обрабатывается двумя живыми исполнителями (A держит max
+                // внутри HTTP, маршрут меняется, B не должен увести vk).
+                $foreignLive = AppointmentNotificationDelivery::query()
+                    ->where('appointment_notification_event_id', $event->getKey())
+                    ->where('channel', '!=', $channel)
+                    ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+                    ->whereNotNull('lease_expires_at')
+                    ->where('lease_expires_at', '>', now())
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($foreignLive !== null) {
+                    return [
+                        'state' => 'busy',
+                        'lease_expires_at' => $foreignLive->lease_expires_at,
+                    ];
+                }
+
                 $row = AppointmentNotificationDelivery::query()
                     ->where('appointment_notification_event_id', $event->getKey())
                     ->where('channel', $channel)
@@ -454,11 +484,11 @@ class SendAppointmentNotificationJob implements ShouldQueue
      *
      * - Обычное событие устарело, если запись описана более новым
      *   событием (notification_version ушла вперёд);
-     * - series-событие НЕ гасится правкой якорного визита: его
-     *   актуальность определяется состоянием серии (якорь покинул серию
-     *   при split/rebind → устарело; отмена серии гасит её
-     *   создание/обновление). Изменение одного визита не должно бесследно
-     *   погасить уведомление обо всей серии.
+     * - series-событие сверяется по ФАКТИЧЕСКИ затронутому расписанию,
+     *   а не по версии якоря: правка цены не гасит серию, но перенос
+     *   или отмена первого визита — гасит устаревший снимок. Частичная
+     *   отмена не убивает создание/обновление целиком, а требует
+     *   сверки счётчика и первого визита.
      */
     private function eventIsStale(
         AppointmentNotificationEvent $event,
@@ -473,13 +503,64 @@ class SendAppointmentNotificationJob implements ShouldQueue
             return true;
         }
 
-        // Отмена серии гасит её создание/обновление — но не наоборот.
-        if ($event->event_type !== AppointmentNotificationEventType::SeriesCancelled
-            && AppointmentNotificationEvent::query()
+        // SeriesCancelled: устаревает только более новым SeriesCancelled
+        // той же серии (например, поздняя отмена всей серии гасит
+        // более раннюю частичную). Сама отмена — исторический факт
+        // и доставляется, даже если часть визитов позже вернулась.
+        if ($event->event_type === AppointmentNotificationEventType::SeriesCancelled) {
+            return AppointmentNotificationEvent::query()
                 ->where('recurring_series_id', $event->recurring_series_id)
                 ->where('event_type', AppointmentNotificationEventType::SeriesCancelled)
-                ->exists()) {
+                ->where('id', '!=', $event->getKey())
+                ->where('created_at', '>', $event->created_at)
+                ->exists();
+        }
+
+        // SeriesCreated / SeriesUpdated: снимок расписания сверяется
+        // с фактическим состоянием серии.
+        return $this->seriesScheduleChanged($event, $appointment);
+    }
+
+    /**
+     * Фактическое расписание серии изменилось относительно снимка
+     * в payload (счётчик активных визитов или первый визит).
+     */
+    private function seriesScheduleChanged(
+        AppointmentNotificationEvent $event,
+        Appointment $anchor,
+    ): bool {
+        $seriesId = $event->recurring_series_id;
+        $clientId = $event->payload['client_id'] ?? $anchor->client_id;
+
+        $active = Appointment::query()
+            ->where('recurring_series_id', $seriesId)
+            ->where('client_id', $clientId)
+            ->whereIn('status', [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+                AppointmentStatus::Prepaid,
+            ])
+            ->where('start_time', '>', now())
+            ->orderBy('start_time')
+            ->get();
+
+        $expectedCount = isset($event->payload['affected_count'])
+            ? (int) $event->payload['affected_count']
+            : null;
+
+        if ($expectedCount !== null && $active->count() !== $expectedCount) {
             return true;
+        }
+
+        $expectedFirst = $event->payload['first_start_time'] ?? null;
+
+        if ($expectedFirst !== null && $active->isNotEmpty()) {
+            $actualFirst = $active->first()->start_time;
+
+            if (Carbon::parse($expectedFirst)->getTimestamp()
+                !== $actualFirst->getTimestamp()) {
+                return true;
+            }
         }
 
         return false;
@@ -723,6 +804,48 @@ class SendAppointmentNotificationJob implements ShouldQueue
                     'lease_expires_at' => null,
                 ]);
         }
+    }
+
+    /**
+     * Осиротевший живой claim: lease ещё не истёк, но активного
+     * преемника в очереди нет — наш исполнитель умер по timeout и его
+     * владение никем не продолжается. Терминализируем, не дожидаясь
+     * lease'а, чтобы Summary не висел в «Ожидает отправки».
+     */
+    private function markOrphanedLiveClaimsFailed(AppointmentNotificationEvent $event, string $reason): void
+    {
+        foreach ($event->deliveries()
+            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+            ->whereNotNull('claim_token')
+            ->get() as $row) {
+            // CAS по токену: поздний преемник, успевший перехватить
+            // lease между нашим чтением и UPDATE, не будет затёрт.
+            AppointmentNotificationDelivery::query()
+                ->whereKey($row->getKey())
+                ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
+                ->where('claim_token', (string) $row->claim_token)
+                ->update([
+                    'status' => AppointmentNotificationDelivery::STATUS_FAILED,
+                    'claim_token' => null,
+                    'lease_expires_at' => null,
+                    'failure_reason' => $reason,
+                    'failed_at' => now(),
+                ]);
+        }
+
+        $this->broadcastUpdated($event);
+    }
+
+    /**
+     * Есть ли в очереди активный job для этого события (reserved или
+     * available). Payload database-очереди содержит eventId в
+     * сериализованной команде.
+     */
+    private function hasActiveJobFor(string $eventId): bool
+    {
+        return DB::table('jobs')
+            ->where('payload', 'like', '%'.addslashes($eventId).'%')
+            ->exists();
     }
 
     /**

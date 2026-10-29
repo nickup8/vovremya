@@ -501,6 +501,12 @@ class CalendarController extends Controller
 
                 // ─── Мутации под блокировкой ───
 
+                // Снимок исходных время/мастер ДО каких-либо мутаций:
+                // после сохранений getOriginal ненадёжен, а $locked не
+                // обновляется сервисом (тот загружает свой экземпляр).
+                $oldStartTime = $locked->start_time->toIso8601String();
+                $oldMasterId = $locked->master_id;
+
                 // Фактическое изменение услуги/длительности/цены одной
                 // записью; доступ к целевой услуге — по действующим правилам
                 // приложения (как при создании записи).
@@ -512,7 +518,12 @@ class CalendarController extends Controller
                     $locked->save();
                 }
 
-                $oldStartTime = null;
+                // Актуальная запись после переноса: сервис загружает и
+                // сохраняет ДРУГОЙ экземпляр через lockForUpdate, поэтому
+                // событие собирается из результата сервиса, а не из
+                // прежнего $locked с устаревшим start_time/master_id.
+                $notified = $locked;
+
                 if ($willReschedule) {
                     if ($locked->isDirty()) {
                         // Поля сохраняются до переноса, чтобы проверка
@@ -522,7 +533,6 @@ class CalendarController extends Controller
 
                     $tz = $locked->master->getTimezone();
                     $newDateTime = Carbon::parse($validated['start_time'], $tz);
-                    $oldStartTime = $locked->start_time->toIso8601String();
 
                     $result = $this->bookingService->rescheduleAppointment(
                         $locked,
@@ -549,6 +559,11 @@ class CalendarController extends Controller
                             ],
                         );
                     }
+
+                    // Актуальная запись с новым временем/мастером и
+                    // свежими отношениями — источник данных события.
+                    $notified = Appointment::with(['master', 'client', 'masterService.catalog'])
+                        ->findOrFail($locked->getKey());
                 }
 
                 // ─── Одно согласованное сообщение на одно сохранение ───
@@ -557,20 +572,20 @@ class CalendarController extends Controller
                 // поля и перенос в том же запросе применяются молча.
                 $cancelledViaStatus = $newStatus === AppointmentStatus::Cancelled;
 
-                if (! $cancelledViaStatus && $locked->client_id !== null) {
+                if (! $cancelledViaStatus && $notified->client_id !== null) {
                     $recorder = app(AppointmentNotificationRecorder::class);
 
-                    if ($willReschedule && $locked->start_time->isFuture()) {
-                        $version = $recorder->bumpVersion($locked);
+                    if ($willReschedule && $notified->start_time->isFuture()) {
+                        $version = $recorder->bumpVersion($notified);
                         $recorder->record(
-                            $locked,
+                            $notified,
                             AppointmentNotificationEventType::Rescheduled,
                             [
                                 'old_start_time' => $oldStartTime,
-                                'new_start_time' => $locked->start_time->toIso8601String(),
-                                'old_master_id' => $locked->getOriginal('master_id'),
-                                'new_master_id' => $locked->master_id,
-                                'service_name' => $locked->display_name,
+                                'new_start_time' => $notified->start_time->toIso8601String(),
+                                'old_master_id' => $oldMasterId,
+                                'new_master_id' => $notified->master_id,
+                                'service_name' => $notified->display_name,
                                 'changes' => $fieldChanges,
                             ],
                             $version,
