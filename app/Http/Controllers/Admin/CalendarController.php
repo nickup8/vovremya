@@ -17,6 +17,7 @@ use App\Models\User;
 use App\Models\WorkingHour;
 use App\Services\Booking\AvailabilityService;
 use App\Services\Booking\BookingService;
+use App\Services\Booking\RecurringAppointmentService;
 use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\AppointmentNotificationSummary;
 use App\Services\Recurrence\RecurrenceRule;
@@ -441,6 +442,7 @@ class CalendarController extends Controller
             // Ошибка любой части откатывает всё, ничего не остаётся
             // применённым частично.
             return DB::transaction(function () use ($appointment, $validated) {
+                /** @var Appointment $locked */
                 $locked = Appointment::whereKey($appointment->getKey())
                     ->lockForUpdate()
                     ->firstOrFail();
@@ -562,6 +564,7 @@ class CalendarController extends Controller
 
                     // Актуальная запись с новым временем/мастером и
                     // свежими отношениями — источник данных события.
+                    /** @var Appointment $notified */
                     $notified = Appointment::with(['master', 'client', 'masterService.catalog'])
                         ->findOrFail($locked->getKey());
                 }
@@ -576,6 +579,18 @@ class CalendarController extends Controller
                     $recorder = app(AppointmentNotificationRecorder::class);
 
                     if ($willReschedule && $notified->start_time->isFuture()) {
+                        // Перенос визита серии гасит недоставленный снимок
+                        // расписания — компенсация сохраняет информацию
+                        // об оставшихся визитах. До bump'а Rescheduled:
+                        // компенсация двигает версию якоря (этого же
+                        // визита), и её bump не должен погасить перенос.
+                        app(RecurringAppointmentService::class)
+                            ->compensateRemainingSeriesSchedule(
+                                $notified->recurring_series_id !== null
+                                    ? (string) $notified->recurring_series_id
+                                    : null,
+                            );
+
                         $version = $recorder->bumpVersion($notified);
                         $recorder->record(
                             $notified,

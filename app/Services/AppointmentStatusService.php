@@ -12,6 +12,7 @@ use App\Exceptions\InvalidStatusTransitionException;
 use App\Exceptions\PastAppointmentException;
 use App\Models\Appointment;
 use App\Models\User;
+use App\Services\Booking\RecurringAppointmentService;
 use App\Services\Notification\AppointmentNotificationRecorder;
 use Illuminate\Contracts\Auth\Authenticatable;
 use Illuminate\Support\Facades\DB;
@@ -108,6 +109,20 @@ class AppointmentStatusService
                         ],
                         $version,
                     );
+                }
+
+                // Одиночная отмена визита серии гасит недоставленный
+                // SeriesCreated (счётчик изменился) — компенсация несёт
+                // клиенту актуальную информацию об оставшихся визитах.
+                // Серийные bulk-операции (notifyClient=false) своё
+                // согласованное сообщение записывают сами.
+                if ($notifyClient) {
+                    app(RecurringAppointmentService::class)
+                        ->compensateRemainingSeriesSchedule(
+                            $appointment->recurring_series_id !== null
+                                ? (string) $appointment->recurring_series_id
+                                : null,
+                        );
                 }
             }
         });

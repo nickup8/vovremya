@@ -5,6 +5,7 @@ namespace Tests\Feature\Notifications;
 use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
+use App\Events\AppointmentNotificationUpdated;
 use App\Jobs\SendAppointmentNotificationJob;
 use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
@@ -17,24 +18,23 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Queue\TimeoutExceededException;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\DB;
+use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**
- * Дефект 2 (P1): окончательный timeout после claim оставляет вечный pending.
+ * Дефект 2 (P1): failed() не должен завершать чужое живое владение.
  *
- * timeout 30s < lease 60s: когда worker фейлит job по timeout, claim ещё
- * жив. failed() вызывает markAllPendingFailed/markFailed, но живой claim
- * они считают чужим и пропускают. Строка остаётся pending; job в
- * failed_jobs, dispatched_at заполнен, recovery не поднимает. Истечение
- * lease само по себе статус не меняет.
+ * Осиротевший live claim (lease жив, активного преемника в очереди нет)
+ * не терминализируется немедленно: проверка очереди и обновление разделены,
+ * между ними может появиться преемник (в т.ч. с уже pop'нутым job'ом —
+ * строка jobs пуста, но исполнитель работает). CAS по прочитанному чужому
+ * токену не доказывает владение.
  *
  * Контракт:
- * - окончательный timeout при живом lease терминализирует строку, если
- *   для события нет активного преемника в очереди;
- * - поздний failed() старого исполнителя не повреждает claim нового
- *   владельца;
- * - после истечения lease не остаётся вечного pending (recovery);
+ * - failed() не трогает живые claims ни при каком состоянии очереди;
+ * - recovery терминализирует осиротевший pending ПОСЛЕ истечения lease
+ *   и рассылает AppointmentNotificationUpdated для обновления UI;
  * - Summary не показывает навсегда «Ожидает отправки».
  */
 class TerminalTimeoutPendingTest extends TestCase
@@ -111,57 +111,18 @@ class TerminalTimeoutPendingTest extends TestCase
     }
 
     /**
-     * Claim жив (lease 60s), job терминально упал по timeout (30s).
-     * Нет преемника в очереди → строка обязана стать failed, а не
-     * висеть pending до скончания веков.
+     * Поздний failed() старого исполнителя: преемник захватил событие
+     * (живой lease, свежий токен), его job уже pop'нут из очереди —
+     * строки jobs нет. Старый failed() не должен завершить claim
+     * преемника: CAS по чужому токену не доказывает владение.
      */
-    public function test_final_timeout_with_live_claim_persists_terminal_failed(): void
+    public function test_late_failed_does_not_terminate_successor_live_claim(): void
     {
         $appointment = $this->appointment();
         $event = $this->seedEvent($appointment);
 
-        // Claim жив: токен + lease в будущем (как после claim в handle()).
-        $ownToken = (string) Str::uuid();
-        AppointmentNotificationDelivery::create([
-            'appointment_notification_event_id' => $event->id,
-            'channel' => 'max',
-            'status' => AppointmentNotificationDelivery::STATUS_PENDING,
-            'claim_token' => $ownToken,
-            'lease_expires_at' => now()->addSeconds(60),
-        ]);
-
-        // Job уже не в очереди (timeout убил процесс; failed_jobs/диспатч —
-        // за пределами этого снапшота). Прецемника нет.
-        (new SendAppointmentNotificationJob($event->id))
-            ->failed(new TimeoutExceededException('timeout'));
-
-        $row = AppointmentNotificationDelivery::query()
-            ->where('appointment_notification_event_id', $event->id)
-            ->where('channel', 'max')
-            ->firstOrFail();
-
-        $this->assertSame(
-            AppointmentNotificationDelivery::STATUS_FAILED,
-            $row->status,
-            'окончательный timeout при живом lease без преемника должен терминализировать строку',
-        );
-        $this->assertNull($row->claim_token, 'терминальная строка не хранит claim');
-        $this->assertNotNull($row->failed_at);
-        $this->assertSame('retries_exhausted', $row->failure_reason);
-
-        $this->assertSame('failed', $this->summary($event)['status']);
-    }
-
-    /**
-     * Прецемник реально работает: его claim жив И его job в очереди
-     * (reserved). Поздний failed() старого исполнителя не должен
-     * повреждать владение преемника.
-     */
-    public function test_late_failed_does_not_damage_live_successor_claim(): void
-    {
-        $appointment = $this->appointment();
-        $event = $this->seedEvent($appointment);
-
+        // Claim преемника: живой lease, свежий токен, активного job'а в
+        // очереди нет (worker уже pop'нул его — строка jobs пуста).
         $successorToken = (string) Str::uuid();
         AppointmentNotificationDelivery::create([
             'appointment_notification_event_id' => $event->id,
@@ -169,28 +130,6 @@ class TerminalTimeoutPendingTest extends TestCase
             'status' => AppointmentNotificationDelivery::STATUS_PENDING,
             'claim_token' => $successorToken,
             'lease_expires_at' => now()->addSeconds(60),
-        ]);
-
-        // Преемник в очереди (reserved/available) — payload содержит eventId.
-        DB::table('jobs')->insert([
-            'id' => 1,
-            'queue' => 'default',
-            'payload' => json_encode([
-                'uuid' => (string) Str::uuid(),
-                'displayName' => SendAppointmentNotificationJob::class,
-                'job' => 'Illuminate\Queue\CallQueuedHandler@call',
-                'maxTries' => null,
-                'timeout' => null,
-                'data' => [
-                    'commandName' => SendAppointmentNotificationJob::class,
-                    'command' => 'O:30:"App\Jobs\SendAppointmentNotificationJob":1:{s:7:"eventId";s:36:"'.$event->id.'";}',
-                ],
-                'id' => (string) Str::uuid(),
-            ]),
-            'attempts' => 1,
-            'reserved_at' => now()->getTimestamp(),
-            'available_at' => now()->getTimestamp(),
-            'created_at' => now()->getTimestamp(),
         ]);
 
         (new SendAppointmentNotificationJob($event->id))
@@ -204,7 +143,7 @@ class TerminalTimeoutPendingTest extends TestCase
         $this->assertSame(
             AppointmentNotificationDelivery::STATUS_PENDING,
             $row->status,
-            'claim работающего преемника должен остаться нетронутым',
+            'failed() не должен завершать живой claim преемника при пустой очереди',
         );
         $this->assertSame($successorToken, (string) $row->claim_token);
         $this->assertNotNull($row->lease_expires_at);
@@ -213,7 +152,8 @@ class TerminalTimeoutPendingTest extends TestCase
 
     /**
      * После истечения lease без преемника строка не должна остаться
-     * вечным pending: recovery терминализирует осиротевший claim.
+     * вечным pending: recovery терминализирует осиротевший claim и
+     * рассылает AppointmentNotificationUpdated для обновления UI.
      */
     public function test_recovery_fails_orphaned_pending_after_lease_expiry(): void
     {
@@ -228,6 +168,8 @@ class TerminalTimeoutPendingTest extends TestCase
             'claim_token' => (string) Str::uuid(),
             'lease_expires_at' => now()->subSeconds(10),
         ]);
+
+        Event::fake([AppointmentNotificationUpdated::class]);
 
         $this->artisan('appointments:recover-notification-events', ['--min-age' => 0])
             ->assertExitCode(0);
@@ -244,6 +186,11 @@ class TerminalTimeoutPendingTest extends TestCase
         );
         $this->assertSame('orphaned_claim', $row->failure_reason);
         $this->assertSame('failed', $this->summary($event)['status']);
+
+        Event::assertDispatched(
+            AppointmentNotificationUpdated::class,
+            fn (AppointmentNotificationUpdated $e): bool => $e->appointmentId === (string) $appointment->id,
+        );
     }
 
     /**
@@ -275,10 +222,11 @@ class TerminalTimeoutPendingTest extends TestCase
     }
 
     /**
-     * Полный жизненный цикл: claim → HTTP висит → timeout терминализирует
-     * → Summary не показывает pending.
+     * Полный жизненный цикл: claim → HTTP висит → timeout → failed()
+     * НЕ терминализирует живой claim → после истечения lease recovery
+     * доводит строку до терминала, Summary не показывает pending.
      */
-    public function test_timeout_after_claim_via_worker_leaves_no_eternal_pending(): void
+    public function test_timeout_then_recovery_leaves_no_eternal_pending(): void
     {
         config(['queue.default' => 'database']);
         config(['queue.failed.database' => null]);
@@ -324,10 +272,24 @@ class TerminalTimeoutPendingTest extends TestCase
             ->firstOrFail();
 
         $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_PENDING,
+            $row->status,
+            'failed() не должен терминализировать живой claim — это отложено до recovery',
+        );
+
+        // Lease истёк, преемник не появился — recovery терминализирует.
+        $this->travel(70)->seconds();
+
+        $this->artisan('appointments:recover-notification-events', ['--min-age' => 0])
+            ->assertExitCode(0);
+
+        $row->refresh();
+        $this->assertSame(
             AppointmentNotificationDelivery::STATUS_FAILED,
             $row->status,
-            'после timeout-failed() строка не должна остаться pending при живом lease',
+            'после lease recovery должна довести осиротевший pending до терминала',
         );
+        $this->assertSame('orphaned_claim', $row->failure_reason);
         $this->assertSame('failed', $this->summary($event)['status']);
         $this->assertNotSame('pending', $this->summary($event)['status']);
     }

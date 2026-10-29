@@ -441,6 +441,19 @@ class BookingService
                 // Версия изменения — внутри транзакции, до создания события.
                 if ($notifyClient && $locked->client_id !== null && $locked->start_time->isFuture()) {
                     $recorder = app(AppointmentNotificationRecorder::class);
+
+                    // Перенос визита серии гасит недоставленный снимок
+                    // расписания (первый визит/счётчик) — компенсация
+                    // сохраняет информацию об оставшихся визитах. До
+                    // bump'а Rescheduled: компенсация двигает версию
+                    // якоря (этого же визита), и более поздний bump
+                    // не должен погасить только что записанный перенос.
+                    app(RecurringAppointmentService::class)->compensateRemainingSeriesSchedule(
+                        $locked->recurring_series_id !== null
+                            ? (string) $locked->recurring_series_id
+                            : null,
+                    );
+
                     $newVersion = $recorder->bumpVersion($locked);
 
                     $locked->load(['client', 'master', 'masterService.catalog']);

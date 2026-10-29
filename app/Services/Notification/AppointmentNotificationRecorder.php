@@ -72,19 +72,19 @@ class AppointmentNotificationRecorder
         // первое полное уведомление: объединяем недоставленное создание
         // с изменениями в одно понятное сообщение.
         //
-        // Считается ПОДТВЕРЖДЁННАЯ доставка (status=delivered), а не
-        // наличие любой delivery-строки: после неудачной отправки
-        // pending-delivery сохраняется, но клиент полного контекста
-        // не получил. Живой claim (lease в будущем) = первый исполнитель
-        // в полёте — full_notice не ставим, чтобы не задублировать
-        // контекст, который он вот-вот доставит.
+        // Считается ПОДТВЕРЖДЁННАЯ доставка (status=delivered). Живой
+        // claim гарантией будущей доставки НЕ является: после формирования
+        // короткой поправки первая отправка может завершиться ошибкой, а
+        // старое событие подавляется новой версией — тогда клиент никогда
+        // не получит полный контекст. Exactly-once не обещается: дубль
+        // полного сообщения допустим, его отсутствие — нет.
         //
         // Флаг вычисляется до compose(): текст зависит от него.
         if (in_array($type, [
             AppointmentNotificationEventType::FieldsChanged,
             AppointmentNotificationEventType::Rescheduled,
         ], true)
-            && ! $this->creationFullyDeliveredOrInFlight($appointment, $version)) {
+            && ! $this->creationFullyDelivered($appointment, $version)) {
             $payload['full_notice'] = true;
         }
 
@@ -165,41 +165,34 @@ class AppointmentNotificationRecorder
     }
 
     /**
-     * Создание уже доставлено клиенту ИЛИ первый исполнитель в полёте
-     * (живой claim). В обоих случаях полный контекст клиента достигнет
-     * или уже достиг — full_notice не нужен. После неудачной попытки
-     * (pending без живого lease, нет delivered) — full_notice обязателен.
+     * Первое полное уведомление (CreatedByMaster или BookingConfirmed)
+     * ПОДТВЕРЖДЁННО доставлено клиенту (status=delivered).
+     *
+     * Берётся самое позднее из создание/подтверждение: и ручное создание,
+     * и widget-подтверждение несут полный контекст записи. Живой claim
+     * подтверждением не считается — первая отправка может завершиться
+     * ошибкой, а событие подавляется новой версией.
      */
-    private function creationFullyDeliveredOrInFlight(Appointment $appointment, int $currentVersion): bool
+    private function creationFullyDelivered(Appointment $appointment, int $currentVersion): bool
     {
         $creation = AppointmentNotificationEvent::query()
             ->where('appointment_id', $appointment->getKey())
-            ->where('event_type', AppointmentNotificationEventType::CreatedByMaster)
+            ->whereIn('event_type', [
+                AppointmentNotificationEventType::CreatedByMaster,
+                AppointmentNotificationEventType::BookingConfirmed,
+            ])
             ->where('event_version', '<', $currentVersion)
             ->orderByDesc('event_version')
             ->first();
 
         if ($creation === null) {
-            // Нет события создания — нечего объединять.
+            // Нет события создания/подтверждения — нечего объединять.
             return true;
         }
 
         // Подтверждённая доставка: клиент уже получил полный контекст.
-        $delivered = $creation->deliveries()
+        return $creation->deliveries()
             ->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED)
             ->exists();
-
-        if ($delivered) {
-            return true;
-        }
-
-        // Живой claim: первый исполнитель внутри HTTP — не дублируем.
-        $inFlight = $creation->deliveries()
-            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
-            ->whereNotNull('lease_expires_at')
-            ->where('lease_expires_at', '>', now())
-            ->exists();
-
-        return $inFlight;
     }
 }

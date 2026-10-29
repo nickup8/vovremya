@@ -315,4 +315,146 @@ class SeriesScheduleFreshnessTest extends TestCase
         $this->assertStringContainsString('18.11.2026', $textB);
         $this->assertStringContainsString('2', $textB);
     }
+
+    // ── Одиночная отмена: информация об оставшихся визитах ──
+
+    public function test_single_cancel_first_visit_records_remaining_schedule_info(): void
+    {
+        $client = $this->client();
+        $series = $this->createSeries($client, ['2026-11-17', '2026-11-24', '2026-12-01']);
+
+        $createdEvent = $this->seriesEvent($series, AppointmentNotificationEventType::SeriesCreated);
+
+        // Одиночная отмена первого визита до первой доставки.
+        $anchor = Appointment::findOrFail($createdEvent->appointment_id);
+        $this->actingAs($this->master);
+        $response = $this->patchJson("/admin/appointments/{$anchor->id}/status", [
+            'status' => 'cancelled',
+        ]);
+        $this->assertLessThan(400, $response->status(), $response->getContent());
+
+        // Устаревший SeriesCreated (счётчик 3 ≠ 2) не доставляется.
+        $this->assertNull($this->deliverText($createdEvent));
+
+        // Компенсация: клиент получает актуальную информацию об оставшихся.
+        $updatedEvent = AppointmentNotificationEvent::where('recurring_series_id', $series->id)
+            ->where('event_type', AppointmentNotificationEventType::SeriesUpdated)
+            ->firstOrFail();
+        $this->assertSame($client->id, (string) $updatedEvent->payload['client_id'], 'получатель — клиент серии');
+        $this->assertSame(2, (int) $updatedEvent->payload['affected_count'], 'осталось 2 визита');
+
+        $text = $this->deliverText($updatedEvent);
+        $this->assertNotNull($text, 'об оставшихся визитах должно быть сообщение');
+        $this->assertStringContainsString('24.11.2026', $text, 'дата первого оставшегося визита');
+        $this->assertStringContainsString('2', $text, 'количество оставшихся визитов');
+    }
+
+    // ── Одиночный перенос: расписание не теряется ──
+
+    public function test_single_reschedule_first_visit_keeps_remaining_schedule_informed(): void
+    {
+        $client = $this->client();
+        $series = $this->createSeries($client, ['2026-11-17', '2026-11-24', '2026-12-01']);
+
+        $createdEvent = $this->seriesEvent($series, AppointmentNotificationEventType::SeriesCreated);
+
+        // Одиночный перенос первого визита до первой доставки.
+        $anchor = Appointment::findOrFail($createdEvent->appointment_id);
+        $this->actingAs($this->master);
+        $response = $this->patchJson("/admin/appointments/{$anchor->id}/status", [
+            'start_time' => '2026-11-18 15:00:00',
+        ]);
+        $this->assertLessThan(400, $response->status(), $response->getContent());
+
+        // Старое расписание (SeriesCreated) не отправляется.
+        $this->assertNull(
+            $this->deliverText($createdEvent),
+            'SeriesCreated со старым первым визитом не должна доставляться',
+        );
+
+        // Остальные визиты не теряются: SeriesUpdated несёт новое расписание.
+        $updatedEvent = AppointmentNotificationEvent::where('recurring_series_id', $series->id)
+            ->where('event_type', AppointmentNotificationEventType::SeriesUpdated)
+            ->firstOrFail();
+        $this->assertSame($client->id, (string) $updatedEvent->payload['client_id'], 'получатель — клиент серии');
+        $this->assertSame(3, (int) $updatedEvent->payload['affected_count'], 'все 3 визита остаются');
+
+        $text = $this->deliverText($updatedEvent);
+        $this->assertNotNull($text, 'актуальное расписание серии должно быть доставлено');
+        $this->assertStringContainsString('18.11.2026', $text, 'новая дата первого визита');
+        $this->assertStringContainsString('15:00', $text, 'новое время первого визита');
+        $this->assertStringContainsString('3', $text, 'количество визитов');
+    }
+
+    // ── Последовательные отмены не подавляют сообщения друг друга ──
+
+    public function test_later_series_cancel_does_not_suppress_earlier_cancellation_messages(): void
+    {
+        $clientA = $this->client(['max_id' => 'max-a']);
+        $clientB = $this->client(['max_id' => 'max-b']);
+        $series = $this->createSeries($clientA, [
+            '2026-11-17',
+            '2026-11-24',
+            '2026-12-01',
+            '2026-12-08',
+        ]);
+
+        // Последний визит серии принадлежит другому клиенту.
+        $lastVisit = Appointment::where('recurring_series_id', $series->id)
+            ->where('recurring_occurrence_date', '2026-12-08')
+            ->firstOrFail();
+        $lastVisit->update(['client_id' => $clientB->id]);
+
+        // Первая отмена: с 3-го визита и далее (A: 01.12, B: 08.12).
+        $splitVisit = Appointment::where('recurring_series_id', $series->id)
+            ->where('recurring_occurrence_date', '2026-12-01')
+            ->firstOrFail();
+        app(RecurringAppointmentService::class)->cancelThisAndFuture($series, $splitVisit, $this->master);
+
+        $cancelEvents = AppointmentNotificationEvent::where('recurring_series_id', $series->id)
+            ->where('event_type', AppointmentNotificationEventType::SeriesCancelled)
+            ->get();
+        $earlierA = $cancelEvents->first(
+            fn ($e) => (string) $e->payload['client_id'] === (string) $clientA->id,
+        );
+        $cancelB = $cancelEvents->first(
+            fn ($e) => (string) $e->payload['client_id'] === (string) $clientB->id,
+        );
+        $this->assertNotNull($earlierA, 'первая отмена должна создать сообщение для A');
+        $this->assertNotNull($cancelB, 'первая отмена должна создать сообщение для B');
+
+        $this->assertSame(1, (int) $earlierA->payload['affected_count']);
+        $this->assertSame('01.12.2026', $earlierA->payload['from_date']);
+        $this->assertSame(1, (int) $cancelB->payload['affected_count']);
+        $this->assertSame('08.12.2026', $cancelB->payload['from_date']);
+
+        // Вторая отмена (позже по времени): остаток серии целиком.
+        $this->travel(2)->minutes();
+        app(RecurringAppointmentService::class)->cancelWholeSeries($series, $this->master);
+
+        $laterEvents = AppointmentNotificationEvent::where('recurring_series_id', $series->id)
+            ->where('event_type', AppointmentNotificationEventType::SeriesCancelled)
+            ->get();
+        $this->assertCount(3, $laterEvents, 'две операции отмены дают три series-сообщения');
+        $laterA = $laterEvents->first(
+            fn ($e) => (string) $e->payload['client_id'] === (string) $clientA->id
+                && (int) $e->payload['affected_count'] === 2,
+        );
+        $this->assertNotNull($laterA, 'вторая отмена должна создать сообщение для A по остатку');
+        $this->assertSame('17.11.2026', $laterA->payload['from_date']);
+
+        // Поздняя отмена НЕ подавляет ранее зафиксированные сообщения:
+        // получатели и отменённые визиты различаются.
+        $earlierText = $this->deliverText($earlierA);
+        $this->assertNotNull($earlierText, 'отмена 01.12 для A не должна подавляться более поздней отменой');
+        $this->assertStringContainsString('01.12.2026', $earlierText);
+
+        $bText = $this->deliverText($cancelB);
+        $this->assertNotNull($bText, 'отмена 08.12 для B не должна подавляться');
+        $this->assertStringContainsString('08.12.2026', $bText);
+
+        $laterText = $this->deliverText($laterA);
+        $this->assertNotNull($laterText, 'более поздняя отмена остатка должна доставиться');
+        $this->assertStringContainsString('17.11.2026', $laterText);
+    }
 }

@@ -719,34 +719,92 @@ class RecurringAppointmentService
             // Частичная отмена: оставшиеся активные визиты серии не
             // должны теряться — если создание/обновление ещё не
             // доставлено, фиксируем SeriesUpdated по остатку.
-            $remaining = Appointment::where('recurring_series_id', $series->id)
-                ->whereIn('status', [
-                    AppointmentStatus::Booked,
-                    AppointmentStatus::PendingPayment,
-                    AppointmentStatus::Prepaid,
-                ])
-                ->where('start_time', '>', now())
-                ->get();
-
-            if ($remaining->isNotEmpty()) {
-                $hasUndeliveredSeriesEvent = AppointmentNotificationEvent::query()
-                    ->where('recurring_series_id', $series->id)
-                    ->whereIn('event_type', [
-                        AppointmentNotificationEventType::SeriesCreated,
-                        AppointmentNotificationEventType::SeriesUpdated,
-                    ])
-                    ->whereDoesntHave('deliveries', function ($query) {
-                        $query->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED);
-                    })
-                    ->exists();
-
-                if ($hasUndeliveredSeriesEvent) {
-                    $this->recordSeriesUpdatedNotification($series, $series, $remaining);
-                }
-            }
+            $this->compensateRemainingSeriesSchedule((string) $series->id);
 
             return $futureAppointments->count();
         });
+    }
+
+    /**
+     * Компенсация после одиночной отмены/переноса визита серии: если ещё
+     * недоставленное SeriesCreated/SeriesUpdated больше не соответствует
+     * фактическому расписанию (счётчик или первый визит), клиент не должен
+     * терять информацию об оставшихся визитах — фиксируем актуальный
+     * SeriesUpdated по остатку. Вызывается внутри транзакции изменения.
+     *
+     * Если снимок серии уже доставлен клиенту (delivered) или актуален —
+     * ничего не добавляем: per-appointment-сообщение уже несёт всю правду.
+     */
+    public function compensateRemainingSeriesSchedule(?string $seriesId): void
+    {
+        if ($seriesId === null) {
+            return;
+        }
+
+        $series = RecurringAppointmentSeries::find($seriesId);
+
+        if ($series === null) {
+            return;
+        }
+
+        $remaining = Appointment::where('recurring_series_id', $series->id)
+            ->whereIn('status', [
+                AppointmentStatus::Booked,
+                AppointmentStatus::PendingPayment,
+                AppointmentStatus::Prepaid,
+            ])
+            ->where('start_time', '>', now())
+            ->get();
+
+        $snapshot = AppointmentNotificationEvent::query()
+            ->where('recurring_series_id', $series->id)
+            ->whereIn('event_type', [
+                AppointmentNotificationEventType::SeriesCreated,
+                AppointmentNotificationEventType::SeriesUpdated,
+            ])
+            ->whereDoesntHave('deliveries', function ($query) {
+                $query->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED);
+            })
+            ->orderByDesc('event_version')
+            ->first();
+
+        if ($snapshot === null || $remaining->isEmpty()) {
+            return;
+        }
+
+        if (! $this->seriesSnapshotOutdated($snapshot, $remaining)) {
+            return;
+        }
+
+        $this->recordSeriesUpdatedNotification($series, $series, $remaining);
+    }
+
+    /**
+     * Недоставленный снимок расписания серии не соответствует факту:
+     * счётчик активных визитов или первый визит изменились.
+     *
+     * @param  Collection<int, Appointment>  $remaining
+     */
+    private function seriesSnapshotOutdated(
+        AppointmentNotificationEvent $snapshot,
+        $remaining,
+    ): bool {
+        if (isset($snapshot->payload['affected_count'])
+            && (int) $snapshot->payload['affected_count'] !== $remaining->count()) {
+            return true;
+        }
+
+        $expectedFirst = $snapshot->payload['first_start_time'] ?? null;
+
+        if ($expectedFirst === null) {
+            return false;
+        }
+
+        $actualFirst = $remaining->sortBy('start_time')->first();
+
+        return $actualFirst === null
+            || \Illuminate\Support\Carbon::parse($expectedFirst)->getTimestamp()
+                !== $actualFirst->start_time->getTimestamp();
     }
 
     /**

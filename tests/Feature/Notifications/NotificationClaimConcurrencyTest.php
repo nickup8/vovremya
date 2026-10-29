@@ -113,7 +113,7 @@ class NotificationClaimConcurrencyTest extends TestCase
         );
     }
 
-    private function seedDeliverableEvent(): AppointmentNotificationEvent
+    private function seedDeliverableEvent(bool $withVk = false): AppointmentNotificationEvent
     {
         $master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow'],
@@ -128,6 +128,8 @@ class NotificationClaimConcurrencyTest extends TestCase
         $client = Client::factory()->create([
             'user_id' => $master->id,
             'max_id' => 'max-claim',
+            'vk_id' => $withVk ? '777' : null,
+            'vk_messages_allowed' => $withVk ? true : null,
         ]);
 
         $appointment = Appointment::factory()
@@ -153,10 +155,119 @@ class NotificationClaimConcurrencyTest extends TestCase
     }
 
     /**
+     * Управляемое пересечение claim'ов БЕЗ заранее существующих
+     * delivery-строк: исполнители выбирают РАЗНЫЕ каналы (max и vk) и
+     * стартуют одновременно. Пока оба не заблокированы в БД, постановка
+     * не снимается: барьер удерживается SHARE ROW EXCLUSIVE-блокировкой
+     * таблицы delivery (чтения проходят, записи ждут), поэтому на
+     * сломанном коде оба проходят foreignLive-проверку по пустому набору
+     * и вставляют claims разных каналов. На исправленном коде первый
+     * держит lock строки события — второй ждёт и затем видит чужой
+     * живой claim. HTTP должен выполнить ровно один.
+     */
+    public function test_two_channels_without_delivery_rows_perform_exactly_one_http(): void
+    {
+        $sendLog = storage_path('framework/testing/claim_sends.log');
+        @unlink($sendLog);
+
+        $event = $this->seedDeliverableEvent(withVk: true);
+
+        // Барьерная блокировка — на отдельном соединении: основное
+        // соединение теста свободно для постановки 'go', которую дети
+        // обязаны видеть (иначе они ждут её до бесконечности).
+        config(['database.connections.pgsql_barrier' => config('database.connections.pgsql')]);
+        $barrier = DB::connection('pgsql_barrier');
+        $barrier->beginTransaction();
+        $barrier->getPdo()->exec('LOCK TABLE appointment_notification_deliveries IN SHARE ROW EXCLUSIVE MODE');
+
+        try {
+            $configs = $this->launchExecutors([
+                ['id' => 'a', 'event_id' => $event->id, 'send_log' => $sendLog],
+                ['id' => 'b', 'event_id' => $event->id, 'send_log' => $sendLog, 'force_channel' => 'vk'],
+            ]);
+
+            // Оба исполнителя должны ждать внутри claim-транзакции:
+            // на сломанном коде оба ждут INSERT в deliveries, на
+            // исправленном — один INSERT, второй lock строки события.
+            try {
+                $this->waitFor(function (): bool {
+                    return (int) DB::selectOne(
+                        "SELECT count(*) AS c FROM pg_stat_activity
+                         WHERE wait_event_type = 'Lock'
+                           AND query LIKE '%appointment_notification%'",
+                    )->c >= 2;
+                }, 10, 'оба исполнителя должны ждать блокировок claim-транзакции');
+            } catch (\Throwable $waitError) {
+                $locks = DB::select(
+                    "SELECT l.pid, l.granted, c.relname, l.mode, l.page, l.tuple FROM pg_locks l
+                     LEFT JOIN pg_class c ON c.oid = l.relation
+                     WHERE c.relname IN ('appointment_notification_deliveries', 'appointment_notification_events')",
+                );
+                $pids = array_map(fn ($row) => (int) $row->pid, $locks);
+                $pids[] = (int) DB::selectOne('SELECT pg_backend_pid() AS p')->p;
+                $activity = DB::select(
+                    'SELECT pid, state, wait_event_type, wait_event, left(query, 160) AS query
+                     FROM pg_stat_activity WHERE pid IN ('.implode(',', array_unique($pids)).')',
+                );
+                $diag = [];
+                foreach ($configs as $id => $config) {
+                    $diag[$id] = is_file($config['result'])
+                        ? file_get_contents($config['result'])
+                        : 'no result, running='.(int) proc_get_status($config['process'])['running'];
+                }
+                $this->fail($waitError->getMessage().' | locks='.json_encode($locks).' | activity='.json_encode($activity).' | children='.json_encode($diag));
+            }
+
+            $barrier->commit();
+        } catch (\Throwable $e) {
+            $barrier->rollBack();
+
+            throw $e;
+        } finally {
+            DB::purge('pgsql_barrier');
+        }
+
+        $results = $this->collectExecutors($configs);
+
+        $this->assertArrayHasKey('a', $results);
+        $this->assertArrayHasKey('b', $results);
+
+        $sends = is_file($sendLog)
+            ? array_values(array_filter(explode("\n", (string) file_get_contents($sendLog))))
+            : [];
+        $this->assertCount(
+            1,
+            $sends,
+            'при отсутствии delivery-строк ровно один исполнитель выполняет HTTP: '.json_encode($results),
+        );
+
+        $delivered = AppointmentNotificationDelivery::query()
+            ->where('appointment_notification_event_id', $event->id)
+            ->where('status', AppointmentNotificationDelivery::STATUS_DELIVERED)
+            ->get();
+        $this->assertCount(1, $delivered, 'ровно одна доставленная строка');
+
+        $leftoverClaims = AppointmentNotificationDelivery::query()
+            ->where('appointment_notification_event_id', $event->id)
+            ->whereNotNull('claim_token')
+            ->count();
+        $this->assertSame(0, $leftoverClaims, 'claim-оба исполнителя должны освободить');
+    }
+
+    /**
      * @param  array<int, array<string, string>>  $executors
      * @return array<string, array<string, mixed>>
      */
     private function runExecutors(array $executors): array
+    {
+        return $this->collectExecutors($this->launchExecutors($executors));
+    }
+
+    /**
+     * @param  array<int, array<string, string>>  $executors
+     * @return array<string, array{process: resource, pipes: array<int, resource>, result: string}>
+     */
+    private function launchExecutors(array $executors): array
     {
         $configs = [];
 
@@ -201,6 +312,15 @@ class NotificationClaimConcurrencyTest extends TestCase
 
         DB::table(self::BARRIER_TABLE)->insert(['key' => 'go', 'value' => now()->toIso8601String()]);
 
+        return $configs;
+    }
+
+    /**
+     * @param  array<string, array{process: resource, pipes: array<int, resource>, result: string}>  $configs
+     * @return array<string, array<string, mixed>>
+     */
+    private function collectExecutors(array $configs): array
+    {
         $results = [];
 
         foreach ($configs as $id => $config) {
@@ -371,6 +491,23 @@ try {
 
     $app->instance(App\Services\MaxApiClient::class, new ClaimChildMaxApiStub($config['send_log']));
     $app->instance(App\Services\VkApiClient::class, new ClaimChildVkApiStub($config['send_log']));
+
+    // Управляемый канал: один исполнитель резолвит max (обычный resolver),
+    // второй — принудительно другой канал для гонки claim'ов.
+    if (! empty($config['force_channel'])) {
+        $app->instance(
+            App\Services\Notification\AppointmentChannelResolver::class,
+            new class($config['force_channel']) extends App\Services\Notification\AppointmentChannelResolver
+            {
+                public function __construct(private string $force) {}
+
+                public function resolve(App\Models\Appointment $appointment): ?string
+                {
+                    return $this->force;
+                }
+            },
+        );
+    }
 
     $event = App\Models\AppointmentNotificationEvent::find($config['event_id']);
     if ($event === null) {

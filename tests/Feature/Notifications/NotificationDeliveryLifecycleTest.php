@@ -457,9 +457,8 @@ class NotificationDeliveryLifecycleTest extends TestCase
             'lease_expires_at' => now()->addSeconds(60),
         ]);
 
-        // Реально работающий преемник: его job присутствует в очереди.
-        // Осиротевший claim (без job) после окончательного timeout
-        // намеренно терминализируется — это фикс дефекта 2.
+        // Работающий преемник: его job в очереди. failed() старого
+        // исполнителя не должен трогать живое владение преемника.
         DB::table('jobs')->insert([
             'id' => 1,
             'queue' => 'default',

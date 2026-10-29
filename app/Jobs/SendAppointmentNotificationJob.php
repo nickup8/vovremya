@@ -38,7 +38,9 @@ use Illuminate\Support\Str;
  *   смена клиента записи переводит событие в superseded, старый снимок
  *   не уходит новому клиенту;
  * - перед HTTP — claim-транзакция по (event, channel) со свежим
- *   claim_token; если маршрут сменился между claim и HTTP, своё владение
+ *   claim_token, сериализованная lock'ом строки события (отсутствие
+ *   delivery-строк не позволяет двум исполнителям взять разные каналы);
+ *   если маршрут сменился между claim и HTTP, своё владение
  *   исходного канала освобождается, новое владение берётся для
  *   фактического канала; HTTP выполняется только под claim канала,
  *   который реально используется;
@@ -49,7 +51,9 @@ use Illuminate\Support\Str;
  * - lease 60s > job timeout 30s > API timeout 10s; просроченный lease
  *   перехватывается с новым токеном;
  * - терминальные исходы хранятся устойчиво: failed() (исчерпание попыток /
- *   deadline / timeout) доводит delivery до failed; markFailed /
+ *   deadline / timeout) доводит бесхозные delivery до failed, но живые
+ *   claims не трогает ни при каком состоянии очереди — осиротевшие
+ *   терминализирует recovery после истечения lease; markFailed /
  *   markSuperseded не требуют предварительного claim и не трогают чужой
  *   живой claim; временная ошибка с предстоящим retry остаётся pending;
  * - для booking_confirmed ВК-клавиатура «Открыть» воспроизводится по
@@ -204,14 +208,11 @@ class SendAppointmentNotificationJob implements ShouldQueue
             // доводятся до терминального failed.
             $this->markAllPendingFailed($event, 'retries_exhausted');
 
-            // Окончательный timeout при живом lease: наш исполнитель уже
-            // мёртв, но claim ещё не истёк. Если для события нет активного
-            // преемника в очереди — живой claim осиротел и подлежит
-            // терминализации; иначе преемник реально работает и его
-            // владение не трогаем.
-            if (! $this->hasActiveJobFor($this->eventId)) {
-                $this->markOrphanedLiveClaimsFailed($event, 'retries_exhausted');
-            }
+            // Живые claims НЕ терминализируются здесь: проверка очереди и
+            // обновление разделены, между ними может появиться преемник
+            // (в т.ч. с уже pop'нутым job'ом — строка jobs пуста). CAS по
+            // чужому токену не доказывает владение. Осиротевшие claims
+            // завершает recovery после истечения lease.
 
             if ($appointment === null) {
                 return;
@@ -383,7 +384,9 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
     /**
      * Claim (event, channel) before HTTP. Runs in its own short transaction
-     * that is committed before any network call.
+     * that is committed before any network call. The capture is serialized
+     * by a FOR UPDATE lock on the shared event row, so executors racing on
+     * different channels cannot both pass the empty-deliveries check.
      *
      * Every capture gets a fresh claim_token — first insert AND takeover of
      * an expired lease — which is returned to the executor: from then on the
@@ -397,6 +400,22 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
         try {
             return DB::transaction(function () use ($event, $channel, $claimToken): array {
+                // Захват сериализуется через ОБЩУЮ строку события: даже
+                // когда delivery-строк ещё нет (оба исполнителя стартуют
+                // одновременно), второй ждёт здесь и затем в ТОЙ ЖЕ
+                // транзакции видит чужой живой claim/доставку. Без этой
+                // блокировки оба прошли бы foreignLive-проверку по пустому
+                // набору и создали claims разных каналов.
+                $locked = AppointmentNotificationEvent::query()
+                    ->whereKey($event->getKey())
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($locked === null) {
+                    // Событие исчезло — владение не нужно.
+                    return ['state' => 'stale'];
+                }
+
                 // Согласование на уровне события: чужой живой claim на
                 // ДРУГОМ канале блокирует новый проход — одно событие не
                 // обрабатывается двумя живыми исполнителями (A держит max
@@ -488,7 +507,9 @@ class SendAppointmentNotificationJob implements ShouldQueue
      *   а не по версии якоря: правка цены не гасит серию, но перенос
      *   или отмена первого визита — гасит устаревший снимок. Частичная
      *   отмена не убивает создание/обновление целиком, а требует
-     *   сверки счётчика и первого визита.
+     *   сверки счётчика и первого визита;
+     * - SeriesCancelled не подавляется более поздними отменами той же
+     *   серии: получатели и отменённые визиты могут различаться.
      */
     private function eventIsStale(
         AppointmentNotificationEvent $event,
@@ -503,17 +524,13 @@ class SendAppointmentNotificationJob implements ShouldQueue
             return true;
         }
 
-        // SeriesCancelled: устаревает только более новым SeriesCancelled
-        // той же серии (например, поздняя отмена всей серии гасит
-        // более раннюю частичную). Сама отмена — исторический факт
-        // и доставляется, даже если часть визитов позже вернулась.
+        // SeriesCancelled: исторический факт отмены для своих
+        // получателей. Более поздняя отмена ДРУГОЙ части серии или
+        // ДРУГОГО получателя не подавляет ранее зафиксированные
+        // сообщения — счётчики и даты могут различаться, created_at
+        // не доказательство замещения.
         if ($event->event_type === AppointmentNotificationEventType::SeriesCancelled) {
-            return AppointmentNotificationEvent::query()
-                ->where('recurring_series_id', $event->recurring_series_id)
-                ->where('event_type', AppointmentNotificationEventType::SeriesCancelled)
-                ->where('id', '!=', $event->getKey())
-                ->where('created_at', '>', $event->created_at)
-                ->exists();
+            return false;
         }
 
         // SeriesCreated / SeriesUpdated: снимок расписания сверяется
@@ -804,48 +821,6 @@ class SendAppointmentNotificationJob implements ShouldQueue
                     'lease_expires_at' => null,
                 ]);
         }
-    }
-
-    /**
-     * Осиротевший живой claim: lease ещё не истёк, но активного
-     * преемника в очереди нет — наш исполнитель умер по timeout и его
-     * владение никем не продолжается. Терминализируем, не дожидаясь
-     * lease'а, чтобы Summary не висел в «Ожидает отправки».
-     */
-    private function markOrphanedLiveClaimsFailed(AppointmentNotificationEvent $event, string $reason): void
-    {
-        foreach ($event->deliveries()
-            ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
-            ->whereNotNull('claim_token')
-            ->get() as $row) {
-            // CAS по токену: поздний преемник, успевший перехватить
-            // lease между нашим чтением и UPDATE, не будет затёрт.
-            AppointmentNotificationDelivery::query()
-                ->whereKey($row->getKey())
-                ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
-                ->where('claim_token', (string) $row->claim_token)
-                ->update([
-                    'status' => AppointmentNotificationDelivery::STATUS_FAILED,
-                    'claim_token' => null,
-                    'lease_expires_at' => null,
-                    'failure_reason' => $reason,
-                    'failed_at' => now(),
-                ]);
-        }
-
-        $this->broadcastUpdated($event);
-    }
-
-    /**
-     * Есть ли в очереди активный job для этого события (reserved или
-     * available). Payload database-очереди содержит eventId в
-     * сериализованной команде.
-     */
-    private function hasActiveJobFor(string $eventId): bool
-    {
-        return DB::table('jobs')
-            ->where('payload', 'like', '%'.addslashes($eventId).'%')
-            ->exists();
     }
 
     /**

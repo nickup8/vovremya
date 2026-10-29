@@ -2,7 +2,9 @@
 
 namespace App\Console\Commands;
 
+use App\Events\AppointmentNotificationUpdated;
 use App\Jobs\SendAppointmentNotificationJob;
+use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
 use App\Models\AppointmentNotificationEvent;
 use Illuminate\Console\Command;
@@ -23,7 +25,9 @@ use Illuminate\Support\Facades\Log;
  * claim_token остался, lease истёк, активного преемника в очереди нет
  * (окончательный timeout убил исполнителя до release). Истечение lease
  * само по себе статус не меняет, поэтому без этого sweep строка висела
- * бы в pending вечно, а Summary показывало «Ожидает отправки».
+ * бы в pending вечно, а Summary показывало «Ожидает отправки». После
+ * терминализации рассылается AppointmentNotificationUpdated, чтобы UI
+ * обновил сводку без ручного обновления страницы.
  */
 class RecoverAppointmentNotificationEvents extends Command
 {
@@ -73,7 +77,8 @@ class RecoverAppointmentNotificationEvents extends Command
     /**
      * Pending-строки с истёкшим lease и без активного преемника в очереди:
      * владение осиротело (executor умер по timeout до release) —
-     * терминализируем, чтобы строка не висела в pending вечно.
+     * терминализируем, чтобы строка не висела в pending вечно, и
+     * сообщаем UI обновлением сводки.
      */
     private function failOrphanedPendingDeliveries(): int
     {
@@ -107,10 +112,42 @@ class RecoverAppointmentNotificationEvents extends Command
 
             if ($updated === 1) {
                 $failedCount++;
+                $this->broadcastUpdated($row->appointment_notification_event_id);
             }
         }
 
         return $failedCount;
+    }
+
+    /**
+     * Терминальный исход зафиксирован — сообщаем календарю, чтобы сводка
+     * «Уведомления клиенту» обновилась без ручного обновления страницы.
+     */
+    private function broadcastUpdated(int|string $eventId): void
+    {
+        try {
+            $event = AppointmentNotificationEvent::find($eventId);
+
+            if ($event === null) {
+                return;
+            }
+
+            $appointment = Appointment::find($event->appointment_id);
+
+            if ($appointment === null) {
+                return;
+            }
+
+            broadcast(new AppointmentNotificationUpdated(
+                (string) $event->appointment_id,
+                (string) $appointment->master_id,
+            ));
+        } catch (\Throwable $e) {
+            Log::warning('AppointmentNotificationUpdated broadcast failed', [
+                'event_id' => $eventId,
+                'error' => $e->getMessage(),
+            ]);
+        }
     }
 
     private function hasActiveJobFor(string $eventId): bool

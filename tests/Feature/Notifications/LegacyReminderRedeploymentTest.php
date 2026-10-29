@@ -2,6 +2,7 @@
 
 namespace Tests\Feature\Notifications;
 
+use App\Console\Commands\RedispatchLegacyReminders;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Jobs\SendAppointmentReminderJob;
@@ -11,7 +12,11 @@ use App\Models\MasterService;
 use App\Models\User;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
+use Symfony\Component\Console\Input\ArrayInput;
+use Symfony\Component\Console\Output\BufferedOutput;
 use Tests\TestCase;
 
 /**
@@ -26,9 +31,13 @@ use Tests\TestCase;
  * восстановления он означает потерю действующего напоминания.
  *
  * Стратегия: artisan-команда безопасно перевыставляет только необходимые
- * актуальные напоминания — сбрасывает dispatched_at для записей, у которых
- * напоминание ещё в окне и не подтверждено. Не очищает очередь целиком,
- * не рассылает историю, не отправляет повторно уже подтверждённые.
+ * актуальные напоминания. Команда ограничена legacy-состоянием:
+ * - записи с versioned-job'ом в очереди не сбрасываются (иначе дубль);
+ * - UPDATE пинит прочитанное значение dispatched_at (запись, изменившаяся
+ *   после выборки, не сбрасывается);
+ * - подтверждённые/провалённые/вне окна не трогаются.
+ * Не очищает очередь целиком, не рассылает историю, не отправляет
+ * повторно уже подтверждённые.
  */
 class LegacyReminderRedeploymentTest extends TestCase
 {
@@ -237,5 +246,112 @@ class LegacyReminderRedeploymentTest extends TestCase
             return $job->expectedScheduleVersion === (int) $appointment->fresh()->schedule_version
                 && $prop->getValue($job)->id === $appointment->id;
         });
+    }
+
+    /**
+     * Новая versioned-job в очереди: запись принадлежит новому поколению
+     * постановки. Сброс дал бы ДУБЛЬ после её выполнения — команда не
+     * должна трогать такие записи.
+     */
+    public function test_command_keeps_dispatched_at_when_versioned_job_is_queued(): void
+    {
+        $appointment = $this->appointment([
+            'start_time' => now()->addHours(24),
+            'reminder_24h_dispatched_at' => now()->subMinutes(30),
+        ]);
+
+        // Реальный versioned-job в database-очереди (expectedScheduleVersion
+        // зафиксирован в payload).
+        DB::table('jobs')->insert([
+            'id' => 1,
+            'queue' => 'default',
+            'payload' => json_encode([
+                'uuid' => (string) Str::uuid(),
+                'displayName' => SendAppointmentReminderJob::class,
+                'job' => 'Illuminate\Queue\CallQueuedHandler@call',
+                'maxTries' => null,
+                'timeout' => null,
+                'data' => [
+                    'commandName' => SendAppointmentReminderJob::class,
+                    'command' => serialize(new SendAppointmentReminderJob($appointment, '24h')),
+                ],
+                'id' => (string) Str::uuid(),
+            ]),
+            'attempts' => 1,
+            'reserved_at' => now()->getTimestamp(),
+            'available_at' => now()->getTimestamp(),
+            'created_at' => now()->getTimestamp(),
+        ]);
+
+        $this->artisan('appointments:reminders:redispatch-legacy')
+            ->assertExitCode(0);
+
+        $this->assertNotNull(
+            $appointment->fresh()->reminder_24h_dispatched_at,
+            'versioned-job в очереди — сброс недопустим, иначе дубль',
+        );
+
+        // Scheduler не должен перевыставить дубль versioned-job'а.
+        Queue::fake();
+        $this->artisan('appointments:reminders')->assertExitCode(0);
+        Queue::assertNothingPushed();
+    }
+
+    /**
+     * Запись, изменившаяся после выборки (параллельная постановка сдвинула
+     * dispatched_at), не сбрасывается: UPDATE пинит прочитанное значение.
+     */
+    public function test_command_does_not_reset_row_changed_after_selection(): void
+    {
+        $originalDispatchedAt = now()->subMinutes(30);
+        $appointment = $this->appointment([
+            'start_time' => now()->addHours(24),
+            'reminder_24h_dispatched_at' => $originalDispatchedAt,
+        ]);
+
+        // «Параллельная постановка» между выборкой и UPDATE: другое
+        // значение dispatched_at.
+        $concurrentDispatchedAt = now()->subMinutes(10);
+
+        $command = new class extends RedispatchLegacyReminders
+        {
+            public ?Appointment $mutate = null;
+
+            public ?\DateTimeInterface $concurrentDispatchedAt = null;
+
+            protected function resetOne(
+                Appointment $appointment,
+                string $dispatchedField,
+                string $sentField,
+                string $failedField,
+            ): bool {
+                if ($this->mutate !== null
+                    && $appointment->is($this->mutate)
+                    && $this->concurrentDispatchedAt !== null) {
+                    DB::table('appointments')
+                        ->where('id', $appointment->id)
+                        ->update([$dispatchedField => $this->concurrentDispatchedAt]);
+                }
+
+                return parent::resetOne($appointment, $dispatchedField, $sentField, $failedField);
+            }
+        };
+        $command->setLaravel($this->app);
+        $command->mutate = $appointment;
+        $command->concurrentDispatchedAt = $concurrentDispatchedAt;
+
+        $exitCode = $command->run(new ArrayInput([]), new BufferedOutput);
+        $this->assertSame(0, $exitCode);
+
+        $fresh = $appointment->fresh();
+        $this->assertNotNull(
+            $fresh->reminder_24h_dispatched_at,
+            'запись, изменившаяся после выборки, не должна сбрасываться',
+        );
+        $this->assertSame(
+            $concurrentDispatchedAt->getTimestamp(),
+            $fresh->reminder_24h_dispatched_at->getTimestamp(),
+            'значение, записанное параллельной постановкой, должно сохраниться',
+        );
     }
 }

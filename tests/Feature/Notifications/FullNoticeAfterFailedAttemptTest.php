@@ -3,6 +3,8 @@
 namespace Tests\Feature\Notifications;
 
 use App\Enums\AppointmentNotificationEventType;
+use App\Enums\AppointmentSource;
+use App\Enums\AppointmentStatus;
 use App\Jobs\SendAppointmentNotificationJob;
 use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
@@ -19,22 +21,25 @@ use App\Services\VkApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Str;
 use Mockery;
 use Tests\TestCase;
 
 /**
  * Дефект 5 (P2): полное первое уведомление теряется после неудачной попытки.
  *
- * Recorder выставляет full_notice только при whereDoesntHave('deliveries').
- * После неудачной отправки pending-delivery сохраняется. Если первое
- * сообщение не доставлено, затем мастер меняет запись, full_notice уже
- * не устанавливается. Исходное создание подавляется новой версией, а
- * клиент получает только поправку без полного контекста первоначальной
- * записи.
+ * Recorder выставлял full_notice по подтверждённой доставке, но живой
+ * claim считал гарантией будущей доставки. Это неверно: после формирования
+ * короткой поправки первая отправка может завершиться ошибкой, а старое
+ * событие подавляется новой версией — клиент никогда не получит полный
+ * контекст. Ранее CreationEvents искались только по CreatedByMaster,
+ * из-за чего widget-сценарий (BookingConfirmed без CreatedByMaster)
+ * маскировался createManual в тестах.
  *
- * Контракт: учитывать подтверждённую доставку (status=delivered), а не
- * наличие любой delivery-строки. Согласовываться с выполняющимся первым
- * исполнителем (живой claim = в полёте, не ставить full_notice).
+ * Контракт: полный актуальный контекст required, если первоначальная
+ * доставка не ПОДТВЕРЖДЕНА (status=delivered). Живой claim не является
+ * подтверждением. Учитываются и CreatedByMaster, и BookingConfirmed.
+ * Exactly-once не обещается.
  */
 class FullNoticeAfterFailedAttemptTest extends TestCase
 {
@@ -231,31 +236,111 @@ class FullNoticeAfterFailedAttemptTest extends TestCase
     }
 
     /**
-     * booking_confirmed: после неудачной попытки (нет delivered)
-     * аналогично не терять первое подтверждение.
+     * Создание захвачено исполнителем (живой claim) → изменение → первая
+     * отправка неуспешна → клиент обязан получить полный актуальный
+     * контекст, а не короткую поправку. Живой claim не является
+     * подтверждением будущей доставки.
      */
-    public function test_booking_confirmed_after_failed_attempt_keeps_full_context(): void
+    public function test_change_while_creation_in_flight_still_carries_full_context(): void
     {
         $client = $this->client();
         [$appointment, $created] = $this->createManual($client);
 
-        // Подтверждение брони виджетом (booking_confirmed).
-        $bookingConfirmed = app(AppointmentNotificationRecorder::class)
-            ->record(
-                $appointment->fresh(),
-                AppointmentNotificationEventType::BookingConfirmed,
-            );
+        // Исполнитель создания в полёте: claim с живым lease.
+        AppointmentNotificationDelivery::create([
+            'appointment_notification_event_id' => $created->id,
+            'channel' => 'max',
+            'status' => AppointmentNotificationDelivery::STATUS_PENDING,
+            'claim_token' => (string) Str::uuid(),
+            'lease_expires_at' => now()->addSeconds(60),
+        ]);
+
+        // Мастер меняет запись, пока первая отправка ещё в полёте.
+        $response = $this->actingAs($this->master)
+            ->patchJson("/admin/appointments/{$appointment->id}/status", ['price' => 2100]);
+        $this->assertLessThan(400, $response->status(), $response->getContent());
+
+        $changed = AppointmentNotificationEvent::where('appointment_id', $appointment->id)
+            ->where('event_type', AppointmentNotificationEventType::FieldsChanged)
+            ->firstOrFail();
+
+        $this->assertTrue(
+            (bool) ($changed->payload['full_notice'] ?? false),
+            'живой claim создания не подтверждает доставку — изменение несёт full_notice',
+        );
+
+        // Первая отправка неуспешна: HTTP вернул null, исполнитель
+        // освободил claim, строка осталась pending без доставки.
+        AppointmentNotificationDelivery::query()
+            ->where('appointment_notification_event_id', $created->id)
+            ->update(['claim_token' => null, 'lease_expires_at' => null]);
+
+        // Клиент получает полный актуальный контекст из изменения.
+        $sent = null;
+        $okMock = Mockery::mock(MaxApiClient::class);
+        $okMock->shouldReceive('sendMessage')
+            ->once()
+            ->andReturnUsing(function (string $chatId, string $text) use (&$sent) {
+                $sent = $text;
+
+                return 'mid-ok';
+            });
+
+        (new SendAppointmentNotificationJob($changed->id))->handle(
+            app(AppointmentChannelResolver::class),
+            $okMock,
+            Mockery::mock(VkApiClient::class),
+        );
+
+        $this->assertNotNull($sent, 'изменение должно доставиться');
+        $this->assertStringContainsString('Мастер записал вас', $sent);
+        $this->assertStringContainsString('12.11.2026', $sent);
+        $this->assertStringContainsString('2 100', $sent);
+    }
+
+    /**
+     * Настоящий widget-сценарий: BookingConfirmed БЕЗ CreatedByMaster →
+     * неудачная доставка → изменение → полное сообщение (а не одна
+     * поправка). Ранее тест маскировался createManual-событием.
+     */
+    public function test_booking_confirmed_without_creation_after_failed_attempt_keeps_full_context(): void
+    {
+        $client = $this->client();
+
+        // Widget-запись: события создания нет, только BookingConfirmed.
+        $appointment = Appointment::factory()
+            ->forMaster($this->master)
+            ->forClient($client)
+            ->withMasterService($this->service)
+            ->create([
+                'status' => AppointmentStatus::Booked,
+                'source' => AppointmentSource::Max,
+                'start_time' => Carbon::parse('2026-11-12 10:00:00', 'Europe/Moscow'),
+            ]);
+
+        $recorder = app(AppointmentNotificationRecorder::class);
+        $version = $recorder->bumpVersion($appointment);
+        $bookingConfirmed = $recorder->record(
+            $appointment->fresh(),
+            AppointmentNotificationEventType::BookingConfirmed,
+            [],
+            $version,
+        );
         $this->assertNotNull($bookingConfirmed);
+        $this->assertSame(
+            0,
+            AppointmentNotificationEvent::where('appointment_id', $appointment->id)
+                ->where('event_type', AppointmentNotificationEventType::CreatedByMaster)
+                ->count(),
+            'предусловие: CreatedByMaster отсутствует',
+        );
 
         // Неудачная попытка доставки booking_confirmed.
         $maxMock = Mockery::mock(MaxApiClient::class);
-        $maxMock->shouldReceive('sendMessage')->zeroOrMoreTimes()->andReturnNull();
-        $resolver = app(AppointmentChannelResolver::class);
-        $this->app->instance(AppointmentChannelResolver::class, $resolver);
-
+        $maxMock->shouldReceive('sendMessage')->once()->andReturnNull();
         try {
             (new SendAppointmentNotificationJob($bookingConfirmed->id))->handle(
-                $resolver,
+                app(AppointmentChannelResolver::class),
                 $maxMock,
                 Mockery::mock(VkApiClient::class),
             );
@@ -268,7 +353,7 @@ class FullNoticeAfterFailedAttemptTest extends TestCase
             ->exists();
         $this->assertTrue($pending, 'после неудачной попытки booking_confirmed есть pending');
 
-        // Мастер меняет цену — booking_confirmed ещё не доставлен.
+        // Мастер меняет цену — подтверждённой доставки полного контекста нет.
         $response = $this->actingAs($this->master)
             ->patchJson("/admin/appointments/{$appointment->id}/status", ['price' => 2500]);
         $this->assertLessThan(400, $response->status(), $response->getContent());
@@ -281,5 +366,29 @@ class FullNoticeAfterFailedAttemptTest extends TestCase
             (bool) ($changed->payload['full_notice'] ?? false),
             'booking_confirmed не доставлен → изменение несёт полный контекст',
         );
+
+        // Проверяем СОДЕРЖИМОЕ отправленного текста, а не только флаг.
+        $sent = null;
+        $okMock = Mockery::mock(MaxApiClient::class);
+        $okMock->shouldReceive('sendMessage')
+            ->once()
+            ->andReturnUsing(function (string $chatId, string $text) use (&$sent) {
+                $sent = $text;
+
+                return 'mid-ok';
+            });
+
+        (new SendAppointmentNotificationJob($changed->id))->handle(
+            app(AppointmentChannelResolver::class),
+            $okMock,
+            Mockery::mock(VkApiClient::class),
+        );
+
+        $this->assertNotNull($sent, 'изменение должно доставиться');
+        $this->assertStringContainsString('Мастер записал вас', $sent, 'клиент получает полный контекст');
+        $this->assertStringContainsString('12.11.2026', $sent);
+        // Старт 10:00 UTC, таймзона мастера Europe/Moscow → 13:00 в тексте.
+        $this->assertStringContainsString('13:00', $sent);
+        $this->assertStringContainsString('2 500', $sent, 'актуальная цена в полном сообщении');
     }
 }
