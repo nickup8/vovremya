@@ -217,6 +217,79 @@ class MaxStaleBookingLinkTest extends TestCase
             ->zeroOrMoreTimes();
     }
 
+    /** @var list<array{callback_id: string, notification: string}> */
+    private array $capturedAnswerCallbacks = [];
+
+    /** @var list<array{user_id: string, text: string}> */
+    private array $capturedSendMessages = [];
+
+    private int $answerCallbackWithMessageCalls = 0;
+
+    private bool $answerCallbackReturn = true;
+
+    /**
+     * Раздельный capture каналов отказа: answerCallback, sendMessage и
+     * answerCallbackWithMessage не смешиваются — доказательство чата
+     * не может прийти из callback notification.
+     */
+    private function captureRefusalChannels(bool $answerCallbackReturn = true): void
+    {
+        $this->capturedAnswerCallbacks = [];
+        $this->capturedSendMessages = [];
+        $this->answerCallbackWithMessageCalls = 0;
+        $this->answerCallbackReturn = $answerCallbackReturn;
+
+        $this->maxApi->shouldReceive('answerCallback')
+            ->andReturnUsing(function (string $callbackId, string $notification = ''): bool {
+                $this->capturedAnswerCallbacks[] = [
+                    'callback_id' => $callbackId,
+                    'notification' => $notification,
+                ];
+
+                return $this->answerCallbackReturn;
+            })
+            ->zeroOrMoreTimes();
+
+        $this->maxApi->shouldReceive('sendMessage')
+            ->andReturnUsing(function (string $userId, string $text, ?array $attachments = null): string {
+                $this->capturedSendMessages[] = [
+                    'user_id' => $userId,
+                    'text' => $text,
+                ];
+
+                return 'mid_refusal';
+            })
+            ->zeroOrMoreTimes();
+
+        $this->maxApi->shouldReceive('answerCallbackWithMessage')
+            ->andReturnUsing(function (): bool {
+                $this->answerCallbackWithMessageCalls++;
+
+                return true;
+            })
+            ->zeroOrMoreTimes();
+    }
+
+    private function assertRefusalChannels(
+        string $callbackId,
+        string $userId,
+        string $expectedText,
+    ): void {
+        $this->assertCount(1, $this->capturedAnswerCallbacks);
+        $this->assertSame($callbackId, $this->capturedAnswerCallbacks[0]['callback_id']);
+        $this->assertSame(
+            '',
+            $this->capturedAnswerCallbacks[0]['notification'],
+            'отказ не должен нести текст в notification callback',
+        );
+
+        $this->assertCount(1, $this->capturedSendMessages);
+        $this->assertSame($userId, $this->capturedSendMessages[0]['user_id']);
+        $this->assertSame($expectedText, $this->capturedSendMessages[0]['text']);
+
+        $this->assertSame(0, $this->answerCallbackWithMessageCalls);
+    }
+
     // ─── 1. Старая ссылка на прошедшую запись ───
 
     public function test_past_appointment_link_refused_without_buttons_and_draft(): void
@@ -426,12 +499,16 @@ class MaxStaleBookingLinkTest extends TestCase
             'cancelled_at' => now(),
         ]);
 
-        $this->captureTexts();
+        $this->captureRefusalChannels();
         Queue::fake();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_stale', (string) $appointment->id);
 
-        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_stale',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
         $appointment->refresh();
         $this->assertSame(AppointmentStatus::Cancelled, $appointment->status);
         $this->assertNull($appointment->client_id);
@@ -448,12 +525,16 @@ class MaxStaleBookingLinkTest extends TestCase
 
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
 
-        $this->captureTexts();
+        $this->captureRefusalChannels();
         Queue::fake();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_past', (string) $appointment->id);
 
-        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_past',
+            'max_user_123',
+            __('bot.errors.booking_expired'),
+        );
         $this->assertNull($appointment->refresh()->client_id);
         $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
     }
@@ -471,11 +552,15 @@ class MaxStaleBookingLinkTest extends TestCase
         $notifySpy = Mockery::spy(MasterNotificationService::class);
         $this->app->instance(MasterNotificationService::class, $notifySpy);
         Queue::fake();
-        $this->captureTexts();
+        $this->captureRefusalChannels();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_deleted', (string) $appointment->id);
 
-        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_deleted',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
         $this->assertDatabaseMissing('appointments', ['id' => $appointment->id]);
         $this->assertDatabaseMissing('appointment_notification_events', [
             'appointment_id' => $appointment->id,
@@ -495,11 +580,15 @@ class MaxStaleBookingLinkTest extends TestCase
         $notifySpy = Mockery::spy(MasterNotificationService::class);
         $this->app->instance(MasterNotificationService::class, $notifySpy);
         Queue::fake();
-        $this->captureTexts();
+        $this->captureRefusalChannels();
 
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_deleted', (string) $appointment->id);
 
-        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_cancel_deleted',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
         $this->assertDatabaseMissing('appointments', ['id' => $appointment->id]);
         $notifySpy->shouldNotHaveReceived('sendToMaster');
     }
@@ -515,11 +604,15 @@ class MaxStaleBookingLinkTest extends TestCase
         $notifySpy = Mockery::spy(MasterNotificationService::class);
         $this->app->instance(MasterNotificationService::class, $notifySpy);
         Queue::fake();
-        $this->captureTexts();
+        $this->captureRefusalChannels();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_no_cache', (string) $appointment->id);
 
-        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_no_cache',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
         $appointment->refresh();
         $this->assertNull($appointment->client_id);
         $this->assertSame(AppointmentStatus::Booked, $appointment->status);
@@ -542,11 +635,15 @@ class MaxStaleBookingLinkTest extends TestCase
         $notifySpy = Mockery::spy(MasterNotificationService::class);
         $this->app->instance(MasterNotificationService::class, $notifySpy);
         Queue::fake();
-        $this->captureTexts();
+        $this->captureRefusalChannels();
 
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_no_cache', (string) $appointment->id);
 
-        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_cancel_no_cache',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
         $appointment->refresh();
         $this->assertSame(AppointmentStatus::Booked, $appointment->status);
         $this->assertNull($appointment->cancelled_at);
@@ -626,14 +723,98 @@ class MaxStaleBookingLinkTest extends TestCase
         ]);
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
 
-        $this->captureTexts();
+        $this->captureRefusalChannels();
 
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_stale', (string) $appointment->id);
 
-        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_cancel_stale',
+            'max_user_123',
+            __('bot.errors.booking_expired'),
+        );
         $appointment->refresh();
         $this->assertSame(AppointmentStatus::Booked, $appointment->status);
         $this->assertNull($appointment->cancelled_at);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+    }
+
+    // ─── 9b. Занятая/недопустимая запись старше порога — generic ───
+
+    public function test_cancel_occupied_appointment_past_threshold_gets_generic_not_expired(): void
+    {
+        $client = $this->createReturningClient();
+        $threshold = (int) config('booking.cleanup_draft_threshold');
+
+        $appointment = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->setTime(14, 0),
+            'created_at' => now()->subMinutes($threshold + 5),
+            'client_id' => $client->id,
+            'source' => AppointmentSource::Max,
+        ]);
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureRefusalChannels();
+
+        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_occupied', (string) $appointment->id);
+
+        $this->assertRefusalChannels(
+            'cb_cancel_occupied',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
+        $this->assertNotContains(__('bot.errors.booking_expired'), array_column($this->capturedSendMessages, 'text'));
+
+        $appointment->refresh();
+        $this->assertSame($client->id, $appointment->client_id);
+        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
+        $this->assertNull($appointment->cancelled_at);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+        ]);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+        Event::assertNotDispatched(AppointmentCreated::class);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+    }
+
+    public function test_cancel_invalid_status_appointment_past_threshold_gets_generic_not_expired(): void
+    {
+        $this->createReturningClient();
+        $threshold = (int) config('booking.cleanup_draft_threshold');
+
+        $appointment = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->setTime(14, 0),
+            'created_at' => now()->subMinutes($threshold + 5),
+            'status' => AppointmentStatus::Prepaid,
+        ]);
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureRefusalChannels();
+
+        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_invalid_status', (string) $appointment->id);
+
+        $this->assertRefusalChannels(
+            'cb_cancel_invalid_status',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
+
+        $appointment->refresh();
+        $this->assertSame(AppointmentStatus::Prepaid, $appointment->status);
+        $this->assertNull($appointment->client_id);
+        $this->assertNull($appointment->cancelled_at);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+        ]);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+        Event::assertNotDispatched(AppointmentCreated::class);
         $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
     }
 
@@ -677,10 +858,14 @@ class MaxStaleBookingLinkTest extends TestCase
         // сверка черновика отклоняет (draft !== A), B не трогается.
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $draftB->id, 3600);
 
-        $this->captureTexts();
+        $this->captureRefusalChannels();
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_a', (string) $staleA->id);
 
-        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_a',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
         $this->assertSame(
             (string) $draftB->id,
             (string) Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'),
@@ -704,10 +889,14 @@ class MaxStaleBookingLinkTest extends TestCase
         // не находит черновик A и не трогает B.
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $draftB->id, 3600);
 
-        $this->captureTexts();
+        $this->captureRefusalChannels();
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_a', (string) $staleA->id);
 
-        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_cancel_a',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
         $this->assertSame(
             (string) $draftB->id,
             (string) Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'),
@@ -869,11 +1058,15 @@ class MaxStaleBookingLinkTest extends TestCase
         $notifySpy = Mockery::spy(MasterNotificationService::class);
         $this->app->instance(MasterNotificationService::class, $notifySpy);
         Queue::fake();
-        $this->captureTexts();
+        $this->captureRefusalChannels();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_expired', (string) $appointmentA->id);
 
-        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_expired',
+            'max_user_123',
+            __('bot.errors.booking_expired'),
+        );
         $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
         $notifySpy->shouldNotHaveReceived('sendToMaster');
 
@@ -888,15 +1081,94 @@ class MaxStaleBookingLinkTest extends TestCase
         $notifySpy = Mockery::spy(MasterNotificationService::class);
         $this->app->instance(MasterNotificationService::class, $notifySpy);
         Queue::fake();
-        $this->captureTexts();
+        $this->captureRefusalChannels();
 
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_expired', (string) $appointmentA->id);
 
-        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
+        $this->assertRefusalChannels(
+            'cb_cancel_expired',
+            'max_user_123',
+            __('bot.errors.booking_expired'),
+        );
         $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
         $notifySpy->shouldNotHaveReceived('sendToMaster');
 
         Carbon::setTestNow();
+    }
+
+    // ─── 13. answerCallback=false — сообщение всё равно уходит ───
+
+    public function test_confirm_refusal_sends_chat_message_when_answer_callback_fails(): void
+    {
+        $this->createReturningClient();
+
+        $staleA = $this->createDraftAppointment([
+            'start_time' => Carbon::yesterday()->setTime(14, 0),
+        ]);
+        $draftB = $this->createDraftAppointment([
+            'start_time' => Carbon::tomorrow()->addDays(2)->setTime(15, 0),
+        ]);
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $draftB->id, 3600);
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureRefusalChannels(answerCallbackReturn: false);
+
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_fail', (string) $staleA->id);
+
+        $this->assertRefusalChannels(
+            'cb_fail',
+            'max_user_123',
+            __('bot.errors.appointment_not_found'),
+        );
+        $this->assertSame(
+            (string) $draftB->id,
+            (string) Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'),
+        );
+        $this->assertNull($staleA->refresh()->client_id);
+        $this->assertNull($draftB->refresh()->client_id);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $staleA->id,
+        ]);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $draftB->id,
+        ]);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+        Event::assertNotDispatched(AppointmentCreated::class);
+    }
+
+    public function test_cancel_refusal_sends_chat_message_when_answer_callback_fails(): void
+    {
+        $this->createReturningClient();
+
+        $appointment = $this->createDraftAppointment([
+            'start_time' => Carbon::yesterday()->setTime(14, 0),
+        ]);
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureRefusalChannels(answerCallbackReturn: false);
+
+        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_fail', (string) $appointment->id);
+
+        $this->assertRefusalChannels(
+            'cb_cancel_fail',
+            'max_user_123',
+            __('bot.errors.booking_expired'),
+        );
+        $appointment->refresh();
+        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
+        $this->assertNull($appointment->cancelled_at);
+        $this->assertNull($appointment->client_id);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+        ]);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+        Event::assertNotDispatched(AppointmentCreated::class);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
     }
 
     public function test_contact_denied_after_draft_age_expiry(): void

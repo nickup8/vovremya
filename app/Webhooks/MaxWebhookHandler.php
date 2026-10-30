@@ -1337,16 +1337,19 @@ class MaxWebhookHandler
                 return 'already_cancelled';
             }
 
-            if ($fresh->start_time->isPast()
-                || $this->isDraftPastCleanupThreshold($fresh)
-            ) {
-                return 'expired';
-            }
-
+            // Занятая/недопустимая запись — generic-отказ, даже если
+            // срок уже истёк: booking_expired только для допустимого
+            // незанятого черновика.
             if ($fresh->client_id !== null
                 || ! in_array($fresh->status, [AppointmentStatus::Booked, AppointmentStatus::PendingPayment], true)
             ) {
                 return 'not_found';
+            }
+
+            if ($fresh->start_time->isPast()
+                || $this->isDraftPastCleanupThreshold($fresh)
+            ) {
+                return 'expired';
             }
 
             app(AppointmentStatusService::class)->transition(
