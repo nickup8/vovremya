@@ -1100,14 +1100,14 @@ class MaxWebhookHandler
         $appointment = Appointment::with(['master'])->find($appointmentId);
 
         if (! $appointment) {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
 
         $draftId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
         if ((string) $draftId !== (string) $appointmentId) {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
@@ -1133,7 +1133,7 @@ class MaxWebhookHandler
             // Прошедшая запись не подтверждается по старой кнопке —
             // до каких-либо мутаций.
             if ($fresh->start_time->isPast()) {
-                return ['result' => 'unopenable'];
+                return ['result' => 'expired'];
             }
 
             $client = Client::byMaxId($userId)
@@ -1177,7 +1177,7 @@ class MaxWebhookHandler
             // Просроченный черновик (created_at старше cleanup-порога)
             // не подтверждается, даже если cron ещё не отменил запись.
             if ($this->isDraftPastCleanupThreshold($fresh)) {
-                return ['result' => 'unopenable'];
+                return ['result' => 'expired'];
             }
 
             if ($client->isBlocked()) {
@@ -1229,21 +1229,28 @@ class MaxWebhookHandler
 
         if ($state['result'] === 'not_found') {
             $this->clearDraftIfMatches($userId, (string) $appointmentId);
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
 
         if ($state['result'] === 'unopenable') {
             $this->clearDraftIfMatches($userId, (string) $appointmentId);
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($state['result'] === 'expired') {
+            $this->clearDraftIfMatches($userId, (string) $appointmentId);
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.booking_expired'));
 
             return;
         }
 
         if ($state['result'] === 'blocked') {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.booking_unavailable'));
             $this->clearDraftIfMatches($userId, (string) $appointmentId);
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.booking_unavailable'));
 
             return;
         }
@@ -1291,14 +1298,14 @@ class MaxWebhookHandler
         $appointment = Appointment::with(['master'])->find($appointmentId);
 
         if (! $appointment) {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
 
         $draftId = Cache::get(CacheKeys::MAX_BOOKING_DRAFT.$userId);
         if ((string) $draftId !== (string) $appointmentId) {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
@@ -1308,7 +1315,7 @@ class MaxWebhookHandler
             ->first();
 
         if (! $client) {
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
 
             return;
         }
@@ -1330,10 +1337,14 @@ class MaxWebhookHandler
                 return 'already_cancelled';
             }
 
+            if ($fresh->start_time->isPast()
+                || $this->isDraftPastCleanupThreshold($fresh)
+            ) {
+                return 'expired';
+            }
+
             if ($fresh->client_id !== null
                 || ! in_array($fresh->status, [AppointmentStatus::Booked, AppointmentStatus::PendingPayment], true)
-                || $fresh->start_time->isPast()
-                || $this->isDraftPastCleanupThreshold($fresh)
             ) {
                 return 'not_found';
             }
@@ -1348,7 +1359,14 @@ class MaxWebhookHandler
 
         if ($state === 'not_found') {
             $this->clearDraftIfMatches($userId, (string) $appointmentId);
-            $this->maxApi->answerCallback($callbackId, __('bot.errors.appointment_not_found'));
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.appointment_not_found'));
+
+            return;
+        }
+
+        if ($state === 'expired') {
+            $this->clearDraftIfMatches($userId, (string) $appointmentId);
+            $this->refuseBookingCallback($userId, $callbackId, __('bot.errors.booking_expired'));
 
             return;
         }
@@ -1646,6 +1664,17 @@ class MaxWebhookHandler
     private function bookingDraftLock(string $userId): Lock
     {
         return Cache::lock(CacheKeys::MAX_BOOKING_DRAFT_LOCK.$userId, 10);
+    }
+
+    /**
+     * Завершает callback и всегда отправляет явное сообщение в чат:
+     * доставка сообщения не зависит от успеха answerCallback, а
+     * notification в /answers не гарантирует видимое сообщение.
+     */
+    private function refuseBookingCallback(string $userId, string $callbackId, string $text): void
+    {
+        $this->maxApi->answerCallback($callbackId);
+        $this->sendMessage($userId, $text);
     }
 
     /**

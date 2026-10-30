@@ -7,6 +7,7 @@ use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Models\Appointment;
+use App\Models\AppointmentNotificationEvent;
 use App\Models\Client;
 use App\Models\MasterService;
 use App\Models\ServiceCatalog;
@@ -276,7 +277,7 @@ class MaxBookingFastPathTest extends TestCase
             ->andReturn(true);
 
         Event::fake([AppointmentCreated::class]);
-        \Illuminate\Support\Facades\Queue::fake();
+        Queue::fake();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_confirm', (string) $appointment->id);
 
@@ -304,22 +305,32 @@ class MaxBookingFastPathTest extends TestCase
 
         Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', $appointment->id, 3600);
 
+        $sentMessages = [];
         $this->maxApi->shouldReceive('answerCallback')->zeroOrMoreTimes()->andReturn(true);
+        $this->maxApi->shouldReceive('sendMessage')
+            ->andReturnUsing(function (string $userId, string $text, ?array $extra = null) use (&$sentMessages): ?string {
+                $sentMessages[] = $text;
+
+                return null;
+            })
+            ->zeroOrMoreTimes();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb1', (string) $appointment->id);
 
         $appointment->refresh();
         $this->assertEquals($client->id, $appointment->client_id);
 
-        // Second confirm should fail
+        // Second confirm should fail (draft already cleared; message in chat)
         $this->invokeConfirmMaxBooking('max_user_123', 'cb2', (string) $appointment->id);
 
         // Still same client, no double side effects
         $appointment->refresh();
         $this->assertEquals($client->id, $appointment->client_id);
 
+        $this->assertContains(__('bot.errors.appointment_not_found'), $sentMessages);
+
         // Только одно booking_confirmed-событие
-        $this->assertSame(1, \App\Models\AppointmentNotificationEvent::where('appointment_id', $appointment->id)
+        $this->assertSame(1, AppointmentNotificationEvent::where('appointment_id', $appointment->id)
             ->where('event_type', 'booking_confirmed')
             ->count());
     }
@@ -360,11 +371,20 @@ class MaxBookingFastPathTest extends TestCase
         $this->maxApi->shouldReceive('answerCallbackWithMessage')->once()->andReturn(true);
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel', (string) $appointment->id);
 
-        // Now try to confirm
-        $this->maxApi->shouldReceive('answerCallback')->once();
+        // Now try to confirm — отказ уходит сообщением в чат, callback гасится.
+        $sentMessages = [];
+        $this->maxApi->shouldReceive('answerCallback')->once()->andReturn(true);
+        $this->maxApi->shouldReceive('sendMessage')
+            ->andReturnUsing(function (string $userId, string $text, ?array $extra = null) use (&$sentMessages): ?string {
+                $sentMessages[] = $text;
+
+                return null;
+            })
+            ->zeroOrMoreTimes();
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_confirm', (string) $appointment->id);
 
+        $this->assertContains(__('bot.errors.appointment_not_found'), $sentMessages);
         $appointment->refresh();
         $this->assertEquals(AppointmentStatus::Cancelled, $appointment->status);
         $this->assertNull($appointment->client_id);
@@ -386,8 +406,19 @@ class MaxBookingFastPathTest extends TestCase
         $appointment->refresh();
         $this->assertEquals($client->id, $appointment->client_id);
 
-        // Now try to cancel
+        // Now try to cancel — черновик уже очищен; отказ в чат.
+        $sentMessages = [];
+        $this->maxApi->shouldReceive('sendMessage')
+            ->andReturnUsing(function (string $userId, string $text, ?array $extra = null) use (&$sentMessages): ?string {
+                $sentMessages[] = $text;
+
+                return null;
+            })
+            ->zeroOrMoreTimes();
+
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel', (string) $appointment->id);
+
+        $this->assertContains(__('bot.errors.appointment_not_found'), $sentMessages);
 
         // Should still be claimed
         $appointment->refresh();
@@ -457,7 +488,13 @@ class MaxBookingFastPathTest extends TestCase
                 return true;
             })
             ->zeroOrMoreTimes();
-        $this->maxApi->shouldReceive('sendMessage')->andReturnNull()->zeroOrMoreTimes();
+        $this->maxApi->shouldReceive('sendMessage')
+            ->andReturnUsing(function (string $userId, string $text, ?array $extra = null) use (&$sentMessages): ?string {
+                $sentMessages[] = $text;
+
+                return null;
+            })
+            ->zeroOrMoreTimes();
 
         $notifySpy = Mockery::spy(MasterNotificationService::class);
         $this->app->instance(MasterNotificationService::class, $notifySpy);
@@ -491,16 +528,22 @@ class MaxBookingFastPathTest extends TestCase
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_second', (string) $appointment->id);
 
+        // Отказ уходит видимым сообщением в чат, а не notification callback.
         $this->assertContains(
             __('bot.errors.appointment_not_found'),
+            $sentMessages,
+            'отменённая запись должна получать отказ в чат: '.json_encode($sentMessages, JSON_UNESCAPED_UNICODE),
+        );
+        $this->assertSame(
+            ['', ''],
             $callbackReplies,
-            'отменённая запись должна получать отказ: '.json_encode($callbackReplies, JSON_UNESCAPED_UNICODE),
+            'повторный отказ должен только гасить callback: '.json_encode($callbackReplies, JSON_UNESCAPED_UNICODE),
         );
         Event::assertDispatchedTimes(AppointmentCreated::class, 1);
         $notifySpy->shouldHaveReceived('sendToMaster')->once();
 
         // Ровно одно booking_confirmed-событие (повтор не создаёт второе).
-        $this->assertSame(1, \App\Models\AppointmentNotificationEvent::where('appointment_id', $appointment->id)
+        $this->assertSame(1, AppointmentNotificationEvent::where('appointment_id', $appointment->id)
             ->where('event_type', 'booking_confirmed')
             ->count());
 

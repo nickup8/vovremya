@@ -453,8 +453,105 @@ class MaxStaleBookingLinkTest extends TestCase
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_past', (string) $appointment->id);
 
-        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
         $this->assertNull($appointment->refresh()->client_id);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+    }
+
+    // ─── 7b. Удалённая запись / отсутствующий кэш — отказ в чат ───
+
+    public function test_confirm_callback_refused_when_appointment_deleted(): void
+    {
+        $this->createReturningClient();
+        $appointment = $this->createDraftAppointment();
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+        $appointment->delete();
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_deleted', (string) $appointment->id);
+
+        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertDatabaseMissing('appointments', ['id' => $appointment->id]);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+        ]);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+        Event::assertNotDispatched(AppointmentCreated::class);
+    }
+
+    public function test_cancel_callback_refused_when_appointment_deleted(): void
+    {
+        $this->createReturningClient();
+        $appointment = $this->createDraftAppointment();
+
+        Cache::put(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123', (string) $appointment->id, 3600);
+        $appointment->delete();
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_deleted', (string) $appointment->id);
+
+        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertDatabaseMissing('appointments', ['id' => $appointment->id]);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+    }
+
+    public function test_confirm_callback_refused_when_draft_cache_missing(): void
+    {
+        $client = $this->createReturningClient();
+        $appointment = $this->createDraftAppointment();
+
+        // Кэш черновика отсутствует (TTL истёк) — запись жива.
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeConfirmMaxBooking('max_user_123', 'cb_no_cache', (string) $appointment->id);
+
+        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $appointment->refresh();
+        $this->assertNull($appointment->client_id);
+        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
+        $this->assertSame($client->id, $client->refresh()->id);
+        $this->assertDatabaseMissing('appointment_notification_events', [
+            'appointment_id' => $appointment->id,
+        ]);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
+        Event::assertNotDispatched(AppointmentCreated::class);
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+    }
+
+    public function test_cancel_callback_refused_when_draft_cache_missing(): void
+    {
+        $this->createReturningClient();
+        $appointment = $this->createDraftAppointment();
+
+        $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
+
+        $notifySpy = Mockery::spy(MasterNotificationService::class);
+        $this->app->instance(MasterNotificationService::class, $notifySpy);
+        Queue::fake();
+        $this->captureTexts();
+
+        $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_no_cache', (string) $appointment->id);
+
+        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $appointment->refresh();
+        $this->assertSame(AppointmentStatus::Booked, $appointment->status);
+        $this->assertNull($appointment->cancelled_at);
+        $this->assertNull($appointment->client_id);
+        $notifySpy->shouldNotHaveReceived('sendToMaster');
         $this->assertNull(Cache::get(CacheKeys::MAX_BOOKING_DRAFT.'max_user_123'));
     }
 
@@ -533,7 +630,7 @@ class MaxStaleBookingLinkTest extends TestCase
 
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_stale', (string) $appointment->id);
 
-        $this->assertContains(__('bot.errors.appointment_not_found'), $this->capturedTexts);
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
         $appointment->refresh();
         $this->assertSame(AppointmentStatus::Booked, $appointment->status);
         $this->assertNull($appointment->cancelled_at);
@@ -776,7 +873,7 @@ class MaxStaleBookingLinkTest extends TestCase
 
         $this->invokeConfirmMaxBooking('max_user_123', 'cb_expired', (string) $appointmentA->id);
 
-        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
         $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
         $notifySpy->shouldNotHaveReceived('sendToMaster');
 
@@ -795,7 +892,7 @@ class MaxStaleBookingLinkTest extends TestCase
 
         $this->invokeCancelMaxBooking('max_user_123', 'cb_cancel_expired', (string) $appointmentA->id);
 
-        $this->assertSame([__('bot.errors.appointment_not_found')], $this->capturedTexts);
+        $this->assertSame([__('bot.errors.booking_expired')], $this->capturedTexts);
         $this->assertDraftAExpiredUnchangedAndBSafe($appointmentA, $draftB);
         $notifySpy->shouldNotHaveReceived('sendToMaster');
 
