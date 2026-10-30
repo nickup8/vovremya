@@ -10,6 +10,7 @@ use App\Events\AppointmentCreated;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
 use App\Models\Client;
+use App\Services\Notification\AppointmentChannelResolver;
 use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\VkLinkTokenService;
@@ -84,6 +85,8 @@ class VkConfirmController extends Controller
             // Outbox: подтверждение брони фиксируется в той же транзакции.
             // SendVkBookingConfirmation больше не шлёт параллельно — текст
             // доставит job (BookingConfirmed) с клавиатурой mini-app.
+            // vk_only: подтверждение, созданное через ВК-вход, доставляется
+            // только в ВК — без fallback на MAX при запрете сообщений.
             $fresh = Appointment::with(['client', 'master', 'masterService.catalog'])
                 ->find($appointmentId);
 
@@ -93,7 +96,7 @@ class VkConfirmController extends Controller
                 $recorder->record(
                     $fresh,
                     AppointmentNotificationEventType::BookingConfirmed,
-                    [],
+                    [AppointmentChannelResolver::PAYLOAD_VK_ONLY => true],
                     $version,
                 );
             }

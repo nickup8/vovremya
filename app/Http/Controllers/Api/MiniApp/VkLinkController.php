@@ -16,6 +16,7 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Services\Auth\VkPhoneNumberVerifier;
 use App\Services\Client\ClientMergeService;
+use App\Services\Notification\AppointmentChannelResolver;
 use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\VkLinkTokenService;
@@ -136,6 +137,8 @@ class VkLinkController extends Controller
             }
 
             // Outbox: подтверждение брони — в той же транзакции.
+            // vk_only: подтверждение, созданное через ВК-вход, доставляется
+            // только в ВК — без fallback на MAX при запрете сообщений.
             $appointment->refresh();
             $appointment->loadMissing(['client', 'master', 'masterService.catalog']);
             $recorder = app(AppointmentNotificationRecorder::class);
@@ -143,7 +146,7 @@ class VkLinkController extends Controller
             $recorder->record(
                 $appointment,
                 AppointmentNotificationEventType::BookingConfirmed,
-                [],
+                [AppointmentChannelResolver::PAYLOAD_VK_ONLY => true],
                 $version,
             );
 

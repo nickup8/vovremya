@@ -34,6 +34,12 @@ use Illuminate\Support\Str;
  *   до первого claim), HTTP не выполняется;
  * - событие, у которого уже есть доставленный канал, повторно НЕ
  *   отправляется в другой канал только из-за смены resolver'а;
+ * - подтверждение брони, созданное через ВК-вход (payload vk_only),
+ *   доставляется ТОЛЬКО в ВК во всех точках выбора канала (handle,
+ *   re-route перед HTTP, failed()/recovery): false — «нет канала» без
+ *   отправки в ВК или MAX, null — допустима ВК-попытка, после 901
+ *   повторные запуски не уходят в MAX; общий fallback прочих событий
+ *   resolver'а не меняется;
  * - получатель зафиксирован в payload['client_id'] при записи события:
  *   смена клиента записи переводит событие в superseded, старый снимок
  *   не уходит новому клиенту;
@@ -142,7 +148,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
             return;
         }
 
-        $channel = $resolver->resolve($appointment);
+        $channel = $resolver->resolveForEvent($event, $appointment);
 
         if ($channel === null) {
             $this->recordNoChannel($event);
@@ -219,7 +225,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
                 return;
             }
 
-            $channel = app(AppointmentChannelResolver::class)->resolve($appointment);
+            $channel = app(AppointmentChannelResolver::class)->resolveForEvent($event, $appointment);
 
             if ($channel === null) {
                 $this->recordNoChannel($event);
@@ -291,8 +297,9 @@ class SendAppointmentNotificationJob implements ShouldQueue
             }
 
             // Канал перечитываем: клиент мог потерять привязку/согласие.
+            // Для ВК-пиннинга (vk_only) перечитывание не даёт MAX.
             $step = 'route';
-            $channelNow = app(AppointmentChannelResolver::class)->resolve($fresh);
+            $channelNow = app(AppointmentChannelResolver::class)->resolveForEvent($event, $fresh);
 
             if ($channelNow === null) {
                 $this->releaseClaimSafely($event, $channel, $claimToken, $step);

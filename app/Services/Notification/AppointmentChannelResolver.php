@@ -2,8 +2,10 @@
 
 namespace App\Services\Notification;
 
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Models\Appointment;
+use App\Models\AppointmentNotificationEvent;
 use App\Models\Client;
 
 /**
@@ -18,6 +20,10 @@ use App\Models\Client;
  *    канал: MAX, затем разрешённый ВК;
  * 3. Иного канала нет — явный «нет доступного канала» (null).
  *
+ * Исключение на уровне события (resolveForEvent): подтверждение брони,
+ * созданное через ВК-вход, пиннится на ВК и не подпадает под fallback на
+ * MAX. Общий resolve() для остальных уведомлений не меняется.
+ *
  * Telegram не развивается: канал используется только когда запись уже
  * telegram-источника и у клиента есть telegram_id.
  */
@@ -28,6 +34,13 @@ class AppointmentChannelResolver
     public const CHANNEL_VK = 'vk';
 
     public const CHANNEL_TELEGRAM = 'telegram';
+
+    /**
+     * Маркер события, созданного через ВК-подтверждение (VkLink/VkConfirm):
+     * доставка разрешена только в ВК, подмена на MAX запрещена во всех
+     * точках выбора канала (handle, deliver-route, retry, recovery).
+     */
+    public const PAYLOAD_VK_ONLY = 'vk_only';
 
     /**
      * @return string|null 'max'|'vk'|'telegram' либо null — нет доступного канала
@@ -67,6 +80,32 @@ class AppointmentChannelResolver
         }
 
         return null;
+    }
+
+    /**
+     * Канал для конкретного outbox-события.
+     *
+     * Подтверждение брони, созданное через ВК-вход (VkLink/VkConfirm,
+     * payload vk_only), доставляется ТОЛЬКО в ВК: при запрете сообщений
+     * (false) — «нет канала» без подмены на MAX; null (ещё не проверялся)
+     * допускает ВК-попытку. Прочие события — общий fallback resolve().
+     */
+    public function resolveForEvent(
+        AppointmentNotificationEvent $event,
+        Appointment $appointment,
+    ): ?string {
+        if ($event->event_type === AppointmentNotificationEventType::BookingConfirmed
+            && ($event->payload[self::PAYLOAD_VK_ONLY] ?? false) === true) {
+            $client = $appointment->client;
+
+            if ($client !== null && $this->vkReachable($client)) {
+                return self::CHANNEL_VK;
+            }
+
+            return null;
+        }
+
+        return $this->resolve($appointment);
     }
 
     /**

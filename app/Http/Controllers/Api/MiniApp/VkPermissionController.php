@@ -9,6 +9,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
 use App\Models\AppointmentNotificationEvent;
 use App\Services\MiniAppClientResolver;
+use App\Services\Notification\AppointmentChannelResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 
@@ -63,6 +64,18 @@ class VkPermissionController extends Controller
         return response()->json(['ok' => true]);
     }
 
+    /**
+     * Повтор недоставленного подтверждения после снятия запрета ВК.
+     *
+     * Канал перечитывается через resolveForEvent: подтверждение,
+     * созданное через ВК-вход (vk_only), повторяется только в ВК.
+     * Возврат в pending — CAS по (строка, status in no_channel/failed):
+     * работающий job мог уже перехватить строку (failed→pending+lease) —
+     * чужой живой claim не удаляется и не сбрасывается, дубль отправки
+     * исключён. Job ставится только если строка фактически вернулась
+     * в pending — параллельные permission-запросы не дают второго
+     * redispatch'а. Идентичность события не меняется (без bump'а версии).
+     */
     private function retryUndeliveredBookingConfirmed(Appointment $appointment): void
     {
         $events = AppointmentNotificationEvent::query()
@@ -71,7 +84,15 @@ class VkPermissionController extends Controller
             ->orderByDesc('event_version')
             ->get();
 
+        $resolver = app(AppointmentChannelResolver::class);
+
         foreach ($events as $event) {
+            $channel = $resolver->resolveForEvent($event, $appointment);
+
+            if ($channel === null) {
+                continue;
+            }
+
             $undelivered = $event->deliveries()
                 ->whereIn('status', [
                     AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
@@ -83,9 +104,33 @@ class VkPermissionController extends Controller
                 continue;
             }
 
-            $undelivered->each->delete();
+            $reset = false;
 
-            SendAppointmentNotificationJob::dispatch($event->getKey());
+            foreach ($undelivered as $row) {
+                if ($row->channel !== $channel) {
+                    continue;
+                }
+
+                $affected = AppointmentNotificationDelivery::query()
+                    ->whereKey($row->getKey())
+                    ->whereIn('status', [
+                        AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
+                        AppointmentNotificationDelivery::STATUS_FAILED,
+                    ])
+                    ->update([
+                        'status' => AppointmentNotificationDelivery::STATUS_PENDING,
+                        'claim_token' => null,
+                        'lease_expires_at' => null,
+                        'failure_reason' => null,
+                        'failed_at' => null,
+                    ]);
+
+                $reset = $reset || $affected > 0;
+            }
+
+            if ($reset) {
+                SendAppointmentNotificationJob::dispatch($event->getKey());
+            }
 
             break; // достаточно одного последнего события
         }
