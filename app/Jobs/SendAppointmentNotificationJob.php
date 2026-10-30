@@ -346,6 +346,14 @@ class SendAppointmentNotificationJob implements ShouldQueue
                 $appointment->client->update(['vk_messages_allowed' => true]);
             }
 
+            // После зафиксированной доставки: best-effort удаление исходного
+            // сообщения с кнопками (только MAX + BookingConfirmed + metadata).
+            // Ошибка удаления НЕ уходит в общий catch: delivered остаётся,
+            // claim не освобождается, повторного send нет.
+            if ($channel === AppointmentChannelResolver::CHANNEL_MAX) {
+                $this->deleteMaxSourceMessageSafely($event, $appointment, $maxApi);
+            }
+
             return 'delivered';
         } catch (VkMessagesNotAllowedException) {
             if ($appointment->client !== null) {
@@ -636,6 +644,51 @@ class SendAppointmentNotificationJob implements ShouldQueue
                 'event_id' => $event->getKey(),
                 'channel' => $channel,
                 'reason' => $reason,
+                'error' => $e->getMessage(),
+            ]);
+        }
+    }
+
+    /**
+     * Удалить исходное сообщение бота с кнопками подтверждения после
+     * успешной доставки текста. Только BookingConfirmed + канал MAX +
+     * непустой message ID + совпадение получателя с текущей записью.
+     * Без метаданных в payload — no-op. Любая ошибка логируется и не
+     * влияет на delivery-исход (delivered сохраняется).
+     */
+    private function deleteMaxSourceMessageSafely(
+        AppointmentNotificationEvent $event,
+        Appointment $appointment,
+        MaxApiClient $maxApi,
+    ): void {
+        if ($event->event_type !== AppointmentNotificationEventType::BookingConfirmed) {
+            return;
+        }
+
+        $messageId = (string) ($event->payload['max_source_message_id'] ?? '');
+        if ($messageId === '') {
+            return;
+        }
+
+        $recipientId = (string) ($event->payload['max_source_recipient_id'] ?? '');
+        $clientMaxId = (string) ($appointment->client?->max_id ?? '');
+        if ($recipientId === '' || $clientMaxId === '' || $recipientId !== $clientMaxId) {
+            return;
+        }
+
+        try {
+            $deleted = $maxApi->deleteMessage($messageId);
+
+            if (! $deleted) {
+                Log::warning('Appointment notification: MAX source message delete failed', [
+                    'event_id' => $event->getKey(),
+                    'message_id' => $messageId,
+                ]);
+            }
+        } catch (\Throwable $e) {
+            Log::warning('Appointment notification: MAX source message delete exception', [
+                'event_id' => $event->getKey(),
+                'message_id' => $messageId,
                 'error' => $e->getMessage(),
             ]);
         }

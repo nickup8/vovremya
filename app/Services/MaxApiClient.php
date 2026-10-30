@@ -92,7 +92,7 @@ class MaxApiClient
 
             Log::info('[MAX] answerCallback', [
                 'status' => $response->status(),
-                'body'   => $response->body(),
+                'body' => $response->body(),
             ]);
 
             return $response->successful();
@@ -197,6 +197,41 @@ class MaxApiClient
             return $response->successful();
         } catch (\Throwable $e) {
             Log::error('[MAX] deleteKeyboard exception', ['error' => $e->getMessage()]);
+
+            return false;
+        }
+    }
+
+    /**
+     * Удалить сообщение бота (DELETE /messages?message_id=...).
+     * Контракт: https://dev.max.ru/docs-api/methods/DELETE/messages/
+     * Успех — HTTP 200 И success=true в JSON (200 может нести ошибку).
+     */
+    public function deleteMessage(string $messageId): bool
+    {
+        if (! $this->configured) {
+            return false;
+        }
+
+        try {
+            $response = Http::withoutVerifying()
+                ->withHeaders(['Authorization' => $this->token])
+                ->withQueryParameters(['message_id' => $messageId])
+                ->timeout(10)
+                ->delete(rtrim($this->apiUrl, '/').'/messages');
+
+            Log::info('[MAX] deleteMessage', [
+                'message_id' => $messageId,
+                'status' => $response->status(),
+                'body' => $response->body(),
+            ]);
+
+            return $response->successful() && $response->json('success') === true;
+        } catch (\Throwable $e) {
+            Log::error('[MAX] deleteMessage exception', [
+                'message_id' => $messageId,
+                'error' => $e->getMessage(),
+            ]);
 
             return false;
         }

@@ -291,7 +291,13 @@ class MaxWebhookHandler
 
         if (str_starts_with($data, 'max_confirm_')) {
             $appointmentId = substr($data, 12);
-            $this->confirmMaxBooking($userId, $callbackId, $appointmentId);
+            // Официальная структура Update (dev.max.ru/docs-api/objects/Update/):
+            // callback и message — соседние поля Update. mid исходного
+            // сообщения с кнопками читается из $payload['message'], не из
+            // callback. message может быть null (сообщение удалено) — тогда
+            // mid пустой, подтверждение без удаления.
+            $messageId = (string) ($payload['message']['body']['mid'] ?? '');
+            $this->confirmMaxBooking($userId, $callbackId, $appointmentId, $messageId);
 
             return;
         }
@@ -1095,7 +1101,7 @@ class MaxWebhookHandler
         $this->sendMessage($userId, $message, $attachments);
     }
 
-    private function confirmMaxBooking(string $userId, string $callbackId, string $appointmentId): void
+    private function confirmMaxBooking(string $userId, string $callbackId, string $appointmentId, string $sourceMessageId = ''): void
     {
         $appointment = Appointment::with(['master'])->find($appointmentId);
 
@@ -1120,7 +1126,7 @@ class MaxWebhookHandler
         $clientName = '';
 
         /** @var array{result: string} $state */
-        $state = DB::transaction(function () use ($appointmentId, $userId, &$phone, &$clientName) {
+        $state = DB::transaction(function () use ($appointmentId, $userId, $sourceMessageId, &$phone, &$clientName) {
             $fresh = Appointment::query()
                 ->whereKey($appointmentId)
                 ->lockForUpdate()
@@ -1209,15 +1215,22 @@ class MaxWebhookHandler
 
             // Outbox: подтверждение брони — в той же транзакции, что и
             // захват. answerCallback ниже только гасит callback; текст
-            // доставит job через общую дедупликацию.
+            // доставит job через общую дедупликацию. Message ID исходного
+            // сообщения с кнопками и получатель фиксируются в payload:
+            // job удалит только его после успешной доставки.
             $fresh->refresh();
             $fresh->loadMissing(['client', 'master', 'masterService.catalog']);
             $recorder = app(AppointmentNotificationRecorder::class);
             $version = $recorder->bumpVersion($fresh);
+            $payload = [];
+            if ($sourceMessageId !== '') {
+                $payload['max_source_message_id'] = $sourceMessageId;
+                $payload['max_source_recipient_id'] = $userId;
+            }
             $recorder->record(
                 $fresh,
                 AppointmentNotificationEventType::BookingConfirmed,
-                [],
+                $payload,
                 $version,
             );
 
