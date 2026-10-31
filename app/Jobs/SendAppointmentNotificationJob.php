@@ -48,6 +48,13 @@ use Illuminate\Support\Str;
  *   растёт каждым запросом разрешения), не затирается — строка остаётся
  *   pending, bounded retry очереди продолжает доставку без второго
  *   permission-запроса;
+ * - фиксация терминального отказа согласована с новым grant'ом: между
+ *   CAS запрета в catch901 и записью failed grant мог прийти при живом
+ *   claim'е (permission не переставляет pending с живым claim'ом) —
+ *   запись failed идёт под строковым lock'ом с перепроверкой версии
+ *   разрешения: выросшая версия оставляет строку pending, владение
+ *   освобождается, retry продолжает доставку после одного разрешения;
+ *   чужие claims и ограниченность повторов сохраняются;
  * - гонка granted=true с записью no_channel (retry не нашёл delivery-строк):
  *   после записи no_channel job сам перечитывает канал и продолжает
  *   доставку тем же проходом — повторный permission-запрос пользователя
@@ -62,6 +69,14 @@ use Illuminate\Support\Str;
  *   исходного канала освобождается, новое владение берётся для
  *   фактического канала; HTTP выполняется только под claim канала,
  *   который реально используется;
+ * - перед HTTP повторно проверяется именно используемый снимок
+ *   Appointment: после recordNoChannelAndRecheck снимок перезагружался
+ *   и мог отличаться от проверенного ранее (существование записи,
+ *   notification_version, payload.client_id, допустимость канала —
+ *   последняя перечитывается только для заменённого снимка), а
+ *   повторный claim() сверяет только состояние доставки; при
+ *   несоответствии — без отправки, со сносом своего владения
+ *   (superseded — для устаревшего/чужого/удалённого снимка);
  * - HTTP вне какой-либо DB-транзакции; null от API / исключение ≠ успех;
  * - success-write и release — CAS по (event, channel, pending, own token):
  *   поздний исполнитель не затирает чужое владение и не подтверждает
@@ -319,6 +334,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
             $step = 'route';
             $channelNow = app(AppointmentChannelResolver::class)->resolveForEvent($event, $fresh);
             $claimReleased = false;
+            $snapshotReplaced = false;
 
             if ($channelNow === null) {
                 $this->releaseClaimSafely($event, $channel, $claimToken, $step);
@@ -333,11 +349,13 @@ class SendAppointmentNotificationJob implements ShouldQueue
                     return 'stale';
                 }
 
-                $freshAfterRace = Appointment::with(['master', 'client'])->find($event->appointment_id);
-
-                if ($freshAfterRace !== null) {
-                    $fresh = $freshAfterRace;
-                }
+                // Снимок перезагружается ПОСЛЕ восстановления канала и
+                // заменяет ранее проверенный $fresh. Существование записи
+                // здесь может уже отсутствовать — старый снимок взамен не
+                // сохраняется; проверки идут по тому, что реально пойдёт
+                // в HTTP (ворота ниже).
+                $fresh = Appointment::with(['master', 'client'])->find($event->appointment_id);
+                $snapshotReplaced = true;
             }
 
             if ($claimReleased || $channelNow !== $channel) {
@@ -361,6 +379,43 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
                 $claimToken = $reclaim['token'];
                 $channel = $channelNow;
+            }
+
+            // Ворота перед HTTP: проверяется именно используемый снимок.
+            // Существование, eventIsStale и получатель не зависят от
+            // resolver'а — их можно сверить всегда. Допустимость канала
+            // перечитывается только для ЗАМЕНЁННОГО снимка (после
+            // recordNoChannelAndRecheck route резолвил старый): незаменённый
+            // снимок уже проверен на шаге route, а повторный resolve здесь
+            // съедал бы ответ sequence-resolver'а. Повторный claim() сверяет
+            // только состояние доставки — изменения между загрузками он не
+            // видит. При несоответствии — без отправки, со сносом своего
+            // владения.
+            $step = 'snapshot';
+
+            $payloadClientId = $event->payload['client_id'] ?? null;
+
+            if ($fresh === null
+                || $this->eventIsStale($event, $fresh)
+                || ($payloadClientId !== null
+                    && (string) $payloadClientId !== (string) $fresh->client_id)) {
+                $this->releaseClaimSafely($event, $channel, $claimToken, $step);
+                $this->markSuperseded($event);
+
+                return 'stale';
+            }
+
+            if ($snapshotReplaced
+                && app(AppointmentChannelResolver::class)->resolveForEvent($event, $fresh) !== $channel) {
+                // Канал недопустим для используемого снимка (например, ВК
+                // отозван между загрузками): владение освобождается без
+                // отправки. Терминал дорешает bounded retry штатным
+                // null-каналом handle() (recordNoChannelAndRecheck с
+                // проверкой гонки grant'а) — pending без claim'а и без
+                // job остался бы сиротой.
+                $this->releaseClaimSafely($event, $channel, $claimToken, $step);
+
+                return 'failed';
             }
 
             $appointment = $fresh;
@@ -435,11 +490,15 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
             // 901 терминален: сначала фиксируем failed ПОД своим claim'ом
             // (release до записи терминала терял строку), затем освобождение.
+            // Фиксация согласована с grant'ом, пришедшим между CAS запрета
+            // и этой записью: версия разрешения выросла — отказ не пишется,
+            // владение освобождается, retry продолжает доставку без
+            // второго permission-запроса.
             if ($claimToken !== null) {
-                $this->markFailed($event, $channel, 'vk_messages_not_allowed', $claimToken);
+                $this->markFailed($event, $channel, 'vk_messages_not_allowed', $claimToken, $vkPermissionVersion);
                 $this->releaseClaimSafely($event, $channel, $claimToken, 'vk_901');
             } else {
-                $this->markFailed($event, $channel, 'vk_messages_not_allowed');
+                $this->markFailed($event, $channel, 'vk_messages_not_allowed', null, $vkPermissionVersion);
             }
 
             // Терминально: 901 — клиент запретил сообщения сообщества.
@@ -817,12 +876,18 @@ class SendAppointmentNotificationJob implements ShouldQueue
             }
 
             // CAS: переводим только свою/бесхозную pending-строку.
+            // Освобождённая строка (claim_token null) сравнивается только
+            // через is null: (string)null даёт '', который pgsql отвергает
+            // для uuid-колонки ещё на бинде параметра.
             AppointmentNotificationDelivery::query()
                 ->whereKey($row->getKey())
                 ->where('status', AppointmentNotificationDelivery::STATUS_PENDING)
                 ->where(function ($query) use ($row) {
-                    $query->whereNull('claim_token')
-                        ->orWhere('claim_token', (string) $row->claim_token);
+                    $query->whereNull('claim_token');
+
+                    if ($row->claim_token !== null) {
+                        $query->orWhere('claim_token', (string) $row->claim_token);
+                    }
                 })
                 ->update([
                     'status' => AppointmentNotificationDelivery::STATUS_SUPERSEDED,
@@ -939,19 +1004,49 @@ class SendAppointmentNotificationJob implements ShouldQueue
      * создаёт строку, если её не было; обновляет только pending без чужого
      * живого владения — поздний исполнитель не затирает чужой claim и не
      * переписывает подтверждённый успех.
+     *
+     * $permissionVersionSnapshot (снимок vk_permission_version до HTTP)
+     * согласовывает фиксацию отказа с grant'ом: granted=true мог прийти
+     * между CAS запрета в catch901 и этой записью, пока claim жив —
+     * permission не переставляет pending с живым claim'ом, и запись
+     * failed потеряла бы разрешение (очередной запуск увидел бы
+     * разрешённый ВК, но claim() вернул бы завершённый исход без
+     * отправки). Проверка версии идёт ПОД строковым lock'ом строки
+     * доставки: grant, пришедший раньше, уже виден — терминал не
+     * пишется; пришедший позже — увидит записанное failed и сбросит
+     * его через CAS failed→pending + dispatch.
      */
     private function markFailed(
         AppointmentNotificationEvent $event,
         string $channel,
         string $reason,
         ?string $claimToken = null,
+        ?int $permissionVersionSnapshot = null,
     ): void {
-        DB::transaction(function () use ($event, $channel, $reason, $claimToken): void {
+        DB::transaction(function () use ($event, $channel, $reason, $claimToken, $permissionVersionSnapshot): void {
             $row = AppointmentNotificationDelivery::query()
                 ->where('appointment_notification_event_id', $event->getKey())
                 ->where('channel', $channel)
                 ->lockForUpdate()
                 ->first();
+
+            if ($permissionVersionSnapshot !== null) {
+                $clientKey = Appointment::query()
+                    ->whereKey($event->appointment_id)
+                    ->value('client_id');
+
+                $currentVersion = $clientKey === null
+                    ? null
+                    : Client::query()->whereKey($clientKey)->value('vk_permission_version');
+
+                if ($currentVersion !== null
+                    && (int) $currentVersion !== $permissionVersionSnapshot) {
+                    // Новый grant: отказ не фиксируем — строка остаётся
+                    // pending, владение освобождает catch901, bounded
+                    // retry продолжает доставку после одного разрешения.
+                    return;
+                }
+            }
 
             if ($row === null) {
                 AppointmentNotificationDelivery::create([

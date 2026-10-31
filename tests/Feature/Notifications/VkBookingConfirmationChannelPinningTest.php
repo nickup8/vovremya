@@ -23,6 +23,7 @@ use App\Services\VkApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Queue;
 use Illuminate\Support\Str;
 use Tests\TestCase;
@@ -912,6 +913,337 @@ class VkBookingConfirmationChannelPinningTest extends TestCase
             Queue::pushed(SendAppointmentNotificationJob::class)->first(),
             $maxApi,
             $vkApi3,
+        );
+    }
+
+    public function test_grant_between_901_cas_and_terminal_write_continues_delivery(): void
+    {
+        $client = $this->client(['vk_messages_allowed' => null]);
+        [$appointment, $event] = $this->vkConfirmedByVkEntry($client);
+
+        // Один permission-запрос ровно после CAS-записи false в catch901 и
+        // до markFailed: слушаем саму CAS (update clients по версии
+        // разрешения) и вставляем granted=true синхронно, пока job ещё в
+        // catch — permission видит pending с живым claim'ом и ничего не
+        // переставляет.
+        $grantedAfterCas = false;
+        DB::listen(function ($query) use (&$grantedAfterCas, $appointment) {
+            if ($grantedAfterCas) {
+                return;
+            }
+
+            if (! str_starts_with(strtolower(ltrim($query->sql)), 'update')
+                || ! str_contains($query->sql, 'clients')
+                || ! str_contains($query->sql, 'vk_permission_version')) {
+                return;
+            }
+
+            $grantedAfterCas = true;
+
+            $this->withHeaders($this->vkAuthHeaders('494075'))
+                ->postJson('/api/miniapp/vk-permission', [
+                    'appointment_id' => $appointment->id,
+                    'granted' => true,
+                ])
+                ->assertOk();
+        });
+
+        $vkApi = $this->mock(VkApiClient::class);
+        $vkApi->shouldReceive('sendMessageWithKeyboard')
+            ->once()
+            ->andThrow(new VkMessagesNotAllowedException);
+
+        try {
+            $this->runJob(
+                Queue::pushed(SendAppointmentNotificationJob::class)->first(),
+                null,
+                $vkApi,
+            );
+            $this->fail('Expected RuntimeException after 901');
+        } catch (\RuntimeException) {
+            // handle() завершает попытку исключением — bounded retry очереди
+        }
+
+        $this->assertTrue($grantedAfterCas, 'granted=true должен встать после CAS и до markFailed');
+        $this->assertTrue($client->fresh()->vk_messages_allowed);
+
+        // Grant пришёл при живом claim'е между CAS запрета и фиксацией
+        // терминала: отказ НЕ записан, владение освобождено — строка ждёт
+        // продолжения, а не терминального failed.
+        $vkRow = $this->delivery($event, 'vk');
+        $this->assertSame(AppointmentNotificationDelivery::STATUS_PENDING, $vkRow?->status);
+        $this->assertNull($vkRow?->claim_token);
+        $this->assertNull($vkRow?->failure_reason);
+        $this->assertNull($vkRow?->lease_expires_at);
+
+        // Продолжение — автоматически, bounded retry того же job: без
+        // второго permission-запроса и без компенсирующего dispatch'а.
+        $this->assertSame(
+            1,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Retry не создаёт второй dispatch',
+        );
+
+        $vkApi2 = $this->mock(VkApiClient::class);
+        $vkApi2->shouldReceive('sendMessageWithKeyboard')
+            ->once()
+            ->with('494075', \Mockery::type('string'), \Mockery::type('array'))
+            ->andReturn('msg-grant-after-cas');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
+        $this->runJob(
+            Queue::pushed(SendAppointmentNotificationJob::class)->first(),
+            $maxApi,
+            $vkApi2,
+        );
+
+        // Одна ВК-доставка автоматическим продолжением; MAX не тронут.
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_DELIVERED,
+            $this->delivery($event, 'vk')?->status,
+        );
+        $this->assertNotSame(
+            AppointmentNotificationDelivery::STATUS_DELIVERED,
+            $this->delivery($event, 'max')?->status,
+        );
+        $this->assertSame(
+            1,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Ни второго permission, ни второго dispatch',
+        );
+    }
+
+    // ── 4в. Снимок после recordNoChannelAndRecheck: ворота перед HTTP ──
+
+    public function test_client_changed_between_race_snapshots_is_not_sent_to_new_client(): void
+    {
+        $client = $this->client(['vk_messages_allowed' => null]);
+        [$appointment, $event] = $this->vkConfirmedByVkEntry($client);
+        $newClient = $this->client(['vk_id' => '555', 'max_id' => 'max-other']);
+
+        // Ветка re-route → null → восстановление: отозванное разрешение
+        // гасит route-канал, granted=true внутри записи no_channel
+        // восстанавливает его; между двумя снимками Appointment меняется
+        // получатель.
+        $revoked = false;
+        $recovered = false;
+
+        AppointmentNotificationDelivery::creating(function ($row) use (&$revoked, &$recovered, $client, $appointment, $newClient) {
+            if (! $revoked && $row->channel === 'vk') {
+                // Claim только что создан: отзыв между handle-resolve и route.
+                $revoked = true;
+                $client->update(['vk_messages_allowed' => false]);
+
+                return;
+            }
+
+            if ($revoked && ! $recovered && $row->channel === 'max') {
+                $recovered = true;
+
+                // Единственный permission-запрос — внутри окна записи
+                // no_channel, без второго запроса и dispatch'а.
+                $this->withHeaders($this->vkAuthHeaders('494075'))
+                    ->postJson('/api/miniapp/vk-permission', [
+                        'appointment_id' => $appointment->id,
+                        'granted' => true,
+                    ])
+                    ->assertOk();
+
+                // Смена клиента МЕЖДУ двумя загрузками снимка: первая —
+                // до route, вторая — после recordNoChannelAndRecheck.
+                $appointment->update(['client_id' => $newClient->id]);
+            }
+        });
+
+        $vkApi = $this->mock(VkApiClient::class);
+        $vkApi->shouldNotReceive('sendMessage');
+        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
+
+        $this->runJob(
+            Queue::pushed(SendAppointmentNotificationJob::class)->first(),
+            $maxApi,
+            $vkApi,
+        );
+
+        $this->assertTrue($revoked, 'Отзыв должен встать до route-проверки');
+        $this->assertTrue($recovered, 'Гонка восстановления канала должна состояться');
+        $this->assertSame($newClient->id, $appointment->fresh()->client_id);
+
+        // Старый текст новому клиенту не отправлен: снимок переведён в
+        // superseded, без HTTP в оба канала и без второго dispatch'а.
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_SUPERSEDED,
+            $this->delivery($event, 'vk')?->status,
+        );
+        $this->assertNotSame(
+            AppointmentNotificationDelivery::STATUS_DELIVERED,
+            $this->delivery($event, 'max')?->status,
+        );
+        $this->assertSame(
+            1,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Ни второго permission, ни второго dispatch',
+        );
+    }
+
+    public function test_version_changed_between_race_snapshots_is_not_delivered(): void
+    {
+        $client = $this->client(['vk_messages_allowed' => null]);
+        [$appointment, $event] = $this->vkConfirmedByVkEntry($client);
+
+        $revoked = false;
+        $recovered = false;
+
+        AppointmentNotificationDelivery::creating(function ($row) use (&$revoked, &$recovered, $client, $appointment) {
+            if (! $revoked && $row->channel === 'vk') {
+                $revoked = true;
+                $client->update(['vk_messages_allowed' => false]);
+
+                return;
+            }
+
+            if ($revoked && ! $recovered && $row->channel === 'max') {
+                $recovered = true;
+
+                $this->withHeaders($this->vkAuthHeaders('494075'))
+                    ->postJson('/api/miniapp/vk-permission', [
+                        'appointment_id' => $appointment->id,
+                        'granted' => true,
+                    ])
+                    ->assertOk();
+
+                // Версия записи уходит вперёд МЕЖДУ двумя снимками:
+                // событие для нового снимка устарело (eventIsStale).
+                app(AppointmentNotificationRecorder::class)->bumpVersion($appointment);
+            }
+        });
+
+        $vkApi = $this->mock(VkApiClient::class);
+        $vkApi->shouldNotReceive('sendMessage');
+        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
+
+        $this->runJob(
+            Queue::pushed(SendAppointmentNotificationJob::class)->first(),
+            $maxApi,
+            $vkApi,
+        );
+
+        $this->assertTrue($revoked, 'Отзыв должен встать до route-проверки');
+        $this->assertTrue($recovered, 'Гонка восстановления канала должна состояться');
+
+        // Устаревший текст не отправлен: superseded, без HTTP и без
+        // второго dispatch'а.
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_SUPERSEDED,
+            $this->delivery($event, 'vk')?->status,
+        );
+        $this->assertNotSame(
+            AppointmentNotificationDelivery::STATUS_DELIVERED,
+            $this->delivery($event, 'max')?->status,
+        );
+        $this->assertSame(
+            1,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Ни второго permission, ни второго dispatch',
+        );
+    }
+
+    public function test_appointment_deleted_between_race_snapshots_sends_no_http(): void
+    {
+        $client = $this->client(['vk_messages_allowed' => null]);
+        [$appointment, $event] = $this->vkConfirmedByVkEntry($client);
+
+        $revoked = false;
+        $granted = false;
+        $deleted = false;
+
+        AppointmentNotificationDelivery::creating(function ($row) use (&$revoked, &$granted, $client, $appointment) {
+            if (! $revoked && $row->channel === 'vk') {
+                $revoked = true;
+                $client->update(['vk_messages_allowed' => false]);
+
+                return;
+            }
+
+            if ($revoked && ! $granted && $row->channel === 'max') {
+                $this->withHeaders($this->vkAuthHeaders('494075'))
+                    ->postJson('/api/miniapp/vk-permission', [
+                        'appointment_id' => $appointment->id,
+                        'granted' => true,
+                    ])
+                    ->assertOk();
+                $granted = true;
+            }
+        });
+
+        // Удаление записи между снимками: после восстановления канала
+        // (CAS no_channel→pending в recordNoChannelAndRecheck — последний
+        // запрос перед возвратом канала) и до повторной загрузки
+        // Appointment в deliver(). Ловим именно этот CAS по направлению
+        // SET pending / WHERE no_channel.
+        DB::listen(function ($query) use (&$granted, &$deleted, $appointment) {
+            if (! $granted || $deleted) {
+                return;
+            }
+
+            $sql = ltrim($query->sql);
+
+            if (! str_starts_with(strtolower($sql), 'update')
+                || ! str_contains($sql, 'appointment_notification_deliveries')) {
+                return;
+            }
+
+            $setPos = stripos($sql, ' set ');
+            $wherePos = stripos($sql, ' where ');
+            if ($setPos === false || $wherePos === false || $wherePos < $setPos) {
+                return;
+            }
+
+            $setBindings = array_slice(
+                $query->bindings,
+                0,
+                substr_count(substr($sql, $setPos, $wherePos - $setPos), '?'),
+            );
+
+            if (! in_array(AppointmentNotificationDelivery::STATUS_PENDING, $setBindings, true)) {
+                return;
+            }
+
+            $whereBindings = array_slice($query->bindings, count($setBindings));
+
+            if (! in_array(AppointmentNotificationDelivery::STATUS_NO_CHANNEL, $whereBindings, true)) {
+                return;
+            }
+
+            $deleted = true;
+            $appointment->delete();
+        });
+
+        $vkApi = $this->mock(VkApiClient::class);
+        $vkApi->shouldNotReceive('sendMessage');
+        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
+
+        $this->runJob(
+            Queue::pushed(SendAppointmentNotificationJob::class)->first(),
+            $maxApi,
+            $vkApi,
+        );
+
+        $this->assertTrue($revoked, 'Отзыв должен встать до route-проверки');
+        $this->assertTrue($granted, 'Гонка восстановления канала должна состояться');
+        $this->assertTrue($deleted, 'Удаление должно встать между двумя снимками');
+
+        // Запись удалена: HTTP не выполняется, второй dispatch не рождается.
+        $this->assertSame(
+            1,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Ни второго permission, ни второго dispatch',
         );
     }
 
