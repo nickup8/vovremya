@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from 'react';
-import { getVkGroupId, getVkLinkToken, requestVkMessagePermission, requestVkPhoneNumber, requestVkUserInfo } from './lib/vkBridge';
-import { cancelVkBooking, confirmVkBooking, getVkConsentStatus, linkVkClient, postVkPermission, submitVkConsent, VkConsentStatus } from './lib/api';
+import { getVkGroupId, requestVkMessagePermission, requestVkPhoneNumber, requestVkUserInfo } from './lib/vkBridge';
+import type { VkConsentStatus } from './lib/api';
+import { cancelVkBooking, confirmVkBooking, getVkConsentStatus, linkVkClient, postVkPermission, submitVkConsent } from './lib/api';
 
 type Phase = 'consent-not-checked' | 'consent-required' | 'phone-confirm' | 'confirmation' | 'loading' | 'status-error' | 'error' | 'allow-messages' | 'cancelled' | 'permission-granted' | 'permission-denied';
 
@@ -29,29 +30,31 @@ function FlowIcon({ variant, children }: { variant: 'orange' | 'neutral'; childr
 
 function formatPrice(value: number | string): string {
     const num = Number(value);
+
     if (Number.isFinite(num)) {
         return num.toLocaleString('ru-RU') + ' ₽';
     }
+
     return value + ' ₽';
 }
 
-export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
+export function LinkOnboarding({ token, onLinked }: { token: string; onLinked: (finishedToken: string) => void }) {
     const [phase, setPhase] = useState<Phase>('consent-not-checked');
     const [error, setError] = useState<string | null>(null);
     const [permissionLoading, setPermissionLoading] = useState(false);
     const [statusData, setStatusData] = useState<VkConsentStatus | null>(null);
 
     useEffect(() => {
-        const token = getVkLinkToken();
-        if (!token) {
-            setError('Ссылка для привязки недействительна');
-            setPhase('error');
-            return;
-        }
+        let cancelled = false;
 
         getVkConsentStatus(token)
             .then((res) => {
+                if (cancelled) {
+return;
+}
+
                 setStatusData(res);
+
                 if (res.consent_required) {
                     setPhase('consent-required');
                 } else if (res.phone_required) {
@@ -61,21 +64,31 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                 }
             })
             .catch(() => {
+                if (cancelled) {
+return;
+}
+
                 setError('Не удалось проверить статус согласия');
                 setPhase('status-error');
             });
-    }, []);
+
+        return () => {
+            cancelled = true;
+        };
+    }, [token]);
 
     const handleAllowMessages = useCallback(async (groupId: number) => {
         setPermissionLoading(true);
         const granted = await requestVkMessagePermission(groupId);
+
         if (statusData?.appointment_id) {
             await postVkPermission(statusData.appointment_id, granted);
         }
+
         setPhase(granted ? 'permission-granted' : 'permission-denied');
     }, [statusData]);
 
-    const finishLink = useCallback(async (token: string) => {
+    const finishLink = useCallback(async (linkToken: string) => {
         const phone = await requestVkPhoneNumber();
 
         const profile = await requestVkUserInfo();
@@ -83,24 +96,18 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             ? { vk_profile_id: profile.id, first_name: profile.first_name, last_name: profile.last_name }
             : undefined;
 
-        await linkVkClient(token, phone.phone_number, phone.sign, profileData);
+        await linkVkClient(linkToken, phone.phone_number, phone.sign, profileData);
 
         const groupId = getVkGroupId();
+
         if (groupId !== null) {
             setPhase('allow-messages');
         } else {
-            onLinked();
+            onLinked(linkToken);
         }
     }, [onLinked]);
 
     const handleConsent = useCallback(async () => {
-        const token = getVkLinkToken();
-        if (!token) {
-            setError('Ссылка для привязки недействительна');
-            setPhase('error');
-            return;
-        }
-
         setPhase('loading');
         setError(null);
 
@@ -114,6 +121,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             }
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'link_failed';
+
             if (msg === 'consent_failed') {
                 setError('Не удалось подтвердить согласие. Попробуйте ещё раз');
             } else if (msg === 'invalid_token' || msg === 'token_consumed') {
@@ -123,18 +131,12 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             } else {
                 setError('Не удалось привязать аккаунт');
             }
+
             setPhase('error');
         }
-    }, [finishLink, statusData]);
+    }, [finishLink, statusData, token]);
 
     const handlePhoneConfirm = useCallback(async () => {
-        const token = getVkLinkToken();
-        if (!token) {
-            setError('Ссылка для привязки недействительна');
-            setPhase('error');
-            return;
-        }
-
         setPhase('loading');
         setError(null);
 
@@ -142,6 +144,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             await finishLink(token);
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'link_failed';
+
             if (msg === 'invalid_token' || msg === 'token_consumed') {
                 setError('Ссылка для привязки истекла или уже использована');
             } else if (msg === 'invalid_phone_sign') {
@@ -149,18 +152,12 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             } else {
                 setError('Не удалось привязать аккаунт');
             }
+
             setPhase('error');
         }
-    }, [finishLink]);
+    }, [finishLink, token]);
 
     const handleConfirm = useCallback(async () => {
-        const token = getVkLinkToken();
-        if (!token) {
-            setError('Ссылка для привязки недействительна');
-            setPhase('error');
-            return;
-        }
-
         setPhase('loading');
         setError(null);
 
@@ -168,13 +165,15 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             await confirmVkBooking(token);
 
             const groupId = getVkGroupId();
+
             if (groupId !== null) {
                 setPhase('allow-messages');
             } else {
-                onLinked();
+                onLinked(token);
             }
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'confirm_failed';
+
             if (msg === 'invalid_token' || msg === 'token_consumed') {
                 setError('Ссылка для привязки истекла или уже использована');
             } else if (msg === 'pdn_consent_required') {
@@ -184,18 +183,12 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             } else {
                 setError('Не удалось подтвердить запись');
             }
+
             setPhase('error');
         }
-    }, [onLinked]);
+    }, [onLinked, token]);
 
     const handleCancel = useCallback(async () => {
-        const token = getVkLinkToken();
-        if (!token) {
-            setError('Ссылка для привязки недействительна');
-            setPhase('error');
-            return;
-        }
-
         setPhase('loading');
         setError(null);
 
@@ -204,14 +197,16 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
             setPhase('cancelled');
         } catch (e) {
             const msg = e instanceof Error ? e.message : 'cancel_failed';
+
             if (msg === 'invalid_token' || msg === 'token_consumed') {
                 setError('Ссылка для привязки истекла или уже использована');
             } else {
                 setError('Не удалось отменить запись');
             }
+
             setPhase('error');
         }
-    }, []);
+    }, [token]);
 
     // ── Loading: consent not checked ──
 
@@ -298,7 +293,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                 <div className="vk-flow-title">Запись подтверждена</div>
                 <div className="vk-flow-copy">Напоминания в VK включены</div>
                 <div className="vk-flow-actions">
-                    <button type="button" className="vk-primary-btn" onClick={onLinked}>
+                    <button type="button" className="vk-primary-btn" onClick={() => onLinked(token)}>
                         Готово
                     </button>
                 </div>
@@ -320,7 +315,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                 <div className="vk-flow-title">Запись подтверждена</div>
                 <div className="vk-flow-copy">Напоминания в VK не включены</div>
                 <div className="vk-flow-actions">
-                    <button type="button" className="vk-primary-btn" onClick={onLinked}>
+                    <button type="button" className="vk-primary-btn" onClick={() => onLinked(token)}>
                         Готово
                     </button>
                 </div>
@@ -332,6 +327,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
 
     if (phase === 'allow-messages') {
         const groupId = getVkGroupId()!;
+
         return (
             <FlowLayout>
                 <FlowIcon variant="orange">
@@ -358,6 +354,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
                             if (statusData?.appointment_id) {
                                 await postVkPermission(statusData.appointment_id, false);
                             }
+
                             setPhase('permission-denied');
                         }}
                     >
@@ -372,6 +369,7 @@ export function LinkOnboarding({ onLinked }: { onLinked: () => void }) {
 
     if (phase === 'confirmation' && statusData) {
         const appt = statusData.appointment;
+
         return (
             <FlowLayout>
                 <FlowIcon variant="orange">

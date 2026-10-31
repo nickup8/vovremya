@@ -5,10 +5,17 @@ import { vkPlatform } from '@/vk-app/lib/vkPlatform';
 import { App } from '@/vk-app/App';
 
 const mockSend = vi.fn().mockResolvedValue({ result: true });
+const bridgeListeners = new Set<(event: unknown) => void>();
 
 vi.mock('@vkontakte/vk-bridge', () => ({
     default: {
         send: (...args: unknown[]) => mockSend(...args),
+        subscribe: (fn: (event: unknown) => void) => {
+            bridgeListeners.add(fn);
+        },
+        unsubscribe: (fn: (event: unknown) => void) => {
+            bridgeListeners.delete(fn);
+        },
     },
 }));
 
@@ -1035,7 +1042,9 @@ describe('App routing', () => {
         setHash('#link_vk_test_token');
 
         let resolveConfirm!: (v: unknown) => void;
-        const confirmPromise = new Promise((r) => { resolveConfirm = r; });
+        const confirmPromise = new Promise((r) => {
+ resolveConfirm = r; 
+});
 
         const mockFetch = vi.fn()
             .mockResolvedValueOnce({
@@ -1068,7 +1077,9 @@ describe('App routing', () => {
         setHash('#link_vk_test_token');
 
         let resolveConsent!: (v: unknown) => void;
-        const consentPromise = new Promise((r) => { resolveConsent = r; });
+        const consentPromise = new Promise((r) => {
+ resolveConsent = r; 
+});
 
         const mockFetch = vi.fn()
             .mockResolvedValueOnce({
