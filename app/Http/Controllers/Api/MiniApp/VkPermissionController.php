@@ -8,10 +8,12 @@ use App\Jobs\SendAppointmentNotificationJob;
 use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
 use App\Models\AppointmentNotificationEvent;
+use App\Models\Client;
 use App\Services\MiniAppClientResolver;
 use App\Services\Notification\AppointmentChannelResolver;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 
 class VkPermissionController extends Controller
 {
@@ -47,9 +49,17 @@ class VkPermissionController extends Controller
         $granted = $request->boolean('granted');
 
         if ($granted) {
-            if ($client->vk_messages_allowed !== true) {
-                $client->update(['vk_messages_allowed' => true]);
-            }
+            // Каждый granted=true — новый акт разрешения: версия растёт даже
+            // при уже сохранённом true. Job сверяет версию до HTTP с CAS 901:
+            // так новое разрешение отличимо от старого (сравнение одного
+            // boolean недостаточно — grant может прийти при уже true).
+            Client::query()
+                ->whereKey($client->getKey())
+                ->update([
+                    'vk_messages_allowed' => true,
+                    'vk_permission_version' => DB::raw('vk_permission_version + 1'),
+                ]);
+            $client->refresh();
 
             // Повтор granted=true обязан восстанавливать недоставленное
             // подтверждение, даже если разрешение уже true: при пересечении

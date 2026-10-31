@@ -413,8 +413,9 @@ class NotificationDeliveryLifecycleTest extends TestCase
     {
         $this->client->update(['max_id' => null]);
         // Без параллельного grant'а (null → false): CAS-правило 901 пишет
-        // запрет. Поздний 901 поверх уже сохранённого granted=true покрыт
-        // VkBookingConfirmationChannelPinningTest::test_late_901_*.
+        // запрет. Поздний 901 поверх grant'а, пришедшего во время HTTP,
+        // покрыт VkBookingConfirmationChannelPinningTest::
+        // test_grant_during_http_survives_late_901_and_retry_continues.
         $this->client->update(['vk_messages_allowed' => null]);
         $appointment = $this->appointment();
         $event = $this->eventWithAppointment($appointment);

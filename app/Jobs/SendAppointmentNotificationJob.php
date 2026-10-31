@@ -41,10 +41,17 @@ use Illuminate\Support\Str;
  *   отправки в ВК или MAX, null — допустима ВК-попытка, после 901
  *   повторные запуски не уходят в MAX; общий fallback прочих событий
  *   resolver'а не меняется;
- * - 901 пишет vk_messages_allowed=false по CAS (не поверх более нового
- *   granted=true, пришедшего во время HTTP); восстановление после такой
- *   гонки — повторный granted=true, который находит failed/no_channel
- *   строки и переставляет job той же идентичности события;
+ * - 901 пишет vk_messages_allowed=false по CAS версии разрешения
+ *   (vk_permission_version, снимок до HTTP): прежнее true, отозванное
+ *   пользователем на стороне ВК, корректно снимается; granted=true,
+ *   пришедший во время HTTP (в т.ч. при уже сохранённом true — версия
+ *   растёт каждым запросом разрешения), не затирается — строка остаётся
+ *   pending, bounded retry очереди продолжает доставку без второго
+ *   permission-запроса;
+ * - гонка granted=true с записью no_channel (retry не нашёл delivery-строк):
+ *   после записи no_channel job сам перечитывает канал и продолжает
+ *   доставку тем же проходом — повторный permission-запрос пользователя
+ *   не является механизмом восстановления;
  * - получатель зафиксирован в payload['client_id'] при записи события:
  *   смена клиента записи переводит событие в superseded, старый снимок
  *   не уходит новому клиенту;
@@ -156,9 +163,14 @@ class SendAppointmentNotificationJob implements ShouldQueue
         $channel = $resolver->resolveForEvent($event, $appointment);
 
         if ($channel === null) {
-            $this->recordNoChannel($event);
+            // Гонка granted=true с записью no_channel: разрешение,
+            // пришедшее между resolve и записью (retry не нашёл строк),
+            // продолжает доставку тем же проходом.
+            $channel = $this->recordNoChannelAndRecheck($event);
 
-            return;
+            if ($channel === null) {
+                return;
+            }
         }
 
         $text = (string) ($event->payload['text'] ?? '');
@@ -266,6 +278,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
         VkApiClient $vkApi,
     ): string {
         $claimToken = null;
+        $vkPermissionVersion = null;
         $step = 'claim';
 
         try {
@@ -305,19 +318,36 @@ class SendAppointmentNotificationJob implements ShouldQueue
             // Для ВК-пиннинга (vk_only) перечитывание не даёт MAX.
             $step = 'route';
             $channelNow = app(AppointmentChannelResolver::class)->resolveForEvent($event, $fresh);
+            $claimReleased = false;
 
             if ($channelNow === null) {
                 $this->releaseClaimSafely($event, $channel, $claimToken, $step);
-                $this->recordNoChannel($event);
+                $claimReleased = true;
 
-                return 'stale';
+                // Гонка granted=true с записью no_channel: разрешение,
+                // пришедшее между выбором null-канала и записью,
+                // продолжает доставку — владение берётся заново.
+                $channelNow = $this->recordNoChannelAndRecheck($event);
+
+                if ($channelNow === null) {
+                    return 'stale';
+                }
+
+                $freshAfterRace = Appointment::with(['master', 'client'])->find($event->appointment_id);
+
+                if ($freshAfterRace !== null) {
+                    $fresh = $freshAfterRace;
+                }
             }
 
-            if ($channelNow !== $channel) {
-                // Маршрут сменился: освобождаем ТОЛЬКО своё владение
+            if ($claimReleased || $channelNow !== $channel) {
+                // Маршрут сменился (или владение освобождено перед
+                // записью no_channel): освобождаем ТОЛЬКО своё владение
                 // исходного канала и корректно берём claim нового. HTTP
                 // выполняется исключительно под claim фактического канала.
-                $this->releaseClaimSafely($event, $channel, $claimToken, $step);
+                if (! $claimReleased) {
+                    $this->releaseClaimSafely($event, $channel, $claimToken, $step);
+                }
 
                 $reclaim = $this->claim($event, $channelNow);
 
@@ -334,6 +364,14 @@ class SendAppointmentNotificationJob implements ShouldQueue
             }
 
             $appointment = $fresh;
+
+            // Снимок версии разрешения ВК до HTTP: по нему поздний 901
+            // отличает «отзыв без нового grant'а» (запрет фиксируется) от
+            // «grant пришёл во время запроса» (901 устарел, grant живёт).
+            if ($channel === AppointmentChannelResolver::CHANNEL_VK
+                && $appointment->client !== null) {
+                $vkPermissionVersion = (int) $appointment->client->vk_permission_version;
+            }
 
             $step = 'send';
             $providerMessageId = $this->httpSend($channel, $appointment, $text, $event, $maxApi, $vkApi);
@@ -368,18 +406,31 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
             return 'delivered';
         } catch (VkMessagesNotAllowedException) {
-            // CAS: поздний 901 от запроса, начатого до granted=true, не
-            // затирает более новое разрешение — false пишется только пока
-            // разрешение не подтверждено. Запрос, стартовавший до grant'а,
-            // мог получить 901 по устаревшему состоянию ВК.
-            if ($appointment->client !== null) {
-                Client::query()
+            // CAS по версии разрешения: 901 пишет запрет только если с
+            // момента снимка (до HTTP) не пришло новое granted=true.
+            // Прежнее true, отозванное на стороне ВК, снимается; grant,
+            // пришедший во время запроса (в т.ч. при уже сохранённом true),
+            // не затирается — одного boolean недостаточно.
+            $grantRaced = true;
+
+            if ($appointment->client !== null && $vkPermissionVersion !== null) {
+                $revoked = Client::query()
                     ->whereKey($appointment->client->getKey())
-                    ->where(function ($query) {
-                        $query->whereNull('vk_messages_allowed')
-                            ->orWhere('vk_messages_allowed', false);
-                    })
+                    ->where('vk_permission_version', $vkPermissionVersion)
                     ->update(['vk_messages_allowed' => false]);
+
+                $grantRaced = $revoked === 0;
+            }
+
+            if ($grantRaced) {
+                // Новое разрешение пришло во время HTTP: 901 устарел.
+                // Строка остаётся pending без claim'а — bounded retry
+                // очереди продолжает доставку без второго permission.
+                if ($claimToken !== null) {
+                    $this->releaseClaimSafely($event, $channel, $claimToken, 'vk_901_grant_raced');
+                }
+
+                return 'failed';
             }
 
             // 901 терминален: сначала фиксируем failed ПОД своим claim'ом
@@ -834,6 +885,53 @@ class SendAppointmentNotificationJob implements ShouldQueue
         }
 
         $this->broadcastUpdated($event);
+    }
+
+    /**
+     * Запись no_channel с проверкой гонки granted=true: разрешение,
+     * пришедшее между выбором null-канала и этой записью (retry не нашёл
+     * delivery-строк), продолжает доставку — возвращается канал
+     * продолжения, null — гонки не было. Применяется только к
+     * vk_only-подтверждению (R01); прочие события не меняются.
+     */
+    private function recordNoChannelAndRecheck(
+        AppointmentNotificationEvent $event,
+    ): ?string {
+        $this->recordNoChannel($event);
+
+        if ($event->event_type !== AppointmentNotificationEventType::BookingConfirmed
+            || ($event->payload[AppointmentChannelResolver::PAYLOAD_VK_ONLY] ?? false) !== true) {
+            return null;
+        }
+
+        $fresh = Appointment::with('client')->find($event->appointment_id);
+
+        if ($fresh === null) {
+            return null;
+        }
+
+        $channel = app(AppointmentChannelResolver::class)->resolveForEvent($event, $fresh);
+
+        if ($channel === null) {
+            return null;
+        }
+
+        // Только что записанные no_channel-строки возвращаются в pending.
+        // Чужого живого claim'а быть не может: владение не устанавливается
+        // на no_channel, а запись сделана этим же проходом. Если
+        // параллельный retry уже сбросил строку — CAS не найдёт
+        // no_channel и продолжение не помешает claim'у.
+        AppointmentNotificationDelivery::query()
+            ->where('appointment_notification_event_id', $event->getKey())
+            ->where('channel', $channel)
+            ->where('status', AppointmentNotificationDelivery::STATUS_NO_CHANNEL)
+            ->update([
+                'status' => AppointmentNotificationDelivery::STATUS_PENDING,
+                'failure_reason' => null,
+                'failed_at' => null,
+            ]);
+
+        return $channel;
     }
 
     /**

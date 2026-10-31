@@ -20,6 +20,7 @@ use Illuminate\Support\Str;
  * @property string|null $max_id
  * @property string|null $vk_id
  * @property bool|null $vk_messages_allowed
+ * @property int $vk_permission_version
  * @property string|null $workspace_id
  * @property string|null $avatar_url
  * @property string|null $avatar_disk
@@ -40,6 +41,7 @@ class Client extends Authenticatable
         'vk_id',
         'vk_chat_id',
         'vk_messages_allowed',
+        'vk_permission_version',
         'name',
         'avatar_url',
         'auth_token',
