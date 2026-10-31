@@ -9,6 +9,7 @@ import type { ReactNode } from 'react';
 import Sidebar from '@/components/admin/Sidebar';
 import { Toaster } from '@/components/ui/sonner';
 import { useAppearance } from '@/hooks/use-appearance';
+import { useTodaySummary } from '@/hooks/useTodaySummary';
 
 const SIDEBAR_COLLAPSED_KEY = 'vovremya-sidebar-collapsed';
 const LG_BREAKPOINT = 1024;
@@ -62,13 +63,16 @@ interface AdminLayoutProps {
     title: string;
     auth?: { user?: Record<string, unknown> };
     headerActions?: ReactNode;
-    todayCount?: number | null;
+    /** Показывать счётчик «Сегодня · N записей …» (N01, независимый источник). */
+    showTodaySummary?: boolean;
+    /** Таймзона мастера для определения «сегодня». */
+    timezone?: string;
     fullBleed?: boolean;
     hideNewAppointment?: boolean;
     onNewAppointment?: () => void;
 }
 
-export default function AdminLayout({ children, title, auth, headerActions, todayCount, fullBleed, hideNewAppointment, onNewAppointment }: AdminLayoutProps) {
+export default function AdminLayout({ children, title, auth, headerActions, showTodaySummary = false, timezone, fullBleed, hideNewAppointment, onNewAppointment }: AdminLayoutProps) {
     const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
     const [sidebarCollapsed, setSidebarCollapsed] = useState(() => {
         try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; } catch { return false; }
@@ -77,6 +81,12 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
     const [selectedNotificationId, setSelectedNotificationId] = useState<string | null>(null);
     const { appearance, updateAppearance } = useAppearance();
     const { notifications } = usePage().props as { notifications?: NotificationsProps };
+    const authUserId = typeof auth?.user?.id === 'string' ? auth.user.id : undefined;
+    const { header: todayHeader } = useTodaySummary({
+        enabled: showTodaySummary,
+        timezone,
+        authUserId,
+    });
 
     const unreadCount = notifications?.unread_count ?? 0;
     const items = notifications?.items ?? [];
@@ -295,20 +305,16 @@ export default function AdminLayout({ children, title, auth, headerActions, toda
                             {title}
                         </h1>
                         {/* Today context — inline on desktop, under title on mobile */}
-                        {todayCount !== null && todayCount !== undefined && (
+                        {todayHeader != null && (
                             <div className="flex items-center gap-1.5 text-[11px] leading-4 text-[var(--color-graphite)] lg:hidden">
                                 <span className="inline-block size-1.5 rounded-full bg-[var(--color-orange)]" />
-                                <span>Сегодня</span>
-                                <span className="font-semibold">·</span>
-                                <span className="font-semibold">{todayCount} {todayCount === 1 ? 'запись' : todayCount < 5 ? 'записи' : 'записей'}</span>
+                                <span className="font-semibold">{todayHeader}</span>
                             </div>
                         )}
-                        {todayCount !== null && todayCount !== undefined && (
+                        {todayHeader != null && (
                             <div className="hidden items-center gap-2 text-xs text-[var(--color-graphite)] lg:flex">
                                 <span className="inline-block size-1.5 rounded-full bg-[var(--color-orange)]" />
-                                <span>Сегодня</span>
-                                <span className="font-semibold text-[var(--color-graphite)]">·</span>
-                                <span className="font-semibold text-[var(--color-graphite)]">{todayCount} {todayCount === 1 ? 'запись' : todayCount < 5 ? 'записи' : 'записей'}</span>
+                                <span className="font-semibold">{todayHeader}</span>
                             </div>
                         )}
                     </div>

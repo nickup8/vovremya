@@ -1,10 +1,121 @@
 import { MONTHS_RU_GENITIVE } from '@/lib/locale';
+import { AppointmentStatus } from '@/types/appointment-status';
 import type { Appointment } from './types';
 
 export function timeToMinutes(t: string): number {
     const [h, m] = t.split(':').map(Number);
 
     return h * 60 + m;
+}
+
+export function pluralizeZapisi(n: number): string {
+    const mod10 = n % 10;
+    const mod100 = n % 100;
+
+    if (mod100 >= 11 && mod100 <= 14) {
+        return 'записей';
+    }
+
+    if (mod10 === 1) {
+        return 'запись';
+    }
+
+    if (mod10 >= 2 && mod10 <= 4) {
+        return 'записи';
+    }
+
+    return 'записей';
+}
+
+export interface TodaySummary {
+    total: number;
+    remaining: number;
+    hasCurrent: boolean;
+}
+
+/** Запись для счётчика «Сегодня» — абсолютные временные метки (epoch ms). */
+export interface TodayVisit {
+    id: string;
+    start: number;
+    end: number;
+    status: AppointmentStatus;
+}
+
+/**
+ * Сводка дня для заголовка «Сегодня» (N01).
+ * Набор записей формирует сервер — только «с началом сегодня» (таймзона мастера),
+ * уже без Cancelled; здесь применяются правила:
+ * - total: всё, кроме Cancelled;
+ * - remaining: start > now, кроме Cancelled/Paid/NoShow (Prepaid считается);
+ * - текущий: start <= now < end, кроме Cancelled/NoShow; Paid не завершает визит досрочно.
+ * Границы — абсолютные (start/end в epoch ms), независимо от таймзоны браузера.
+ */
+export function getTodaySummary(
+    visits: TodayVisit[],
+    nowMs: number,
+): TodaySummary {
+    let total = 0;
+    let remaining = 0;
+    let hasCurrent = false;
+
+    for (const v of visits) {
+        if (v.status === AppointmentStatus.Cancelled) {
+            continue;
+        }
+
+        total += 1;
+
+        if (v.start > nowMs) {
+            if (
+                v.status !== AppointmentStatus.Paid &&
+                v.status !== AppointmentStatus.NoShow
+            ) {
+                remaining += 1;
+            }
+        } else if (nowMs < v.end) {
+            if (v.status !== AppointmentStatus.NoShow) {
+                hasCurrent = true;
+            }
+        }
+    }
+
+    return { total, remaining, hasCurrent };
+}
+
+/** Календарная дата (YYYY-MM-DD) указанного момента в указанном таймзоне. */
+export function tzDateKey(now: Date, timeZone: string): string {
+    const fmt = (tz?: string): string =>
+        new Intl.DateTimeFormat('en-CA', {
+            timeZone: tz,
+            year: 'numeric',
+            month: '2-digit',
+            day: '2-digit',
+        }).format(now);
+
+    try {
+        return fmt(timeZone);
+    } catch {
+        return fmt();
+    }
+}
+
+export function formatTodayHeader(summary: TodaySummary): string {
+    const { total, remaining, hasCurrent } = summary;
+    const records = `${total} ${pluralizeZapisi(total)}`;
+
+    if (total === 0) {
+        return `Сегодня · ${records}`;
+    }
+
+    if (remaining > 0) {
+        return `Сегодня · ${records} · осталось ${remaining}`;
+    }
+
+    if (hasCurrent) {
+        return `Сегодня · ${records} · последний визит на сегодня`;
+    }
+
+    return `Сегодня · ${records} · на сегодня всё ✓`;
 }
 
 export function getEndTime(time: string, duration: number): string {
@@ -49,17 +160,26 @@ export function dateToKey(d: Date): string {
 }
 
 export function isSameDay(a: Date, b: Date): boolean {
-    return a.getFullYear() === b.getFullYear() && a.getMonth() === b.getMonth() && a.getDate() === b.getDate();
+    return (
+        a.getFullYear() === b.getFullYear() &&
+        a.getMonth() === b.getMonth() &&
+        a.getDate() === b.getDate()
+    );
 }
 
-export function hasCollision(date: string, startTime: string, durationMinutes: number, appointments: Appointment[]): boolean {
+export function hasCollision(
+    date: string,
+    startTime: string,
+    durationMinutes: number,
+    appointments: Appointment[],
+): boolean {
     const start = timeToMinutes(startTime);
     const end = start + durationMinutes;
 
     return appointments.some((a) => {
         if (a.date !== date) {
-return false;
-}
+            return false;
+        }
 
         const aStart = timeToMinutes(a.time);
         const aEnd = aStart + a.duration;
@@ -74,12 +194,13 @@ export function formatGmtOffset(timezone: string): string {
             timeZone: timezone,
             timeZoneName: 'shortOffset',
         }).formatToParts(new Date());
-        const tzName = parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
+        const tzName =
+            parts.find((p) => p.type === 'timeZoneName')?.value ?? '';
         const match = tzName.match(/([+-]\d{1,2})(?::?(\d{2}))?/);
 
         if (!match) {
-return 'GMT';
-}
+            return 'GMT';
+        }
 
         const hours = parseInt(match[1], 10);
         const mins = match[2] && match[2] !== '00' ? ':' + match[2] : '';
@@ -98,9 +219,14 @@ export function getMonthGrid(center: Date): Date[] {
 
     const startDow = firstDay.getDay();
     const gridStart = new Date(firstDay);
-    gridStart.setDate(gridStart.getDate() - (startDow === 0 ? 6 : startDow - 1));
+    gridStart.setDate(
+        gridStart.getDate() - (startDow === 0 ? 6 : startDow - 1),
+    );
 
-    const totalCells = Math.ceil(((lastDay.getTime() - gridStart.getTime()) / 86400000 + 1) / 7) * 7;
+    const totalCells =
+        Math.ceil(
+            ((lastDay.getTime() - gridStart.getTime()) / 86400000 + 1) / 7,
+        ) * 7;
 
     return Array.from({ length: totalCells }, (_, i) => {
         const d = new Date(gridStart);

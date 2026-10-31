@@ -2,6 +2,7 @@
 
 namespace App\Http\Controllers\Admin;
 
+use App\Enums\AppointmentStatus;
 use App\Enums\RecurringSeriesStatus;
 use App\Http\Controllers\Controller;
 use App\Models\Appointment;
@@ -154,6 +155,61 @@ class CalendarApiController extends Controller
         return response()->json([
             'appointments' => $appointments,
             'blockedTimes' => $blockedTimes->concat($recurringBlockedTimes),
+        ]);
+    }
+
+    /**
+     * Полный набор записей за сегодня (по таймзоне мастера) для счётчика N01.
+     * Не зависит от start/end открытого периода; границы доступа — как в range().
+     */
+    public function today(Request $request): JsonResponse
+    {
+        $master = auth()->user();
+
+        if (! $master->role->canManageTeam() && ! $master->is_master) {
+            return response()->json(['error' => 'Unauthorized'], 403);
+        }
+
+        $isAdminOrOwner = $master->role->canManageTeam();
+
+        if ($isAdminOrOwner) {
+            $masterIds = $master->workspace
+                ? $master->workspace->users()->where('is_master', true)->pluck('id')
+                : collect([$master->id]);
+        } else {
+            $masterIds = collect([$master->id]);
+        }
+
+        $tz = $master->getTimezone();
+
+        $dayStart = Carbon::now($tz)->startOfDay();
+        $dayEnd = Carbon::now($tz)->endOfDay();
+
+        $appointments = Appointment::whereIn('master_id', $masterIds)
+            ->with(['masterService.catalog'])
+            ->whereBetween('start_time', [$dayStart->clone()->utc(), $dayEnd->clone()->utc()])
+            ->where('status', '!=', AppointmentStatus::Cancelled->value)
+            ->where(function ($q) {
+                $q->whereNotNull('client_id')
+                    ->orWhereNotNull('source');
+            })
+            ->orderBy('start_time')
+            ->get()
+            ->map(function (Appointment $a) {
+                $startAt = $a->start_time;
+
+                return [
+                    'id' => $a->id,
+                    'start_at' => $startAt->toISOString(),
+                    'end_at' => $startAt->copy()->addMinutes($a->display_duration)->toISOString(),
+                    'status' => $a->status->value,
+                ];
+            });
+
+        return response()->json([
+            'date' => $dayStart->format('Y-m-d'),
+            'timezone' => $tz,
+            'appointments' => $appointments,
         ]);
     }
 

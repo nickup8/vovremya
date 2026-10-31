@@ -546,14 +546,11 @@ return [];
         );
     }
 
-    const todayStr = `${today.getFullYear()}-${String(today.getMonth() + 1).padStart(2, '0')}-${String(today.getDate()).padStart(2, '0')}`;
-    const todayCount = localAppointments.filter((a) => a.date === todayStr).length;
-
     return (
         <>
             <Head title="Календарь" />
 
-            <AdminLayout title="Календарь" auth={auth} todayCount={todayCount} fullBleed onNewAppointment={openNewAppointment}>
+            <AdminLayout title="Календарь" auth={auth} showTodaySummary timezone={timezone} fullBleed onNewAppointment={openNewAppointment}>
                         <div className="flex h-full flex-col overflow-hidden">
                             <TimezoneConfirmBanner confirmed={timezoneConfirmed} />
 

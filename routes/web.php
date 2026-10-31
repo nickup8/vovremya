@@ -130,6 +130,7 @@ if (app()->environment('local')) {
 Route::middleware(['auth'])->group(function () {
     Route::get('/admin/calendar', [CalendarController::class, 'index'])->name('admin.calendar');
     Route::get('/admin/calendar/data', [CalendarApiController::class, 'range'])->name('admin.calendar.data');
+    Route::get('/admin/calendar/today', [CalendarApiController::class, 'today'])->name('admin.calendar.today');
     Route::get('/admin/calendar/available-slots', [CalendarApiController::class, 'availableSlots'])->name('admin.calendar.available-slots');
     Route::post('/admin/calendar/appointments', [CalendarController::class, 'store'])->name('admin.calendar.store');
     Route::patch('/admin/appointments/{appointment}/status', [CalendarController::class, 'updateStatus'])->name('admin.appointments.update-status');
