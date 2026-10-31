@@ -412,6 +412,10 @@ class NotificationDeliveryLifecycleTest extends TestCase
     public function test_vk_901_failure_is_persisted_as_failed(): void
     {
         $this->client->update(['max_id' => null]);
+        // Без параллельного grant'а (null → false): CAS-правило 901 пишет
+        // запрет. Поздний 901 поверх уже сохранённого granted=true покрыт
+        // VkBookingConfirmationChannelPinningTest::test_late_901_*.
+        $this->client->update(['vk_messages_allowed' => null]);
         $appointment = $this->appointment();
         $event = $this->eventWithAppointment($appointment);
 

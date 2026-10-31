@@ -566,8 +566,9 @@ class VkBookingConfirmationChannelPinningTest extends TestCase
 
         $this->runJob(new SendAppointmentNotificationJob($event->id));
 
-        // «Параллельный» повтор: guard уже пропускает (allowed=true),
-        // а CAS-сброс второй раз не находит failed/no_channel строк.
+        // «Параллельный» повтор: первый retry сбросил no_channel→pending и
+        // поставил job; второй retry (уже allowed=true) не находит
+        // no_channel/failed строк — второй dispatch не рождается.
         $this->withHeaders($this->vkAuthHeaders('494075'))
             ->postJson('/api/miniapp/vk-permission', [
                 'appointment_id' => $appointment->id,
@@ -581,8 +582,8 @@ class VkBookingConfirmationChannelPinningTest extends TestCase
             ])
             ->assertOk();
 
-        // Оба «параллельных» запроса упёрлись в один и тот же guard:
-        // второй не переставляет job.
+        // Оба «параллельных» запроса не дают второго redispatch'а:
+        // исходный outbox-dispatch + один retry после granted.
         $this->assertSame(
             2,
             Queue::pushed(SendAppointmentNotificationJob::class)->count(),
@@ -664,6 +665,165 @@ class VkBookingConfirmationChannelPinningTest extends TestCase
         $this->assertNull($row->failure_reason);
         $this->assertNull($row->failed_at);
         $this->assertNull($row->claim_token);
+    }
+
+    // ── 4б. Гонки permission × job ──
+
+    public function test_grant_racing_no_channel_write_recovers_on_repeat_granted(): void
+    {
+        $client = $this->client(['vk_messages_allowed' => false]);
+        [$appointment, $event] = $this->vkConfirmedByVkEntry($client);
+
+        // Исходный outbox-dispatch уже в очереди.
+        $original = Queue::pushed(SendAppointmentNotificationJob::class)->first();
+        $this->assertNotNull($original);
+
+        // Пересечение: granted=true попал между resolve(job)=false и
+        // записью no_channel — retry не нашёл delivery-строк, продолжение
+        // не поставлено. Разрешение при этом сохранено.
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->postJson('/api/miniapp/vk-permission', [
+                'appointment_id' => $appointment->id,
+                'granted' => true,
+            ])
+            ->assertOk();
+        $this->assertTrue($client->fresh()->vk_messages_allowed);
+        $this->assertSame(
+            1,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Retry без delivery-строк не ставит продолжение',
+        );
+
+        // Исходный job завершился по устаревшему снимку false → no_channel;
+        // разрешение grant'а остаётся true в БД. Query-builder update:
+        // Eloquent-update по не-dirty false не тронул бы строку.
+        Client::query()
+            ->whereKey($client->getKey())
+            ->update(['vk_messages_allowed' => false]);
+        $staleMax = $this->mock(MaxApiClient::class);
+        $staleMax->shouldNotReceive('sendMessage');
+        $staleVk = $this->mock(VkApiClient::class);
+        $staleVk->shouldNotReceive('sendMessage');
+        $staleVk->shouldNotReceive('sendMessageWithKeyboard');
+        $this->runJob($original, $staleMax, $staleVk);
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
+            $this->delivery($event, 'vk')?->status,
+        );
+        Client::query()
+            ->whereKey($client->getKey())
+            ->update(['vk_messages_allowed' => true]);
+
+        // Повтор granted=true (перехода false→true больше не было) обязан
+        // восстановить: CAS-сброс + постановка продолжения через очередь.
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->postJson('/api/miniapp/vk-permission', [
+                'appointment_id' => $appointment->id,
+                'granted' => true,
+            ])
+            ->assertOk();
+
+        $this->assertSame(
+            2,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Повтор granted=true должен переставить job той же идентичности',
+        );
+
+        // Итоговая доставка — фактическим продолжением из очереди.
+        $continuation = Queue::pushed(SendAppointmentNotificationJob::class)->last();
+        $vkApi = $this->mock(VkApiClient::class);
+        $vkApi->shouldReceive('sendMessageWithKeyboard')
+            ->once()
+            ->with('494075', \Mockery::type('string'), \Mockery::type('array'))
+            ->andReturn('msg-race-recovered');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
+        $this->runJob($continuation, $maxApi, $vkApi);
+
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_DELIVERED,
+            $this->delivery($event, 'vk')?->status,
+        );
+        $this->assertNotSame(
+            AppointmentNotificationDelivery::STATUS_DELIVERED,
+            $this->delivery($event, 'max')?->status,
+        );
+    }
+
+    public function test_late_901_preserves_grant_and_repeat_granted_recovers(): void
+    {
+        $client = $this->client(['vk_messages_allowed' => null]);
+        [$appointment, $event] = $this->vkConfirmedByVkEntry($client);
+
+        $vkApi = $this->mock(VkApiClient::class);
+        $vkApi->shouldReceive('sendMessageWithKeyboard')
+            ->once()
+            ->andReturnUsing(function () use ($appointment) {
+                // granted=true приходит во время HTTP, начатого до разрешения.
+                $this->withHeaders($this->vkAuthHeaders('494075'))
+                    ->postJson('/api/miniapp/vk-permission', [
+                        'appointment_id' => $appointment->id,
+                        'granted' => true,
+                    ])
+                    ->assertOk();
+
+                // Поздний 901 от этого (устаревшего по ВК) запроса.
+                throw new VkMessagesNotAllowedException;
+            });
+
+        try {
+            $this->runJob(
+                Queue::pushed(SendAppointmentNotificationJob::class)->first(),
+                null,
+                $vkApi,
+            );
+            $this->fail('Expected RuntimeException after 901');
+        } catch (\RuntimeException) {
+            // handle() терминализирует 901 исключением — bounded retry очереди
+        }
+
+        // Более новое разрешение не затёрто поздним 901 (CAS).
+        $this->assertTrue(
+            $client->fresh()->vk_messages_allowed,
+            'Поздний 901 не должен затирать granted=true во время HTTP',
+        );
+        $vkRow = $this->delivery($event, 'vk');
+        $this->assertSame(AppointmentNotificationDelivery::STATUS_FAILED, $vkRow?->status);
+        $this->assertSame('vk_messages_not_allowed', $vkRow?->failure_reason);
+
+        // Повтор granted=true (allowed уже true) восстанавливает доставку.
+        $pushedBefore = Queue::pushed(SendAppointmentNotificationJob::class)->count();
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->postJson('/api/miniapp/vk-permission', [
+                'appointment_id' => $appointment->id,
+                'granted' => true,
+            ])
+            ->assertOk();
+        $this->assertSame(
+            $pushedBefore + 1,
+            Queue::pushed(SendAppointmentNotificationJob::class)->count(),
+            'Повтор granted=true после 901 должен переставить job',
+        );
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_PENDING,
+            $this->delivery($event, 'vk')?->status,
+        );
+
+        // Итоговая доставка — фактическим продолжением из очереди.
+        $continuation = Queue::pushed(SendAppointmentNotificationJob::class)->last();
+        $vkApi2 = $this->mock(VkApiClient::class);
+        $vkApi2->shouldReceive('sendMessageWithKeyboard')
+            ->once()
+            ->andReturn('msg-after-late-901');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
+        $this->runJob($continuation, $maxApi, $vkApi2);
+
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_DELIVERED,
+            $this->delivery($event, 'vk')?->status,
+        );
+        $this->assertTrue($client->fresh()->vk_messages_allowed);
     }
 
     // ── 5. Отказ / «Позже» / закрытие окна ──

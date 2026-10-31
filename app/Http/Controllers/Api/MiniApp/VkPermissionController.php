@@ -49,12 +49,16 @@ class VkPermissionController extends Controller
         if ($granted) {
             if ($client->vk_messages_allowed !== true) {
                 $client->update(['vk_messages_allowed' => true]);
-
-                // Если подтверждение брони не ушло из-за no_channel/failed —
-                // переставляем job той же идентичности события (версию не
-                // двигаем: это не новое изменение записи, а снятие запрета).
-                $this->retryUndeliveredBookingConfirmed($appointment);
             }
+
+            // Повтор granted=true обязан восстанавливать недоставленное
+            // подтверждение, даже если разрешение уже true: при пересечении
+            // permission и job первый retry мог не найти delivery-строк
+            // (job ещё не записал no_channel), а повторный переход
+            // false→true больше не наступит — без retry каждого запроса
+            // доставка терялась навсегда. CAS-сброс и постановка job —
+            // идемпотентны: чужой живой claim не трогается, дубль не рождается.
+            $this->retryUndeliveredBookingConfirmed($appointment);
         } else {
             if ($client->vk_messages_allowed === null) {
                 $client->update(['vk_messages_allowed' => false]);
@@ -65,7 +69,11 @@ class VkPermissionController extends Controller
     }
 
     /**
-     * Повтор недоставленного подтверждения после снятия запрета ВК.
+     * Повтор недоставленного подтверждения после granted=true.
+     *
+     * Вызывается при КАЖДОМ granted=true, не только при переходе false→true:
+     * единичный переход не покрывает гонку, когда retry не нашёл
+     * delivery-строк до записи no_channel самим job.
      *
      * Канал перечитывается через resolveForEvent: подтверждение,
      * созданное через ВК-вход (vk_only), повторяется только в ВК.

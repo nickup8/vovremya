@@ -29,6 +29,4 @@ class CacheKeys
     public const VK_LINK_TOKEN = 'vk_link_token:';
 
     public const VK_CONSENT_PENDING = 'vk_consent_pending:';
-
-    public const VK_BOOKING_CONFIRMED = 'vk_booking_confirmed:';
 }

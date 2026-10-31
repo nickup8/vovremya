@@ -137,6 +137,8 @@ class VkLinkController extends Controller
             }
 
             // Outbox: подтверждение брони — в той же транзакции.
+            // Параллельного listener'а нет — единственный механизм доставки
+            // text+клавиатура mini-app — job (BookingConfirmed).
             // vk_only: подтверждение, созданное через ВК-вход, доставляется
             // только в ВК — без fallback на MAX при запрете сообщений.
             $appointment->refresh();

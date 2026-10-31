@@ -7,6 +7,7 @@ use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Exceptions\VkMessagesNotAllowedException;
+use App\Jobs\SendAppointmentNotificationJob;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\MasterService;
@@ -18,7 +19,8 @@ use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
-use Mockery;
+use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Facades\Queue;
 use Tests\TestCase;
 
 class VkPermissionTest extends TestCase
@@ -26,9 +28,13 @@ class VkPermissionTest extends TestCase
     use RefreshDatabase;
 
     private string $testAppId = '6736218';
+
     private string $testAppSecret = 'test_secret_key';
+
     private User $master;
+
     private Workspace $ws;
+
     private MasterService $masterService;
 
     protected function setUp(): void
@@ -65,14 +71,14 @@ class VkPermissionTest extends TestCase
         ksort($vkParams);
         $parts = [];
         foreach ($vkParams as $key => $value) {
-            $parts[] = $key . '=' . $value;
+            $parts[] = $key.'='.$value;
         }
         $canonical = implode('&', $parts);
         $hmac = hash_hmac('sha256', $canonical, $this->testAppSecret, true);
         $sign = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($hmac));
         $all = array_merge($vkParams, ['sign' => $sign]);
 
-        return ['Authorization' => 'Bearer ' . http_build_query($all)];
+        return ['Authorization' => 'Bearer '.http_build_query($all)];
     }
 
     private function createClient(string $vkId = '494075'): Client
@@ -136,8 +142,11 @@ class VkPermissionTest extends TestCase
         $this->assertTrue($client->vk_messages_allowed);
     }
 
-    public function test_granted_true_fires_appointment_created_when_transitioning(): void
+    public function test_granted_true_without_undelivered_rows_does_not_dispatch(): void
     {
+        // Единственный механизм доставки — outbox-job: permission больше
+        // не шлёт AppointmentCreated для «запуска» старого listener'а.
+        Queue::fake();
         Event::fake([AppointmentCreated::class]);
 
         $client = $this->createClient();
@@ -149,25 +158,8 @@ class VkPermissionTest extends TestCase
         ], $this->vkAuthHeaders('494075'))
             ->assertOk();
 
-        Event::assertDispatched(AppointmentCreated::class, function ($event) use ($appointment) {
-            return $event->appointment->id === $appointment->id;
-        });
-    }
-
-    public function test_granted_true_does_not_fire_when_already_true(): void
-    {
-        Event::fake([AppointmentCreated::class]);
-
-        $client = $this->createClient();
-        $client->update(['vk_messages_allowed' => true]);
-        $appointment = $this->createAppointment($client);
-
-        $this->postJson('/api/miniapp/vk-permission', [
-            'appointment_id' => $appointment->id,
-            'granted' => true,
-        ], $this->vkAuthHeaders('494075'))
-            ->assertOk();
-
+        $this->assertTrue($client->fresh()->vk_messages_allowed);
+        Queue::assertNotPushed(SendAppointmentNotificationJob::class);
         Event::assertNotDispatched(AppointmentCreated::class);
     }
 
@@ -298,213 +290,57 @@ class VkPermissionTest extends TestCase
     }
 
     // ═══════════════════════════════════════════════
-    // §25 — Confirmation: permission gate
+    // §25 — AppointmentCreated больше не шлёт подтверждение:
+    // единственный механизм — outbox-job (см. VkBookingConfirmationTest,
+    // VkBookingConfirmationChannelPinningTest)
     // ═══════════════════════════════════════════════
 
-    public function test_confirmation_skipped_when_vk_messages_allowed_false(): void
+    public function test_appointment_created_does_not_send_vk_confirmation(): void
     {
-        $client = $this->createClient();
-        $client->update(['vk_messages_allowed' => false]);
-        $appointment = $this->createAppointment($client);
+        // allowed=true и null — раньше listener слал подтверждение по
+        // broadcast(AppointmentCreated) параллельно outbox. Теперь — никогда.
+        foreach ([[true, 14], [null, 16]] as [$allowed, $hour]) {
+            $client = $this->createClient();
+            $client->update(['vk_messages_allowed' => $allowed]);
+            $appointment = Appointment::factory()
+                ->forMaster($this->master)->forClient($client)->withMasterService($this->masterService)
+                ->create([
+                    'status' => AppointmentStatus::Booked,
+                    'source' => AppointmentSource::Vk,
+                    'start_time' => Carbon::tomorrow()->setTime($hour, 0),
+                    'duration' => 60,
+                    'price' => 1500,
+                ]);
 
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
+            $vkApi = $this->mock(VkApiClient::class);
+            $vkApi->shouldNotReceive('sendMessageWithKeyboard');
+            $vkApi->shouldNotReceive('sendMessage');
 
-        event(new AppointmentCreated($appointment));
-    }
-
-    public function test_confirmation_sent_when_vk_messages_allowed_true(): void
-    {
-        $client = $this->createClient();
-        $client->update(['vk_messages_allowed' => true]);
-        $appointment = $this->createAppointment($client);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        event(new AppointmentCreated($appointment));
-    }
-
-    public function test_confirmation_sent_when_vk_messages_allowed_null_legacy(): void
-    {
-        $client = $this->createClient();
-        $this->assertNull($client->vk_messages_allowed);
-        $appointment = $this->createAppointment($client);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        event(new AppointmentCreated($appointment));
-    }
-
-    // ═══════════════════════════════════════════════
-    // §25 — Confirmation: dedup with sent_at
-    // ═══════════════════════════════════════════════
-
-    public function test_confirmation_skipped_when_sent_at_already_set(): void
-    {
-        $client = $this->createClient();
-        $client->update(['vk_messages_allowed' => true]);
-        $appointment = $this->createAppointment($client);
-        $appointment->update(['vk_confirmation_sent_at' => now()]);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
-
-        event(new AppointmentCreated($appointment));
-    }
-
-    public function test_sent_at_set_after_successful_send(): void
-    {
-        $client = $this->createClient();
-        $client->update(['vk_messages_allowed' => true]);
-        $appointment = $this->createAppointment($client);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        event(new AppointmentCreated($appointment));
-
-        $appointment->refresh();
-        $this->assertNotNull($appointment->vk_confirmation_sent_at);
-    }
-
-    // ═══════════════════════════════════════════════
-    // §26 — VK error 901: terminal handling
-    // ═══════════════════════════════════════════════
-
-    public function test_901_sets_vk_messages_allowed_false(): void
-    {
-        $client = $this->createClient();
-        $this->assertNull($client->vk_messages_allowed);
-        $appointment = $this->createAppointment($client);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andThrow(new VkMessagesNotAllowedException());
-
-        try {
-            event(new AppointmentCreated($appointment));
-        } catch (\Throwable) {
-            // listener may throw for retry, but 901 should have set permission
+            broadcast(new AppointmentCreated($appointment->load(['client'])));
         }
-
-        $client->refresh();
-        $this->assertFalse($client->vk_messages_allowed);
-    }
-
-    public function test_901_does_not_set_sent_at(): void
-    {
-        $client = $this->createClient();
-        $appointment = $this->createAppointment($client);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andThrow(new VkMessagesNotAllowedException());
-
-        try {
-            event(new AppointmentCreated($appointment));
-        } catch (\Throwable) {
-            // expected
-        }
-
-        $appointment->refresh();
-        $this->assertNull($appointment->vk_confirmation_sent_at);
-    }
-
-    public function test_901_sets_false_even_when_already_true(): void
-    {
-        $client = $this->createClient();
-        $client->update(['vk_messages_allowed' => true]);
-        $appointment = $this->createAppointment($client);
-
-        // Force re-send by clearing sent_at
-        $appointment->update(['vk_confirmation_sent_at' => null]);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andThrow(new VkMessagesNotAllowedException());
-
-        try {
-            event(new AppointmentCreated($appointment));
-        } catch (\Throwable) {
-            // expected
-        }
-
-        // 901 is a factual VK signal — always sets false
-        $client->refresh();
-        $this->assertFalse($client->vk_messages_allowed);
     }
 
     // ═══════════════════════════════════════════════
-    // §27 — Legacy null learning: success sets true
+    // §28 — Permission endpoint + retry-семантика
     // ═══════════════════════════════════════════════
 
-    public function test_legacy_null_becomes_true_after_successful_send(): void
+    public function test_permission_true_without_outbox_event_does_not_dispatch(): void
     {
-        $client = $this->createClient();
-        $this->assertNull($client->vk_messages_allowed);
-        $appointment = $this->createAppointment($client);
+        Queue::fake();
 
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        event(new AppointmentCreated($appointment));
-
-        $client->refresh();
-        $this->assertTrue($client->vk_messages_allowed);
-    }
-
-    public function test_already_true_stays_true_after_successful_send(): void
-    {
-        $client = $this->createClient();
-        $client->update(['vk_messages_allowed' => true]);
-        $appointment = $this->createAppointment($client);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        event(new AppointmentCreated($appointment));
-
-        $client->refresh();
-        $this->assertTrue($client->vk_messages_allowed);
-    }
-
-    // ═══════════════════════════════════════════════
-    // §28 — Permission endpoint + race scenario
-    // ═══════════════════════════════════════════════
-
-    public function test_permission_true_then_event_fires_confirmation(): void
-    {
         $client = $this->createClient();
         $appointment = $this->createAppointment($client);
 
-        Event::fake([AppointmentCreated::class]);
-
-        // Grant permission
+        // granted=true: флаг ставится; без недоставленного BookingConfirmed
+        // продолжение не ставится (retry идемпотентен).
         $this->postJson('/api/miniapp/vk-permission', [
             'appointment_id' => $appointment->id,
             'granted' => true,
         ], $this->vkAuthHeaders('494075'))
             ->assertOk();
 
-        // AppointmentCreated should have been dispatched
-        Event::assertDispatched(AppointmentCreated::class, function ($event) use ($appointment) {
-            return $event->appointment->id === $appointment->id;
-        });
+        $this->assertTrue($client->fresh()->vk_messages_allowed);
+        Queue::assertNotPushed(SendAppointmentNotificationJob::class);
     }
 
     public function test_multiple_clients_same_vk_id(): void
@@ -554,13 +390,13 @@ class VkPermissionTest extends TestCase
     {
         $client = $this->createClient();
 
-        $vkApi = new VkApiClient();
+        $vkApi = new VkApiClient;
 
         $this->expectException(VkMessagesNotAllowedException::class);
 
         // We need to mock Http to return error code 901
-        \Illuminate\Support\Facades\Http::fake([
-            'api.vk.com/*' => \Illuminate\Support\Facades\Http::response([
+        Http::fake([
+            'api.vk.com/*' => Http::response([
                 'error' => [
                     'error_code' => 901,
                     'error_msg' => 'Can\'t send messages for users without permission',
@@ -580,11 +416,11 @@ class VkPermissionTest extends TestCase
         $client = $this->createClient();
         $appointment = $this->createAppointment($client);
 
-        $token = 'link_vk_test_' . uniqid();
-        Cache::put(CacheKeys::VK_LINK_TOKEN . $token, $appointment->id, 900);
+        $token = 'link_vk_test_'.uniqid();
+        Cache::put(CacheKeys::VK_LINK_TOKEN.$token, $appointment->id, 900);
 
         $this->withHeaders($this->vkAuthHeaders('494075'))
-            ->getJson('/api/miniapp/vk-consent/status?token=' . $token)
+            ->getJson('/api/miniapp/vk-consent/status?token='.$token)
             ->assertOk()
             ->assertJsonFragment(['appointment_id' => $appointment->id]);
     }

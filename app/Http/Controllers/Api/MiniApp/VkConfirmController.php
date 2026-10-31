@@ -83,8 +83,8 @@ class VkConfirmController extends Controller
             }
 
             // Outbox: подтверждение брони фиксируется в той же транзакции.
-            // SendVkBookingConfirmation больше не шлёт параллельно — текст
-            // доставит job (BookingConfirmed) с клавиатурой mini-app.
+            // Параллельного listener'а нет — единственный механизм доставки
+            // text+клавиатура mini-app — job (BookingConfirmed).
             // vk_only: подтверждение, созданное через ВК-вход, доставляется
             // только в ВК — без fallback на MAX при запрете сообщений.
             $fresh = Appointment::with(['client', 'master', 'masterService.catalog'])

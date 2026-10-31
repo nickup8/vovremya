@@ -3,40 +3,63 @@
 namespace Tests\Feature;
 
 use App\Constants\CacheKeys;
+use App\Enums\AppointmentNotificationEventType;
 use App\Enums\AppointmentSource;
 use App\Enums\AppointmentStatus;
 use App\Events\AppointmentCreated;
 use App\Listeners\SendVkBookingConfirmation;
 use App\Models\Appointment;
+use App\Models\AppointmentNotificationDelivery;
+use App\Models\AppointmentNotificationEvent;
 use App\Models\Client;
 use App\Models\MasterService;
 use App\Models\ServiceCatalog;
 use App\Models\User;
 use App\Models\Workspace;
+use App\Services\MaxApiClient;
 use App\Services\VkApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Cache;
-use Illuminate\Support\Facades\Event;
 use Tests\TestCase;
 
+/**
+ * Подтверждение брони через ВК-вход доставляется ТОЛЬКО через outbox-job.
+ *
+ * Старый listener SendVkBookingConfirmation удалён: автообнаружение Laravel
+ * больше не регистрирует его на AppointmentCreated, broadcast не шлёт
+ * ВК-сообщения. Тесты гоняют настоящую регистрацию обработчиков и
+ * sync-очередь (QUEUE_CONNECTION=sync, без Queue::fake): outbox-job уходит
+ * через DB::afterCommit инлайн. Подменены только внешние API — ровно один
+ * вызов отправки ВК доказывает отсутствие параллельной отправки.
+ */
 class VkBookingConfirmationTest extends TestCase
 {
     use RefreshDatabase;
 
+    private string $testAppId = '6736218';
+
+    private string $testAppSecret = 'test_secret_key';
+
     private User $master;
+
     private Workspace $ws;
+
     private MasterService $masterService;
-    private Client $client;
-    private Appointment $appointment;
 
     protected function setUp(): void
     {
         parent::setUp();
 
-        config(['services.vk.app_id' => '6736218']);
-        config(['services.vk.group_id' => '123456']);
-        config(['services.vk.bot_token' => 'test_bot_token']);
+        config([
+            'services.max.api_url' => 'https://api.max.example',
+            'services.max.bot_token' => 'test_max_token',
+            'services.vk.app_id' => $this->testAppId,
+            'services.vk.app_secret' => $this->testAppSecret,
+            'services.vk.group_id' => '123456',
+            'services.vk.bot_token' => 'test_bot_token',
+            'legal.version' => 'v1',
+        ]);
 
         $this->master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow'],
@@ -46,313 +69,260 @@ class VkBookingConfirmationTest extends TestCase
         $this->master->update(['workspace_id' => $this->ws->id]);
 
         $catalog = ServiceCatalog::create([
-            'workspace_id' => $this->ws->id, 'title' => 'Массаж', 'base_price' => 2000, 'base_duration' => 60,
+            'workspace_id' => $this->ws->id,
+            'title' => 'Массаж',
+            'base_price' => 2000,
+            'base_duration' => 60,
         ]);
         $this->masterService = MasterService::create([
-            'master_id' => $this->master->id, 'catalog_id' => $catalog->id, 'is_active' => true,
+            'master_id' => $this->master->id,
+            'catalog_id' => $catalog->id,
+            'is_active' => true,
         ]);
+    }
 
-        $this->client = Client::factory()->create([
+    // ── Хелперы ──
+
+    private function vkAuthHeaders(string $vkUserId): array
+    {
+        $vkParams = [
+            'vk_user_id' => $vkUserId,
+            'vk_app_id' => $this->testAppId,
+            'vk_platform' => 'android',
+        ];
+        ksort($vkParams);
+        $parts = [];
+        foreach ($vkParams as $key => $value) {
+            $parts[] = $key.'='.$value;
+        }
+        $canonical = implode('&', $parts);
+        $hmac = hash_hmac('sha256', $canonical, $this->testAppSecret, true);
+        $sign = str_replace(['+', '/', '='], ['-', '_', ''], base64_encode($hmac));
+        $all = array_merge($vkParams, ['sign' => $sign]);
+
+        return ['Authorization' => 'Bearer '.http_build_query($all)];
+    }
+
+    private function createToken(string $appointmentId): string
+    {
+        $token = 'link_vk_single_'.uniqid();
+        Cache::put(CacheKeys::VK_LINK_TOKEN.$token, $appointmentId, 900);
+
+        return $token;
+    }
+
+    private function client(array $attrs = []): Client
+    {
+        return Client::factory()->create(array_merge([
             'user_id' => $this->master->id,
             'workspace_id' => $this->ws->id,
             'vk_id' => '494075',
-        ]);
+            'max_id' => 'max-1',
+            'pdn_consent_at' => now(),
+            'pdn_consent_version' => 'v1',
+        ], $attrs));
+    }
 
-        $this->appointment = Appointment::factory()
-            ->forMaster($this->master)->forClient($this->client)->withMasterService($this->masterService)
+    private function draftAppointment(): Appointment
+    {
+        return Appointment::factory()
+            ->forMaster($this->master)
+            ->withMasterService($this->masterService)
             ->create([
+                'client_id' => null,
                 'status' => AppointmentStatus::Booked,
-                'source' => AppointmentSource::Vk,
                 'start_time' => Carbon::tomorrow()->setTime(14, 0),
                 'duration' => 60,
                 'price' => 1500,
             ]);
     }
 
-    private function fireCreated(): void
+    private function vkDeliveredRow(Appointment $appointment): ?AppointmentNotificationDelivery
     {
-        event(new AppointmentCreated($this->appointment));
+        $event = AppointmentNotificationEvent::query()
+            ->where('appointment_id', $appointment->getKey())
+            ->where('event_type', AppointmentNotificationEventType::BookingConfirmed)
+            ->first();
+
+        if ($event === null) {
+            return null;
+        }
+
+        return AppointmentNotificationDelivery::query()
+            ->where('appointment_notification_event_id', $event->getKey())
+            ->where('channel', 'vk')
+            ->first();
     }
 
-    // ── Source filtering ──────────────────────────────────
+    // ── Listener удалён: параллельной отправки нет ──
 
-    public function test_vk_appointment_created_sends_confirmation(): void
+    public function test_listener_class_is_removed(): void
     {
+        $this->assertFalse(
+            class_exists(SendVkBookingConfirmation::class),
+            'Старый listener должен быть удалён — outbox единственный механизм',
+        );
+    }
+
+    public function test_appointment_created_broadcast_does_not_send_vk(): void
+    {
+        // allowed=true и VK-источник: при живом listener broadcast слал бы
+        // второе подтверждение параллельно outbox-job.
+        $client = $this->client(['vk_messages_allowed' => true]);
+        $appointment = Appointment::factory()
+            ->forMaster($this->master)->forClient($client)->withMasterService($this->masterService)
+            ->create([
+                'status' => AppointmentStatus::Booked,
+                'source' => AppointmentSource::Vk,
+                'start_time' => Carbon::tomorrow()->setTime(14, 0),
+            ]);
+
+        $vkApi = $this->mock(VkApiClient::class);
+        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
+        $vkApi->shouldNotReceive('sendMessage');
+
+        broadcast(new AppointmentCreated($appointment->load(['client'])));
+    }
+
+    // ── HTTP-входы: ровно одна ВК-отправка через outbox ──
+
+    public function test_vk_confirm_with_allowed_true_sends_vk_exactly_once(): void
+    {
+        $client = $this->client(['vk_messages_allowed' => true]);
+        $draft = $this->draftAppointment();
+        $token = $this->createToken($draft->id);
+
         $vkApi = $this->mock(VkApiClient::class);
         $vkApi->shouldReceive('sendMessageWithKeyboard')
             ->once()
             ->with('494075', \Mockery::type('string'), \Mockery::type('array'))
-            ->andReturn('msg_123');
+            ->andReturn('msg-once-confirm');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
 
-        $this->fireCreated();
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->postJson('/api/miniapp/vk-confirm', ['token' => $token])
+            ->assertOk();
+
+        // Mockery::once() в tearDown доказывает ровно один вызов: второй
+        // (параллельный listener или MAX-fallback) обвалил бы тест.
+        $row = $this->vkDeliveredRow($draft);
+        $this->assertSame(AppointmentNotificationDelivery::STATUS_DELIVERED, $row?->status);
+        $this->assertSame('msg-once-confirm', $row?->provider_message_id);
+        $this->assertTrue($client->fresh()->vk_messages_allowed);
     }
 
-    public function test_max_source_does_not_send_vk_message(): void
+    public function test_vk_link_with_allowed_true_sends_vk_exactly_once(): void
     {
-        $this->appointment->update(['source' => AppointmentSource::Max]);
+        $phone = '79001234567';
+        $client = $this->client([
+            'phone' => $phone,
+            'vk_messages_allowed' => true,
+        ]);
+        $draft = $this->draftAppointment();
+        $token = $this->createToken($draft->id);
+        $sign = rtrim(strtr(base64_encode(hash(
+            'sha256',
+            $this->testAppId.$this->testAppSecret.'494075'.'phone_number'.$phone,
+            true,
+        )), '+/', '-_'), '=');
 
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
-
-        $this->fireCreated();
-    }
-
-    public function test_telegram_source_does_not_send_vk_message(): void
-    {
-        $this->appointment->update(['source' => AppointmentSource::Telegram]);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
-
-        $this->fireCreated();
-    }
-
-    public function test_admin_source_does_not_send_vk_message(): void
-    {
-        $this->appointment->update(['source' => AppointmentSource::Admin]);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
-
-        $this->fireCreated();
-    }
-
-    public function test_vk_without_vk_id_does_not_send(): void
-    {
-        $this->client->update(['vk_id' => null]);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
-
-        $this->fireCreated();
-    }
-
-    public function test_vk_without_client_does_not_send(): void
-    {
-        $this->appointment->update(['client_id' => null]);
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
-
-        $this->fireCreated();
-    }
-
-    // ── Message content ──────────────────────────────────
-
-    public function test_message_contains_master_service_date_time(): void
-    {
-        $capturedText = null;
+        Cache::put(CacheKeys::VK_CONSENT_PENDING.'494075', 'v1', 900);
 
         $vkApi = $this->mock(VkApiClient::class);
         $vkApi->shouldReceive('sendMessageWithKeyboard')
             ->once()
-            ->with('494075', \Mockery::on(function ($text) use (&$capturedText) {
-                $capturedText = $text;
-                return true;
-            }), \Mockery::type('array'))
-            ->andReturn('msg_123');
+            ->with('494075', \Mockery::type('string'), \Mockery::type('array'))
+            ->andReturn('msg-once-link');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
 
-        $this->fireCreated();
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->postJson('/api/miniapp/link', [
+                'token' => $token,
+                'phone_number' => $phone,
+                'sign' => $sign,
+            ])
+            ->assertOk();
 
-        $this->assertStringContainsString('✅ Запись подтверждена!', $capturedText);
-        $this->assertStringContainsString($this->master->name, $capturedText);
-        $this->assertStringContainsString($this->appointment->display_name, $capturedText);
-        $this->assertStringContainsString(Carbon::tomorrow()->setTime(14, 0)->format('d.m.Y'), $capturedText);
-        $this->assertStringContainsString('1 500', $capturedText);
-        $this->assertStringContainsString('Пушкина', $capturedText);
-        $this->assertStringContainsString('Ждём вас!', $capturedText);
+        $row = $this->vkDeliveredRow($draft);
+        $this->assertSame(AppointmentNotificationDelivery::STATUS_DELIVERED, $row?->status);
+        $this->assertSame('msg-once-link', $row?->provider_message_id);
     }
 
-    public function test_timezone_is_master_timezone(): void
+    public function test_vk_confirm_with_allowed_false_sends_nothing(): void
     {
-        $capturedText = null;
+        $client = $this->client(['vk_messages_allowed' => false]);
+        $draft = $this->draftAppointment();
+        $token = $this->createToken($draft->id);
 
         $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->with('494075', \Mockery::on(function ($text) use (&$capturedText) {
-                $capturedText = $text;
-                return true;
-            }), \Mockery::type('array'))
-            ->andReturn('msg_123');
+        $vkApi->shouldNotReceive('sendMessageWithKeyboard');
+        $vkApi->shouldNotReceive('sendMessage');
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldNotReceive('sendMessage');
 
-        $this->fireCreated();
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->postJson('/api/miniapp/vk-confirm', ['token' => $token])
+            ->assertOk();
 
-        // 14:00 UTC = 17:00 Moscow
-        $this->assertStringContainsString('17:00', $capturedText);
+        $this->assertSame(
+            AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
+            $this->vkDeliveredRow($draft)?->status,
+        );
+        $this->assertFalse($client->fresh()->vk_messages_allowed);
     }
 
-    public function test_address_shows_dash_when_null(): void
+    // ── Содержимое доставки через outbox-job ──
+
+    public function test_outbox_delivery_contains_text_and_open_app_keyboard(): void
     {
-        $this->master->update(['address' => null]);
+        $this->client(['vk_messages_allowed' => true]);
+        $draft = $this->draftAppointment();
+        $token = $this->createToken($draft->id);
 
         $capturedText = null;
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->with('494075', \Mockery::on(function ($text) use (&$capturedText) {
-                $capturedText = $text;
-                return true;
-            }), \Mockery::type('array'))
-            ->andReturn('msg_123');
-
-        $this->fireCreated();
-
-        $this->assertStringContainsString('Адрес: —', $capturedText);
-    }
-
-    // ── Keyboard ─────────────────────────────────────────
-
-    public function test_keyboard_is_open_app_inline(): void
-    {
         $capturedKeyboard = null;
 
         $vkApi = $this->mock(VkApiClient::class);
         $vkApi->shouldReceive('sendMessageWithKeyboard')
             ->once()
-            ->with('494075', \Mockery::type('string'), \Mockery::on(function ($kb) use (&$capturedKeyboard) {
+            ->with('494075', \Mockery::on(function ($text) use (&$capturedText) {
+                $capturedText = $text;
+
+                return true;
+            }), \Mockery::on(function ($kb) use (&$capturedKeyboard) {
                 $capturedKeyboard = $kb;
+
                 return true;
             }))
-            ->andReturn('msg_123');
+            ->andReturn('msg-content');
 
-        $this->fireCreated();
+        $this->withHeaders($this->vkAuthHeaders('494075'))
+            ->postJson('/api/miniapp/vk-confirm', ['token' => $token])
+            ->assertOk();
 
+        $this->assertNotNull($capturedText);
+        $this->assertStringContainsString('Запись подтверждена!', $capturedText);
+        $this->assertStringContainsString($draft->display_name, $capturedText);
+        $this->assertStringContainsString(
+            Carbon::tomorrow()->setTime(14, 0)->timezone('Europe/Moscow')->format('d.m.Y'),
+            $capturedText,
+        );
+        $this->assertStringContainsString(
+            Carbon::tomorrow()->setTime(14, 0)->timezone('Europe/Moscow')->format('H:i'),
+            $capturedText,
+        );
+        $this->assertStringContainsString('1500₽', $capturedText);
+        $this->assertStringContainsString('Пушкина', $capturedText);
+        $this->assertStringContainsString('Ждём вас!', $capturedText);
+
+        $this->assertNotNull($capturedKeyboard);
         $this->assertFalse($capturedKeyboard['one_time']);
         $this->assertTrue($capturedKeyboard['inline']);
         $this->assertSame('open_app', $capturedKeyboard['buttons'][0][0]['action']['type']);
         $this->assertSame(6736218, $capturedKeyboard['buttons'][0][0]['action']['app_id']);
         $this->assertSame(-123456, $capturedKeyboard['buttons'][0][0]['action']['owner_id']);
         $this->assertSame('📅 Открыть ИРСИ', $capturedKeyboard['buttons'][0][0]['action']['label']);
-        $this->assertSame('', $capturedKeyboard['buttons'][0][0]['action']['hash']);
-        $this->assertArrayNotHasKey('color', $capturedKeyboard['buttons'][0][0]);
-    }
-
-    public function test_peer_id_is_client_vk_id(): void
-    {
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->with('494075', \Mockery::type('string'), \Mockery::type('array'))
-            ->andReturn('msg_123');
-
-        $this->fireCreated();
-    }
-
-    // ── Cache dedup ──────────────────────────────────────
-
-    public function test_duplicate_event_does_not_send_second_message(): void
-    {
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        $this->fireCreated();
-        $this->fireCreated(); // second event — should be deduped
-    }
-
-    public function test_cache_lock_remains_after_success(): void
-    {
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        $this->fireCreated();
-
-        $this->assertTrue(
-            Cache::has(CacheKeys::VK_BOOKING_CONFIRMED . $this->appointment->id)
-        );
-    }
-
-    // ── Failure / retry ──────────────────────────────────
-
-    public function test_vk_api_null_removes_lock_and_throws(): void
-    {
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn(null);
-
-        try {
-            $this->fireCreated();
-        } catch (\Throwable) {
-            // expected — listener throws for queue retry
-        }
-
-        $this->assertFalse(
-            Cache::has(CacheKeys::VK_BOOKING_CONFIRMED . $this->appointment->id)
-        );
-    }
-
-    public function test_retry_after_failure_can_succeed(): void
-    {
-        $callCount = 0;
-
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->twice()
-            ->andReturnUsing(function () use (&$callCount) {
-                $callCount++;
-                return $callCount === 1 ? null : 'msg_retry';
-            });
-
-        // First attempt fails → lock removed
-        try {
-            $this->fireCreated();
-        } catch (\Throwable) {
-            // expected
-        }
-
-        $this->assertFalse(
-            Cache::has(CacheKeys::VK_BOOKING_CONFIRMED . $this->appointment->id)
-        );
-
-        // Second attempt succeeds
-        $this->fireCreated();
-
-        $this->assertTrue(
-            Cache::has(CacheKeys::VK_BOOKING_CONFIRMED . $this->appointment->id)
-        );
-    }
-
-    // ── Production event path ────────────────────────────
-
-    public function test_broadcast_triggers_listener(): void
-    {
-        $vkApi = $this->mock(VkApiClient::class);
-        $vkApi->shouldReceive('sendMessageWithKeyboard')
-            ->once()
-            ->andReturn('msg_123');
-
-        // Use broadcast() — same as VK controllers
-        broadcast(new AppointmentCreated($this->appointment->load(['client'])));
-    }
-
-    public function test_listener_is_queued(): void
-    {
-        $this->assertTrue(
-            in_array(\Illuminate\Contracts\Queue\ShouldQueue::class, class_implements(SendVkBookingConfirmation::class))
-        );
-    }
-
-    // ── Existing tests ───────────────────────────────────
-
-    public function test_existing_vk_booking_tests_still_pass(): void
-    {
-        // Smoke: appointment creation with VK source works
-        $appt = Appointment::factory()
-            ->forMaster($this->master)->forClient($this->client)->withMasterService($this->masterService)
-            ->create([
-                'status' => AppointmentStatus::Booked,
-                'source' => AppointmentSource::Vk,
-                'start_time' => Carbon::tomorrow()->setTime(10, 0),
-                'duration' => 60,
-            ]);
-
-        $this->assertSame(AppointmentSource::Vk, $appt->source);
-        $this->assertNotNull($appt->client);
     }
 }

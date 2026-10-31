@@ -106,8 +106,10 @@ class AppServiceProvider extends ServiceProvider
         Event::listen(AppointmentStatusChanged::class, $listener);
         Event::listen(AppointmentRescheduled::class, $listener);
 
-        // VK-подтверждение брони больше не шлёт листенер: текст и клавиатура
-        // доставляются через outbox (AppointmentNotificationEventType::BookingConfirmed).
+        // VK-подтверждение брони шлёт только outbox
+        // (AppointmentNotificationEventType::BookingConfirmed): listener'
+        // SendVkBookingConfirmation удалён, чтобы исключить параллельную
+        // отправку и дубли.
 
         $this->configureDefaults();
     }

@@ -9,6 +9,7 @@ use App\Exceptions\VkMessagesNotAllowedException;
 use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
 use App\Models\AppointmentNotificationEvent;
+use App\Models\Client;
 use App\Services\MaxApiClient;
 use App\Services\Notification\AppointmentChannelResolver;
 use App\Services\VkApiClient;
@@ -40,6 +41,10 @@ use Illuminate\Support\Str;
  *   отправки в ВК или MAX, null — допустима ВК-попытка, после 901
  *   повторные запуски не уходят в MAX; общий fallback прочих событий
  *   resolver'а не меняется;
+ * - 901 пишет vk_messages_allowed=false по CAS (не поверх более нового
+ *   granted=true, пришедшего во время HTTP); восстановление после такой
+ *   гонки — повторный granted=true, который находит failed/no_channel
+ *   строки и переставляет job той же идентичности события;
  * - получатель зафиксирован в payload['client_id'] при записи события:
  *   смена клиента записи переводит событие в superseded, старый снимок
  *   не уходит новому клиенту;
@@ -363,8 +368,18 @@ class SendAppointmentNotificationJob implements ShouldQueue
 
             return 'delivered';
         } catch (VkMessagesNotAllowedException) {
+            // CAS: поздний 901 от запроса, начатого до granted=true, не
+            // затирает более новое разрешение — false пишется только пока
+            // разрешение не подтверждено. Запрос, стартовавший до grant'а,
+            // мог получить 901 по устаревшему состоянию ВК.
             if ($appointment->client !== null) {
-                $appointment->client->update(['vk_messages_allowed' => false]);
+                Client::query()
+                    ->whereKey($appointment->client->getKey())
+                    ->where(function ($query) {
+                        $query->whereNull('vk_messages_allowed')
+                            ->orWhere('vk_messages_allowed', false);
+                    })
+                    ->update(['vk_messages_allowed' => false]);
             }
 
             // 901 терминален: сначала фиксируем failed ПОД своим claim'ом
@@ -978,8 +993,8 @@ class SendAppointmentNotificationJob implements ShouldQueue
     }
 
     /**
-     * Клавиатура ВК-подтверждения брони — тот же open_app, что в
-     * SendVkBookingConfirmation, чтобы кнопки мини-приложения сохранялись.
+     * Клавиатура ВК-подтверждения брони — inline open_app mini-app,
+     * чтобы кнопки сохранялись при доставке через outbox-job.
      *
      * @return array<string, mixed>|null
      */
