@@ -33,15 +33,18 @@ function clearLinkHashIfMatches(token: string): void {
 
 function AppRouter() {
     // Явное состояние активного сценария: токен из hash или null (кабинет).
-    const [linkToken, setLinkToken] = useState<string | null>(() => getVkLinkToken());
+    // linkTokenRef всегда обновляется синхронно с setLinkToken — без окна
+    // «событие принято, effect ещё не прогнал».
+    const [linkToken, setLinkTokenState] = useState<string | null>(() => getVkLinkToken());
     const linkTokenRef = useRef(linkToken);
 
     // Завершённые в этой сессии токены — повтор события не возобновляет сценарий.
     const consumedTokensRef = useRef<Set<string>>(new Set());
 
-    useEffect(() => {
-        linkTokenRef.current = linkToken;
-    }, [linkToken]);
+    const setLinkToken = useCallback((next: string | null) => {
+        linkTokenRef.current = next;
+        setLinkTokenState(next);
+    }, []);
 
     useEffect(() => {
         return subscribeToVkLinkNavigation((incoming) => {
@@ -65,7 +68,7 @@ function AppRouter() {
 
             setLinkToken(incoming);
         });
-    }, []);
+    }, [setLinkToken]);
 
     const handleLinked = useCallback((finishedToken: string) => {
         // Запоздалое завершение сценария А не должно трогать экран Б.
@@ -76,7 +79,7 @@ function AppRouter() {
         consumedTokensRef.current.add(finishedToken);
         clearLinkHashIfMatches(finishedToken);
         setLinkToken(null);
-    }, []);
+    }, [setLinkToken]);
 
     if (linkToken !== null) {
         return (

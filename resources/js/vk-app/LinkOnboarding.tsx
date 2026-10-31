@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { getVkGroupId, requestVkMessagePermission, requestVkPhoneNumber, requestVkUserInfo } from './lib/vkBridge';
 import type { VkConsentStatus } from './lib/api';
 import { cancelVkBooking, confirmVkBooking, getVkConsentStatus, linkVkClient, postVkPermission, submitVkConsent } from './lib/api';
@@ -44,14 +44,26 @@ export function LinkOnboarding({ token, onLinked }: { token: string; onLinked: (
     const [permissionLoading, setPermissionLoading] = useState(false);
     const [statusData, setStatusData] = useState<VkConsentStatus | null>(null);
 
+    // Remount по key={token} при A→Б: cleanup сбрасывает alive,
+    // поздние ответы А не продолжают цепочку Bridge/API и не трогают состояние.
+    const aliveRef = useRef(true);
+
+    useEffect(() => {
+        aliveRef.current = true;
+
+        return () => {
+            aliveRef.current = false;
+        };
+    }, []);
+
     useEffect(() => {
         let cancelled = false;
 
         getVkConsentStatus(token)
             .then((res) => {
-                if (cancelled) {
-return;
-}
+                if (cancelled || !aliveRef.current) {
+                    return;
+                }
 
                 setStatusData(res);
 
@@ -64,9 +76,9 @@ return;
                 }
             })
             .catch(() => {
-                if (cancelled) {
-return;
-}
+                if (cancelled || !aliveRef.current) {
+                    return;
+                }
 
                 setError('Не удалось проверить статус согласия');
                 setPhase('status-error');
@@ -81,8 +93,16 @@ return;
         setPermissionLoading(true);
         const granted = await requestVkMessagePermission(groupId);
 
+        if (!aliveRef.current) {
+            return;
+        }
+
         if (statusData?.appointment_id) {
             await postVkPermission(statusData.appointment_id, granted);
+
+            if (!aliveRef.current) {
+                return;
+            }
         }
 
         setPhase(granted ? 'permission-granted' : 'permission-denied');
@@ -91,12 +111,25 @@ return;
     const finishLink = useCallback(async (linkToken: string) => {
         const phone = await requestVkPhoneNumber();
 
+        if (!aliveRef.current) {
+            return;
+        }
+
         const profile = await requestVkUserInfo();
+
+        if (!aliveRef.current) {
+            return;
+        }
+
         const profileData = profile
             ? { vk_profile_id: profile.id, first_name: profile.first_name, last_name: profile.last_name }
             : undefined;
 
         await linkVkClient(linkToken, phone.phone_number, phone.sign, profileData);
+
+        if (!aliveRef.current) {
+            return;
+        }
 
         const groupId = getVkGroupId();
 
@@ -114,12 +147,20 @@ return;
         try {
             await submitVkConsent(token);
 
+            if (!aliveRef.current) {
+                return;
+            }
+
             if (statusData?.phone_required) {
                 await finishLink(token);
             } else {
                 setPhase('confirmation');
             }
         } catch (e) {
+            if (!aliveRef.current) {
+                return;
+            }
+
             const msg = e instanceof Error ? e.message : 'link_failed';
 
             if (msg === 'consent_failed') {
@@ -143,6 +184,10 @@ return;
         try {
             await finishLink(token);
         } catch (e) {
+            if (!aliveRef.current) {
+                return;
+            }
+
             const msg = e instanceof Error ? e.message : 'link_failed';
 
             if (msg === 'invalid_token' || msg === 'token_consumed') {
@@ -164,6 +209,10 @@ return;
         try {
             await confirmVkBooking(token);
 
+            if (!aliveRef.current) {
+                return;
+            }
+
             const groupId = getVkGroupId();
 
             if (groupId !== null) {
@@ -172,6 +221,10 @@ return;
                 onLinked(token);
             }
         } catch (e) {
+            if (!aliveRef.current) {
+                return;
+            }
+
             const msg = e instanceof Error ? e.message : 'confirm_failed';
 
             if (msg === 'invalid_token' || msg === 'token_consumed') {
@@ -194,8 +247,17 @@ return;
 
         try {
             await cancelVkBooking(token);
+
+            if (!aliveRef.current) {
+                return;
+            }
+
             setPhase('cancelled');
         } catch (e) {
+            if (!aliveRef.current) {
+                return;
+            }
+
             const msg = e instanceof Error ? e.message : 'cancel_failed';
 
             if (msg === 'invalid_token' || msg === 'token_consumed') {
@@ -353,6 +415,10 @@ return;
                         onClick={async () => {
                             if (statusData?.appointment_id) {
                                 await postVkPermission(statusData.appointment_id, false);
+
+                                if (!aliveRef.current) {
+                                    return;
+                                }
                             }
 
                             setPhase('permission-denied');

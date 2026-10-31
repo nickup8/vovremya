@@ -458,4 +458,453 @@ describe('live link navigation', () => {
         unmount();
         expect(bridgeListeners.size).toBe(0);
     });
+
+    // ── ChangeFragment (receive-only, { location: string }) ──
+
+    it('ChangeFragment without changing hash still opens scenario and syncs hash', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('');
+
+        const replaceSpy = vi.spyOn(window.history, 'replaceState');
+
+        render(<App />);
+        expect(screen.getByText('Записи')).toBeInTheDocument();
+        expect(window.location.hash).toBe('');
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Через ChangeFragment')),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        // Событие само НЕ меняет window.location.hash — App должен синхронизировать.
+        emitBridge('VKWebAppChangeFragment', { location: '#link_vk_cf_token' });
+
+        await waitFor(() => {
+            expect(screen.getByText('Через ChangeFragment')).toBeInTheDocument();
+        });
+        expect(replaceSpy).toHaveBeenCalledWith(
+            null,
+            '',
+            expect.stringContaining('link_vk_cf_token'),
+        );
+        expect(String(mockFetch.mock.calls[0][0])).toContain('token=link_vk_cf_token');
+
+        replaceSpy.mockRestore();
+    });
+
+    it('ChangeFragment path form without hash change opens scenario', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('');
+
+        render(<App />);
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve(statusFor('ChangeFragment path')),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        emitBridge('VKWebAppChangeFragment', { location: '/app#link_vk_cf_path' });
+
+        await waitFor(() => {
+            expect(screen.getByText('ChangeFragment path')).toBeInTheDocument();
+        });
+        expect(String(mockFetch.mock.calls[0][0])).toContain('token=link_vk_cf_path');
+    });
+
+    it('repeat ChangeFragment with same token does not re-fetch', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_cf_same');
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Один раз')),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Один раз')).toBeInTheDocument();
+        });
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+
+        emitBridge('VKWebAppChangeFragment', { location: 'link_vk_cf_same' });
+        emitBridge('VKWebAppChangeFragment', { location: '#link_vk_cf_same' });
+
+        await new Promise((r) => {
+            setTimeout(r, 20);
+        });
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('Один раз')).toBeInTheDocument();
+    });
+
+    it('ChangeFragment without link token does not leave active scenario', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_stay');
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Остаётся')),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Остаётся')).toBeInTheDocument();
+        });
+
+        emitBridge('VKWebAppChangeFragment', { location: '/cabinet' });
+
+        await new Promise((r) => {
+            setTimeout(r, 20);
+        });
+
+        expect(screen.getByText('Остаётся')).toBeInTheDocument();
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+    });
+
+    // ── linkTokenRef race: navigation B + finish A in one act ──
+
+    it('navigation B and finish A in same act keep B active with hash', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_token_a');
+
+        const mockFetch = vi.fn()
+            // Status A
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusFor('Услуга А')),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Услуга А')).toBeInTheDocument();
+        });
+
+        let resolveConfirmA!: (v: unknown) => void;
+        const confirmA = new Promise((r) => {
+            resolveConfirmA = r;
+        });
+        mockFetch.mockReturnValueOnce(confirmA);
+
+        fireEvent.click(screen.getByText('Подтвердить запись'));
+
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Услуга Б')),
+        });
+
+        act(() => {
+            // Принять навигацию на Б
+            setHash('#link_vk_token_b');
+
+            for (const fn of bridgeListeners) {
+                fn({ detail: { type: 'VKWebAppLocationChanged', data: { location: 'link_vk_token_b' } } });
+            }
+
+            // Завершение А в том же act, до effect-синхронизации
+            resolveConfirmA({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
+        });
+
+        await waitFor(() => {
+            expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+        });
+
+        expect(screen.queryByText('Записи')).not.toBeInTheDocument();
+        expect(window.location.hash).toBe('#link_vk_token_b');
+    });
+
+    // ── Stale async chains: A→Б must not continue Bridge/API for A ──
+
+    it('A→Б during consent of A does not request phone or link for A', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_token_a');
+
+        const mockFetch = vi.fn()
+            // Status A — consent required
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusFor('Согласие А', { consent_required: true, phone_required: true })),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Принимаю')).toBeInTheDocument();
+        });
+
+        let resolveConsentA!: (v: unknown) => void;
+        const consentA = new Promise((r) => {
+            resolveConsentA = r;
+        });
+        mockFetch.mockReturnValueOnce(consentA);
+
+        fireEvent.click(screen.getByText('Принимаю'));
+
+        mockSend.mockClear();
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Услуга Б')),
+        });
+
+        emitLocationChanged('link_vk_token_b');
+
+        await waitFor(() => {
+            expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+        });
+
+        const sendCallsAfterSwitch = mockSend.mock.calls.length;
+
+        resolveConsentA({
+            ok: true,
+            json: () => Promise.resolve({ ok: true }),
+        });
+
+        await new Promise((r) => {
+            setTimeout(r, 30);
+        });
+
+        // Поздний consent А не должен запускать phone/profile/link
+        expect(mockSend).toHaveBeenCalledTimes(sendCallsAfterSwitch);
+        expect(mockSend).not.toHaveBeenCalledWith('VKWebAppGetPhoneNumber');
+        expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+
+        const linkCalls = mockFetch.mock.calls.filter(
+            (call) => typeof call[0] === 'string' && String(call[0]).includes('/api/miniapp/link'),
+        );
+        expect(linkCalls).toHaveLength(0);
+    });
+
+    it('A→Б during phone request does not request profile or link for A', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_token_a');
+
+        const mockFetch = vi.fn()
+            // Status A — phone only
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusFor('Телефон А', { consent_required: false, phone_required: true })),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Подтвердить номер')).toBeInTheDocument();
+        });
+
+        let resolvePhoneA!: (v: unknown) => void;
+        const phoneA = new Promise((r) => {
+            resolvePhoneA = r;
+        });
+        mockSend.mockReturnValueOnce(phoneA);
+
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Услуга Б')),
+        });
+
+        emitLocationChanged('link_vk_token_b');
+
+        await waitFor(() => {
+            expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+        });
+
+        const sendCallsAfterSwitch = mockSend.mock.calls.length;
+
+        resolvePhoneA({
+            phone_number: '79001234567',
+            sign: 'phone_sign',
+            is_verified: true,
+        });
+
+        await new Promise((r) => {
+            setTimeout(r, 30);
+        });
+
+        // Поздний phone А не должен запускать profile/link
+        expect(mockSend).toHaveBeenCalledTimes(sendCallsAfterSwitch);
+        expect(mockSend).not.toHaveBeenCalledWith('VKWebAppGetUserInfo');
+
+        const linkCalls = mockFetch.mock.calls.filter(
+            (call) => typeof call[0] === 'string' && String(call[0]).includes('/api/miniapp/link'),
+        );
+        expect(linkCalls).toHaveLength(0);
+        expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+    });
+
+    it('A→Б during profile request does not call link for A', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_token_a');
+
+        const mockFetch = vi.fn()
+            // Status A
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusFor('Профиль А', { consent_required: false, phone_required: true })),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Подтвердить номер')).toBeInTheDocument();
+        });
+
+        mockSend
+            .mockResolvedValueOnce({
+                phone_number: '79001234567',
+                sign: 'phone_sign',
+                is_verified: true,
+            });
+
+        let resolveProfileA!: (v: unknown) => void;
+        const profileA = new Promise((r) => {
+            resolveProfileA = r;
+        });
+        mockSend.mockReturnValueOnce(profileA);
+
+        fireEvent.click(screen.getByText('Подтвердить номер'));
+
+        // Ждём, пока phone уже ответил, profile висит
+        await waitFor(() => {
+            expect(mockSend).toHaveBeenCalledWith('VKWebAppGetPhoneNumber');
+        });
+
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Услуга Б')),
+        });
+
+        emitLocationChanged('link_vk_token_b');
+
+        await waitFor(() => {
+            expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+        });
+
+        const fetchCallsAfterSwitch = mockFetch.mock.calls.length;
+
+        resolveProfileA({ id: 1, first_name: 'Т', last_name: 'Т' });
+
+        await new Promise((r) => {
+            setTimeout(r, 30);
+        });
+
+        // Поздний profile А не должен вызывать link
+        expect(mockFetch).toHaveBeenCalledTimes(fetchCallsAfterSwitch);
+        const linkCalls = mockFetch.mock.calls.filter(
+            (call) => typeof call[0] === 'string' && String(call[0]).includes('/api/miniapp/link'),
+        );
+        expect(linkCalls).toHaveLength(0);
+        expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+    });
+
+    it('A→Б during permission window does not postVkPermission for A', async () => {
+        (window as unknown as Record<string, unknown>).__VK_GROUP_ID__ = 241438764;
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_token_a');
+
+        const mockFetch = vi.fn()
+            // Status A — confirmation path
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve(statusFor('Разрешение А')),
+            })
+            // Confirm A
+            .mockResolvedValueOnce({
+                ok: true,
+                json: () => Promise.resolve({ ok: true }),
+            });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('Подтвердить запись')).toBeInTheDocument();
+        });
+
+        fireEvent.click(screen.getByText('Подтвердить запись'));
+
+        await waitFor(() => {
+            expect(screen.getByText('Разрешить уведомления')).toBeInTheDocument();
+        });
+
+        let resolvePermA!: (v: unknown) => void;
+        const permA = new Promise((r) => {
+            resolvePermA = r;
+        });
+        mockSend.mockReturnValueOnce(permA);
+
+        fireEvent.click(screen.getByText('Разрешить уведомления'));
+
+        mockFetch.mockResolvedValueOnce({
+            ok: true,
+            json: () => Promise.resolve(statusFor('Услуга Б')),
+        });
+
+        emitLocationChanged('link_vk_token_b');
+
+        await waitFor(() => {
+            expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+        });
+
+        const fetchCallsAfterSwitch = mockFetch.mock.calls.length;
+
+        resolvePermA({ result: true });
+
+        await new Promise((r) => {
+            setTimeout(r, 30);
+        });
+
+        // Поздний ответ разрешения А не должен слать postVkPermission
+        const permCalls = mockFetch.mock.calls.filter(
+            (call) => typeof call[0] === 'string' && String(call[0]).includes('/vk-permission'),
+        );
+        expect(permCalls).toHaveLength(0);
+        expect(mockFetch).toHaveBeenCalledTimes(fetchCallsAfterSwitch);
+        expect(screen.getByText('Услуга Б')).toBeInTheDocument();
+
+        delete (window as unknown as Record<string, unknown>).__VK_GROUP_ID__;
+    });
+
+    it('ViewRestore during active scenario does not issue new requests', async () => {
+        setSearch('?vk_app_id=123&vk_user_id=456&sign=abc');
+        setHash('#link_vk_view');
+
+        const mockFetch = vi.fn().mockResolvedValue({
+            ok: true,
+            json: () => Promise.resolve(statusFor('ViewRestore сценарий')),
+        });
+        vi.stubGlobal('fetch', mockFetch);
+
+        render(<App />);
+
+        await waitFor(() => {
+            expect(screen.getByText('ViewRestore сценарий')).toBeInTheDocument();
+        });
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+
+        emitBridge('VKWebAppViewRestore');
+        emitBridge('VKWebAppViewRestore');
+
+        await new Promise((r) => {
+            setTimeout(r, 20);
+        });
+
+        expect(mockFetch).toHaveBeenCalledTimes(1);
+        expect(screen.getByText('ViewRestore сценарий')).toBeInTheDocument();
+    });
 });

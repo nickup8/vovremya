@@ -20,14 +20,14 @@ export function getVkLaunchParams(): string | null {
     const search = window.location.search;
 
     if (!search) {
-return null;
-}
+        return null;
+    }
 
     const raw = new URLSearchParams(search);
 
     if (!raw.has('sign')) {
-return null;
-}
+        return null;
+    }
 
     const vk = new URLSearchParams();
 
@@ -48,33 +48,33 @@ export function getVkLinkToken(): string | null {
     const hash = window.location.hash;
 
     if (!hash) {
-return null;
-}
+        return null;
+    }
 
     const token = hash.slice(1);
 
     if (!token || !token.startsWith(LINK_TOKEN_PREFIX)) {
-return null;
-}
+        return null;
+    }
 
     return token;
 }
 
 /**
- * Извлекает link-токен из payload VKWebAppLocationChanged.
+ * Извлекает link-токен из payload VKWebAppLocationChanged / VKWebAppChangeFragment.
  * location может быть path с hash, голым hash или полным URL —
  * токен всегда в сегменте с префиксом link_vk_.
  */
 export function parseVkLinkTokenFromLocation(location: string): string | null {
     if (!location) {
-return null;
-}
+        return null;
+    }
 
     let loc = location.trim();
 
     if (!loc) {
-return null;
-}
+        return null;
+    }
 
     try {
         if (loc.includes('://') || loc.startsWith('//')) {
@@ -109,10 +109,25 @@ return null;
     return loc;
 }
 
+function tokenFromBridgeLocation(data: unknown): string | null {
+    if (!data || typeof data !== 'object' || !('location' in data)) {
+        return null;
+    }
+
+    const { location } = data;
+
+    if (typeof location !== 'string') {
+        return null;
+    }
+
+    return parseVkLinkTokenFromLocation(location);
+}
+
 /**
  * Подписка на входящие переходы по ссылкам при работающем приложении.
  * - hashchange — browser-навигация по hash
- * - VKWebAppLocationChanged — bridge-событие с payload { location: string }
+ * - VKWebAppLocationChanged / VKWebAppChangeFragment — receive-only,
+ *   payload { location: string } (data.d.ts ReceiveDataMap)
  * - VKWebAppViewRestore — пустой payload; переиздаёт текущий hash,
  *   сам по себе не означает новую ссылку
  */
@@ -123,21 +138,17 @@ export function subscribeToVkLinkNavigation(onToken: (token: string | null) => v
 
     const bridgeHandler: VKBridgeSubscribeHandler = (event) => {
         if (!event?.detail) {
-return;
-}
+            return;
+        }
 
         const { type, data } = event.detail;
 
-        if (type === 'VKWebAppLocationChanged') {
-            const location = data && typeof data === 'object' && 'location' in data ? data.location : undefined;
+        if (type === 'VKWebAppLocationChanged' || type === 'VKWebAppChangeFragment') {
+            const token = tokenFromBridgeLocation(data);
 
-            if (typeof location === 'string') {
-                const token = parseVkLinkTokenFromLocation(location);
-
-                // Посторонний location без link-токена не должен сбрасывать активный сценарий.
-                if (token) {
-                    onToken(token);
-                }
+            // Посторонний location без link-токена не должен сбрасывать активный сценарий.
+            if (token) {
+                onToken(token);
             }
 
             return;
@@ -165,14 +176,14 @@ export function getVkGroupId(): number | null {
     const raw = window.__VK_GROUP_ID__;
 
     if (raw == null) {
-return null;
-}
+        return null;
+    }
 
     const n = typeof raw === 'number' ? raw : Number(raw);
 
     if (!Number.isFinite(n) || n <= 0) {
-return null;
-}
+        return null;
+    }
 
     return n;
 }
