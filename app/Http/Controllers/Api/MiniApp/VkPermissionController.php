@@ -87,12 +87,28 @@ class VkPermissionController extends Controller
      *
      * Канал перечитывается через resolveForEvent: подтверждение,
      * созданное через ВК-вход (vk_only), повторяется только в ВК.
-     * Возврат в pending — CAS по (строка, status in no_channel/failed):
-     * работающий job мог уже перехватить строку (failed→pending+lease) —
-     * чужой живой claim не удаляется и не сбрасывается, дубль отправки
-     * исключён. Job ставится только если строка фактически вернулась
-     * в pending — параллельные permission-запросы не дают второго
-     * redispatch'а. Идентичность события не меняется (без bump'а версии).
+     *
+     * Общий протокол с markFailed job'а: строка (event, channel) берётся
+     * через SELECT … FOR UPDATE и решение о сбросе принимается ПОД ЭТИМ
+     * lock'ом. FOR UPDATE ждёт блокировку job'а ДАЖЕ для pending-строки
+     * (в отличие от UPDATE с фильтром status, который pending-строку не
+     * матчит и вовсе не ждёт) и после пробуждения отдаёт закоммиченное
+     * состояние строки: failed → сброс в pending + dispatch, pending
+     * (grant гонялся с guard'ом markFailed) → без dispatch, продолжение
+     * делает retry job'а. Так grant «между чтением версии в markFailed и
+     * записью failed» не может пропустить будущий failed: его решение
+     * всегда ждёт lock терминализации.
+     *
+     * Порядок блокировок совместим: обе стороны ждут только строку
+     * доставки (claim держит event→строку, markFailed и этот tx — только
+     * строку, по одной за транзакцию), никто не удерживает строку, ожидая
+     * другую блокировку; транзакция не держится во время HTTP, dispatch —
+     * после её коммита.
+     *
+     * Чужой живой claim не затрагивается: pending-строка не переводится.
+     * Job ставится только если строка фактически вернулась в pending —
+     * параллельные permission-запросы не дают второго redispatch'а.
+     * Идентичность события не меняется (без bump'а версии).
      */
     private function retryUndeliveredBookingConfirmed(Appointment $appointment): void
     {
@@ -111,46 +127,55 @@ class VkPermissionController extends Controller
                 continue;
             }
 
-            $undelivered = $event->deliveries()
+            $reset = DB::transaction(function () use ($event, $channel): bool {
+                // FOR UPDATE по (event, channel) без фильтра статуса:
+                // блокировка берётся в любом состоянии строки — именно она
+                // сериализует grant с ещё не закоммиченным failed.
+                $row = AppointmentNotificationDelivery::query()
+                    ->where('appointment_notification_event_id', $event->getKey())
+                    ->where('channel', $channel)
+                    ->lockForUpdate()
+                    ->first();
+
+                if ($row === null
+                    || ! in_array($row->status, [
+                        AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
+                        AppointmentNotificationDelivery::STATUS_FAILED,
+                    ], true)) {
+                    // pending с чужим живым claim'ом (или уже
+                    // перехваченный) не трогаем — без dispatch.
+                    return false;
+                }
+
+                $row->update([
+                    'status' => AppointmentNotificationDelivery::STATUS_PENDING,
+                    'claim_token' => null,
+                    'lease_expires_at' => null,
+                    'failure_reason' => null,
+                    'failed_at' => null,
+                ]);
+
+                return true;
+            });
+
+            if ($reset) {
+                // Коммит уже состоялся — dispatch вне транзакции.
+                SendAppointmentNotificationJob::dispatch($event->getKey());
+
+                break;
+            }
+
+            // Паритет прежнего break: событие с терминальными строками
+            // (возможно, только на другом канале) завершает перебор —
+            // старые события не получают redispatch из-за гонки каналов.
+            if ($event->deliveries()
                 ->whereIn('status', [
                     AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
                     AppointmentNotificationDelivery::STATUS_FAILED,
                 ])
-                ->get();
-
-            if ($undelivered->isEmpty()) {
-                continue;
+                ->exists()) {
+                break;
             }
-
-            $reset = false;
-
-            foreach ($undelivered as $row) {
-                if ($row->channel !== $channel) {
-                    continue;
-                }
-
-                $affected = AppointmentNotificationDelivery::query()
-                    ->whereKey($row->getKey())
-                    ->whereIn('status', [
-                        AppointmentNotificationDelivery::STATUS_NO_CHANNEL,
-                        AppointmentNotificationDelivery::STATUS_FAILED,
-                    ])
-                    ->update([
-                        'status' => AppointmentNotificationDelivery::STATUS_PENDING,
-                        'claim_token' => null,
-                        'lease_expires_at' => null,
-                        'failure_reason' => null,
-                        'failed_at' => null,
-                    ]);
-
-                $reset = $reset || $affected > 0;
-            }
-
-            if ($reset) {
-                SendAppointmentNotificationJob::dispatch($event->getKey());
-            }
-
-            break; // достаточно одного последнего события
         }
     }
 }
