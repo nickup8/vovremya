@@ -37,16 +37,28 @@ use Tests\TestCase;
  *    (обёртывающий транзакцией RefreshDatabase отключён: его rollback
  *    держал бы lock строки markFailed до конца теста);
  *  - единственный permission-запрос выполняется дочерним PHP-процессом
- *    (tests/Support/vk_permission_child.php) на собственном backend'е —
- *    pid'ы соединений сверяются в тесте. Вложенный HTTP-вызов в той же
- *    транзакции не доказывал бы межтранзакционное поведение.
+ *    (tests/Support/vk_permission_child.php) на собственном backend'е.
+ *    Родитель передаёт ему фактическую тестовую конфигурацию подключения
+ *    (host/port/БД/схема); ребёнок сверяет её со СВОЕЙ фактической
+ *    подключённостью до POST и без совпадения завершается без изменений —
+ *    одного различия backend PID недостаточно. Вложенный HTTP-вызов в
+ *    той же транзакции не доказывал бы межтранзакционное поведение.
+ *
+ * Dispatch контроллера перехватывается Queue::fake() ДОЧЕРНЕГО процесса
+ * и возвращается в stdout строками DISPATCH:<eventId>: родительский
+ * Queue::fake() такой dispatch не видит, поэтому «счётчик родителя = 1»
+ * не означает отсутствия второго dispatch во всей системе. В этом
+ * порядке гонки новый dispatch контроллера ожидаем и необходим —
+ * итоговая доставка проверяется именно по нему, без ручного retry
+ * исходного job'а (продолжение обязано работать и при исчерпанных
+ * попытках исходного job'а).
  *
  * На дефектном коде grant успевал принять решение «pending — не
  * переставлять», markFailed коммитил failed — и подтверждение терялось.
  * С общим протоколом (решение permission под SELECT … FOR UPDATE той же
  * строки — блокировка берётся даже для pending-строки) grant ждёт lock
- * job'а и после его коммита видит failed → сброс → автоматическое
- * продолжение одной ВК-доставкой.
+ * job'а и после его коммита видит failed → сброс → continuation-job →
+ * одна ВК-доставка.
  */
 class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
 {
@@ -71,7 +83,24 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
 
     private Workspace $ws;
 
+    private ServiceCatalog $catalog;
+
     private MasterService $masterService;
+
+    private ?Client $createdClient = null;
+
+    private ?Appointment $createdAppointment = null;
+
+    private ?AppointmentNotificationEvent $createdEvent = null;
+
+    /**
+     * Все user'ы, созданные ВО ВРЕМЯ теста: AppointmentFactory::definition()
+     * эджерно делает User::factory()->master()->create() (в обёрнутых
+     * тестах это прятал rollback) — адресная зачистка фиксирует и их.
+     *
+     * @var list<string>
+     */
+    private array $createdUserIds = [];
 
     private ?Process $grantProcess = null;
 
@@ -90,6 +119,14 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
 
         Queue::fake();
 
+        User::creating(function ($model): void {
+            $key = $model->getKey();
+
+            if ($key !== null && ! in_array((string) $key, $this->createdUserIds, true)) {
+                $this->createdUserIds[] = (string) $key;
+            }
+        });
+
         $this->master = User::factory()->master()->create([
             'settings' => ['timezone' => 'Europe/Moscow'],
             'address' => 'ул. Тестовая, 1',
@@ -97,7 +134,7 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
         $this->ws = Workspace::create(['name' => 'WS', 'owner_id' => $this->master->id]);
         $this->master->update(['workspace_id' => $this->ws->id]);
 
-        $catalog = ServiceCatalog::create([
+        $this->catalog = ServiceCatalog::create([
             'workspace_id' => $this->ws->id,
             'title' => 'Массаж',
             'base_price' => 2000,
@@ -105,7 +142,7 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
         ]);
         $this->masterService = MasterService::create([
             'master_id' => $this->master->id,
-            'catalog_id' => $catalog->id,
+            'catalog_id' => $this->catalog->id,
             'is_active' => true,
         ]);
     }
@@ -116,11 +153,32 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
             $this->grantProcess->stop(1.0);
         }
 
-        // Обёртки RefreshDatabase нет — чистим test DB явно, иначе
-        // данные утекут в следующие тест-классы.
-        foreach (DB::select("select tablename from pg_tables where schemaname = 'public'") as $table) {
-            DB::statement('truncate table "'.$table->tablename.'" cascade');
+        // Обёртки RefreshDatabase нет — чистим АДРЕСНО и только созданные
+        // этим тестом строки в FK-порядке. TRUNCATE всех таблиц public
+        // стирал вместе с данными и историю migrations — её не трогаем.
+        if ($this->createdEvent !== null) {
+            AppointmentNotificationDelivery::query()
+                ->where('appointment_notification_event_id', $this->createdEvent->getKey())
+                ->delete();
+            AppointmentNotificationEvent::query()
+                ->whereKey($this->createdEvent->getKey())
+                ->delete();
         }
+
+        if ($this->createdAppointment !== null) {
+            Appointment::query()->whereKey($this->createdAppointment->getKey())->delete();
+        }
+
+        if ($this->createdClient !== null) {
+            Client::query()->whereKey($this->createdClient->getKey())->delete();
+        }
+
+        MasterService::query()->whereKey($this->masterService->getKey())->delete();
+        ServiceCatalog::query()->whereKey($this->catalog->getKey())->delete();
+
+        User::query()->whereIn('id', $this->createdUserIds)->update(['workspace_id' => null]);
+        Workspace::query()->whereKey($this->ws->getKey())->delete();
+        User::query()->whereIn('id', $this->createdUserIds)->delete();
 
         parent::tearDown();
     }
@@ -183,6 +241,9 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
         );
         $this->assertNotNull($event);
 
+        $this->createdAppointment = $appointment;
+        $this->createdEvent = $event;
+
         return [$appointment, $event];
     }
 
@@ -209,6 +270,30 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
     }
 
     /**
+     * Фактическая тестовая конфигурация подключения РОДИТЕЛЯ: она
+     * передаётся дочернему процессу и сверяется там с его фактической
+     * подключённостью до POST.
+     *
+     * @return array{host: string, port: int, database: string, schema: string}
+     */
+    private function parentDatabaseTarget(): array
+    {
+        $row = DB::selectOne(
+            "select coalesce(inet_server_addr()::text, '') as host,"
+            .' cast(coalesce(inet_server_port(), 0) as int) as port,'
+            .' current_database() as database,'
+            .' current_schema() as schema'
+        );
+
+        return [
+            'host' => (string) $row->host,
+            'port' => (int) $row->port,
+            'database' => (string) $row->database,
+            'schema' => (string) $row->schema,
+        ];
+    }
+
+    /**
      * Единственный permission-запрос — дочерним процессом на втором
      * соединении PostgreSQL.
      */
@@ -228,6 +313,7 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
                 (string) json_encode([
                     'appointment_id' => (string) $appointment->id,
                     'authorization' => $this->vkAuthHeaders('494075')['Authorization'],
+                    'db' => $this->parentDatabaseTarget(),
                 ]),
             ],
             base_path(),
@@ -273,6 +359,7 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
     public function test_grant_after_version_read_inside_markfailed_is_not_lost(): void
     {
         $client = $this->client(['vk_messages_allowed' => null]);
+        $this->createdClient = $client;
         [$appointment, $event] = $this->vkConfirmedByVkEntry($client);
 
         $original = Queue::pushed(SendAppointmentNotificationJob::class)->first();
@@ -371,6 +458,21 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
             "Дочерний permission-запрос должен вернуть 200. stdout=[{$stdout}] stderr=[{$stderr}]",
         );
 
+        // Согласование тестовой БД: ребёнок сверил свою фактическую
+        // подключённость (сервер/порт/БД/схема) с конфигурацией родителя
+        // ДО POST и подтвердил совпадение — одного различия PID мало.
+        $expectedDb = $this->parentDatabaseTarget();
+        $this->assertSame(
+            1,
+            preg_match('/^DB:(.+)$/m', $stdout, $dbMatches),
+            "В stdout дочернего процесса ожидалась строка сверки БД. stdout=[{$stdout}]",
+        );
+        $this->assertSame(
+            $expectedDb['host'].':'.$expectedDb['port'].':'.$expectedDb['database'].':'.$expectedDb['schema'],
+            trim($dbMatches[1]),
+            'Дочерний процесс должен работать в той же тестовой БД/схеме, что и родитель',
+        );
+
         // Два соединения PostgreSQL: backend-иды обязаны различаться.
         $this->assertSame(
             1,
@@ -384,6 +486,25 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
             'permission-запрос должен идти со ВТОРОГО соединения PostgreSQL',
         );
         $this->assertStringContainsString('STATUS:200', $stdout);
+
+        // Перехват continuation'а: после сброса failed→pending контроллер
+        // обязан поставить ровно один SendAppointmentNotificationJob для
+        // ЭТОГО события. Счётчик Queue::fake() родителя этот dispatch не
+        // видит — «родитель = 1» не означает отсутствия второго dispatch
+        // во всей системе; в данном порядке гонки новый dispatch
+        // контроллера ожидаем и необходим.
+        preg_match_all('/^DISPATCH:(.+)$/m', $stdout, $dispatchMatches);
+        $dispatchedEventIds = array_map('trim', $dispatchMatches[1] ?? []);
+        $this->assertCount(
+            1,
+            $dispatchedEventIds,
+            "После сброса failed→pending контроллер должен поставить ровно один continuation-job. stdout=[{$stdout}]",
+        );
+        $this->assertSame(
+            $event->id,
+            $dispatchedEventIds[0],
+            'Continuation должен быть поставлен для события, чью доставку гоняем',
+        );
 
         // Grant действительно попал в окно после чтения версии.
         $this->assertSame(0, $versionBeforeGrant, 'Версия на момент чтения guard-а — снимок до grant');
@@ -408,8 +529,12 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
         );
         $this->assertNull($vkRow?->failure_reason);
 
-        // Продолжение — автоматически bounded retry того же job: одна ВК,
-        // без MAX, без второго dispatch'а и без второго permission.
+        // Итоговая доставка — по ЭТОМУ продолжению: выполняется job из
+        // dispatch'а контроллера, а не ручной retry исходного job'а.
+        // Продолжение обязано работать и тогда, когда исходная job уже
+        // исчерпала бы попытки, — потому здесь она и не переигрывается.
+        $continuationJob = new SendAppointmentNotificationJob($dispatchedEventIds[0]);
+
         $vkApi2 = $this->mock(VkApiClient::class);
         $vkApi2->shouldReceive('sendMessageWithKeyboard')
             ->once()
@@ -418,7 +543,7 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
         $maxApi2 = $this->mock(MaxApiClient::class);
         $maxApi2->shouldNotReceive('sendMessage');
 
-        $this->runJob($original, $maxApi2, $vkApi2);
+        $this->runJob($continuationJob, $maxApi2, $vkApi2);
 
         $this->assertSame(
             AppointmentNotificationDelivery::STATUS_DELIVERED,
@@ -439,7 +564,9 @@ class VkPermissionTerminalRaceCrossConnectionTest extends TestCase
         $this->assertSame(
             1,
             Queue::pushed(SendAppointmentNotificationJob::class)->count(),
-            'Ни второго permission-запроса, ни второго dispatch',
+            'Счётчик Queue::fake() родителя считает только in-process постановки: '
+                .'здесь ровно исходный outbox-dispatch; continuation контроллера ушёл '
+                .'из дочернего процесса и проверен отдельно через DISPATCH-строки',
         );
     }
 }
