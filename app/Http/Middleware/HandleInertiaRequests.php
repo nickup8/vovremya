@@ -154,7 +154,18 @@ class HandleInertiaRequests extends Middleware
             return null;
         }
 
-        return (string) Str::uuid();
+        // Stable for the current response only: re-evaluating share() reuses
+        // the same id; the next request without new flash content yields null.
+        // now() ages out at end of request, so sequential operations get fresh ids.
+        $existing = $session->get('flash_event_id');
+        if (is_string($existing) && $existing !== '') {
+            return $existing;
+        }
+
+        $id = (string) Str::uuid();
+        $session->now('flash_event_id', $id);
+
+        return $id;
     }
 
     private function platformAdminProps($user): array

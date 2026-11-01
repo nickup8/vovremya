@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { renderHook, act } from '@testing-library/react';
+import { renderHook, act, render } from '@testing-library/react';
+import React, { StrictMode } from 'react';
 
 type Flash = {
     success?: string;
@@ -16,12 +17,7 @@ const toastMock = vi.hoisted(() => ({
 }));
 
 const flashStore = vi.hoisted(() => {
-    let flash: {
-        success?: string;
-        error?: string;
-        message?: string;
-        id?: string | null;
-    } = { success: undefined, error: undefined, message: undefined, id: null };
+    let flash: Flash = { success: undefined, error: undefined, message: undefined, id: null };
     const listeners = new Set<() => void>();
 
     return {
@@ -33,7 +29,7 @@ const flashStore = vi.hoisted(() => {
                 listeners.delete(listener);
             };
         },
-        setFlash: (next: typeof flash) => {
+        setFlash: (next: Flash) => {
             flash = { ...next };
             listeners.forEach((listener) => listener());
         },
@@ -52,18 +48,18 @@ vi.mock('sonner', () => ({
 }));
 
 vi.mock('@inertiajs/react', async () => {
-    const React = await import('react');
+    const ReactLib = await import('react');
 
     return {
         usePage: () => {
-            const flash = React.useSyncExternalStore(flashStore.subscribe, flashStore.getSnapshot);
+            const flash = ReactLib.useSyncExternalStore(flashStore.subscribe, flashStore.getSnapshot);
 
             return { props: { flash } };
         },
     };
 });
 
-import { useFlashToast } from '@/hooks/use-flash-toast';
+import { useFlashToast, resetFlashToastHandledState } from '@/hooks/use-flash-toast';
 
 function setFlash(next: Flash) {
     act(() => {
@@ -75,6 +71,7 @@ describe('useFlashToast', () => {
     beforeEach(() => {
         vi.clearAllMocks();
         flashStore.reset();
+        resetFlashToastHandledState();
     });
 
     it('shows success toast once for a flash event', () => {
@@ -150,5 +147,46 @@ describe('useFlashToast', () => {
 
         expect(toastMock.toast).toHaveBeenCalledTimes(1);
         expect(toastMock.toast).toHaveBeenCalledWith('Информация');
+    });
+
+    it('does not double-show under StrictMode with the same flash id', () => {
+        flashStore.setFlash({ success: 'Услуга добавлена', id: 'evt-strict' });
+
+        render(
+            React.createElement(
+                StrictMode,
+                null,
+                React.createElement(() => {
+                    useFlashToast();
+
+                    return null;
+                }),
+            ),
+        );
+
+        expect(toastMock.success).toHaveBeenCalledTimes(1);
+    });
+
+    it('does not re-show after unmount → mount with the same flash id', () => {
+        flashStore.setFlash({ success: 'Услуга добавлена', id: 'evt-remount' });
+
+        const first = renderHook(() => useFlashToast());
+        expect(toastMock.success).toHaveBeenCalledTimes(1);
+        first.unmount();
+
+        renderHook(() => useFlashToast());
+        expect(toastMock.success).toHaveBeenCalledTimes(1);
+    });
+
+    it('shows a new event with the same text after remount when flash.id changes', () => {
+        flashStore.setFlash({ success: 'Сохранено', id: 'evt-a' });
+        const first = renderHook(() => useFlashToast());
+        expect(toastMock.success).toHaveBeenCalledTimes(1);
+        first.unmount();
+
+        setFlash({ success: 'Сохранено', id: 'evt-b' });
+        renderHook(() => useFlashToast());
+
+        expect(toastMock.success).toHaveBeenCalledTimes(2);
     });
 });
