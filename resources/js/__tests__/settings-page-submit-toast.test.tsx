@@ -316,29 +316,29 @@ describe('settings.tsx real submit + shared flash hook', () => {
         expect(toastMock.error).not.toHaveBeenCalled();
     });
 
-    it('booking form onError: error toast without success toast', async () => {
+    it('booking form real submit: put from settings.tsx has no success toast on validation error', async () => {
         const { default: SettingsPage } = await import('@/pages/admin/settings');
         render(React.createElement(SettingsPage));
 
-        // Drive booking form put via useForm state (second useForm call)
-        const bookingOptions = {
-            preserveScroll: true,
-            onError: (errors: Record<string, string>) => {
-                // Mirror settings.tsx booking submit — no local success toast on error
-                void errors;
-            },
-        };
-        // Call the same put the page uses when booking form submits
-        bookingPut('/admin/settings/booking', bookingOptions);
+        // Booking form is always rendered (TabsContent mock keeps children);
+        // submit is initiated by settings.tsx onSubmit → bookingFlowForm.put
+        const saveBooking = screen.getByRole('button', { name: /Сохранить настройки/u });
+        const bookingForm = saveBooking.closest('form');
+        expect(bookingForm).toBeTruthy();
+
+        fireEvent.submit(bookingForm!);
 
         await waitFor(() => expect(bookingPut).toHaveBeenCalled());
-        const options = bookingPut.mock.calls[0]![1] as Record<string, unknown>;
-        options.onError?.({ slot_interval: 'Некорректный шаг' });
+        // Options object created by settings.tsx line 938: { preserveScroll: true }
+        const options = bookingPut.mock.calls[0]![1] as Record<string, unknown> | undefined;
+        expect(options).toBeTruthy();
+        expect(options).not.toHaveProperty('onSuccess');
 
-        setFlash({ success: null, error: 'Некорректный шаг', id: 'evt-settings-err' });
+        // Validation error path: server withErrors — no flash.success, form shows field errors.
+        // Local handler must not emit a success toast.
+        setFlash({ success: null, error: null, id: null });
 
         expect(toastMock.success).not.toHaveBeenCalled();
-        expect(toastMock.error).toHaveBeenCalledTimes(1);
-        expect(toastMock.error).toHaveBeenCalledWith('Некорректный шаг');
+        expect(toastMock.error).not.toHaveBeenCalled();
     });
 });
