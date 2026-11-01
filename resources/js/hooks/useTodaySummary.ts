@@ -41,6 +41,11 @@ export interface UseTodaySummaryResult {
     refresh: () => void;
 }
 
+/** Задержка отложенного повтора после сетевой ошибки / non-2xx без снимка. */
+const RETRY_DELAY_MS = 15_000;
+/** Минимальный интервал авто-перезагрузки при рассинхроне даты payload/клиента. */
+const DAY_MISMATCH_THROTTLE_MS = 30_000;
+
 function toVisit(dto: TodayAppointmentDto): TodayVisit {
     return {
         id: dto.id,
@@ -62,6 +67,13 @@ function toVisit(dto: TodayAppointmentDto): TodayVisit {
  * Защита от устаревших ответов: seq-номер (применяется только последний),
  * повторные события во время запроса коалесцируются в один повторный fetch,
  * применение ответа заменяет снимок целиком — двойного подсчёта не бывает.
+ * Ошибка первого запроса (сеть / non-2xx) без снимка: отложенный повтор
+ * (не чаще RETRY_DELAY_MS), прежний успешный снимок при временной ошибке
+ * не затирается. payload.date ≠ сегодня у клиента не показывается как
+ * «Сегодня» и не крутит немедленный цикл запросов — авто-повтор даты
+ * троттлится DAY_MISMATCH_THROTTLE_MS независимо от новизны объекта payload.
+ * При выключении / размонтировании таймеры снимаются, in-flight ответ
+ * инвалидируется seq'ом и не применяется.
  */
 export function useTodaySummary({
     enabled,
@@ -70,13 +82,27 @@ export function useTodaySummary({
 }: UseTodaySummaryParams): UseTodaySummaryResult {
     const [payload, setPayload] = useState<TodayResponse | null>(null);
     const [now, setNow] = useState(() => Date.now());
+    const [retryToken, setRetryToken] = useState(0);
 
     const seqRef = useRef(0);
     const inflightRef = useRef(false);
     const pendingRef = useRef(false);
+    const enabledRef = useRef(enabled);
+    const payloadRef = useRef<TodayResponse | null>(null);
+    const lastAutoFetchAtRef = useRef(0);
+
+    useEffect(() => {
+        enabledRef.current = enabled;
+    }, [enabled]);
+
+    const applyPayload = useCallback((data: TodayResponse) => {
+        payloadRef.current = data;
+        setPayload(data);
+    }, []);
 
     const load = useCallback(() => {
         seqRef.current += 1;
+        lastAutoFetchAtRef.current = Date.now();
 
         if (inflightRef.current) {
             // Повторное событие во время запроса: дренаж циклом после завершения.
@@ -90,6 +116,10 @@ export function useTodaySummary({
         void (async () => {
             try {
                 for (;;) {
+                    if (!enabledRef.current) {
+                        break;
+                    }
+
                     pendingRef.current = false;
                     const mySeq = seqRef.current;
 
@@ -106,11 +136,17 @@ export function useTodaySummary({
                             const data = (await res.json()) as TodayResponse;
 
                             if (mySeq === seqRef.current) {
-                                setPayload(data);
+                                applyPayload(data);
                             }
+                        } else if (mySeq === seqRef.current) {
+                            // HTTP non-2xx: прежний снимок остаётся, отложенный повтор
+                            setRetryToken((t) => t + 1);
                         }
                     } catch {
-                        // Сетевая ошибка: прежний снимок остаётся, повтор придёт с тиком/событием
+                        // Сетевая ошибка: прежний снимок остаётся, отложенный повтор
+                        if (mySeq === seqRef.current) {
+                            setRetryToken((t) => t + 1);
+                        }
                     }
 
                     if (!pendingRef.current) {
@@ -121,7 +157,7 @@ export function useTodaySummary({
                 inflightRef.current = false;
             }
         })();
-    }, []);
+    }, [applyPayload]);
 
     const refresh = useCallback(() => {
         load();
@@ -129,11 +165,30 @@ export function useTodaySummary({
 
     useEffect(() => {
         if (!enabled) {
+            // Инвалидация in-flight: запоздалый ответ не будет применён
+            seqRef.current += 1;
+
             return;
         }
 
         load();
     }, [enabled, load]);
+
+    // Отложенный повтор после ошибки первого запроса, когда снимка ещё нет.
+    // Ограниченная частота: один таймер на RETRY_DELAY_MS, без polling'а каждый секунду.
+    useEffect(() => {
+        if (!enabled || retryToken === 0 || payload !== null) {
+            return;
+        }
+
+        const timer = window.setTimeout(() => {
+            if (enabledRef.current && payloadRef.current === null) {
+                load();
+            }
+        }, RETRY_DELAY_MS);
+
+        return () => window.clearTimeout(timer);
+    }, [retryToken, enabled, payload, load]);
 
     // Локальный пересчёт границ визитов: таймер к ближайшей границе start/end,
     // но не дальше 30с — так ловится смена дня в таймзоне мастера.
@@ -166,6 +221,8 @@ export function useTodaySummary({
     }, [enabled, payload, now]);
 
     // Смена дня в таймзоне мастера — перезагрузка данных за сегодня.
+    // Троттлинг: немедленного цикла при payload.date ≠ сегодня нет,
+    // частота ограничена независимо от замены объекта payload.
     useEffect(() => {
         if (!enabled || !payload) {
             return;
@@ -174,7 +231,14 @@ export function useTodaySummary({
         const key = tzDateKey(new Date(now), payload.timezone || timezone);
 
         if (key !== payload.date) {
-            void load();
+            const nowMs = Date.now();
+
+            if (
+                nowMs - lastAutoFetchAtRef.current >=
+                DAY_MISMATCH_THROTTLE_MS
+            ) {
+                void load();
+            }
         }
     }, [enabled, payload, now, timezone, load]);
 
@@ -224,6 +288,13 @@ export function useTodaySummary({
             channel.stopListening('.AppointmentVisitConfirmed', onChanged);
         };
     }, [enabled, authUserId, load]);
+
+    // Размонтирование: инвалидация in-flight ответа.
+    useEffect(() => {
+        return () => {
+            seqRef.current += 1;
+        };
+    }, []);
 
     const summary = useMemo<TodaySummary | null>(() => {
         if (!payload) {
