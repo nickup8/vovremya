@@ -123,8 +123,8 @@ class VkConfirmController extends Controller
 
         $lockKey = 'master_notified_'.$appointment->id;
         if (Cache::add($lockKey, true, now()->addMinutes(10))) {
-            $phone = $client->phone ?? '';
-            $clientName = $client->name ?? '';
+            $phone = $client->phone ?? __('bot.fallback.phone');
+            $clientName = $client->name ?? __('bot.fallback.client_name');
 
             app(MasterNotificationService::class)
                 ->sendToMaster($master, __('bot.master.new_booking', [

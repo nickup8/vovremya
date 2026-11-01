@@ -14,6 +14,7 @@ use App\Services\MiniAppClientResolver;
 use App\Services\Notification\MasterNotificationService;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\Log;
 
 class AppointmentController extends Controller
 {
@@ -105,19 +106,20 @@ class AppointmentController extends Controller
 
         // уведомление мастеру (best effort: сбой не должен заваливать уже совершённую отмену)
         try {
-            $when = $appointment->start_time
-                ->timezone($appointment->master?->getTimezone() ?? 'UTC')
-                ->format('d.m.Y H:i');
+            $start = $appointment->start_time
+                ->timezone($appointment->master?->getTimezone() ?? 'UTC');
 
             app(MasterNotificationService::class)->sendToMaster(
                 $appointment->master,
                 __('bot.master.client_cancelled', [
+                    'client' => $appointment->client?->name ?? __('bot.fallback.client_name'),
                     'service' => $appointment->display_name,
-                    'when' => $when,
+                    'date' => $start->format('d.m.Y'),
+                    'time' => $start->format('H:i'),
                 ])
             );
         } catch (\Throwable $e) {
-            \Illuminate\Support\Facades\Log::warning('MiniApp: не удалось уведомить мастера об отмене', [
+            Log::warning('MiniApp: не удалось уведомить мастера об отмене', [
                 'appointment_id' => $appointment->id,
                 'error' => $e->getMessage(),
             ]);

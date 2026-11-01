@@ -12,7 +12,6 @@ use App\Enums\SlotRequestSource;
 use App\Enums\SlotRequestType;
 use App\Enums\SubscriptionStatus;
 use App\Jobs\CreateSlotOpportunityJob;
-use App\Jobs\MatchSlotOpportunityJob;
 use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\MasterService;
@@ -23,13 +22,16 @@ use App\Models\SlotRequest;
 use App\Models\Subscription;
 use App\Models\TariffPlan;
 use App\Models\User;
-use App\Models\Workspace;
 use App\Models\WorkingHour;
+use App\Models\Workspace;
 use App\Services\AutofillChainCompletionService;
 use App\Services\Notification\MasterNotificationService;
+use App\Services\SlotMatcherService;
+use App\Services\SlotOfferAcceptanceService;
+use App\Services\SlotOpportunityService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
-use Illuminate\Support\Facades\Log;
+use Illuminate\Support\Str;
 use Tests\TestCase;
 
 class AutofillChainCompletionTest extends TestCase
@@ -37,12 +39,19 @@ class AutofillChainCompletionTest extends TestCase
     use RefreshDatabase;
 
     private TariffPlan $proPlan;
+
     private User $master;
+
     private Workspace $ws;
+
     private Client $client;
+
     private Client $client2;
+
     private MasterService $masterService;
+
     private Appointment $sourceAppointment;
+
     private string $chainId;
 
     protected function setUp(): void
@@ -104,7 +113,7 @@ class AutofillChainCompletionTest extends TestCase
                 'duration' => 60,
             ]);
 
-        $this->chainId = (string) \Illuminate\Support\Str::uuid();
+        $this->chainId = (string) Str::uuid();
     }
 
     private function createSlotRequest(Client $client, Appointment $appointment): SlotRequest
@@ -132,7 +141,7 @@ class AutofillChainCompletionTest extends TestCase
     private function createRootOpportunity(Carbon $startTime, ?string $chainId = null): SlotOpportunity
     {
         return SlotOpportunity::create([
-            'origin_event_id' => (string) \Illuminate\Support\Str::uuid(),
+            'origin_event_id' => (string) Str::uuid(),
             'chain_id' => $chainId ?? $this->chainId,
             'workspace_id' => $this->ws->id,
             'master_id' => $this->master->id,
@@ -148,7 +157,7 @@ class AutofillChainCompletionTest extends TestCase
     private function createFilledOpportunity(Carbon $startTime, SlotRequest $request, Appointment $sourceAppointment): SlotOpportunity
     {
         $opp = SlotOpportunity::create([
-            'origin_event_id' => (string) \Illuminate\Support\Str::uuid(),
+            'origin_event_id' => (string) Str::uuid(),
             'chain_id' => $this->chainId,
             'workspace_id' => $this->ws->id,
             'master_id' => $this->master->id,
@@ -200,12 +209,13 @@ class AutofillChainCompletionTest extends TestCase
             ->once()
             ->with(\Mockery::on(fn ($m) => $m->id === $this->master->id), \Mockery::on(function ($text) use (&$capturedText) {
                 $capturedText = $text;
+
                 return true;
             }));
 
         app(AutofillChainCompletionService::class)->finish($this->chainId, 'no_candidates');
 
-        $this->assertStringContainsString('Перенесено клиентов: 1', $capturedText);
+        $this->assertStringContainsString('Количество переносов: 1', $capturedText);
         $this->assertStringContainsString('Анна', $capturedText);
     }
 
@@ -233,12 +243,13 @@ class AutofillChainCompletionTest extends TestCase
             ->once()
             ->with(\Mockery::type(User::class), \Mockery::on(function ($text) use (&$capturedText) {
                 $capturedText = $text;
+
                 return true;
             }));
 
         app(AutofillChainCompletionService::class)->finish($this->chainId, 'no_candidates');
 
-        $this->assertStringContainsString('Перенесено клиентов: 2', $capturedText);
+        $this->assertStringContainsString('Количество переносов: 2', $capturedText);
         $this->assertStringContainsString('Анна', $capturedText);
         $this->assertStringContainsString('Мария', $capturedText);
     }
@@ -256,6 +267,7 @@ class AutofillChainCompletionTest extends TestCase
             ->once()
             ->with(\Mockery::type(User::class), \Mockery::on(function ($text) use (&$capturedText) {
                 $capturedText = $text;
+
                 return true;
             }));
 
@@ -278,6 +290,7 @@ class AutofillChainCompletionTest extends TestCase
             ->once()
             ->with(\Mockery::type(User::class), \Mockery::on(function ($text) use (&$capturedText) {
                 $capturedText = $text;
+
                 return true;
             }));
 
@@ -300,6 +313,7 @@ class AutofillChainCompletionTest extends TestCase
             ->once()
             ->with(\Mockery::type(User::class), \Mockery::on(function ($text) use (&$capturedText) {
                 $capturedText = $text;
+
                 return true;
             }));
 
@@ -386,7 +400,7 @@ class AutofillChainCompletionTest extends TestCase
         $mock = $this->mock(MasterNotificationService::class);
         $mock->shouldNotReceive('sendToMaster');
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $matcher->matchOpportunity($root);
     }
 
@@ -405,7 +419,7 @@ class AutofillChainCompletionTest extends TestCase
         $mock = $this->mock(MasterNotificationService::class);
         $mock->shouldNotReceive('sendToMaster');
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $matcher->matchOpportunity($root);
     }
 
@@ -417,7 +431,7 @@ class AutofillChainCompletionTest extends TestCase
         $mock = $this->mock(MasterNotificationService::class);
         $mock->shouldNotReceive('sendToMaster'); // 0 filled → no send
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $matcher->matchOpportunity($root);
 
         // The finish() is called with either 'no_candidates' or 'slot_unavailable'
@@ -436,7 +450,7 @@ class AutofillChainCompletionTest extends TestCase
         $mock = $this->mock(MasterNotificationService::class);
         $mock->shouldNotReceive('sendToMaster'); // 0 filled
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $matcher->matchOpportunity($root);
 
         $root->refresh();
@@ -452,7 +466,7 @@ class AutofillChainCompletionTest extends TestCase
         $mock = $this->mock(MasterNotificationService::class);
         $mock->shouldNotReceive('sendToMaster'); // 0 filled
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $matcher->matchOpportunity($root);
     }
 
@@ -465,7 +479,7 @@ class AutofillChainCompletionTest extends TestCase
         $mock = $this->mock(MasterNotificationService::class);
         $mock->shouldNotReceive('sendToMaster'); // 0 filled
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $matcher->matchOpportunity($root);
     }
 
@@ -489,7 +503,7 @@ class AutofillChainCompletionTest extends TestCase
         $mock = $this->mock(MasterNotificationService::class);
         $mock->shouldNotReceive('sendToMaster');
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $matcher->matchOpportunity($root);
     }
 
@@ -501,7 +515,7 @@ class AutofillChainCompletionTest extends TestCase
         // schedules finish() via DB::afterCommit
         // We verify by checking that the method exists and is called
         $this->assertTrue(method_exists(
-            \App\Services\SlotOfferAcceptanceService::class,
+            SlotOfferAcceptanceService::class,
             'acceptEarlier',
         ));
     }
@@ -511,7 +525,7 @@ class AutofillChainCompletionTest extends TestCase
     public function test_create_opportunity_job_null_result_with_chain_finishes(): void
     {
         $window = new AppointmentWindowFreed(
-            originEventId: (string) \Illuminate\Support\Str::uuid(),
+            originEventId: (string) Str::uuid(),
             chainId: $this->chainId,
             workspaceId: $this->ws->id,
             masterId: $this->master->id,
@@ -526,13 +540,13 @@ class AutofillChainCompletionTest extends TestCase
         $mock->shouldNotReceive('sendToMaster'); // 0 filled
 
         $job = new CreateSlotOpportunityJob($window);
-        $job->handle(app(\App\Services\SlotOpportunityService::class));
+        $job->handle(app(SlotOpportunityService::class));
     }
 
     public function test_create_opportunity_job_null_result_without_chain_no_finish(): void
     {
         $window = new AppointmentWindowFreed(
-            originEventId: (string) \Illuminate\Support\Str::uuid(),
+            originEventId: (string) Str::uuid(),
             chainId: null, // root window
             workspaceId: $this->ws->id,
             masterId: $this->master->id,
@@ -547,13 +561,13 @@ class AutofillChainCompletionTest extends TestCase
         $mock->shouldNotReceive('sendToMaster');
 
         $job = new CreateSlotOpportunityJob($window);
-        $job->handle(app(\App\Services\SlotOpportunityService::class));
+        $job->handle(app(SlotOpportunityService::class));
     }
 
     public function test_create_opportunity_job_failed_finishes_chain(): void
     {
         $window = new AppointmentWindowFreed(
-            originEventId: (string) \Illuminate\Support\Str::uuid(),
+            originEventId: (string) Str::uuid(),
             chainId: $this->chainId,
             workspaceId: $this->ws->id,
             masterId: $this->master->id,
@@ -578,7 +592,7 @@ class AutofillChainCompletionTest extends TestCase
         // Smoke: matcher returns null for opportunity with no candidates
         $root = $this->createRootOpportunity(Carbon::tomorrow()->setTime(10, 0));
 
-        $matcher = app(\App\Services\SlotMatcherService::class);
+        $matcher = app(SlotMatcherService::class);
         $result = $matcher->matchOpportunity($root);
 
         $this->assertNull($result);

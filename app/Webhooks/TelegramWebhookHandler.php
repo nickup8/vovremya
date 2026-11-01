@@ -19,6 +19,7 @@ use App\Services\Avatars\AvatarStorageService;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
+use App\Support\BotText;
 use DefStudio\Telegraph\Client\TelegraphResponse;
 use DefStudio\Telegraph\Handlers\WebhookHandler;
 use DefStudio\Telegraph\Keyboard\Button;
@@ -208,11 +209,14 @@ class TelegramWebhookHandler extends WebhookHandler
         $serviceName = $appointment->display_name;
         $masterName = $master->name ?? __('bot.fallback.master_name');
 
-        $details = __('bot.booking_details', [
+        $details = BotText::render('bot.booking_details', [
             'master' => $masterName,
+            'master_phone' => BotText::masterPhone($master),
             'service' => $serviceName,
             'date' => $date,
             'time' => $time,
+            'price' => BotText::price((float) $appointment->display_price),
+            'address' => $master->address ?? '',
         ]);
 
         // Проверяем, является ли пользователь постоянным клиентом этого мастера
@@ -355,19 +359,18 @@ class TelegramWebhookHandler extends WebhookHandler
         $tz = $appointment->master->getTimezone();
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
+        $masterPhone = BotText::masterPhone($appointment->master);
 
-        $confirmedText = __('bot.booking_confirmed', [
+        $confirmedText = BotText::render('bot.booking_confirmed', [
+            'master' => $appointment->master->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $masterPhone,
             'service' => $appointment->display_name,
             'date' => $date,
             'time' => $time,
-            'price' => $appointment->display_price,
+            'price' => BotText::price((float) $appointment->display_price),
+            'address' => $appointment->master->address ?? '',
+            'instruction' => BotText::cabinetInstruction($masterPhone),
         ]);
-
-        if ($appointment->master->address) {
-            $confirmedText .= __('bot.booking_confirmed_address', ['address' => $appointment->master->address]);
-        }
-
-        $confirmedText .= __('bot.booking_confirmed_suffix');
 
         try {
             $this->chat->edit($this->messageId)
@@ -893,22 +896,27 @@ class TelegramWebhookHandler extends WebhookHandler
 
         // Уведомление мастеру об отмене клиентом.
         $tz = $appointment->master->getTimezone();
-        $when = $appointment->start_time->timezone($tz)->format('d.m.Y H:i');
+        $start = $appointment->start_time->timezone($tz);
 
         app(MasterNotificationService::class)->sendToMaster(
             $appointment->master,
-            __('bot.master.client_cancelled', ['service' => $appointment->display_name, 'when' => $when])
+            __('bot.master.client_cancelled', [
+                'client' => $client->name ?? __('bot.fallback.client_name'),
+                'service' => $appointment->display_name,
+                'date' => $start->format('d.m.Y'),
+                'time' => $start->format('H:i'),
+            ])
         );
 
         // Обновляем сообщение + отвечаем клиенту.
         try {
             $this->chat->edit($this->messageId)
-                ->html('✅ Запись отменена.')
+                ->html(__('bot.booking_cancelled.edit_message'))
                 ->send();
 
             $this->chat->deleteKeyboard($this->messageId)->send();
 
-            $this->reply('Запись отменена.');
+            $this->reply(__('bot.booking_cancelled.reply'));
 
             Log::info('[TG] cancelAppointment: success', [
                 'appointment_id' => $appointmentId,
@@ -1091,18 +1099,18 @@ class TelegramWebhookHandler extends WebhookHandler
             return;
         }
 
-        $message = __('bot.booking_confirmed', [
+        $confirmPhone = BotText::masterPhone($appointment->master);
+
+        $message = BotText::render('bot.booking_confirmed', [
+            'master' => $appointment->master->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $confirmPhone,
             'service' => $appointment->display_name,
             'date' => $date,
             'time' => $time,
-            'price' => $appointment->display_price,
+            'price' => BotText::price((float) $appointment->display_price),
+            'address' => $appointment->master->address ?? '',
+            'instruction' => BotText::cabinetInstruction($confirmPhone),
         ]);
-
-        if ($appointment->master->address) {
-            $message .= __('bot.booking_confirmed_address', ['address' => $appointment->master->address]);
-        }
-
-        $message .= __('bot.booking_confirmed_suffix');
 
         try {
             $this->chat->html($message)

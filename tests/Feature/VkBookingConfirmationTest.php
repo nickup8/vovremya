@@ -303,7 +303,7 @@ class VkBookingConfirmationTest extends TestCase
             ->assertOk();
 
         $this->assertNotNull($capturedText);
-        $this->assertStringContainsString('Запись подтверждена!', $capturedText);
+        $this->assertStringContainsString('Вы записаны на приём', $capturedText);
         $this->assertStringContainsString($draft->display_name, $capturedText);
         $this->assertStringContainsString(
             Carbon::tomorrow()->setTime(14, 0)->timezone('Europe/Moscow')->format('d.m.Y'),
@@ -313,9 +313,9 @@ class VkBookingConfirmationTest extends TestCase
             Carbon::tomorrow()->setTime(14, 0)->timezone('Europe/Moscow')->format('H:i'),
             $capturedText,
         );
-        $this->assertStringContainsString('1500₽', $capturedText);
+        $this->assertStringContainsString('1 500 ₽', $capturedText);
         $this->assertStringContainsString('Пушкина', $capturedText);
-        $this->assertStringContainsString('Ждём вас!', $capturedText);
+        $this->assertStringContainsString('Не сможете прийти?', $capturedText);
 
         $this->assertNotNull($capturedKeyboard);
         $this->assertFalse($capturedKeyboard['one_time']);

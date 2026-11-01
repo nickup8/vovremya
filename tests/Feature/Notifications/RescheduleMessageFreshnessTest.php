@@ -246,8 +246,9 @@ class RescheduleMessageFreshnessTest extends TestCase
         );
 
         $text = (string) $event->payload['text'];
-        // Старое время 10:00 Мск = 12:00 Екб; composer показывает обе стороны в tz НОВОГО мастера.
-        $this->assertStringContainsString('12:00', $text, 'прежнее время в tz нового мастера — 12:00 Екб');
+        // Старое время 10:00 Мск: при смене мастера composer показывает
+        // прежнее время в поясе ПРЕЖНЕГО мастера (Europe/Moscow).
+        $this->assertStringContainsString('10:00', $text, 'прежнее время в tz прежнего мастера — 10:00 Мск');
         $this->assertStringContainsString('17:00', $text, 'новое время в tz нового мастера — 17:00 Екб');
     }
 
@@ -289,7 +290,7 @@ class RescheduleMessageFreshnessTest extends TestCase
         $this->assertStringContainsString('15:00', $sent, 'доставленный текст содержит новое время 15:00');
         $this->assertStringNotContainsString(
             '10:00',
-            str_replace('Прежнее время: 12.11.2026 в 10:00', '', $sent),
+            str_replace('Было: 12.11.2026 в 10:00', '', $sent),
             'новое время не должно совпадать со старым',
         );
     }

@@ -5,6 +5,7 @@ namespace App\Services\Notification;
 use App\Enums\AppointmentNotificationEventType;
 use App\Models\Appointment;
 use App\Models\User;
+use App\Support\BotText;
 use Illuminate\Support\Carbon;
 
 /**
@@ -45,15 +46,18 @@ class AppointmentNotificationComposer
         $master = $appointment->master;
         $tz = $master?->getTimezone() ?? 'UTC';
         $start = $appointment->start_time->timezone($tz);
+        $phone = BotText::masterPhone($master);
 
-        return __('bot.client.created_by_master', [
-            'master' => $master->name ?? __('bot.fallback.master_name'),
+        return BotText::render('bot.client.created_by_master', [
+            'master' => $master?->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $phone,
             'service' => $appointment->display_name,
             'date' => $start->format('d.m.Y'),
             'time' => $start->format('H:i'),
             'duration' => $appointment->display_duration,
-            'price' => $this->formatPrice($appointment->display_price),
-            'address' => $master?->address ?: __('bot.fallback.address'),
+            'price' => BotText::price((float) $appointment->display_price),
+            'address' => $master?->address ?? '',
+            'instruction' => BotText::cabinetInstruction($phone),
         ]);
     }
 
@@ -69,10 +73,15 @@ class AppointmentNotificationComposer
             ? Carbon::parse($payload['start_time'])->timezone($tz)
             : $appointment->start_time->timezone($tz);
 
-        return __('bot.client.cancelled_by_master', [
+        $phone = BotText::masterPhone($master);
+
+        return BotText::render('bot.client.cancelled_by_master', [
+            'master' => $master?->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $phone,
             'service' => $payload['service_name'] ?? $appointment->display_name,
             'date' => $start->format('d.m.Y'),
             'time' => $start->format('H:i'),
+            'instruction' => BotText::callToMaster('bot.instructions.cancel_call', $phone),
         ]);
     }
 
@@ -81,42 +90,62 @@ class AppointmentNotificationComposer
      */
     private function rescheduled(Appointment $appointment, array $payload): string
     {
-        $master = $appointment->master;
-        $tz = $master?->getTimezone() ?? 'UTC';
-
-        $oldStart = Carbon::parse($payload['old_start_time'])->timezone($tz);
-        $newStart = isset($payload['new_start_time'])
-            ? Carbon::parse($payload['new_start_time'])->timezone($tz)
-            : $appointment->start_time->timezone($tz);
-
-        $params = [
-            'service' => $payload['service_name'] ?? $appointment->display_name,
-            'old_date' => $oldStart->format('d.m.Y'),
-            'old_time' => $oldStart->format('H:i'),
-            'new_date' => $newStart->format('d.m.Y'),
-            'new_time' => $newStart->format('H:i'),
-        ];
-
-        $oldMasterId = $payload['old_master_id'] ?? null;
-        $newMasterId = $payload['new_master_id'] ?? $appointment->master_id;
-
-        if ($oldMasterId !== null && (string) $oldMasterId !== (string) $newMasterId) {
-            $params['old_master'] = $this->masterName($oldMasterId);
-            $params['new_master'] = $master->name ?? $this->masterName($newMasterId);
-
-            $text = __('bot.client.rescheduled_master_changed', $params);
-        } else {
-            $text = __('bot.client.rescheduled', $params);
-        }
-
-        // Перенос и правка полей одним сохранением — одно согласованное
-        // сообщение: изменения приписываются к тексту о переносе. Если
-        // создание ещё не доставлено — текст остаётся полным, чтобы
+        // Создание ещё не доставлено — текст остаётся полным, чтобы
         // клиент понимал, куда и когда он записан.
         if ($payload['full_notice'] ?? false) {
             return $this->createdByMaster($appointment).$this->changeLinesSuffix($payload);
         }
 
+        $master = $appointment->master;
+        $newTz = $master?->getTimezone() ?? 'UTC';
+
+        $oldMasterId = $payload['old_master_id'] ?? null;
+        $newMasterId = $payload['new_master_id'] ?? $appointment->master_id;
+        $masterChanged = $oldMasterId !== null
+            && (string) $oldMasterId !== (string) $newMasterId;
+
+        // Прежнее время показывается в поясе прежнего мастера, новое —
+        // в поясе нового. Снимка старого пояса в payload нет: берётся
+        // текущий timezone строки old_master_id (композиция — на момент
+        // события); если прежняя строка удалена, прежнее время показывается
+        // в поясе нового мастера.
+        $oldMaster = $masterChanged ? User::query()->whereKey($oldMasterId)->first() : null;
+        $oldTz = $oldMaster?->getTimezone() ?? $newTz;
+
+        $oldStart = Carbon::parse($payload['old_start_time'])->timezone($oldTz);
+        $newStart = isset($payload['new_start_time'])
+            ? Carbon::parse($payload['new_start_time'])->timezone($newTz)
+            : $appointment->start_time->timezone($newTz);
+
+        $phone = BotText::masterPhone($master);
+
+        $params = [
+            'master_phone' => $phone,
+            'service' => $payload['service_name'] ?? $appointment->display_name,
+            'old_date' => $oldStart->format('d.m.Y'),
+            'old_time' => $oldStart->format('H:i'),
+            'new_date' => $newStart->format('d.m.Y'),
+            'new_time' => $newStart->format('H:i'),
+            'instruction' => BotText::callToMaster('bot.instructions.reschedule_call', $phone),
+        ];
+
+        if ($masterChanged) {
+            $params['old_master'] = $oldMaster?->name ?? $this->masterName($oldMasterId);
+            $params['new_master'] = $master?->name ?? $this->masterName($newMasterId);
+            // Телефон и адрес — нового мастера.
+            $params['address'] = $master?->address ?? '';
+
+            $key = 'bot.client.rescheduled_master_changed';
+        } else {
+            $params['master'] = $master?->name ?? __('bot.fallback.master_name');
+
+            $key = 'bot.client.rescheduled';
+        }
+
+        $text = BotText::render($key, $params);
+
+        // Перенос и правка полей одним сохранением — одно согласованное
+        // сообщение: изменения приписываются к тексту о переносе.
         return $text.$this->changeLinesSuffix($payload);
     }
 
@@ -161,12 +190,15 @@ class AppointmentNotificationComposer
         $master = $appointment->master;
         $tz = $master?->getTimezone() ?? 'UTC';
         $start = $appointment->start_time->timezone($tz);
+        $phone = BotText::masterPhone($master);
 
-        return __('bot.client.fields_changed', [
-            'service' => $appointment->display_name,
+        return BotText::render('bot.client.fields_changed', [
+            'master' => $master?->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $phone,
             'date' => $start->format('d.m.Y'),
             'time' => $start->format('H:i'),
             'changes' => $changeLines,
+            'instruction' => BotText::callToMaster('bot.instructions.changes_call', $phone),
         ]);
     }
 
@@ -195,8 +227,8 @@ class AppointmentNotificationComposer
 
         if (isset($changes['price'])) {
             $lines[] = __('bot.client.change.price', [
-                'old' => $this->formatPrice((float) ($changes['price']['old'] ?? 0)),
-                'new' => $this->formatPrice((float) ($changes['price']['new'] ?? 0)),
+                'old' => BotText::price((float) ($changes['price']['old'] ?? 0)),
+                'new' => BotText::price((float) ($changes['price']['new'] ?? 0)),
             ]);
         }
 
@@ -212,13 +244,14 @@ class AppointmentNotificationComposer
         $tz = $master?->getTimezone() ?? 'UTC';
         $start = $appointment->start_time->timezone($tz);
 
-        return __('bot.client.series_created', [
-            'master' => $master->name ?? __('bot.fallback.master_name'),
+        return BotText::render('bot.client.series_created', [
+            'master' => $master?->name ?? __('bot.fallback.master_name'),
+            'master_phone' => BotText::masterPhone($master),
             'service' => $payload['service_name'] ?? $appointment->display_name,
             'time' => $start->format('H:i'),
             'count' => $payload['affected_count'] ?? 0,
             'first_date' => $start->format('d.m.Y'),
-            'address' => $master?->address ?: __('bot.fallback.address'),
+            'address' => $master?->address ?? '',
         ]);
     }
 
@@ -227,13 +260,23 @@ class AppointmentNotificationComposer
      */
     private function seriesUpdated(Appointment $appointment, array $payload): string
     {
-        $tz = $appointment->master?->getTimezone() ?? 'UTC';
+        $master = $appointment->master;
+        $tz = $master?->getTimezone() ?? 'UTC';
 
-        return __('bot.client.series_updated', [
+        // Время приёма показывается, только когда оно есть в снимке:
+        // событие не подтверждает общее время для визитов с разным
+        // временем (null — строка опускается).
+        $time = array_key_exists('time', $payload)
+            ? (string) ($payload['time'] ?? '')
+            : $appointment->start_time->timezone($tz)->format('H:i');
+
+        return BotText::render('bot.client.series_updated', [
+            'master' => $master?->name ?? __('bot.fallback.master_name'),
+            'master_phone' => BotText::masterPhone($master),
             'service' => $payload['service_name'] ?? $appointment->display_name,
             'count' => $payload['affected_count'] ?? 0,
             'date' => $payload['from_date'] ?? $appointment->start_time->timezone($tz)->format('d.m.Y'),
-            'time' => $payload['time'] ?? $appointment->start_time->timezone($tz)->format('H:i'),
+            'time' => $time,
         ]);
     }
 
@@ -242,17 +285,23 @@ class AppointmentNotificationComposer
      */
     private function seriesCancelled(Appointment $appointment, array $payload): string
     {
-        return __('bot.client.series_cancelled', [
+        $master = $appointment->master;
+        $phone = BotText::masterPhone($master);
+
+        return BotText::render('bot.client.series_cancelled', [
+            'master' => $master?->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $phone,
             'service' => $payload['service_name'] ?? $appointment->display_name,
             'count' => $payload['affected_count'] ?? 0,
             'date' => $payload['from_date'] ?? $appointment->start_time->timezone(
-                $appointment->master?->getTimezone() ?? 'UTC'
+                $master?->getTimezone() ?? 'UTC'
             )->format('d.m.Y'),
+            'instruction' => BotText::callToMaster('bot.instructions.series_cancel_call', $phone),
         ]);
     }
 
     /**
-     * Подтверждение брони клиентом (widget MAX/ВК): прежний текст
+     * Подтверждение брони клиентом (widget MAX/ВК): текст
      * bot.booking_confirmed, зафиксированный в outbox-событии.
      */
     private function bookingConfirmed(Appointment $appointment): string
@@ -260,21 +309,18 @@ class AppointmentNotificationComposer
         $master = $appointment->master;
         $tz = $master?->getTimezone() ?? 'UTC';
         $start = $appointment->start_time->timezone($tz);
+        $phone = BotText::masterPhone($master);
 
-        $message = __('bot.booking_confirmed', [
+        return BotText::render('bot.booking_confirmed', [
+            'master' => $master?->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $phone,
             'service' => $appointment->display_name,
             'date' => $start->format('d.m.Y'),
             'time' => $start->format('H:i'),
-            'price' => $appointment->display_price,
+            'price' => BotText::price((float) $appointment->display_price),
+            'address' => $master?->address ?? '',
+            'instruction' => BotText::cabinetInstruction($phone),
         ]);
-
-        if ($master?->address) {
-            $message .= __('bot.booking_confirmed_address', ['address' => $master->address]);
-        }
-
-        $message .= __('bot.booking_confirmed_suffix');
-
-        return $message;
     }
 
     private function masterName(?string $masterId): string
@@ -285,14 +331,5 @@ class AppointmentNotificationComposer
 
         return User::query()->whereKey($masterId)->value('name')
             ?? __('bot.fallback.master_name');
-    }
-
-    private function formatPrice(float $price): string
-    {
-        if ($price <= 0) {
-            return '—';
-        }
-
-        return number_format($price, 0, '.', ' ').' ₽';
     }
 }

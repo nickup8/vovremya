@@ -648,6 +648,14 @@ class RecurringAppointmentService
 
             $tz = $oldSeries->timezone ?? $anchor->master?->getTimezone() ?? 'UTC';
 
+            // Общее «Время приёма» показываем, только когда оно доказуемо:
+            // визиты группы с разным временем (например, после правки
+            // отдельного визита) — null, строка в сообщении опускается.
+            $times = $group
+                ->map(fn (Appointment $appt) => $appt->start_time->timezone($tz)->format('H:i'))
+                ->unique()
+                ->values();
+
             $version = $recorder->bumpVersion($anchor);
             $recorder->record(
                 $anchor,
@@ -656,7 +664,7 @@ class RecurringAppointmentService
                     'service_name' => $anchor->display_name,
                     'affected_count' => $group->count(),
                     'from_date' => $first->start_time->timezone($tz)->format('d.m.Y'),
-                    'time' => $anchor->start_time->timezone($tz)->format('H:i'),
+                    'time' => $times->count() === 1 ? $times->first() : null,
                     'first_start_time' => $first->start_time->toIso8601String(),
                 ],
                 $version,

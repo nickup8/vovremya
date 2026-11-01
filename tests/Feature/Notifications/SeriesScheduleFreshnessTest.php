@@ -280,7 +280,7 @@ class SeriesScheduleFreshnessTest extends TestCase
             $text,
             'изменение цены первого визита не должно гасить уведомление о серии',
         );
-        $this->assertStringContainsString('серию визитов', $text);
+        $this->assertStringContainsString('несколько приёмов', $text);
         $this->assertStringContainsString('3', $text, 'счётчик визитов сохраняется');
         $this->assertStringContainsString('17.11.2026', $text, 'дата первого визита сохраняется');
     }
@@ -382,8 +382,17 @@ class SeriesScheduleFreshnessTest extends TestCase
         $text = $this->deliverText($updatedEvent);
         $this->assertNotNull($text, 'актуальное расписание серии должно быть доставлено');
         $this->assertStringContainsString('18.11.2026', $text, 'новая дата первого визита');
-        $this->assertStringContainsString('15:00', $text, 'новое время первого визита');
         $this->assertStringContainsString('3', $text, 'количество визитов');
+
+        // Первый визит перенесён в 15:00, остальные остались на прежнем
+        // времени — общее время группы не доказуемо, строка
+        // «Время приёма» в сообщении не показывается.
+        $this->assertArrayHasKey('time', $updatedEvent->payload);
+        $this->assertNull(
+            $updatedEvent->payload['time'],
+            'при разном времени визитов снимок не должен утверждать общее время',
+        );
+        $this->assertStringNotContainsString('Время приёма:', $text, 'неподтверждённое общее время не показывается');
     }
 
     // ── Последовательные отмены не подавляют сообщения друг друга ──

@@ -432,7 +432,7 @@ class MaxStaleBookingLinkTest extends TestCase
             ->once()
             ->with(
                 'max_user_123',
-                Mockery::on(fn (string $text) => str_contains($text, 'Детали записи')),
+                Mockery::on(fn (string $text) => str_contains($text, 'Проверьте данные записи')),
                 Mockery::on(fn (array $extra) => $this->hasConfirmCancelInExtra($extra, $appointment->id)),
             );
 
@@ -987,7 +987,7 @@ class MaxStaleBookingLinkTest extends TestCase
 
         $this->captureTexts();
         $this->invokeHandleBookingStart('max_user_123', 'book_'.$onBoundary->id);
-        $this->assertStringContainsString('Детали записи', $this->capturedTexts[0]);
+        $this->assertStringContainsString('Проверьте данные записи', $this->capturedTexts[0]);
 
         $this->capturedTexts = [];
         $this->invokeHandleBookingStart('max_user_123', 'book_'.$pastBoundary->id);

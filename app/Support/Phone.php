@@ -81,6 +81,38 @@ final class Phone
     }
 
     /**
+     * Форма показа номера в сообщениях (единый существующий формат:
+     * 11-значный российский — «+7 920 041-25-41», иначе «+» и цифры).
+     * '' — номера нет: строка в сообщении не показывается.
+     */
+    public static function display(?string $phone): string
+    {
+        if ($phone === null) {
+            return '';
+        }
+
+        $digits = preg_replace('/\D+/', '', $phone);
+
+        if ($digits === null || $digits === '') {
+            return '';
+        }
+
+        if (strlen($digits) === 11 && $digits[0] === '8') {
+            $digits = '7'.substr($digits, 1);
+        }
+
+        if (strlen($digits) !== 11) {
+            return '+'.$digits;
+        }
+
+        return '+'.$digits[0].' '
+            .substr($digits, 1, 3).' '
+            .substr($digits, 4, 3).'-'
+            .substr($digits, 7, 2).'-'
+            .substr($digits, 9, 2);
+    }
+
+    /**
      * Хранится ли $stored тем же номером, что и канонический $canonical:
      * точное совпадение канона либо однозначная голая форма
      * («14155552671» для «+14155552671»), никогда не означающая другое.

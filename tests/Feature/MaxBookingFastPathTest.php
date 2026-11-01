@@ -153,7 +153,7 @@ class MaxBookingFastPathTest extends TestCase
             ->once()
             ->with(
                 'max_user_123',
-                Mockery::on(fn (string $text) => str_contains($text, 'Детали записи')),
+                Mockery::on(fn (string $text) => str_contains($text, 'Проверьте данные записи')),
                 Mockery::on(fn (array $extra) => $this->hasConfirmCancelButtons($extra, $appointment->id)),
             );
 
@@ -185,14 +185,14 @@ class MaxBookingFastPathTest extends TestCase
             ->once()
             ->with(
                 'cb_1',
-                Mockery::on(fn (string $text) => str_contains($text, 'Согласие принято')),
+                Mockery::on(fn (string $text) => str_contains($text, __('bot.consent.after_accept_client_returning'))),
             );
 
         $this->maxApi->shouldReceive('sendMessage')
             ->once()
             ->with(
                 'max_user_123',
-                Mockery::on(fn (string $text) => str_contains($text, 'Детали записи')),
+                Mockery::on(fn (string $text) => str_contains($text, 'Проверьте данные записи')),
                 Mockery::any(),
             );
 
@@ -227,7 +227,7 @@ class MaxBookingFastPathTest extends TestCase
             ->once()
             ->with(
                 'max_user_123',
-                Mockery::on(fn (string $text) => str_contains($text, 'Детали записи')),
+                Mockery::on(fn (string $text) => str_contains($text, 'Проверьте данные записи')),
                 Mockery::any(),
             );
 
@@ -255,7 +255,7 @@ class MaxBookingFastPathTest extends TestCase
             ->once()
             ->with(
                 'max_user_123',
-                Mockery::on(fn (string $text) => str_contains($text, 'поделитесь номером')),
+                Mockery::on(fn (string $text) => str_contains($text, __('bot.contact_request.booking'))),
                 Mockery::on(fn (array $extra) => $this->hasRequestContactButton($extra)),
             );
 
@@ -439,7 +439,7 @@ class MaxBookingFastPathTest extends TestCase
             ->once()
             ->with(
                 'max_user_123',
-                Mockery::on(fn (string $text) => str_contains($text, 'Детали записи')),
+                Mockery::on(fn (string $text) => str_contains($text, 'Проверьте данные записи')),
                 Mockery::any(),
             );
 

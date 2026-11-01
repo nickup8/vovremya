@@ -17,12 +17,15 @@ class MasterNotificationService
         $clientName = $client?->name ?? __('bot.fallback.client_name');
         $serviceName = $appointment->display_name;
 
+        // Дата и время — в поясе мастера, как и в остальных его уведомлениях.
+        $start = $appointment->start_time->timezone($master->getTimezone());
+
         $text = __('bot.master.new_booking', [
             'client' => $clientName,
-            'phone' => $client->phone ?? __('bot.fallback.phone'),
+            'phone' => $client?->phone ?? __('bot.fallback.phone'),
             'service' => $serviceName,
-            'date' => $appointment->start_time->format('d.m.Y'),
-            'time' => $appointment->start_time->format('H:i'),
+            'date' => $start->format('d.m.Y'),
+            'time' => $start->format('H:i'),
         ]);
 
         $this->sendToMaster($master, $text);

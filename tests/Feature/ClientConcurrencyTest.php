@@ -508,7 +508,7 @@ class ClientConcurrencyTest extends TestCase
         $this->assertSame(1, $contact['broadcasts'], 'broadcast только у подтвердившего contact');
         $this->assertSame(1, $contact['notifies'], 'уведомление мастеру только у подтвердившего contact');
         $this->assertStringContainsString(
-            'Запись подтверждена',
+            'Вы записаны на приём',
             implode("\n", $contact['messages']),
             'contact должен подтвердить запись: '.json_encode($contact, JSON_UNESCAPED_UNICODE),
         );
@@ -524,7 +524,7 @@ class ClientConcurrencyTest extends TestCase
             'повторный callback не должен получать отказ: '.json_encode($callback, JSON_UNESCAPED_UNICODE),
         );
         $this->assertStringContainsString(
-            'Запись подтверждена',
+            'Вы записаны на приём',
             implode("\n", $callback['callback_messages']),
             'повторный callback отвечает идемпотентным успехом: '.json_encode($callback, JSON_UNESCAPED_UNICODE),
         );

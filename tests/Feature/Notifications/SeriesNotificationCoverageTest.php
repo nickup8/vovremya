@@ -340,7 +340,7 @@ class SeriesNotificationCoverageTest extends TestCase
         );
 
         $this->assertNotNull($sent, 'уведомление о серии не должно бесследно погаснуть из-за правки якоря');
-        $this->assertStringContainsString('серию визитов', $sent);
+        $this->assertStringContainsString('несколько приёмов', $sent);
     }
 
     // ── Разные получатели серии получают свои сообщения ──

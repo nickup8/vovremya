@@ -8,10 +8,10 @@ use App\Models\Appointment;
 use App\Models\Client;
 use App\Models\MasterService;
 use App\Models\User;
-use App\Services\AppointmentStatusService;
 use App\Services\Booking\BookingService;
 use App\Services\Notification\MasterNotificationService;
 use Illuminate\Foundation\Testing\RefreshDatabase;
+use Illuminate\Support\Carbon;
 use Tests\TestCase;
 
 class AppointmentApiTest extends TestCase
@@ -191,6 +191,56 @@ class AppointmentApiTest extends TestCase
             'id' => $appointment->id,
             'status' => 'cancelled',
         ]);
+    }
+
+    public function test_cancel_notifies_master_with_client_name_and_master_local_time(): void
+    {
+        $maxId = '111222333';
+        $master = User::factory()->master()->create([
+            'cancellation_deadline_hours' => null,
+            'settings' => ['timezone' => 'Asia/Yekaterinburg'],
+        ]);
+        $client = Client::factory()->create([
+            'max_id' => $maxId,
+            'user_id' => $master->id,
+            'name' => 'Пётр Иванов',
+        ]);
+
+        // 14.11 00:30 Екб = 13.11 19:30 UTC — переход через полночь.
+        $appointment = Appointment::factory()->booked()->forMaster($master)->forClient($client)->withMasterService(
+            MasterService::factory()->forMaster($master)->create(),
+        )->create([
+            'start_time' => Carbon::parse('2026-11-13 19:30:00', 'UTC'),
+            'service_name' => 'Стрижка',
+        ]);
+
+        $captured = null;
+        $this->mock(MasterNotificationService::class, function ($mock) use (&$captured): void {
+            $mock->shouldReceive('sendToMaster')->once()->withArgs(
+                function (User $masterArg, string $text) use (&$captured): bool {
+                    $captured = $text;
+
+                    return true;
+                },
+            );
+        });
+
+        $response = $this->postJson(
+            "/api/miniapp/appointments/{$appointment->id}/cancel",
+            [],
+            $this->authHeaders($maxId)
+        );
+
+        $response->assertOk()->assertJson(['ok' => true]);
+
+        $this->assertNotNull($captured, 'мастер должен получить уведомление об отмене');
+        $this->assertStringStartsWith('❌ Клиент отменил запись', $captured);
+        $this->assertStringContainsString('Клиент: Пётр Иванов', $captured);
+        $this->assertStringContainsString('Услуга: Стрижка', $captured);
+        $this->assertStringContainsString('Дата: 14.11.2026', $captured, 'дата по поясу мастера');
+        $this->assertStringContainsString('Время: 00:30', $captured, 'время по поясу мастера');
+        $this->assertDoesNotMatchRegularExpression('/:[a-z_][a-z0-9_]*/i', $captured);
+        $this->assertDoesNotMatchRegularExpression('/<[^>]+>/', $captured);
     }
 
     public function test_cancel_forbidden_for_other_client(): void

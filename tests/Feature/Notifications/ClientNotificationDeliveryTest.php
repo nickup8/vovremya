@@ -243,7 +243,7 @@ class ClientNotificationDeliveryTest extends TestCase
             ->first();
 
         $this->assertNotNull($event);
-        $this->assertStringContainsString('Мастер отменил запись', (string) ($event->payload['text'] ?? ''));
+        $this->assertStringContainsString('Мастер отменил вашу запись', (string) ($event->payload['text'] ?? ''));
         Queue::assertPushed(SendAppointmentNotificationJob::class);
     }
 
@@ -319,7 +319,9 @@ class ClientNotificationDeliveryTest extends TestCase
     {
         Queue::fake();
         $client = $this->client(['max_id' => 'max-1']);
-        $appointment = $this->manualAppointment($client);
+        // Детерминированная исходная цена: случайная цена фабрики может
+        // совпасть с новой (no-op по цене, N09).
+        $appointment = $this->manualAppointment($client, ['price' => 1500]);
 
         $newService = MasterService::factory()->forMaster($this->master)->create([
             'price_override' => 2000,

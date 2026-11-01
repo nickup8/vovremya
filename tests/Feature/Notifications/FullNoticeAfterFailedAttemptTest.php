@@ -315,6 +315,9 @@ class FullNoticeAfterFailedAttemptTest extends TestCase
             ->create([
                 'status' => AppointmentStatus::Booked,
                 'source' => AppointmentSource::Max,
+                // Детерминированная исходная цена: случайная цена фабрики
+                // может совпасть с новой (no-op → нет FieldsChanged, N09).
+                'price' => 1500,
                 'start_time' => Carbon::parse('2026-11-12 10:00:00', 'Europe/Moscow'),
             ]);
 

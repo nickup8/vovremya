@@ -10,6 +10,7 @@ use App\Models\Client;
 use App\Services\MaxApiClient;
 use App\Services\Notification\AppointmentChannelResolver;
 use App\Services\VkApiClient;
+use App\Support\BotText;
 use DefStudio\Telegraph\Keyboard\Button;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
@@ -358,23 +359,25 @@ class SendAppointmentReminderJob implements ShouldQueue
     private function buildMessage(Appointment $appointment, string $provider): string
     {
         $master = $appointment->master;
-        $time = $appointment->start_time->timezone($master->getTimezone())->format('H:i');
-        $address = $master->address ?? __('bot.fallback.address');
-        $hours = $this->type === 'final'
-            ? $appointment->master->getReminderHoursBeforeFinal()
-            : 24;
+        $tz = $master->getTimezone();
+        $start = $appointment->start_time->timezone($tz);
+        $phone = BotText::masterPhone($master);
 
-        $key = $this->type === '24h' ? 'reminder_24h' : 'reminder_final';
+        $key = $this->type === '24h' ? 'notifications.reminder_24h' : 'notifications.reminder_final';
 
-        $template = __("notifications.{$key}", [
-            'master' => $master->name,
+        $instruction = $this->type === '24h'
+            ? BotText::cabinetInstruction($phone)
+            : BotText::callToMaster('bot.instructions.reminder_final_call', $phone);
+
+        return BotText::render($key, [
+            'master' => $master->name ?? __('bot.fallback.master_name'),
+            'master_phone' => $phone,
             'service' => $appointment->display_name,
-            'time' => $time,
-            'address' => $address,
-            'hours' => $hours,
+            'date' => $start->format('d.m.Y'),
+            'time' => $start->format('H:i'),
+            'address' => $master->address ?? '',
+            'instruction' => $instruction,
         ]);
-
-        return $template;
     }
 
     private function markAsSent(Appointment $appointment): void

@@ -28,6 +28,7 @@ use App\Services\SlotOfferAcceptanceService;
 use App\Services\SlotOfferService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
+use App\Support\BotText;
 use App\Support\Phone;
 use Illuminate\Contracts\Cache\Lock;
 use Illuminate\Database\Eloquent\Model;
@@ -1067,16 +1068,15 @@ class MaxWebhookHandler
         $date = $appointment->start_time->timezone($tz)->format('d.m.Y');
         $time = $appointment->start_time->timezone($tz)->format('H:i');
 
-        $message = __('bot.booking_summary', [
+        $message = BotText::render('bot.booking_summary', [
+            'master' => $master->name ?? __('bot.fallback.master_name'),
+            'master_phone' => BotText::masterPhone($master),
             'service' => $appointment->display_name,
             'date' => $date,
             'time' => $time,
-            'price' => $appointment->display_price,
+            'price' => BotText::price((float) $appointment->display_price),
+            'address' => $master->address ?? '',
         ]);
-
-        if ($master->address) {
-            $message .= __('bot.booking_confirmed_address', ['address' => $master->address]);
-        }
 
         $attachments = [[
             'type' => 'inline_keyboard',

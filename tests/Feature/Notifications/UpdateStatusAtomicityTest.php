@@ -164,7 +164,7 @@ class UpdateStatusAtomicityTest extends TestCase
         $this->assertSame(900.0, (float) $fresh->price, 'изменение цены применяется молча');
 
         $text = (string) $cancelEvents->first()->payload['text'];
-        $this->assertStringContainsString('Мастер отменил запись', $text);
+        $this->assertStringContainsString('Мастер отменил вашу запись', $text);
         $this->assertStringNotContainsString('Ждём вас', $text);
     }
 
