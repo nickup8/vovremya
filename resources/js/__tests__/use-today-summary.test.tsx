@@ -1,5 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import { renderHook, act, waitFor } from '@testing-library/react';
+import { StrictMode } from 'react';
+import type { ReactNode } from 'react';
 import { useTodaySummary } from '@/hooks/useTodaySummary';
 import { tzDateKey } from '@/pages/admin/components/calendar/helpers';
 import { AppointmentStatus } from '@/types/appointment-status';
@@ -442,6 +444,123 @@ describe('useTodaySummary — независимый источник (N01)', ()
             await vi.advanceTimersByTimeAsync(60_000);
         });
         expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('unmount с pending после WS: success первого fetch не запускает второй drain-fetch', async () => {
+        let resolveFirst: ((r: FetchResponse) => void) | undefined;
+        fetchMock.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    resolveFirst = resolve;
+                }),
+        );
+
+        const { unmount } = renderHook(() => useTodaySummary(mountParams));
+        await waitFor(() => expect(fetchMock).toHaveBeenCalledTimes(1));
+
+        // WS-событие во время in-flight: pending=true, дренаж ждёт завершения.
+        await act(async () => {
+            echoState.listeners['.AppointmentCreated']?.();
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        unmount();
+
+        // Завершение первого fetch success после unmount: drain остановлен.
+        await act(async () => {
+            resolveFirst?.(
+                okJson(payloadFor(today(), { past: 3, upcoming: 2 })),
+            );
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('unmount с pending после WS: reject первого fetch не запускает второй drain-fetch и повтор', async () => {
+        vi.useFakeTimers();
+
+        let rejectFirst: ((e: unknown) => void) | undefined;
+        fetchMock.mockImplementation(
+            () =>
+                new Promise((_, reject) => {
+                    rejectFirst = reject;
+                }),
+        );
+
+        const { unmount } = renderHook(() => useTodaySummary(mountParams));
+        await act(async () => {
+            await vi.advanceTimersByTimeAsync(0);
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        await act(async () => {
+            echoState.listeners['.AppointmentCreated']?.();
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+
+        unmount();
+
+        // Reject первого fetch после unmount: ни drain, ни отложенного повтора.
+        await act(async () => {
+            rejectFirst?.(new Error('network'));
+            await vi.advanceTimersByTimeAsync(60_000);
+        });
+        expect(fetchMock).toHaveBeenCalledTimes(1);
+    });
+
+    it('StrictMode double-mount: повторный mount запускает load, pending drain работает', async () => {
+        const fetches: Array<{
+            resolve: (r: FetchResponse) => void;
+        }> = [];
+        fetchMock.mockImplementation(
+            () =>
+                new Promise((resolve) => {
+                    fetches.push({ resolve });
+                }),
+        );
+
+        const StrictModeWrapper = ({ children }: { children: ReactNode }) => (
+            <StrictMode>{children}</StrictMode>
+        );
+
+        const { unmount } = renderHook(() => useTodaySummary(mountParams), {
+            wrapper: StrictModeWrapper,
+        });
+
+        // StrictMode: mount → cleanup → mount; второй load коалесцируется pending'ом.
+        await waitFor(() =>
+            expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(1),
+        );
+        const callsAfterMount = fetchMock.mock.calls.length;
+
+        // WS pending + drain: при живом mount дренаж возможен.
+        await act(async () => {
+            echoState.listeners['.AppointmentCreated']?.();
+        });
+
+        // Завершаем все in-flight; при активном mount drain-запрос допустим.
+        await act(async () => {
+            for (const f of fetches) {
+                f.resolve(
+                    okJson(payloadFor(today(), { past: 1, upcoming: 0 })),
+                );
+            }
+
+            await Promise.resolve();
+        });
+
+        // После unmount новых fetch нет.
+        unmount();
+        const callsBeforeUnmountDone = fetchMock.mock.calls.length;
+        await act(async () => {
+            await Promise.resolve();
+            await Promise.resolve();
+        });
+        expect(fetchMock.mock.calls.length).toBeGreaterThanOrEqual(
+            callsAfterMount,
+        );
+        expect(fetchMock.mock.calls.length).toBe(callsBeforeUnmountDone);
     });
 
     it('после выключения повторов нет, запоздалый ответ не применяется', async () => {

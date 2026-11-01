@@ -73,7 +73,8 @@ function toVisit(dto: TodayAppointmentDto): TodayVisit {
  * «Сегодня» и не крутит немедленный цикл запросов — авто-повтор даты
  * троттлится DAY_MISMATCH_THROTTLE_MS независимо от новизны объекта payload.
  * При выключении / размонтировании таймеры снимаются, in-flight ответ
- * инвалидируется seq'ом и не применяется.
+ * инвалидируется seq'ом, pending-дренаж останавливается и не запускает
+ * новые fetch'и. StrictMode (double-mount) и повторное включение корректны.
  */
 export function useTodaySummary({
     enabled,
@@ -101,6 +102,10 @@ export function useTodaySummary({
     }, []);
 
     const load = useCallback(() => {
+        if (!enabledRef.current) {
+            return;
+        }
+
         seqRef.current += 1;
         lastAutoFetchAtRef.current = Date.now();
 
@@ -149,7 +154,8 @@ export function useTodaySummary({
                         }
                     }
 
-                    if (!pendingRef.current) {
+                    // Выключение / размонтирование: drain не продолжаем.
+                    if (!enabledRef.current || !pendingRef.current) {
                         break;
                     }
                 }
@@ -165,8 +171,10 @@ export function useTodaySummary({
 
     useEffect(() => {
         if (!enabled) {
-            // Инвалидация in-flight: запоздалый ответ не будет применён
+            // Инвалидация in-flight: запоздалый ответ не будет применён,
+            // drain-цикл не продолжится (pending сбрасывается).
             seqRef.current += 1;
+            pendingRef.current = false;
 
             return;
         }
@@ -289,10 +297,14 @@ export function useTodaySummary({
         };
     }, [enabled, authUserId, load]);
 
-    // Размонтирование: инвалидация in-flight ответа.
+    // Размонтирование: остановить drain, снять отложенные повторы,
+    // инвалидировать ответы. StrictMode: cleanup + повторный mount
+    // корректны — pending сброшен, seq инвалидирован, новый load()
+    // стартует заново при enabled.
     useEffect(() => {
         return () => {
             seqRef.current += 1;
+            pendingRef.current = false;
         };
     }, []);
 
