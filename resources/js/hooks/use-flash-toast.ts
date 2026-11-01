@@ -2,20 +2,32 @@ import { useEffect } from 'react';
 import { usePage } from '@inertiajs/react';
 import { toast } from 'sonner';
 
+type FlashProps = {
+    success?: string;
+    error?: string;
+    message?: string;
+    id?: string | null;
+};
+
 export function useFlashToast() {
-    const { flash } = usePage().props as { flash?: { success?: string; error?: string; message?: string } };
+    const { flash } = usePage().props as { flash?: FlashProps };
+
+    const flashId = flash?.id ?? null;
+    const success = flash?.success;
+    const error = flash?.error;
+    const message = flash?.message;
 
     useEffect(() => {
-        if (flash?.success) {
-            toast.success(flash.success);
+        if (success) {
+            toast.success(success);
         }
 
-        if (flash?.error) {
-            toast.error(flash.error);
+        if (error) {
+            toast.error(error);
         }
 
-        if (flash?.message) {
-            toast(flash.message);
+        if (message) {
+            toast(message);
         }
-    }, [flash]);
+    }, [flashId, success, error, message]);
 }

@@ -134,7 +134,7 @@ function ServiceRow({
 /* ═══════════════ Main Page ═══════════════ */
 
 export default function ServiceCatalogPage() {
-    const { catalog, auth, flash } = usePage<PageProps>().props;
+    const { catalog, auth } = usePage<PageProps>().props;
 
     const [drawerOpen, setDrawerOpen] = useState(false);
     const [drawerMode, setDrawerMode] = useState<DrawerMode>('create');
@@ -149,11 +149,6 @@ export default function ServiceCatalogPage() {
 
     const [deleteTarget, setDeleteTarget] = useState<CatalogItem | null>(null);
     const [deleting, setDeleting] = useState(false);
-
-    useEffect(() => {
-        if (flash?.success) toast.success(flash.success);
-        if (flash?.error) toast.error(flash.error);
-    }, [flash?.success, flash?.error]);
 
     const openCreate = useCallback(() => {
         setEditingItem(null);
@@ -210,12 +205,12 @@ export default function ServiceCatalogPage() {
         if (drawerMode === 'edit' && editingItem) {
             router.put(`/admin/catalog/${editingItem.id}`, payload, {
                 ...opts,
-                onSuccess: () => { toast.success('Услуга обновлена'); closeDrawer(); },
+                onSuccess: () => closeDrawer(),
             });
         } else {
             router.post('/admin/catalog', payload, {
                 ...opts,
-                onSuccess: () => { toast.success('Услуга добавлена'); closeDrawer(); },
+                onSuccess: () => closeDrawer(),
             });
         }
     }
@@ -223,10 +218,8 @@ export default function ServiceCatalogPage() {
     function confirmDelete() {
         if (!deleteTarget || deleting) return;
         setDeleting(true);
-        const title = deleteTarget.title;
         router.delete(`/admin/catalog/${deleteTarget.id}`, {
             preserveScroll: true,
-            onSuccess: () => { toast.success(`Услуга «${title}» удалена`); },
             onError: () => { toast.error('Не удалось удалить услугу'); },
             onFinish: () => { setDeleting(false); setDeleteTarget(null); },
         });

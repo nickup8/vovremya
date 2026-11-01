@@ -155,7 +155,6 @@ return h;
         put('/admin/working-hours', {
             ...payload,
             preserveScroll: true,
-            onSuccess: () => toast.success('График работы сохранён'),
             onError: (errors) => {
                 const firstError = Object.values(errors)[0];
                 toast.error(typeof firstError === 'string' ? firstError : 'Ошибка сохранения графика');

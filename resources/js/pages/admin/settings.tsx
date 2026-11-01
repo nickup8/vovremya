@@ -507,7 +507,7 @@ return;
                             <TabsContent value="profile">
                             <form
                                 onSubmit={(e) => {
- e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true, onSuccess: () => toast.success('Профиль сохранён') }); 
+ e.preventDefault(); profileForm.put('/admin/settings', { preserveScroll: true });
 }}
                                 className="space-y-0"
                             >
@@ -551,7 +551,6 @@ return;
                                             onClick={() =>
                                                 router.delete('/admin/settings/avatar', {
                                                     preserveScroll: true,
-                                                    onSuccess: () => toast.success('Фото удалено'),
                                                 })
                                             }
                                             className="inline-flex h-9 items-center gap-1.5 rounded-[10px] px-3.5 text-[13px] font-semibold text-[var(--color-red)] transition-colors hover:bg-[var(--color-red-bg)]"
@@ -936,7 +935,7 @@ return;
                                     </div>
                                     <form
                                         onSubmit={(e) => {
- e.preventDefault(); bookingFlowForm.put('/admin/settings/booking', { preserveScroll: true, onSuccess: () => toast.success('Настройки записи сохранены') }); 
+ e.preventDefault(); bookingFlowForm.put('/admin/settings/booking', { preserveScroll: true });
 }}
                                     >
                                         <div className="space-y-0">

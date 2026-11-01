@@ -275,9 +275,6 @@ export default function ClientsPage() {
         router.post(`/admin/clients/${blockTarget.id}/toggle-block`, {}, {
             preserveScroll: true,
             onSuccess: () => {
-                toast.success(blockTarget.is_blocked
-                    ? `${blockTarget.name} разблокирован`
-                    : `${blockTarget.name} заблокирован`);
                 setBlockConfirmOpen(false);
                 setBlockTarget(null);
                 if (selectedClient?.id === blockTarget.id) closeDrawer();
@@ -299,7 +296,6 @@ export default function ClientsPage() {
             router.put(`/admin/clients/${selectedClient.id}`, { name: formName, phone, notes }, {
                 preserveScroll: true,
                 onSuccess: () => {
-                    toast.success('Данные клиента обновлены');
                     closeDrawer();
                 },
                 onError: (errors) => {
@@ -311,7 +307,6 @@ export default function ClientsPage() {
             router.post('/admin/clients', { name: formName, phone, notes }, {
                 preserveScroll: true,
                 onSuccess: () => {
-                    toast.success('Клиент добавлен');
                     closeDrawer();
                 },
                 onError: (errors) => {

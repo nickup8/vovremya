@@ -10,6 +10,7 @@ use App\Services\Billing\TariffLimitService;
 use App\Services\Payment\NpdReceiptUrlValidator;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Cache;
+use Illuminate\Support\Str;
 use Inertia\Middleware;
 
 class HandleInertiaRequests extends Middleware
@@ -134,11 +135,26 @@ class HandleInertiaRequests extends Middleware
                 'success' => fn () => $request->session()->get('success'),
                 'error' => fn () => $request->session()->get('error'),
                 'message' => fn () => $request->session()->get('message'),
+                // Unique per response while flash content is present so the
+                // client effect re-runs for a new event even when the text
+                // repeats, and stays idle on rerenders/partial reloads.
+                'id' => fn () => $this->flashEventId($request),
             ],
             'tariff_limits' => $tariffLimits,
             'platformAdmin' => $this->platformAdminProps($user),
             'notifications' => fn () => $this->notificationsProps($user),
         ];
+    }
+
+    private function flashEventId(Request $request): ?string
+    {
+        $session = $request->session();
+
+        if (! ($session->get('success') || $session->get('error') || $session->get('message'))) {
+            return null;
+        }
+
+        return (string) Str::uuid();
     }
 
     private function platformAdminProps($user): array
