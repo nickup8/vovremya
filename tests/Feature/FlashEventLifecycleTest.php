@@ -7,35 +7,20 @@ use App\Http\Middleware\HandleInertiaRequests;
 use App\Models\User;
 use App\Models\Workspace;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Session\ArraySessionHandler;
-use Illuminate\Session\Store;
+use Illuminate\Http\Request;
 use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Tests\TestCase;
 
 /**
- * Real HTTP/Inertia lifecycle for flash + flash.id:
- * operation → redirect with session flash → next request resolves one id →
- * subsequent request without new event yields empty flash → partial reload
- * of appointments does not mint a new id for stale flash.
+ * Real HTTP/Inertia lifecycle for flash + flash.id in one session:
+ * operation → GET destination page (Inertia JSON) → flash present with UUID
+ * → next GET without operation → empty flash
+ * → second operation same text → GET → different UUID.
  */
 class FlashEventLifecycleTest extends TestCase
 {
     use RefreshDatabase;
-
-    private function resolveFlashProps(): array
-    {
-        $middleware = app(HandleInertiaRequests::class);
-        $shared = $middleware->share(request());
-
-        $flash = $shared['flash'];
-        $resolved = [];
-
-        foreach ($flash as $key => $value) {
-            $resolved[$key] = is_callable($value) ? $value() : $value;
-        }
-
-        return $resolved;
-    }
 
     private function master(): User
     {
@@ -51,173 +36,187 @@ class FlashEventLifecycleTest extends TestCase
         ]);
     }
 
-    private function clearFlashBag(): void
+    /**
+     * Inertia asset version (manifest hash). Must match what the middleware
+     * computes; otherwise GET with X-Inertia returns 409 location redirect.
+     */
+    private function inertiaVersion(): ?string
     {
-        session()->forget(['success', 'error', 'message', 'flash_event_id']);
-        session()->put('_flash.old', []);
-        session()->put('_flash.new', []);
+        return app(HandleInertiaRequests::class)->version(Request::create('/admin/settings'));
     }
 
-    public function test_catalog_store_redirect_sets_success_flash_for_follow_up_request(): void
+    private function inertiaHeaders(?string $version): array
+    {
+        $headers = ['X-Inertia' => 'true'];
+
+        if ($version !== null) {
+            $headers['X-Inertia-Version'] = $version;
+        }
+
+        return $headers;
+    }
+
+    private function inertiaGet(string $uri, ?string $version): TestResponse
+    {
+        $response = $this->get($uri, $this->inertiaHeaders($version));
+        $response->assertOk();
+
+        return $response;
+    }
+
+    private function flashFromJson(TestResponse $response): array
+    {
+        $page = $response->json();
+        $this->assertIsArray($page);
+        $this->assertArrayHasKey('props', $page);
+        $this->assertArrayHasKey('flash', $page['props']);
+
+        $flash = $page['props']['flash'];
+        $this->assertIsArray($flash);
+
+        return $flash;
+    }
+
+    public function test_full_http_lifecycle_flash_then_empty_then_new_uuid(): void
     {
         $master = $this->master();
         $this->actingAs($master);
 
-        $response = $this->post('/admin/catalog', [
-            'title' => 'Жизненный цикл',
-            'base_price' => 1000,
-            'base_duration' => 60,
-            'is_active' => true,
-        ], [
-            'X-Inertia' => 'true',
-            'X-Inertia-Version' => app(HandleInertiaRequests::class)->version(request()),
-        ]);
+        $destination = '/admin/settings';
+        $version = $this->inertiaVersion();
 
-        $response->assertRedirect();
-        $response->assertSessionHas('success');
+        // ── 1. Operation: booking settings save (SettingsController:178) ──
+        $this->from($destination)
+            ->put('/admin/settings/booking', [
+                'slot_interval' => 30,
+                'cancellation_deadline_hours' => 24,
+                'autofill_enabled' => false,
+            ], $this->inertiaHeaders($version))
+            ->assertRedirect($destination)
+            ->assertSessionHas('success', 'Настройки записи сохранены');
 
-        $first = $this->resolveFlashProps();
-        $this->assertNotEmpty($first['success']);
-        $this->assertIsString($first['id']);
-        $this->assertNotEmpty($first['id']);
-        $this->assertTrue(Str::isUuid($first['id']));
+        // ── 2. Follow-up GET: flash delivered in Inertia JSON ──
+        $flash1 = $this->flashFromJson($this->inertiaGet($destination, $version));
+        $this->assertSame('Настройки записи сохранены', $flash1['success']);
+        $this->assertIsString($flash1['id']);
+        $this->assertNotEmpty($flash1['id']);
+        $this->assertTrue(Str::isUuid($flash1['id']));
+        $firstId = $flash1['id'];
 
-        // Re-resolving share in the same request must reuse the same id
-        $again = $this->resolveFlashProps();
-        $this->assertSame($first['id'], $again['id']);
-        $this->assertSame($first['success'], $again['success']);
+        // ── 3. Next GET, no new operation: flash bag aged out ──
+        $flash2 = $this->flashFromJson($this->inertiaGet($destination, $version));
+        $this->assertNull($flash2['success'] ?? null);
+        $this->assertNull($flash2['error'] ?? null);
+        $this->assertNull($flash2['message'] ?? null);
+        $this->assertNull($flash2['id'] ?? null);
+
+        // ── 4. Second operation, identical text ──
+        $this->from($destination)
+            ->put('/admin/settings/booking', [
+                'slot_interval' => 30,
+                'cancellation_deadline_hours' => 24,
+                'autofill_enabled' => false,
+            ], $this->inertiaHeaders($version))
+            ->assertRedirect($destination)
+            ->assertSessionHas('success', 'Настройки записи сохранены');
+
+        $flash3 = $this->flashFromJson($this->inertiaGet($destination, $version));
+        $this->assertSame('Настройки записи сохранены', $flash3['success']);
+        $this->assertIsString($flash3['id']);
+        $this->assertNotEmpty($flash3['id']);
+        $this->assertNotSame($firstId, $flash3['id']);
+        $this->assertTrue(Str::isUuid($flash3['id']));
     }
 
-    public function test_sequential_operations_get_distinct_flash_ids_for_same_text(): void
+    public function test_working_hours_operation_delivers_flash_then_empties(): void
     {
         $master = $this->master();
         $this->actingAs($master);
 
-        // First operation — SettingsController:178 updateBooking
-        $this->put('/admin/settings/booking', [
-            'slot_interval' => 30,
-            'cancellation_deadline_hours' => 24,
-            'autofill_enabled' => false,
-        ], [
-            'X-Inertia' => 'true',
-            'X-Inertia-Version' => app(HandleInertiaRequests::class)->version(request()),
-        ])->assertRedirect();
+        $destination = '/admin/settings';
+        $version = $this->inertiaVersion();
 
-        $firstFlash = $this->resolveFlashProps();
-        $this->assertSame('Настройки записи сохранены', $firstFlash['success']);
-        $this->assertNotEmpty($firstFlash['id']);
-
-        $this->clearFlashBag();
-
-        // Second operation, identical text
-        $this->put('/admin/settings/booking', [
-            'slot_interval' => 30,
-            'cancellation_deadline_hours' => 24,
-            'autofill_enabled' => false,
-        ], [
-            'X-Inertia' => 'true',
-            'X-Inertia-Version' => app(HandleInertiaRequests::class)->version(request()),
-        ])->assertRedirect();
-
-        $secondFlash = $this->resolveFlashProps();
-        $this->assertSame('Настройки записи сохранены', $secondFlash['success']);
-        $this->assertNotEmpty($secondFlash['id']);
-        $this->assertNotSame($firstFlash['id'], $secondFlash['id']);
-    }
-
-    public function test_next_request_without_new_event_has_empty_flash_and_null_id(): void
-    {
-        $master = $this->master();
-        $this->actingAs($master);
-
-        // SettingsController:366 updateWorkingHours
-        $this->put('/admin/working-hours', [
-            'working_hours' => [
-                [
-                    'day_of_week' => 1,
-                    'is_working' => true,
-                    'start_time' => '09:00',
-                    'end_time' => '18:00',
-                    'break_start_time' => null,
-                    'break_end_time' => null,
+        $this->from($destination)
+            ->put('/admin/working-hours', [
+                'working_hours' => [
+                    [
+                        'day_of_week' => 1,
+                        'is_working' => true,
+                        'start_time' => '09:00',
+                        'end_time' => '18:00',
+                        'break_start_time' => null,
+                        'break_end_time' => null,
+                    ],
                 ],
-            ],
-        ])->assertRedirect();
+            ], $this->inertiaHeaders($version))
+            ->assertRedirect($destination)
+            ->assertSessionHas('success');
 
-        $withFlash = $this->resolveFlashProps();
-        $this->assertNotEmpty($withFlash['success']);
-        $this->assertNotEmpty($withFlash['id']);
+        $flash1 = $this->flashFromJson($this->inertiaGet($destination, $version));
+        $this->assertSame('График работы обновлён', $flash1['success']);
+        $this->assertTrue(Str::isUuid((string) $flash1['id']));
 
-        $this->clearFlashBag();
-
-        $next = $this->resolveFlashProps();
-        $this->assertNull($next['success']);
-        $this->assertNull($next['error']);
-        $this->assertNull($next['message']);
-        $this->assertNull($next['id']);
+        // Aging happens on the delivery GET; next GET has empty flash
+        $flash2 = $this->flashFromJson($this->inertiaGet($destination, $version));
+        $this->assertNull($flash2['success'] ?? null);
+        $this->assertNull($flash2['id'] ?? null);
     }
 
-    public function test_partial_reload_appointments_does_not_create_new_flash_id(): void
+    public function test_partial_reload_appointments_excludes_flash_from_json(): void
     {
         $master = $this->master();
         $this->actingAs($master);
 
-        $this->put('/admin/settings/booking', [
-            'slot_interval' => 15,
-            'cancellation_deadline_hours' => 12,
-            'autofill_enabled' => false,
-        ])->assertRedirect();
+        // Deliver flash once via booking save
+        $this->from('/admin/settings')
+            ->put('/admin/settings/booking', [
+                'slot_interval' => 15,
+                'cancellation_deadline_hours' => 12,
+                'autofill_enabled' => false,
+            ])->assertRedirect('/admin/settings');
 
-        $delivered = $this->resolveFlashProps();
-        $this->assertNotEmpty($delivered['id']);
+        $version = $this->inertiaVersion();
 
-        // Flash consumed on delivery request. Partial reload of appointments
-        // must not mint a new id from empty flash.
-        $this->clearFlashBag();
-
-        // Seed the correct Inertia version (mismatch → 409 carries the version)
-        $probe = $this->get('/admin/calendar', ['X-Inertia' => 'true']);
-        $version = $probe->headers->get('X-Inertia-Version')
-            ?? app(HandleInertiaRequests::class)->version(request());
-        $this->assertNotEmpty($version);
-
-        $partial = $this->get('/admin/calendar', [
-            'X-Inertia' => 'true',
-            'X-Inertia-Version' => $version,
-            'X-Inertia-Partial-Component' => 'admin/calendar',
-            'X-Inertia-Partial-Data' => 'appointments',
-        ]);
+        $partialHeaders = $this->inertiaHeaders($version);
+        $partialHeaders['X-Inertia-Partial-Component'] = 'admin/calendar';
+        $partialHeaders['X-Inertia-Partial-Data'] = 'appointments';
+        $partial = $this->get('/admin/calendar', $partialHeaders);
 
         $partial->assertOk();
-        $this->assertNull($this->resolveFlashProps()['id']);
+
+        $json = $partial->json();
+        $this->assertIsArray($json);
+        $this->assertArrayHasKey('props', $json);
+
+        // Partial response includes appointments key, must not re-emit flash
+        $this->assertArrayHasKey('appointments', $json['props']);
+        $this->assertArrayNotHasKey('flash', $json['props']);
     }
 
-    public function test_uuid_matches_fresh_event_not_reemission(): void
+    public function test_catalog_store_http_cycle_delivers_uuid_flash(): void
     {
-        $middleware = app(HandleInertiaRequests::class);
-        $method = new \ReflectionMethod(HandleInertiaRequests::class, 'flashEventId');
-        $method->setAccessible(true);
+        $master = $this->master();
+        $this->actingAs($master);
 
-        $storeA = new Store('a', new ArraySessionHandler(120));
-        $storeA->start();
-        $storeA->flash('success', 'Сохранено');
-        $reqA = request()->duplicate();
-        $reqA->setLaravelSession($storeA);
-        $idA = $method->invoke($middleware, $reqA);
+        $destination = '/admin/catalog';
+        $version = $this->inertiaVersion();
 
-        $storeB = new Store('b', new ArraySessionHandler(120));
-        $storeB->start();
-        $storeB->flash('success', 'Сохранено');
-        $reqB = request()->duplicate();
-        $reqB->setLaravelSession($storeB);
-        $idB = $method->invoke($middleware, $reqB);
+        $this->from($destination)
+            ->post('/admin/catalog', [
+                'title' => 'Жизненный цикл',
+                'base_price' => 1000,
+                'base_duration' => 60,
+                'is_active' => true,
+            ], $this->inertiaHeaders($version))
+            ->assertRedirect($destination)
+            ->assertSessionHas('success');
 
-        $this->assertTrue(Str::isUuid($idA));
-        $this->assertTrue(Str::isUuid($idB));
-        $this->assertNotSame($idA, $idB);
+        $flash1 = $this->flashFromJson($this->inertiaGet($destination, $version));
+        $this->assertIsString($flash1['success']);
+        $this->assertStringContainsString('добавлена', $flash1['success']);
+        $this->assertTrue(Str::isUuid((string) $flash1['id']));
 
-        // Same store, second resolve: same event id (not a re-mint)
-        $idA2 = $method->invoke($middleware, $reqA);
-        $this->assertSame($idA, $idA2);
+        $flash2 = $this->flashFromJson($this->inertiaGet($destination, $version));
+        $this->assertNull($flash2['id'] ?? null);
     }
 }

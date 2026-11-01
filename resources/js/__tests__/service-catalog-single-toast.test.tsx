@@ -181,28 +181,43 @@ describe('service-catalog — operation → exactly one success toast', () => {
     });
 
     it('create twice with identical text: one toast per operation', async () => {
-        await openCreateAndSubmit();
-        completeInertiaVisit(routerPost.mock.calls[0][2] as Record<string, unknown>, {
-            success: 'Услуга добавлена',
-            id: 'evt-same-1',
-        });
+        const { default: ServiceCatalogPage } = await import('@/pages/admin/service-catalog');
+        const view = render(React.createElement(ServiceCatalogPage));
+
+        // ── First create ──
+        fireEvent.click(screen.getByRole('button', { name: /Добавить услугу/u }));
+        fireEvent.change(screen.getByPlaceholderText('Маникюр + покрытие'), { target: { value: 'Маникюр' } });
+        fireEvent.change(screen.getByPlaceholderText('1500'), { target: { value: '1500' } });
+        fireEvent.change(screen.getByPlaceholderText('60'), { target: { value: '45' } });
+        fireEvent.click(screen.getByRole('button', { name: /^Добавить$/u }));
+
+        await waitFor(() => expect(routerPost).toHaveBeenCalledTimes(1));
+        const firstOptions = routerPost.mock.calls[0][2] as Record<string, unknown>;
+        completeInertiaVisit(firstOptions, { success: 'Услуга добавлена', id: 'evt-same-1' });
+        // Finish the Inertia visit lifecycle in the same component
+        (firstOptions.onFinish as (() => void) | undefined)?.();
         expect(toastMock.success).toHaveBeenCalledTimes(1);
 
-        // Second visit: clear router spies only — keep toast call history and
-        // handled-flash state so only a new flash.id can re-notify.
+        // ── Second create in the same mounted tree ──
         routerPost.mockClear();
-        flashStore.reset();
-        document.body.innerHTML = '';
+        flashStore.reset(); // clear flash content, keep lastHandledFlashId
 
-        await openCreateAndSubmit();
-        completeInertiaVisit(routerPost.mock.calls[0][2] as Record<string, unknown>, {
-            success: 'Услуга добавлена',
-            id: 'evt-same-2',
-        });
+        fireEvent.click(screen.getByRole('button', { name: /Добавить услугу/u }));
+        fireEvent.change(screen.getByPlaceholderText('Маникюр + покрытие'), { target: { value: 'Педикюр' } });
+        fireEvent.change(screen.getByPlaceholderText('1500'), { target: { value: '2000' } });
+        fireEvent.change(screen.getByPlaceholderText('60'), { target: { value: '50' } });
+        fireEvent.click(screen.getByRole('button', { name: /^Добавить$/u }));
+
+        await waitFor(() => expect(routerPost).toHaveBeenCalledTimes(1));
+        const secondOptions = routerPost.mock.calls[0][2] as Record<string, unknown>;
+        completeInertiaVisit(secondOptions, { success: 'Услуга добавлена', id: 'evt-same-2' });
+        (secondOptions.onFinish as (() => void) | undefined)?.();
 
         expect(toastMock.success).toHaveBeenCalledTimes(2);
         expect(toastMock.success).toHaveBeenNthCalledWith(1, 'Услуга добавлена');
         expect(toastMock.success).toHaveBeenNthCalledWith(2, 'Услуга добавлена');
+
+        view.unmount();
     });
 
     it('update: one success toast from server flash', async () => {
