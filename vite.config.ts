@@ -14,7 +14,7 @@ export default defineConfig({
             input: ['resources/css/app.css', 'resources/js/app.tsx', 'resources/js/max-app/main.tsx', 'resources/js/vk-app/main.tsx'],
             refresh: true,
         }),
-        inertia({ ssr: 'resources/js/ssr.tsx' }),
+        inertia({ ssr: { entry: 'resources/js/ssr.tsx', host: '127.0.0.1' } }),
         react({
             babel: {
                 plugins: ['babel-plugin-react-compiler'],
