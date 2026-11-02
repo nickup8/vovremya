@@ -281,6 +281,61 @@ class SeriesNotificationCoverageTest extends TestCase
         $this->assertStringContainsString('14:30', $text, 'series_updated должен сообщать новое время серии');
     }
 
+    // ── Локальное время сообщения — пояс мастера, а не устаревший пояс серии ──
+
+    public function test_series_updated_uses_master_timezone_for_date_and_time(): void
+    {
+        $client = $this->client();
+        // Серия создана в другом поясе, чем текущий пояс мастера.
+        $series = $this->makeSeries($client, ['timezone' => 'America/New_York']);
+
+        // 23:30 UTC — в Москве уже следующий день (02:30), в Нью-Йорке
+        // ещё 18:30 того же дня: дата в сообщении переходит через полночь.
+        $visits = collect([
+            Carbon::parse('2026-11-17 23:30:00', 'UTC'),
+            Carbon::parse('2026-11-24 23:30:00', 'UTC'),
+        ])->map(fn (Carbon $start) => $this->appointment($client, $start, [
+            'recurring_series_id' => $series->id,
+        ]));
+
+        $startTimesBefore = $visits
+            ->map(fn (Appointment $visit) => $visit->fresh()->start_time->toIso8601String())
+            ->values();
+
+        // Устаревший снимок (счётчик не совпадает) — компенсация зафиксирует
+        // SeriesUpdated, не меняя расписание серии.
+        $recorder = app(AppointmentNotificationRecorder::class);
+        $anchor = $visits->first();
+        $version = $recorder->bumpVersion($anchor);
+        $recorder->record(
+            $anchor->fresh(),
+            AppointmentNotificationEventType::SeriesCreated,
+            ['affected_count' => 99],
+            $version,
+            $series->id,
+        );
+
+        app(RecurringAppointmentService::class)
+            ->compensateRemainingSeriesSchedule((string) $series->id);
+
+        $event = AppointmentNotificationEvent::where('event_type', AppointmentNotificationEventType::SeriesUpdated)
+            ->where('recurring_series_id', $series->id)
+            ->firstOrFail();
+
+        // Дата и время — в поясе мастера (Europe/Moscow): через полночь 18.11.
+        $this->assertSame('18.11.2026', $event->payload['from_date'], 'дата первого визита — по поясу мастера');
+        $this->assertSame('02:30', $event->payload['time'], 'общее время — по поясу мастера');
+        $this->assertStringContainsString('18.11.2026', (string) $event->payload['text']);
+        $this->assertStringContainsString('02:30', (string) $event->payload['text']);
+
+        // Абсолютные start_time не меняются: правится только представление.
+        $this->assertSame(
+            $startTimesBefore->all(),
+            $visits->map(fn (Appointment $visit) => $visit->fresh()->start_time->toIso8601String())->values()->all(),
+            'запись уведомления не должна менять абсолютные start_time',
+        );
+    }
+
     // ── Якорь не гасит серийное уведомление бесследно ──
 
     public function test_anchor_edit_does_not_kill_pending_series_notification(): void
