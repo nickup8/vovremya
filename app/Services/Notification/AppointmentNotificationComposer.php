@@ -64,7 +64,7 @@ class AppointmentNotificationComposer
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function cancelledByMaster(Appointment $appointment, array $payload): string
+    private function cancelledByMaster(Appointment $appointment, array $payload, bool $rebook = true): string
     {
         $master = $appointment->master;
         $tz = $master?->getTimezone() ?? 'UTC';
@@ -81,7 +81,9 @@ class AppointmentNotificationComposer
             'service' => $payload['service_name'] ?? $appointment->display_name,
             'date' => $start->format('d.m.Y'),
             'time' => $start->format('H:i'),
-            'instruction' => BotText::rebookInstruction('bot.instructions.cancel_rebook', $master),
+            'instruction' => $rebook
+                ? BotText::rebookInstruction('bot.instructions.cancel_rebook', $master)
+                : '',
         ]);
     }
 
@@ -283,7 +285,7 @@ class AppointmentNotificationComposer
     /**
      * @param  array<string, mixed>  $payload
      */
-    private function seriesCancelled(Appointment $appointment, array $payload): string
+    private function seriesCancelled(Appointment $appointment, array $payload, bool $rebook = true): string
     {
         $master = $appointment->master;
         $phone = BotText::masterPhone($master);
@@ -296,8 +298,52 @@ class AppointmentNotificationComposer
             'date' => $payload['from_date'] ?? $appointment->start_time->timezone(
                 $master?->getTimezone() ?? 'UTC'
             )->format('d.m.Y'),
-            'instruction' => BotText::rebookInstruction('bot.instructions.series_cancel_rebook', $master),
+            'instruction' => $rebook
+                ? BotText::rebookInstruction('bot.instructions.series_cancel_rebook', $master)
+                : '',
         ]);
+    }
+
+    /**
+     * Снимок повторной записи для событий отмены: исходный мастер,
+     * сохранённый URL виджета и согласованный вариант текста без
+     * инструкции (payload['text'] хранит вариант с инструкцией).
+     *
+     * Выбираются ОДНИМ правилом с compose(): если ссылка не формируется
+     * (мастер/виджет недоступны) — пусто, текст остаётся без CTA и при
+     * позднем появлении ссылки не превращается в новый. Для событий не
+     * отмен и для старого формата полей не добавляется.
+     *
+     * @param  array<string, mixed>  $payload
+     * @return array<string, mixed>
+     */
+    public function rebookSnapshot(
+        Appointment $appointment,
+        AppointmentNotificationEventType $type,
+        array $payload,
+    ): array {
+        if (! in_array($type, [
+            AppointmentNotificationEventType::CancelledByMaster,
+            AppointmentNotificationEventType::SeriesCancelled,
+        ], true)) {
+            return [];
+        }
+
+        $appointment->loadMissing(['master', 'client', 'masterService.catalog']);
+
+        $url = BotText::bookingWidgetUrl($appointment->master);
+
+        if ($url === null) {
+            return [];
+        }
+
+        return [
+            'rebook_master_id' => $appointment->master?->getKey(),
+            'rebook_url' => $url,
+            'text_no_rebook' => $type === AppointmentNotificationEventType::CancelledByMaster
+                ? $this->cancelledByMaster($appointment, $payload, false)
+                : $this->seriesCancelled($appointment, $payload, false),
+        ];
     }
 
     /**

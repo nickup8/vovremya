@@ -63,6 +63,9 @@ class ClearMessageTextsTest extends TestCase
             'settings' => ['timezone' => 'Asia/Yekaterinburg'],
             'address' => 'ул. Тестовая, 1',
             'phone' => self::MASTER_PHONE,
+            // Видимость виджета (scope visibleInWidget): owner-мастеру
+            // нужен флаг поставщика услуг.
+            'is_service_provider' => true,
         ]);
         $this->workspace = Workspace::create([
             'name' => 'ws-'.$this->master->id,
@@ -311,7 +314,7 @@ class ClearMessageTextsTest extends TestCase
             $withPhone,
             'телефон мастера остаётся в данных сообщения',
         );
-        $this->assertStringContainsString('Хотите выбрать другое время? Нажмите „Записаться снова".', $withPhone);
+        $this->assertStringContainsString('Хотите выбрать другое время? Нажмите «Записаться снова».', $withPhone);
         $this->assertStringNotContainsString('позвонит', $withPhone, 'предложение позвонить мастеру убрано');
         $this->assertStringNotContainsString('Ждём вас', $withPhone, 'универсальное «Ждём вас» к отказу не добавляется');
         $this->assertCleanText($withPhone, 'cancelled с телефоном');
@@ -326,7 +329,7 @@ class ClearMessageTextsTest extends TestCase
         $this->assertNotNull($withoutPhone);
         $this->assertStringNotContainsString('Телефон мастера:', $withoutPhone);
         $this->assertStringContainsString(
-            'Хотите выбрать другое время? Нажмите „Записаться снова".',
+            'Хотите выбрать другое время? Нажмите «Записаться снова».',
             $withoutPhone,
             'инструкция и кнопка не зависят от наличия телефона',
         );
@@ -346,6 +349,41 @@ class ClearMessageTextsTest extends TestCase
         $this->assertStringNotContainsString('Записаться снова', $noLink, 'без ссылки кнопка не анонсируется');
         $this->assertStringNotContainsString('позвонит', $noLink);
         $this->assertCleanText($noLink, 'cancelled без ссылки');
+    }
+
+    // ── Непустого slug недостаточно: доступность виджета как в show() ──
+
+    public function test_cancel_instruction_absent_when_widget_invisible_despite_slug(): void
+    {
+        $appointment = $this->appointment($this->client());
+
+        // slug на месте, но виджет недоступен: услуга деактивирована —
+        // те же условия BookingWidgetController::show (visibleInWidget),
+        // отсутствие слотов при этом доступность не отменяет.
+        $this->service->update(['is_active' => false]);
+
+        $text = app(AppointmentNotificationComposer::class)->compose(
+            $appointment,
+            AppointmentNotificationEventType::CancelledByMaster,
+            [],
+        );
+
+        $this->assertNotNull($text);
+        $this->assertStringStartsWith('❌ Мастер отменил вашу запись', $text);
+        $this->assertStringContainsString('Телефон мастера: '.self::MASTER_PHONE_DISPLAY, $text);
+        $this->assertStringNotContainsString(
+            'Записаться снова',
+            $text,
+            'недоступный виджет при живом slug не даёт инструкции',
+        );
+        $this->assertCleanText($text, 'cancelled при недоступном виджете');
+
+        $this->assertSame(
+            [],
+            app(AppointmentNotificationComposer::class)
+                ->rebookSnapshot($appointment, AppointmentNotificationEventType::CancelledByMaster, []),
+            'снимок повторной записи не создаётся для недоступного виджета',
+        );
     }
 
     // ── Серии: кабинетные фразы и условное «Время приёма» ──
@@ -395,7 +433,7 @@ class ClearMessageTextsTest extends TestCase
         $this->assertNotNull($cancelled);
         $this->assertStringStartsWith('❌ Мастер отменил несколько ваших записей', $cancelled);
         $this->assertStringContainsString('Отменено записей: 2', $cancelled);
-        $this->assertStringContainsString('Хотите записаться на другую дату? Нажмите „Записаться снова".', $cancelled);
+        $this->assertStringContainsString('Хотите записаться на другую дату? Нажмите «Записаться снова».', $cancelled);
         $this->assertStringNotContainsString('позвонит', $cancelled, 'предложение позвонить мастеру убрано');
         $this->assertCleanText($cancelled, 'series_cancelled с телефоном');
 

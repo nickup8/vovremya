@@ -78,24 +78,36 @@ final class BotText
 
     /**
      * Канонический URL виджета мастера (booking.widget, /book/{master}).
-     * null — ссылка не формируется: мастера нет или у него нет slug'
-     * (другой мастер не подставляется).
+     *
+     * Ссылка формируется только когда страница виджета реально доступна —
+     * те же условия, что в BookingWidgetController::show (scope
+     * visibleInWidget: slug, активные услуги, роль/is_service_provider).
+     * null — мастера нет или виджет недоступен (другой мастер не
+     * подставляется). Отсутствие свободных слотов доступность не
+     * отменяет.
      */
     public static function bookingWidgetUrl(?User $master): ?string
     {
-        $slug = $master?->master_slug;
-
-        if ($slug === null || $slug === '') {
+        if ($master === null) {
             return null;
         }
 
-        return URL::route('booking.widget', ['master' => $slug]);
+        $visible = User::query()
+            ->whereKey($master->getKey())
+            ->visibleInWidget()
+            ->exists();
+
+        if (! $visible) {
+            return null;
+        }
+
+        return URL::route('booking.widget', ['master' => $master->master_slug]);
     }
 
     /**
      * Инструкция повторной записи после отмены мастером: показывается
-     * только при наличии корректной ссылки на виджет (иначе нельзя
-     * честно попросить нажать отсутствующую кнопку); от телефона
+     * только при наличии корректной ссылки на доступный виджет (иначе
+     * нельзя честно попросить нажать отсутствующую кнопку); от телефона
      * мастера не зависит.
      */
     public static function rebookInstruction(string $key, ?User $master): string

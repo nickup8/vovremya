@@ -10,6 +10,7 @@ use App\Models\Appointment;
 use App\Models\AppointmentNotificationDelivery;
 use App\Models\AppointmentNotificationEvent;
 use App\Models\Client;
+use App\Models\User;
 use App\Services\MaxApiClient;
 use App\Services\Notification\AppointmentChannelResolver;
 use App\Services\VkApiClient;
@@ -96,10 +97,13 @@ use Illuminate\Support\Str;
  *   живой claim; временная ошибка с предстоящим retry остаётся pending;
  * - для booking_confirmed ВК-клавиатура «Открыть» воспроизводится по
  *   типу события;
- * - для cancelled_by_master/series_cancelled при наличии ссылки на
- *   виджет мастера прикладывается URL-кнопка «Записаться снова» (MAX
- *   attachments / ВК open_link); без ссылки — прежняя отправка без
- *   клавиатуры.
+ * - для cancelled_by_master/series_cancelled текст и кнопка выбираются
+ *   ОДНИМ решением по снимку события (rebook_master_id/rebook_url):
+ *   сохранённый URL применим, только пока он равен каноническому URL
+ *   доступного виджета исходного мастера — иначе доставляется
+ *   сохранённый вариант текста без инструкции и без кнопки (новый
+ *   URL/другой мастер не подставляются); события старого формата без
+ *   этих полей доставляются как есть, без клавиатуры.
  */
 class SendAppointmentNotificationJob implements ShouldQueue
 {
@@ -197,7 +201,8 @@ class SendAppointmentNotificationJob implements ShouldQueue
             }
         }
 
-        $text = (string) ($event->payload['text'] ?? '');
+        $rebookUrl = $this->activeRebookUrl($event);
+        $text = $this->deliveryText($event, $rebookUrl);
 
         if ($text === '') {
             $this->recordNoChannel($event, 'empty_text');
@@ -205,7 +210,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
             return;
         }
 
-        $result = $this->deliver($event, $channel, $appointment, $text, $maxApi, $vkApi);
+        $result = $this->deliver($event, $channel, $appointment, $text, $rebookUrl, $maxApi, $vkApi);
 
         if ($result === 'failed') {
             throw new \RuntimeException(
@@ -298,6 +303,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
         string $channel,
         Appointment $appointment,
         string $text,
+        ?string $rebookUrl,
         MaxApiClient $maxApi,
         VkApiClient $vkApi,
     ): string {
@@ -438,7 +444,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
             }
 
             $step = 'send';
-            $providerMessageId = $this->httpSend($channel, $appointment, $text, $event, $maxApi, $vkApi);
+            $providerMessageId = $this->httpSend($channel, $appointment, $text, $event, $rebookUrl, $maxApi, $vkApi);
 
             if ($providerMessageId === null) {
                 $this->releaseClaimSafely($event, $channel, $claimToken, $step);
@@ -1164,6 +1170,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
         Appointment $appointment,
         string $text,
         AppointmentNotificationEvent $event,
+        ?string $rebookUrl,
         MaxApiClient $maxApi,
         VkApiClient $vkApi,
     ): ?string {
@@ -1174,7 +1181,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
         }
 
         if ($channel === AppointmentChannelResolver::CHANNEL_MAX) {
-            $attachments = $this->rebookAttachments($event, $appointment);
+            $attachments = $this->rebookAttachments($rebookUrl);
 
             if ($attachments !== null) {
                 return $maxApi->sendMessage((string) $client->max_id, $text, [
@@ -1186,7 +1193,7 @@ class SendAppointmentNotificationJob implements ShouldQueue
         }
 
         if ($channel === AppointmentChannelResolver::CHANNEL_VK) {
-            $keyboard = $this->vkKeyboard($event, $appointment);
+            $keyboard = $this->vkKeyboard($event, $rebookUrl);
 
             if ($keyboard !== null) {
                 return $vkApi->sendMessageWithKeyboard((string) $client->vk_id, $text, $keyboard);
@@ -1206,17 +1213,17 @@ class SendAppointmentNotificationJob implements ShouldQueue
     }
 
     /**
-     * Клавиатура ВК-доставки, воспроизводимая ПО ТИПУ СОБЫТИЯ (не из
-     * payload): booking_confirmed — inline open_app mini-app, чтобы
-     * кнопки мини-приложения сохранялись при доставке через outbox-job;
-     * отмена записи/серии — URL-кнопка «Записаться снова» на виджет
-     * мастера, пока ссылка формируется.
+     * Клавиатура ВК-доставки по типу события: booking_confirmed —
+     * inline open_app mini-app, чтобы кнопки мини-приложения
+     * сохранялись при доставке через outbox-job; отмена записи/серии —
+     * URL-кнопка «Записаться снова» ровно с тем сохранённым URL, который
+     * прошёл проверку активности ($rebookUrl), иначе без клавиатуры.
      *
      * @return array<string, mixed>|null
      */
     private function vkKeyboard(
         AppointmentNotificationEvent $event,
-        Appointment $appointment,
+        ?string $rebookUrl,
     ): ?array {
         $type = $event->event_type->value;
 
@@ -1240,8 +1247,6 @@ class SendAppointmentNotificationJob implements ShouldQueue
             ];
         }
 
-        $rebookUrl = $this->rebookUrl($event, $appointment);
-
         if ($rebookUrl === null) {
             return null;
         }
@@ -1261,14 +1266,15 @@ class SendAppointmentNotificationJob implements ShouldQueue
     }
 
     /**
-     * Ссылка «Записаться снова» на виджет МАСТЕРА ЭТОЙ ЗАПИСИ — только
-     * для событий отмены; null — кнопка не прикладывается (и инструкция
-     * в тексте не показывалась: то же правило в композере).
+     * Активный URL повторной записи по СНИМКУ события: сохранённый
+     * rebook_url возвращается, только пока он равен каноническому URL
+     * видимого виджета исходного мастера (rebook_master_id) — slug не
+     * менялся и виджет доступен по правилам BookingWidgetController::show.
+     * Иначе null: без кнопки, без нового URL и без другого мастера.
+     * События старого формата (без полей) — всегда null.
      */
-    private function rebookUrl(
-        AppointmentNotificationEvent $event,
-        Appointment $appointment,
-    ): ?string {
+    private function activeRebookUrl(AppointmentNotificationEvent $event): ?string
+    {
         if (! in_array($event->event_type, [
             AppointmentNotificationEventType::CancelledByMaster,
             AppointmentNotificationEventType::SeriesCancelled,
@@ -1276,21 +1282,55 @@ class SendAppointmentNotificationJob implements ShouldQueue
             return null;
         }
 
-        return BotText::bookingWidgetUrl($appointment->master);
+        $savedUrl = $event->payload['rebook_url'] ?? null;
+
+        if (! is_string($savedUrl) || $savedUrl === '') {
+            return null;
+        }
+
+        $masterId = $event->payload['rebook_master_id'] ?? null;
+
+        if ($masterId === null) {
+            return null;
+        }
+
+        $master = User::query()->find($masterId);
+
+        return BotText::bookingWidgetUrl($master) === $savedUrl ? $savedUrl : null;
     }
 
     /**
-     * MAX inline-клавиатура «Записаться снова» (link-кнопка на виджет
-     * мастера); null — отправка без клавиатуры, без третьего аргумента.
+     * Вариант текста при доставке — тем же решением, что и кнопка:
+     * активный URL → снимок с инструкцией (payload['text']); URL был
+     * записан, но больше не действует → сохранённый вариант без
+     * инструкции (payload['text_no_rebook']); снимковых полей нет
+     * (старый формат/запись без ссылки) → payload['text'] как есть.
+     */
+    private function deliveryText(AppointmentNotificationEvent $event, ?string $rebookUrl): string
+    {
+        $text = (string) ($event->payload['text'] ?? '');
+
+        if ($rebookUrl !== null) {
+            return $text;
+        }
+
+        if (($event->payload['rebook_url'] ?? null) === null) {
+            return $text;
+        }
+
+        $without = (string) ($event->payload['text_no_rebook'] ?? '');
+
+        return $without !== '' ? $without : $text;
+    }
+
+    /**
+     * MAX inline-клавиатура «Записаться снова» по тому же активному URL;
+     * null — отправка без клавиатуры, без третьего аргумента.
      *
      * @return array<int, array<string, mixed>>|null
      */
-    private function rebookAttachments(
-        AppointmentNotificationEvent $event,
-        Appointment $appointment,
-    ): ?array {
-        $rebookUrl = $this->rebookUrl($event, $appointment);
-
+    private function rebookAttachments(?string $rebookUrl): ?array
+    {
         if ($rebookUrl === null) {
             return null;
         }

@@ -96,6 +96,13 @@ class AppointmentNotificationRecorder
 
         $payload['text'] = $text;
 
+        // Снимок повторной записи (отмены): мастер, URL и вариант текста
+        // без CTA — вариант и кнопка при доставке выбираются по ним.
+        $payload = array_merge(
+            $payload,
+            $this->composer->rebookSnapshot($appointment, $type, $payload),
+        );
+
         // Получатель фиксируется в событии: job сверяет его со свежим
         // appointment->client_id и не уходит старым снимком новому клиенту.
         if (! array_key_exists('client_id', $payload)) {
