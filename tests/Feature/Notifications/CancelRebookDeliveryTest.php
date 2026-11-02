@@ -20,6 +20,7 @@ use App\Services\Booking\BookingService;
 use App\Services\Booking\RecurringAppointmentService;
 use App\Services\MaxApiClient;
 use App\Services\Notification\AppointmentChannelResolver;
+use App\Services\Notification\AppointmentNotificationComposer;
 use App\Services\VkApiClient;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
@@ -637,7 +638,8 @@ class CancelRebookDeliveryTest extends TestCase
         $appointment = $this->manualAppointment($client);
         $event = $this->cancelByMaster($appointment);
 
-        $this->assertArrayNotHasKey('rebook_url', $event->payload, 'ссылки в снимке не было');
+        $this->assertArrayHasKey('rebook_url', $event->payload, 'решение о ссылке зафиксировано в снимке');
+        $this->assertNull($event->payload['rebook_url'], 'виджет изначально недоступен — ссылки нет');
         $this->assertStringNotContainsString(
             'Записаться снова',
             (string) $event->payload['text'],
@@ -777,5 +779,85 @@ class CancelRebookDeliveryTest extends TestCase
             ->first();
         $this->assertNotNull($row);
         $this->assertSame(AppointmentNotificationDelivery::STATUS_DELIVERED, $row->status);
+    }
+
+    // ── Одно решение о ссылке при создании события ──
+
+    public function test_single_link_decision_at_creation_survives_availability_flip(): void
+    {
+        $client = $this->client(['max_id' => 'max-1']);
+        $appointment = $this->manualAppointment($client);
+
+        // Прибор: гасим виджет СРАЗУ после решения снимка, до compose() —
+        // детерминированное изменение доступности «между прежними двумя
+        // проверками». Если бы compose() перепроверял доступность, текст
+        // потерял бы инструкцию при сохранённом rebook_url.
+        $service = $this->service;
+        $this->app->instance(
+            AppointmentNotificationComposer::class,
+            new class($service) extends AppointmentNotificationComposer
+            {
+                public function __construct(private MasterService $service) {}
+
+                public function rebookSnapshot(
+                    Appointment $appointment,
+                    AppointmentNotificationEventType $type,
+                    array $payload,
+                ): array {
+                    $snapshot = parent::rebookSnapshot($appointment, $type, $payload);
+
+                    $this->service->update(['is_active' => false]);
+
+                    return $snapshot;
+                }
+            },
+        );
+
+        app(BookingService::class)->cancel($appointment, $this->master);
+
+        $event = AppointmentNotificationEvent::where('appointment_id', $appointment->id)
+            ->where('event_type', AppointmentNotificationEventType::CancelledByMaster)
+            ->firstOrFail();
+
+        // Все поля — из одного решения: URL сохранён, варианты согласованы,
+        // compose() инструкцию взял из снимка без повторной проверки.
+        $this->assertSame($this->rebookUrl(), $event->payload['rebook_url'] ?? null);
+        $this->assertNotNull($event->payload['rebook_master_id'] ?? null);
+        $this->assertStringContainsString(
+            '«Записаться снова»',
+            (string) $event->payload['text'],
+            'текст с инструкцией — по решению снимка, несмотря на погашенный виджет',
+        );
+        $this->assertNotNull($event->payload['text_no_rebook'] ?? null);
+        $this->assertStringNotContainsString(
+            'Записаться снова',
+            (string) $event->payload['text_no_rebook'],
+            'вариант без CTA согласован с тем же решением',
+        );
+
+        // Доставка при погашенном виджете: сохранённый вариант без CTA
+        // и без кнопки (прежняя логика доставки не менялась).
+        $captured = [];
+        $maxApi = $this->mock(MaxApiClient::class);
+        $maxApi->shouldReceive('sendMessage')
+            ->once()
+            ->withArgs(function (...$args) use (&$captured): bool {
+                $captured = $args;
+
+                return (string) $args[0] === 'max-1';
+            })
+            ->andReturn('mid-single-decision');
+
+        $this->runJob($event, $maxApi, $this->mock(VkApiClient::class));
+
+        $this->assertCount(2, $captured, 'погашенный виджет — без клавиатуры');
+        $this->assertSame((string) $event->payload['text_no_rebook'], (string) $captured[1]);
+
+        $row = AppointmentNotificationDelivery::where('appointment_notification_event_id', $event->id)
+            ->where('channel', 'max')
+            ->first();
+        $this->assertNotNull($row);
+        $this->assertSame(AppointmentNotificationDelivery::STATUS_DELIVERED, $row->status);
+        $this->assertSame(AppointmentStatus::Cancelled, $appointment->fresh()->status);
     }
 }

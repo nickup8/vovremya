@@ -20,6 +20,7 @@ use App\Support\BotText;
 use Illuminate\Foundation\Testing\RefreshDatabase;
 use Illuminate\Support\Carbon;
 use Illuminate\Support\Facades\Queue;
+use Illuminate\Support\Facades\URL;
 use Tests\TestCase;
 
 /**
@@ -379,11 +380,39 @@ class ClearMessageTextsTest extends TestCase
         $this->assertCleanText($text, 'cancelled при недоступном виджете');
 
         $this->assertSame(
-            [],
+            ['rebook_url' => null],
             app(AppointmentNotificationComposer::class)
                 ->rebookSnapshot($appointment, AppointmentNotificationEventType::CancelledByMaster, []),
-            'снимок повторной записи не создаётся для недоступного виджета',
+            'решение «ссылки нет» фиксируется явно — compose() не перепроверяет доступность',
         );
+    }
+
+    // ── bookingWidgetUrl: видимость и slug — одна выборка свежей строки ──
+
+    public function test_booking_widget_url_uses_fresh_visible_row_for_stale_user(): void
+    {
+        // Объект мастера, загруженный ДО изменения данных.
+        $stale = User::query()->find($this->master->id);
+        $this->assertNotNull($stale);
+        $staleSlug = (string) $stale->master_slug;
+
+        $this->master->update(['master_slug' => 'fresh-rebook-slug']);
+
+        $this->assertSame(
+            URL::route('booking.widget', ['master' => 'fresh-rebook-slug']),
+            BotText::bookingWidgetUrl($stale),
+            'свежая строка visibleInWidget: URL по актуальному slug, не по устаревшему объекту',
+        );
+        $this->assertStringNotContainsString(
+            $staleSlug,
+            (string) BotText::bookingWidgetUrl($stale),
+            'устаревший slug из переданного объекта не попадает в URL',
+        );
+
+        // Свежая строка виджета недоступна → null, даже если сам объект
+        // был видим на момент загрузки.
+        $this->master->update(['is_service_provider' => false]);
+        $this->assertNull(BotText::bookingWidgetUrl($stale));
     }
 
     // ── Серии: кабинетные фразы и условное «Время приёма» ──

@@ -88,6 +88,16 @@ class AppointmentNotificationRecorder
             $payload['full_notice'] = true;
         }
 
+        // Снимок повторной записи (отмены) — ДО compose(): решение о
+        // ссылке для формируемого события принимается здесь один раз
+        // (rebook_url — строка либо явный null) и ложится в payload;
+        // compose() берёт оттуда и инструкцию, и эти поля, не повторяя
+        // проверку доступности.
+        $payload = array_merge(
+            $payload,
+            $this->composer->rebookSnapshot($appointment, $type, $payload),
+        );
+
         $text = $this->composer->compose($appointment, $type, $payload);
 
         if ($text === null) {
@@ -95,13 +105,6 @@ class AppointmentNotificationRecorder
         }
 
         $payload['text'] = $text;
-
-        // Снимок повторной записи (отмены): мастер, URL и вариант текста
-        // без CTA — вариант и кнопка при доставке выбираются по ним.
-        $payload = array_merge(
-            $payload,
-            $this->composer->rebookSnapshot($appointment, $type, $payload),
-        );
 
         // Получатель фиксируется в событии: job сверяет его со свежим
         // appointment->client_id и не уходит старым снимком новому клиенту.

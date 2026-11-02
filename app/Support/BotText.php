@@ -79,10 +79,11 @@ final class BotText
     /**
      * Канонический URL виджета мастера (booking.widget, /book/{master}).
      *
-     * Ссылка формируется только когда страница виджета реально доступна —
-     * те же условия, что в BookingWidgetController::show (scope
-     * visibleInWidget: slug, активные услуги, роль/is_service_provider).
-     * null — мастера нет или виджет недоступен (другой мастер не
+     * Одна выборка visibleInWidget() по ID исходного мастера даёт и
+     * доступность страницы (те же условия, что в
+     * BookingWidgetController::show), и АКТУАЛЬНЫЙ slug свежей строки —
+     * URL не строится из устаревшего переданного объекта. null — мастера
+     * нет или свежая строка виджета недоступна (другой мастер не
      * подставляется). Отсутствие свободных слотов доступность не
      * отменяет.
      */
@@ -92,16 +93,16 @@ final class BotText
             return null;
         }
 
-        $visible = User::query()
+        $fresh = User::query()
             ->whereKey($master->getKey())
             ->visibleInWidget()
-            ->exists();
+            ->first();
 
-        if (! $visible) {
+        if ($fresh === null) {
             return null;
         }
 
-        return URL::route('booking.widget', ['master' => $master->master_slug]);
+        return URL::route('booking.widget', ['master' => $fresh->master_slug]);
     }
 
     /**

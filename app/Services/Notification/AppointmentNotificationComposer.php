@@ -82,7 +82,7 @@ class AppointmentNotificationComposer
             'date' => $start->format('d.m.Y'),
             'time' => $start->format('H:i'),
             'instruction' => $rebook
-                ? BotText::rebookInstruction('bot.instructions.cancel_rebook', $master)
+                ? $this->rebookInstruction('bot.instructions.cancel_rebook', $appointment, $payload)
                 : '',
         ]);
     }
@@ -299,9 +299,27 @@ class AppointmentNotificationComposer
                 $master?->getTimezone() ?? 'UTC'
             )->format('d.m.Y'),
             'instruction' => $rebook
-                ? BotText::rebookInstruction('bot.instructions.series_cancel_rebook', $master)
+                ? $this->rebookInstruction('bot.instructions.series_cancel_rebook', $appointment, $payload)
                 : '',
         ]);
+    }
+
+    /**
+     * Инструкция повторной записи для формируемого события: решение о
+     * ссылке уже принято в rebookSnapshot() и лежит в payload
+     * (rebook_url) — compose() его только читает, вторая проверка
+     * доступности для одного события не выполняется. Вне записи события
+     * (прямой вызов compose без полей снимка) — самостоятельное решение.
+     *
+     * @param  array<string, mixed>  $payload
+     */
+    private function rebookInstruction(string $key, Appointment $appointment, array $payload): string
+    {
+        if (array_key_exists('rebook_url', $payload)) {
+            return $payload['rebook_url'] !== null ? (string) __($key) : '';
+        }
+
+        return BotText::rebookInstruction($key, $appointment->master);
     }
 
     /**
@@ -309,10 +327,11 @@ class AppointmentNotificationComposer
      * сохранённый URL виджета и согласованный вариант текста без
      * инструкции (payload['text'] хранит вариант с инструкцией).
      *
-     * Выбираются ОДНИМ правилом с compose(): если ссылка не формируется
-     * (мастер/виджет недоступны) — пусто, текст остаётся без CTA и при
-     * позднем появлении ссылки не превращается в новый. Для событий не
-     * отмен и для старого формата полей не добавляется.
+     * ЕДИНСТВЕННОЕ место, где для формируемого события запрашивается
+     * доступность виджета: решение (строка URL либо явный null в
+     * rebook_url) ложится в payload до compose(), который берёт оттуда
+     * и инструкцию, и эти поля — согласованность одного решения.
+     * Для событий не отмен полей не добавляется.
      *
      * @param  array<string, mixed>  $payload
      * @return array<string, mixed>
@@ -334,7 +353,9 @@ class AppointmentNotificationComposer
         $url = BotText::bookingWidgetUrl($appointment->master);
 
         if ($url === null) {
-            return [];
+            // Решение «ссылки нет» тоже фиксируется: compose() увидит
+            // ключ и не станет перепроверять доступность.
+            return ['rebook_url' => null];
         }
 
         return [
