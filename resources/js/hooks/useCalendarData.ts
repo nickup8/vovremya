@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { echo } from '@/echo-config';
 import { AppointmentStatus } from '@/types/appointment-status';
 import type { Appointment, BlockedTime } from '@/pages/admin/components/calendar/types';
+import { mergeAppointmentUpdate } from '@/pages/admin/components/calendar/helpers';
 
 interface UseCalendarDataParams {
     initialAppointments: Appointment[];
@@ -131,17 +132,17 @@ return prev;
             })
             .listen('.AppointmentStatusChanged', (appointment: Appointment) => {
                 setLocalAppointments((prev) =>
-                    prev.map((a) => (a.id === appointment.id ? appointment : a)),
+                    prev.map((a) => (a.id === appointment.id ? mergeAppointmentUpdate(a, appointment) : a)),
                 );
             })
             .listen('.AppointmentRescheduled', (appointment: Appointment) => {
                 setLocalAppointments((prev) =>
-                    prev.map((a) => (a.id === appointment.id ? appointment : a)),
+                    prev.map((a) => (a.id === appointment.id ? mergeAppointmentUpdate(a, appointment) : a)),
                 );
             })
             .listen('.AppointmentVisitConfirmed', (appointment: Appointment) => {
                 setLocalAppointments((prev) =>
-                    prev.map((a) => (a.id === appointment.id ? appointment : a)),
+                    prev.map((a) => (a.id === appointment.id ? mergeAppointmentUpdate(a, appointment) : a)),
                 );
             })
             .listen('.AppointmentNotificationUpdated', () => {

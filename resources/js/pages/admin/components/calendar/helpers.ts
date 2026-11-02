@@ -126,6 +126,27 @@ export function getEndTime(time: string, duration: number): string {
     return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
+/**
+ * Объединение WS-payload (неполный toCalendarArray) с локальной записью.
+ * Ключи, отсутствующие в incoming, сохраняются; явный null перезаписывает.
+ */
+export function mergeAppointmentUpdate(
+    prev: Appointment,
+    incoming: Partial<Appointment>,
+): Appointment {
+    const merged: Partial<Appointment> = { ...prev };
+
+    for (const key of Object.keys(incoming) as (keyof Appointment)[]) {
+        const value = incoming[key];
+
+        if (value !== undefined) {
+            (merged as Record<string, unknown>)[key] = value;
+        }
+    }
+
+    return merged as Appointment;
+}
+
 export function getWeekDates(center: Date): Date[] {
     const start = new Date(center);
     const day = start.getDay();

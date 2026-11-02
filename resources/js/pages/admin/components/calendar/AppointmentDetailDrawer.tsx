@@ -375,7 +375,7 @@ export function AppointmentDetailDrawer({
                                             </div>
                                             <div className="flex items-center justify-between">
                                                 <span className="text-slate-500 dark:text-zinc-400">Статус</span>
-                                                <div className="flex items-center gap-2">
+                                                <div className="flex flex-wrap items-center justify-end gap-2">
                                                     {canChangeStatus ? (
                                                         <Popover open={statusPopoverOpen} onOpenChange={setStatusPopoverOpen}>
                                                             <PopoverTrigger asChild>
@@ -413,6 +413,11 @@ export function AppointmentDetailDrawer({
                                                             <span className="text-slate-700 dark:text-zinc-300">
                                                                 {STATUS_STYLES[selected.status].label}
                                                             </span>
+                                                        </span>
+                                                    )}
+                                                    {selected.client_confirmed_at && (
+                                                        <span className="inline-flex items-center gap-1 text-xs font-medium text-emerald-600 dark:text-emerald-400">
+                                                            ✅ Клиент подтвердил визит
                                                         </span>
                                                     )}
                                                 </div>
