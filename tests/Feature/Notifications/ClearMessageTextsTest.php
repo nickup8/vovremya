@@ -293,9 +293,9 @@ class ClearMessageTextsTest extends TestCase
         $this->assertCleanText($text, 'full_notice');
     }
 
-    // ── Отмена мастером: с телефоном и без него ──
+    // ── Отмена мастером: инструкция по ссылке, телефон в данных ──
 
-    public function test_cancelled_by_master_instruction_depends_on_phone(): void
+    public function test_cancelled_by_master_instruction_depends_on_link_not_phone(): void
     {
         $appointment = $this->appointment($this->client());
 
@@ -306,10 +306,17 @@ class ClearMessageTextsTest extends TestCase
         );
         $this->assertNotNull($withPhone);
         $this->assertStringStartsWith('❌ Мастер отменил вашу запись', $withPhone);
-        $this->assertStringContainsString('Чтобы договориться о другом времени, позвоните мастеру', $withPhone);
+        $this->assertStringContainsString(
+            'Телефон мастера: '.self::MASTER_PHONE_DISPLAY,
+            $withPhone,
+            'телефон мастера остаётся в данных сообщения',
+        );
+        $this->assertStringContainsString('Хотите выбрать другое время? Нажмите „Записаться снова".', $withPhone);
+        $this->assertStringNotContainsString('позвонит', $withPhone, 'предложение позвонить мастеру убрано');
         $this->assertStringNotContainsString('Ждём вас', $withPhone, 'универсальное «Ждём вас» к отказу не добавляется');
         $this->assertCleanText($withPhone, 'cancelled с телефоном');
 
+        // Без телефона: строка телефона опущена, инструкция от него не зависит.
         $this->master->forceFill(['phone' => null])->save();
         $withoutPhone = app(AppointmentNotificationComposer::class)->compose(
             $appointment->fresh(),
@@ -318,8 +325,27 @@ class ClearMessageTextsTest extends TestCase
         );
         $this->assertNotNull($withoutPhone);
         $this->assertStringNotContainsString('Телефон мастера:', $withoutPhone);
-        $this->assertStringNotContainsString('позвоните', $withoutPhone);
+        $this->assertStringContainsString(
+            'Хотите выбрать другое время? Нажмите „Записаться снова".',
+            $withoutPhone,
+            'инструкция и кнопка не зависят от наличия телефона',
+        );
+        $this->assertStringNotContainsString('позвонит', $withoutPhone);
         $this->assertCleanText($withoutPhone, 'cancelled без телефона');
+
+        // Ссылку сформировать нельзя (нет slug): инструкция нажимать
+        // отсутствующую кнопку не показывается, чужой мастер не подставляется.
+        $this->master->forceFill(['phone' => self::MASTER_PHONE, 'master_slug' => null])->save();
+        $noLink = app(AppointmentNotificationComposer::class)->compose(
+            $appointment->fresh(),
+            AppointmentNotificationEventType::CancelledByMaster,
+            [],
+        );
+        $this->assertNotNull($noLink);
+        $this->assertStringContainsString('Телефон мастера: '.self::MASTER_PHONE_DISPLAY, $noLink);
+        $this->assertStringNotContainsString('Записаться снова', $noLink, 'без ссылки кнопка не анонсируется');
+        $this->assertStringNotContainsString('позвонит', $noLink);
+        $this->assertCleanText($noLink, 'cancelled без ссылки');
     }
 
     // ── Серии: кабинетные фразы и условное «Время приёма» ──
@@ -369,8 +395,21 @@ class ClearMessageTextsTest extends TestCase
         $this->assertNotNull($cancelled);
         $this->assertStringStartsWith('❌ Мастер отменил несколько ваших записей', $cancelled);
         $this->assertStringContainsString('Отменено записей: 2', $cancelled);
-        $this->assertStringContainsString('Чтобы договориться о новых датах, позвоните мастеру', $cancelled);
+        $this->assertStringContainsString('Хотите записаться на другую дату? Нажмите „Записаться снова".', $cancelled);
+        $this->assertStringNotContainsString('позвонит', $cancelled, 'предложение позвонить мастеру убрано');
         $this->assertCleanText($cancelled, 'series_cancelled с телефоном');
+
+        // Нет ссылки (нет slug): инструкция о кнопке не показывается.
+        $this->master->forceFill(['master_slug' => null])->save();
+        $noLink = app(AppointmentNotificationComposer::class)->compose(
+            $appointment->fresh(),
+            AppointmentNotificationEventType::SeriesCancelled,
+            ['affected_count' => 2, 'from_date' => '18.11.2026'],
+        );
+        $this->assertNotNull($noLink);
+        $this->assertStringNotContainsString('Записаться снова', $noLink, 'без ссылки кнопка не анонсируется');
+        $this->assertStringNotContainsString('позвонит', $noLink);
+        $this->assertCleanText($noLink, 'series_cancelled без ссылки');
     }
 
     // ── Напоминания: точная дата, «Я приду» только в первом, без «завтра»/«часов» ──

@@ -3,6 +3,7 @@
 namespace App\Support;
 
 use App\Models\User;
+use Illuminate\Support\Facades\URL;
 
 /**
  * Сборка текстов бота: подстановка переменных и опускание пустых строк.
@@ -73,5 +74,32 @@ final class BotText
     public static function callToMaster(string $key, ?string $masterPhone): string
     {
         return ($masterPhone ?? '') !== '' ? (string) __($key) : '';
+    }
+
+    /**
+     * Канонический URL виджета мастера (booking.widget, /book/{master}).
+     * null — ссылка не формируется: мастера нет или у него нет slug'
+     * (другой мастер не подставляется).
+     */
+    public static function bookingWidgetUrl(?User $master): ?string
+    {
+        $slug = $master?->master_slug;
+
+        if ($slug === null || $slug === '') {
+            return null;
+        }
+
+        return URL::route('booking.widget', ['master' => $slug]);
+    }
+
+    /**
+     * Инструкция повторной записи после отмены мастером: показывается
+     * только при наличии корректной ссылки на виджет (иначе нельзя
+     * честно попросить нажать отсутствующую кнопку); от телефона
+     * мастера не зависит.
+     */
+    public static function rebookInstruction(string $key, ?User $master): string
+    {
+        return self::bookingWidgetUrl($master) !== null ? (string) __($key) : '';
     }
 }

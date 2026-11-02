@@ -81,7 +81,7 @@ class AppointmentNotificationComposer
             'service' => $payload['service_name'] ?? $appointment->display_name,
             'date' => $start->format('d.m.Y'),
             'time' => $start->format('H:i'),
-            'instruction' => BotText::callToMaster('bot.instructions.cancel_call', $phone),
+            'instruction' => BotText::rebookInstruction('bot.instructions.cancel_rebook', $master),
         ]);
     }
 
@@ -296,7 +296,7 @@ class AppointmentNotificationComposer
             'date' => $payload['from_date'] ?? $appointment->start_time->timezone(
                 $master?->getTimezone() ?? 'UTC'
             )->format('d.m.Y'),
-            'instruction' => BotText::callToMaster('bot.instructions.series_cancel_call', $phone),
+            'instruction' => BotText::rebookInstruction('bot.instructions.series_cancel_rebook', $master),
         ]);
     }
 

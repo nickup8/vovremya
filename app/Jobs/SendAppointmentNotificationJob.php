@@ -13,6 +13,7 @@ use App\Models\Client;
 use App\Services\MaxApiClient;
 use App\Services\Notification\AppointmentChannelResolver;
 use App\Services\VkApiClient;
+use App\Support\BotText;
 use Illuminate\Bus\Queueable;
 use Illuminate\Contracts\Queue\ShouldQueue;
 use Illuminate\Database\QueryException;
@@ -94,7 +95,11 @@ use Illuminate\Support\Str;
  *   markSuperseded не требуют предварительного claim и не трогают чужой
  *   живой claim; временная ошибка с предстоящим retry остаётся pending;
  * - для booking_confirmed ВК-клавиатура «Открыть» воспроизводится по
- *   типу события.
+ *   типу события;
+ * - для cancelled_by_master/series_cancelled при наличии ссылки на
+ *   виджет мастера прикладывается URL-кнопка «Записаться снова» (MAX
+ *   attachments / ВК open_link); без ссылки — прежняя отправка без
+ *   клавиатуры.
  */
 class SendAppointmentNotificationJob implements ShouldQueue
 {
@@ -1169,6 +1174,14 @@ class SendAppointmentNotificationJob implements ShouldQueue
         }
 
         if ($channel === AppointmentChannelResolver::CHANNEL_MAX) {
+            $attachments = $this->rebookAttachments($event, $appointment);
+
+            if ($attachments !== null) {
+                return $maxApi->sendMessage((string) $client->max_id, $text, [
+                    'attachments' => $attachments,
+                ]);
+            }
+
             return $maxApi->sendMessage((string) $client->max_id, $text);
         }
 
@@ -1193,8 +1206,11 @@ class SendAppointmentNotificationJob implements ShouldQueue
     }
 
     /**
-     * Клавиатура ВК-подтверждения брони — inline open_app mini-app,
-     * чтобы кнопки сохранялись при доставке через outbox-job.
+     * Клавиатура ВК-доставки, воспроизводимая ПО ТИПУ СОБЫТИЯ (не из
+     * payload): booking_confirmed — inline open_app mini-app, чтобы
+     * кнопки мини-приложения сохранялись при доставке через outbox-job;
+     * отмена записи/серии — URL-кнопка «Записаться снова» на виджет
+     * мастера, пока ссылка формируется.
      *
      * @return array<string, mixed>|null
      */
@@ -1204,11 +1220,29 @@ class SendAppointmentNotificationJob implements ShouldQueue
     ): ?array {
         $type = $event->event_type->value;
 
-        if ($type !== AppointmentNotificationEventType::BookingConfirmed->value) {
-            return null;
+        if ($type === AppointmentNotificationEventType::BookingConfirmed->value) {
+            if (empty(config('services.vk.group_id'))) {
+                return null;
+            }
+
+            return [
+                'one_time' => false,
+                'inline' => true,
+                'buttons' => [[[
+                    'action' => [
+                        'type' => 'open_app',
+                        'app_id' => (int) config('services.vk.app_id'),
+                        'owner_id' => -(int) config('services.vk.group_id'),
+                        'label' => '📅 Открыть ИРСИ',
+                        'hash' => '',
+                    ],
+                ]]],
+            ];
         }
 
-        if (empty(config('services.vk.group_id'))) {
+        $rebookUrl = $this->rebookUrl($event, $appointment);
+
+        if ($rebookUrl === null) {
             return null;
         }
 
@@ -1217,14 +1251,62 @@ class SendAppointmentNotificationJob implements ShouldQueue
             'inline' => true,
             'buttons' => [[[
                 'action' => [
-                    'type' => 'open_app',
-                    'app_id' => (int) config('services.vk.app_id'),
-                    'owner_id' => -(int) config('services.vk.group_id'),
-                    'label' => '📅 Открыть ИРСИ',
-                    'hash' => '',
+                    'type' => 'open_link',
+                    'label' => (string) __('bot.buttons.rebook'),
+                    'link' => $rebookUrl,
+                    'payload' => '{}',
                 ],
             ]]],
         ];
+    }
+
+    /**
+     * Ссылка «Записаться снова» на виджет МАСТЕРА ЭТОЙ ЗАПИСИ — только
+     * для событий отмены; null — кнопка не прикладывается (и инструкция
+     * в тексте не показывалась: то же правило в композере).
+     */
+    private function rebookUrl(
+        AppointmentNotificationEvent $event,
+        Appointment $appointment,
+    ): ?string {
+        if (! in_array($event->event_type, [
+            AppointmentNotificationEventType::CancelledByMaster,
+            AppointmentNotificationEventType::SeriesCancelled,
+        ], true)) {
+            return null;
+        }
+
+        return BotText::bookingWidgetUrl($appointment->master);
+    }
+
+    /**
+     * MAX inline-клавиатура «Записаться снова» (link-кнопка на виджет
+     * мастера); null — отправка без клавиатуры, без третьего аргумента.
+     *
+     * @return array<int, array<string, mixed>>|null
+     */
+    private function rebookAttachments(
+        AppointmentNotificationEvent $event,
+        Appointment $appointment,
+    ): ?array {
+        $rebookUrl = $this->rebookUrl($event, $appointment);
+
+        if ($rebookUrl === null) {
+            return null;
+        }
+
+        return [[
+            'type' => 'inline_keyboard',
+            'payload' => [
+                'buttons' => [[
+                    [
+                        'type' => 'link',
+                        'text' => (string) __('bot.buttons.rebook'),
+                        'url' => $rebookUrl,
+                    ],
+                ]],
+            ],
+        ]];
     }
 
     private function currentLease(
