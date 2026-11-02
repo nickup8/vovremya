@@ -44,7 +44,11 @@ Route::get('/', function () {
         return redirect()->route('admin.calendar');
     }
 
-    return Inertia::render('welcome-v2');
+    // today — единая дата для серверного и первого клиентского рендера демо:
+    // значения new Date() на сервере и в браузере могут отличаться из-за TZ.
+    return Inertia::render('welcome-v2', [
+        'today' => now()->toDateString(),
+    ]);
 })->name('home');
 
 Route::get('/login', fn () => redirect()->route('auth.choose'))->name('login');

@@ -8,7 +8,12 @@ import '../../css/welcome-v2.css';
    Step 4: section 03 (lifecycle — между записью и визитом).
    Ported from docs/landing/irsi-landing-2026-09-30-v3.html. */
 
-export default function WelcomeV2() {
+interface WelcomeV2Props {
+    /** ISO-дата (YYYY-MM-DD) с сервера — начальный рендер демо не зависит от TZ. */
+    today: string;
+}
+
+export default function WelcomeV2({ today }: WelcomeV2Props) {
     const [menuOpen, setMenuOpen] = useState(false);
 
     useEffect(() => {
@@ -277,7 +282,7 @@ export default function WelcomeV2() {
                                 </div>
                             </div>
                             <div className="booking-gallery booking-demo">
-                                <DemoBookingWidget />
+                                <DemoBookingWidget today={today} />
                             </div>
                         </div>
                     </section>

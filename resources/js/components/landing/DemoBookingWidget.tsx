@@ -86,11 +86,14 @@ function formatDateLong(date: Date): string {
     return `${WEEK_FULL[date.getDay()]}, ${date.getDate()} ${MONTH_GEN[date.getMonth()]}`;
 }
 
-export default function DemoBookingWidget() {
+/* today — ISO-дата (YYYY-MM-DD) из Inertia-props: сервер и первый клиентский
+   рендер строят одну и ту же календарную дату, даже при разных часовых
+   поясах. Локальный new Date() здесь намеренно не используется. */
+export default function DemoBookingWidget({ today: todayIso }: { today: string }) {
     const today = useMemo(() => {
-        const now = new Date();
-        return new Date(now.getFullYear(), now.getMonth(), now.getDate());
-    }, []);
+        const [year, month, day] = todayIso.split('-').map(Number);
+        return new Date(year, month - 1, day);
+    }, [todayIso]);
 
     const [step, setStep] = useState(1);
     const [finished, setFinished] = useState(false);
