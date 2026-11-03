@@ -21,6 +21,94 @@ PUBLIC_CHECK_TIMEOUT="${PUBLIC_CHECK_TIMEOUT:-20}"
 EXPECTED_H1="Онлайн-запись"
 EXPECTED_CANONICAL="https://irsi-app.ru/"
 
+# Проверка публичного HTML через DOM-парсер (ext-dom есть в setup.sh).
+# Первичен разбор структуры, а не подстроки по всему документу.
+SSR_VALIDATE_PHP="$(cat <<'PHP'
+libxml_use_internal_errors(true);
+$expectedH1 = getenv('EXPECTED_H1') ?: '';
+$expectedCanonical = getenv('EXPECTED_CANONICAL') ?: '';
+if ($expectedH1 === '' || $expectedCanonical === '') {
+    echo 'не заданы ожидаемые значения H1/canonical';
+    exit(1);
+}
+$path = $argv[1] ?? '';
+$html = @file_get_contents($path);
+if ($html === false || $html === '') {
+    echo 'пустой или нечитаемый HTTP-ответ';
+    exit(1);
+}
+$dom = new DOMDocument();
+// Префикс фиксирует UTF-8 независимо от meta charset в ответе.
+if (!@$dom->loadHTML('<?xml encoding="utf-8">' . $html, LIBXML_NONET | LIBXML_NOERROR | LIBXML_NOWARNING)) {
+    echo 'ответ не разбирается как HTML';
+    exit(1);
+}
+$xpath = new DOMXPath($dom);
+$apps = $xpath->query('//*[@id="app"]');
+$nApps = $apps === false ? 0 : $apps->length;
+if ($nApps !== 1) {
+    echo "ожидался ровно один элемент #app, найдено: {$nApps}";
+    exit(1);
+}
+$app = $apps->item(0);
+if ($app->getAttribute('data-server-rendered') !== 'true') {
+    echo 'CSR-fallback: в #app нет data-server-rendered="true"';
+    exit(1);
+}
+$nonempty = false;
+foreach ($app->childNodes as $child) {
+    if ($child instanceof DOMElement) {
+        $tag = strtolower($child->tagName);
+        // script/style/template — не серверный контент страницы.
+        if (!in_array($tag, ['script', 'style', 'template'], true)) {
+            $nonempty = true;
+            break;
+        }
+    }
+    if ($child instanceof DOMText && trim($child->nodeValue) !== '') {
+        $nonempty = true;
+        break;
+    }
+}
+if (!$nonempty) {
+    echo 'пустой серверный контент в #app (H1 вне корня не считается)';
+    exit(1);
+}
+$foundH1 = false;
+$h1s = $xpath->query('.//h1', $app);
+if ($h1s !== false) {
+    foreach ($h1s as $h1) {
+        $text = preg_replace('/\s+/u', ' ', $h1->textContent);
+        if ($text === null) {
+            $text = $h1->textContent;
+        }
+        if (strpos($text, $expectedH1) !== false) {
+            $foundH1 = true;
+            break;
+        }
+    }
+}
+if (!$foundH1) {
+    echo "в H1 внутри #app нет ожидаемого текста «{$expectedH1}» (текст вне H1 и в script/JSON не считается)";
+    exit(1);
+}
+$allCanonical = $xpath->query('//link[@rel="canonical"]');
+$nAll = $allCanonical === false ? 0 : $allCanonical->length;
+$inHead = $xpath->query('//head//link[@rel="canonical"]');
+$nHead = $inHead === false ? 0 : $inHead->length;
+if ($nAll !== 1 || $nHead !== 1) {
+    echo "canonical: ожидаился ровно один и внутри head, найдено всего {$nAll}, в head {$nHead} (canonical вне head и дубли не принимаются)";
+    exit(1);
+}
+$href = $inHead->item(0)->getAttribute('href');
+if ($href !== $expectedCanonical) {
+    echo "canonical href «{$href}» не равен ожидаемому «{$expectedCanonical}» (подстрока не принимается)";
+    exit(1);
+}
+exit(0);
+PHP
+)"
+
 fail() {
     echo "ОШИБКА: $*" >&2
 }
@@ -81,41 +169,17 @@ public_home_url() {
     echo "https://irsi-app.ru/"
 }
 
-# Настоящий SSR, а не CSR-fallback: серверный контент в корне приложения,
-# H1 внутри этого корня и canonical в head. Текст из Inertia JSON не считается.
+# Настоящий SSR, а не CSR-fallback: DOM-разбор ответа — непустой серверный
+# контент внутри #app, ожидаемый H1 именно внутри него, ровно один canonical
+# в head со строгим равенством href. Порядок атрибутов корня не важен.
 validate_ssr_html() {
-    local file="$1"
-    if ! grep -q 'data-server-rendered="true" id="app">' "$file"; then
-        echo "CSR-fallback: в ответе нет серверного контента в корне #app (data-server-rendered)"
-        return 1
+    local file="$1" reason
+    if reason="$(EXPECTED_H1="$EXPECTED_H1" EXPECTED_CANONICAL="$EXPECTED_CANONICAL" \
+        php -r "$SSR_VALIDATE_PHP" "$file" 2>&1)"; then
+        return 0
     fi
-    local after=""
-    after="$(awk '
-        BEGIN { tag = "data-server-rendered=\"true\" id=\"app\">" }
-        {
-            if (found) { print; next }
-            pos = index($0, tag)
-            if (pos > 0) {
-                found = 1
-                rest = substr($0, pos + length(tag))
-                if (rest != "") print rest
-            }
-        }' "$file" || true)"
-    if [[ "$after" != *"<h1"* || "$after" != *"$EXPECTED_H1"* ]]; then
-        echo "в корне приложения нет ожидаемого H1 «$EXPECTED_H1»"
-        return 1
-    fi
-    local canon=""
-    canon="$(grep -oE '<link[^>]*rel="canonical"[^>]*>' "$file" | head -n1 || true)"
-    if [[ -z "$canon" ]]; then
-        echo "в head нет link rel=canonical"
-        return 1
-    fi
-    if [[ "$canon" != *"$EXPECTED_CANONICAL"* ]]; then
-        echo "canonical не совпадает с ожидаемым ($EXPECTED_CANONICAL)"
-        return 1
-    fi
-    return 0
+    echo "${reason:-ошибка разбора HTML}"
+    return 1
 }
 
 check_public_ssr() {
