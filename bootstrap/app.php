@@ -1,11 +1,16 @@
 <?php
 
+use App\Http\Middleware\EnsureCanLeaveImpersonation;
+use App\Http\Middleware\EnsureHasFeature;
+use App\Http\Middleware\EnsureHasPlatformPermission;
+use App\Http\Middleware\EnsureUserIsActive;
 use App\Http\Middleware\HandleAppearance;
 use App\Http\Middleware\HandleInertiaRequests;
 use App\Http\Middleware\SuperAdminMiddleware;
 use App\Http\Middleware\VerifyMaxInitData;
 use App\Http\Middleware\VerifyMiniAppAuth;
 use App\Http\Middleware\VerifyVkLaunchParams;
+use App\Http\Middleware\XRobotsNoindex;
 use Illuminate\Foundation\Application;
 use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
@@ -26,13 +31,15 @@ return Application::configure(basePath: dirname(__DIR__))
     ->withMiddleware(function (Middleware $middleware): void {
         $middleware->alias([
             'super_admin' => SuperAdminMiddleware::class,
-            'can_leave_impersonation' => \App\Http\Middleware\EnsureCanLeaveImpersonation::class,
-            'platform_permission' => \App\Http\Middleware\EnsureHasPlatformPermission::class,
+            'can_leave_impersonation' => EnsureCanLeaveImpersonation::class,
+            'platform_permission' => EnsureHasPlatformPermission::class,
             'max.initdata' => VerifyMaxInitData::class,
             'vk.launch' => VerifyVkLaunchParams::class,
             'miniapp.auth' => VerifyMiniAppAuth::class,
-            'feature' => \App\Http\Middleware\EnsureHasFeature::class,
+            'feature' => EnsureHasFeature::class,
         ]);
+
+        $middleware->append(XRobotsNoindex::class);
 
         $middleware->encryptCookies(except: ['appearance', 'sidebar_state']);
 
@@ -46,7 +53,7 @@ return Application::configure(basePath: dirname(__DIR__))
             HandleAppearance::class,
             HandleInertiaRequests::class,
             AddLinkHeadersForPreloadedAssets::class,
-            \App\Http\Middleware\EnsureUserIsActive::class,
+            EnsureUserIsActive::class,
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {

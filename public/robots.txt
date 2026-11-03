@@ -1,2 +1,4 @@
 User-agent: *
-Disallow: /max-app
+Allow: /
+
+Sitemap: https://irsi-app.ru/sitemap.xml
