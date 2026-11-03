@@ -13,6 +13,21 @@ interface WelcomeV2Props {
     today: string;
 }
 
+const HOME_URL = 'https://irsi-app.ru/';
+const HOME_DESCRIPTION =
+    'Онлайн-запись, календарь, напоминания и подтверждение визита для частных мастеров. Начните с бесплатного тарифа «Старт». Профи — 490 ₽ в месяц.';
+const HOME_SOCIAL_TITLE = 'Онлайн-запись для частных мастеров — ИРСИ';
+const HOME_OG_IMAGE_URL = 'https://irsi-app.ru/images/og/irsi-home.png';
+const HOME_OG_IMAGE_ALT = 'ИРСИ — Онлайн-запись для частных мастеров';
+
+const homeWebsiteJsonLd = JSON.stringify({
+    '@context': 'https://schema.org',
+    '@type': 'WebSite',
+    name: 'ИРСИ',
+    url: HOME_URL,
+    inLanguage: 'ru',
+}).replace(/</g, '\\u003c');
+
 export default function WelcomeV2({ today }: WelcomeV2Props) {
     const [menuOpen, setMenuOpen] = useState(false);
 
@@ -110,8 +125,32 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
     return (
         <>
             <Head title="Онлайн-запись для частных мастеров">
-                <meta name="description" content="Онлайн-запись, календарь, напоминания и подтверждение визита для частных мастеров. Начните с бесплатного тарифа «Старт». Профи — 490 ₽ в месяц." />
-                <link rel="canonical" href="https://irsi-app.ru/" />
+                <meta name="description" content={HOME_DESCRIPTION} />
+                <link rel="canonical" href={HOME_URL} />
+
+                <meta property="og:type" content="website" head-key="og:type" />
+                <meta property="og:locale" content="ru_RU" head-key="og:locale" />
+                <meta property="og:site_name" content="ИРСИ" head-key="og:site_name" />
+                <meta property="og:title" content={HOME_SOCIAL_TITLE} head-key="og:title" />
+                <meta property="og:description" content={HOME_DESCRIPTION} head-key="og:description" />
+                <meta property="og:url" content={HOME_URL} head-key="og:url" />
+                <meta property="og:image" content={HOME_OG_IMAGE_URL} head-key="og:image" />
+                <meta property="og:image:width" content="1200" head-key="og:image:width" />
+                <meta property="og:image:height" content="630" head-key="og:image:height" />
+                <meta property="og:image:type" content="image/png" head-key="og:image:type" />
+                <meta property="og:image:alt" content={HOME_OG_IMAGE_ALT} head-key="og:image:alt" />
+
+                <meta name="twitter:card" content="summary_large_image" head-key="twitter:card" />
+                <meta name="twitter:title" content={HOME_SOCIAL_TITLE} head-key="twitter:title" />
+                <meta name="twitter:description" content={HOME_DESCRIPTION} head-key="twitter:description" />
+                <meta name="twitter:image" content={HOME_OG_IMAGE_URL} head-key="twitter:image" />
+                <meta name="twitter:image:alt" content={HOME_OG_IMAGE_ALT} head-key="twitter:image:alt" />
+
+                <script
+                    type="application/ld+json"
+                    head-key="ld+json:website"
+                    dangerouslySetInnerHTML={{ __html: homeWebsiteJsonLd }}
+                />
             </Head>
 
             <div className="irsi-v2">
