@@ -239,7 +239,7 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                                 </div>
                                 <div className="mobile-cal">
                                     <img
-                                        src="/images/landing/calendar-mobile.svg"
+                                        src="/images/landing/calendar-mobile-v2.webp"
                                         fetchPriority="high"
                                         width="650"
                                         height="1007"
