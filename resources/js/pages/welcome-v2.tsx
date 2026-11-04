@@ -240,6 +240,7 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                                 <div className="mobile-cal">
                                     <img
                                         src="/images/landing/calendar-mobile.svg"
+                                        fetchPriority="high"
                                         width="650"
                                         height="1007"
                                         alt="Дневной календарь ИРСИ на телефоне"
