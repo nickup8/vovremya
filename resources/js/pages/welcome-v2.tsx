@@ -428,7 +428,12 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                         <div className="schedule-grid">
                             <figure>
                                 <picture>
-                                    <source media="(max-width:650px)" srcSet="/images/landing/schedule-mobile.webp" />
+                                    <source
+                                        media="(max-width:650px)"
+                                        srcSet="/images/landing/schedule-mobile.webp"
+                                        width="780"
+                                        height="1066"
+                                    />
                                     <img
                                         src="/images/landing/schedule-desktop.webp"
                                         width="1295"
