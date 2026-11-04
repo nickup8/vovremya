@@ -78,9 +78,21 @@ $foundH1 = false;
 $h1s = $xpath->query('.//h1', $app);
 if ($h1s !== false) {
     foreach ($h1s as $h1) {
-        $text = preg_replace('/\s+/u', ' ', $h1->textContent);
+        // script/style/template внутри H1 — не текст страницы (textContent
+        // включал бы их содержимое, например JSON с ожидаемой строкой).
+        $visible = $h1->cloneNode(true);
+        $hidden = $xpath->query('.//script | .//style | .//template', $visible);
+        if ($hidden !== false) {
+            foreach ($hidden as $node) {
+                if ($node->parentNode !== null) {
+                    $node->parentNode->removeChild($node);
+                }
+            }
+        }
+        $raw = $visible->textContent;
+        $text = preg_replace('/\s+/u', ' ', $raw);
         if ($text === null) {
-            $text = $h1->textContent;
+            $text = $raw;
         }
         if (strpos($text, $expectedH1) !== false) {
             $foundH1 = true;
@@ -89,7 +101,7 @@ if ($h1s !== false) {
     }
 }
 if (!$foundH1) {
-    echo "в H1 внутри #app нет ожидаемого текста «{$expectedH1}» (текст вне H1 и в script/JSON не считается)";
+    echo "в H1 внутри #app нет ожидаемого текста «{$expectedH1}» (текст вне H1, в script/JSON и в script/style/template внутри H1 не считается)";
     exit(1);
 }
 $allCanonical = $xpath->query('//link[@rel="canonical"]');
