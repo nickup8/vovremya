@@ -173,6 +173,14 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                             <a href="#pricing" onClick={() => setMenuOpen(false)}>
                                 Тарифы
                             </a>
+                            <a
+                                href="https://vk.ru/irsi_app"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                onClick={() => setMenuOpen(false)}
+                            >
+                                Мы ВКонтакте
+                            </a>
                         </nav>
                         <div className="header-actions">
                             <a className="login" href="/auth/login" data-event="login_click">
@@ -336,7 +344,10 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                                 <h2>
                                     Запись —<br /> только начало.
                                 </h2>
-                                <p>У записи есть продолжение. ИРСИ напоминает клиенту о встрече и сообщает мастеру о подтверждении.</p>
+                                <p>
+                                    Запись появляется в календаре сразу после оформления. Перед визитом ИРСИ напоминает клиенту о встрече и
+                                    просит подтвердить, что он придёт. Когда клиент подтверждает визит, Вы получаете уведомление.
+                                </p>
                             </div>
                             <div className="message-panels">
                                 <article className="message-panel">
@@ -390,7 +401,8 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                             </div>
                             <div className="life-finish">
                                 <p>
-                                    Если планы изменились — запись можно перенести или отменить по правилам сервиса. Изменения отражаются в календаре.
+                                    Для отмены записи клиенту нужно открыть личный кабинет. Для переноса — связаться с мастером. Изменения
+                                    отражаются в календаре.
                                     <br /> <br /> Напоминания и подтверждение визита входят в тариф «Старт».
                                 </p>
                                 <a className="btn" href="/auth/login" data-event="cta_mid_click">
@@ -406,12 +418,12 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                                 <div className="eyebrow">
                                     <span>04</span>Календарь и график
                                 </div>
-                                <h2>
-                                    Время для клиентов.
-                                    <br /> И время для себя.
-                                </h2>
+                                <h2>Календарь записей и рабочий график</h2>
                             </div>
-                            <p>Ваш график определяет, когда можно записаться. ИРСИ учитывает рабочие часы, периоды и перерывы.</p>
+                            <p>
+                                Настройте рабочие часы, периоды и перерывы. Ваш график определяет, какое время клиент сможет выбрать для
+                                записи.
+                            </p>
                         </div>
                         <div className="schedule-grid">
                             <figure>
@@ -552,7 +564,12 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                                 Работать на себя.
                                 <br /> <span>Не делать всё вручную.</span>
                             </h2>
-                            <p>ИРСИ сосредоточен на Вашем личном расписании. Без салонных ролей, склада и лишних управленческих настроек.</p>
+                            <p>
+                                ИРСИ — для специалистов, которые работают самостоятельно: мастеров маникюра и педикюра, барберов, массажистов
+                                и других частных мастеров.
+                                <br />
+                                <br /> Ваше личное расписание — без салонных ролей, склада и лишних управленческих настроек.
+                            </p>
                         </div>
                     </section>
 
@@ -730,6 +747,9 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
                             <a href="/auth/login">Вход для мастеров</a>
                             <a href="/offer">Оферта</a>
                             <a href="/privacy">Политика и согласия</a>
+                            <a href="https://vk.ru/irsi_app" target="_blank" rel="noopener noreferrer">
+                                Сообщество ИРСИ ВКонтакте
+                            </a>
                         </div>
                     </div>
                     <div className="footer-bottom">
