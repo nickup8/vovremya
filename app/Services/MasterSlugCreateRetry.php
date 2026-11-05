@@ -48,24 +48,25 @@ class MasterSlugCreateRetry
     }
 
     /**
-     * Точное совпадение: SQLSTATE 23505 и имя индекса users_master_slug_unique
-     * в исходном сообщении PostgreSQL (русская локаль — $index/$columns пусты).
-     * Имя не ищется в тексте SQL-вставки, добавленном QueryException.
+     * Точное совпадение: SQLSTATE 23505 из метаданных ошибки (errorInfo[0])
+     * и точное имя индекса users_master_slug_unique в основной строке
+     * исходного сообщения PostgreSQL (русская локаль — $index/$columns пусты).
+     * DETAIL/HINT и текст SQL-вставки, добавленный QueryException, не ищутся.
      */
     public static function isMasterSlugUniqueViolation(QueryException $exception): bool
     {
-        $driverMessage = $exception->getPrevious()?->getMessage();
-
-        if ($driverMessage === null || $driverMessage === '') {
-            $driverMessage = Str::before($exception->getMessage(), ' (Connection:');
+        if (($exception->errorInfo[0] ?? null) !== '23505') {
+            return false;
         }
 
-        $sqlState = $exception->errorInfo[0] ?? (string) $exception->getCode();
+        $originalMessage = $exception->getPrevious()?->getMessage();
 
-        $hasSqlState23505 = $sqlState === '23505'
-            || str_contains($driverMessage, '23505');
+        if ($originalMessage === null || $originalMessage === '') {
+            $originalMessage = Str::before($exception->getMessage(), ' (Connection:');
+        }
 
-        return $hasSqlState23505
-            && str_contains($driverMessage, 'users_master_slug_unique');
+        $mainLine = Str::before($originalMessage, "\n");
+
+        return str_contains($mainLine, '"users_master_slug_unique"');
     }
 }

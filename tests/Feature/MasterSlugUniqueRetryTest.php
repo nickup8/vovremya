@@ -144,6 +144,45 @@ class MasterSlugUniqueRetryTest extends TestCase
         $this->assertFalse(MasterSlugCreateRetry::isMasterSlugUniqueViolation($e));
     }
 
+    public function test_rejects_sqlstate_23505_only_in_message_text_not_metadata(): void
+    {
+        $e = $this->makeUniqueViolation(
+            'SQLSTATE[23505]: Unique violation: 7 ОШИБКА:  повторяющееся значение ключа '
+            .'нарушает ограничение уникальности "users_master_slug_unique"',
+            'XX000',
+        );
+
+        $this->assertFalse(MasterSlugCreateRetry::isMasterSlugUniqueViolation($e));
+    }
+
+    public function test_rejects_similar_index_names_in_main_line(): void
+    {
+        foreach (['users_master_slug_uniq', 'users_master_slug_unique_idx', 'users_master_slug_unique2'] as $name) {
+            $e = $this->makeUniqueViolation(
+                'SQLSTATE[23505]: Unique violation: 7 ОШИБКА:  повторяющееся значение ключа '
+                .'нарушает ограничение уникальности "'.$name.'"',
+                '23505',
+            );
+
+            $this->assertFalse(
+                MasterSlugCreateRetry::isMasterSlugUniqueViolation($e),
+                "Similar index name must not trigger a retry: {$name}",
+            );
+        }
+    }
+
+    public function test_rejects_target_name_only_in_detail_of_other_conflict(): void
+    {
+        $e = $this->makeUniqueViolation(
+            'SQLSTATE[23505]: Unique violation: 7 ОШИБКА:  повторяющееся значение ключа '
+            .'нарушает ограничение уникальности "users_phone_unique"'
+            ."\nDETAIL:  Другой конфликт, упоминающий users_master_slug_unique.",
+            '23505',
+        );
+
+        $this->assertFalse(MasterSlugCreateRetry::isMasterSlugUniqueViolation($e));
+    }
+
     public function test_rejects_plain_query_exception(): void
     {
         $e = new QueryException('pgsql', 'select 1', [], new PDOException('boom'));
@@ -283,21 +322,21 @@ class MasterSlugUniqueRetryTest extends TestCase
 
         $this->mockVkOAuth();
 
-        // QueryException extends RuntimeException — callback turns it into
-        // a safe redirect; assert no partial rows and slug-specific error.
+        // Exhaustion surfaces as a generic RuntimeException → safe redirect;
+        // assert the exact text and no partial rows.
         $response = $this->withSession($this->vkPendingSession())
             ->get($this->vkCallbackUrl());
 
         $response->assertRedirect(route('auth.choose'));
-        $response->assertSessionHas('error');
-        $this->assertStringContainsString(
-            'users_master_slug_unique',
-            (string) session('error'),
+        $response->assertSessionHas(
+            'error',
+            'Не удалось завершить регистрацию. Попробуйте ещё раз.',
         );
 
         $this->assertSame($usersBefore, User::count());
         $this->assertSame($workspacesBefore, Workspace::count());
         $this->assertNull(User::findByVkId('999001'));
+        $this->assertNull(User::where('phone', '79001234567')->first());
     }
 
     public function test_vk_phone_conflict_keeps_existing_lookup_without_slug_retry(): void
