@@ -14,6 +14,8 @@ interface WelcomeV2Props {
 }
 
 const HOME_URL = 'https://irsi-app.ru/';
+const HOME_META_DESCRIPTION =
+    'Онлайн-запись для частных мастеров. Клиенты записываются по ссылке, а ИРСИ ведёт календарь записей, отправляет напоминания и запрашивает подтверждение визита.';
 const HOME_DESCRIPTION =
     'Онлайн-запись, календарь, напоминания и подтверждение визита для частных мастеров. Начните с бесплатного тарифа «Старт». Профи — 490 ₽ в месяц.';
 const HOME_SOCIAL_TITLE = 'Онлайн-запись для частных мастеров — ИРСИ';
@@ -125,7 +127,7 @@ export default function WelcomeV2({ today }: WelcomeV2Props) {
     return (
         <>
             <Head title="Онлайн-запись для частных мастеров">
-                <meta name="description" content={HOME_DESCRIPTION} />
+                <meta name="description" content={HOME_META_DESCRIPTION} />
                 <link rel="canonical" href={HOME_URL} />
 
                 <meta property="og:type" content="website" head-key="og:type" />
