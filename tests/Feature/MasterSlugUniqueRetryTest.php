@@ -176,7 +176,7 @@ class MasterSlugUniqueRetryTest extends TestCase
         $e = $this->makeUniqueViolation(
             'SQLSTATE[23505]: Unique violation: 7 ОШИБКА:  повторяющееся значение ключа '
             .'нарушает ограничение уникальности "users_phone_unique"'
-            ."\nDETAIL:  Другой конфликт, упоминающий users_master_slug_unique.",
+            ."\nDETAIL:  Другой конфликт, упоминающий \"users_master_slug_unique\".",
             '23505',
         );
 

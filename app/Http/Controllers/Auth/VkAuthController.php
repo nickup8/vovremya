@@ -229,7 +229,8 @@ class VkAuthController extends Controller
             if (MasterSlugCreateRetry::isMasterSlugUniqueViolation($e)) {
                 // Attempts exhausted — not a phone/vk_id conflict.
                 Log::warning('[VkAuth] master_slug unique conflict after retries', [
-                    'error' => $e->getMessage(),
+                    'constraint' => 'users_master_slug_unique',
+                    'sqlstate' => $e->errorInfo[0] ?? (string) $e->getCode(),
                 ]);
 
                 throw new \RuntimeException('Не удалось завершить регистрацию. Попробуйте ещё раз', 0, $e);
