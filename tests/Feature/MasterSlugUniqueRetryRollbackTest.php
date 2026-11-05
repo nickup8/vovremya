@@ -8,7 +8,6 @@ use App\Services\MasterSlugCreateRetry;
 use App\Services\WorkspaceService;
 use Illuminate\Database\UniqueConstraintViolationException;
 use Illuminate\Foundation\Testing\RefreshDatabase;
-use Illuminate\Support\Str;
 use Tests\TestCase;
 
 /**

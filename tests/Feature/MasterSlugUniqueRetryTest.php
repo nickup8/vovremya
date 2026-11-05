@@ -17,6 +17,8 @@ use Illuminate\Support\Facades\Auth;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Event;
 use Illuminate\Support\Facades\Http;
+use Illuminate\Support\Str;
+use Illuminate\Testing\TestResponse;
 use Mockery;
 use PDOException;
 use Tests\TestCase;
@@ -29,8 +31,8 @@ class MasterSlugUniqueRetryTest extends TestCase
 {
     use RefreshDatabase;
 
-    /** @var list<string> */
-    private array $raceMasterSlugs = [];
+    /** @var list<string> UUID строк, вставленных на отдельном соединении */
+    private array $raceUserIds = [];
 
     protected function setUp(): void
     {
@@ -53,15 +55,17 @@ class MasterSlugUniqueRetryTest extends TestCase
 
     protected function tearDown(): void
     {
-        // Гоночные строки ушли на отдельном PDO с автокоммитом —
-        // откат RefreshDatabase их не видит, удаление должно быть
-        // на том же отдельном соединении.
-        if ($this->raceMasterSlugs !== []) {
-            $this->deleteMastersOnSeparateConnection($this->raceMasterSlugs);
-            $this->raceMasterSlugs = [];
-        }
+        $raceUserIds = $this->raceUserIds;
+        $this->raceUserIds = [];
+        $pgsqlConfig = config('database.connections.pgsql');
 
+        // Сначала завершаем транзакции теста (RefreshDatabase),
+        // затем адресно удаляем гоночные строки по ID на отдельном PDO.
         parent::tearDown();
+
+        if ($raceUserIds !== []) {
+            $this->deleteUsersOnSeparateConnection($raceUserIds, $pgsqlConfig);
+        }
     }
 
     // ── Detection ─────────────────────────────────────────
@@ -327,39 +331,45 @@ class MasterSlugUniqueRetryTest extends TestCase
 
     public function test_vk_race_on_phone_unique_still_finds_existing_user(): void
     {
-        $raceSlug = 'race-vk-'.uniqid();
+        $raceSlug = 'race-vk-'.uniqid('', true);
         $racePhone = '7900'.random_int(1000000, 9999999);
+        $raceVkId = 'vk_race_'.uniqid('', true);
 
         $slug = $this->mock(SlugService::class);
-        $slug->shouldReceive('generate')->andReturnUsing(function () use ($raceSlug, $racePhone): string {
+        $slug->shouldReceive('generate')->andReturnUsing(function () use ($raceSlug, $racePhone, $raceVkId): string {
             $this->insertMasterOnSeparateConnection([
                 'phone' => $racePhone,
-                'vk_id' => '999001',
+                'vk_id' => $raceVkId,
                 'master_slug' => $raceSlug,
             ]);
 
-            return 'brand-new-slug-'.uniqid();
+            return 'brand-new-slug-'.uniqid('', true);
         });
 
-        $this->mockVkOAuth(userInfo: [
-            'user_id' => '999001',
-            'first_name' => 'Иван',
-            'last_name' => 'Петров',
-            // normalizePhone strips non-digits → must equal $racePhone exactly.
-            'phone' => '+7 '.substr($racePhone, 1, 3).' '.substr($racePhone, 4, 3).'-'.substr($racePhone, 7, 2).'-'.substr($racePhone, 9, 2),
-        ]);
+        $this->mockVkOAuth(
+            exchange: ['user_id' => $raceVkId],
+            userInfo: [
+                'user_id' => $raceVkId,
+                'first_name' => 'Иван',
+                'last_name' => 'Петров',
+                // normalizePhone strips non-digits → must equal $racePhone exactly.
+                'phone' => '+7 '.substr($racePhone, 1, 3).' '.substr($racePhone, 4, 3).'-'.substr($racePhone, 7, 2).'-'.substr($racePhone, 9, 2),
+            ],
+        );
 
         $this->withSession($this->vkPendingSession())
             ->get($this->vkCallbackUrl());
 
         $this->assertSame(1, User::where('phone', $racePhone)->count());
         $found = User::where('phone', $racePhone)->firstOrFail();
-        $this->assertSame('999001', $found->vk_id);
-        $this->assertSame(1, User::where('vk_id', '999001')->count());
+        $this->assertSame($raceVkId, $found->vk_id);
+        $this->assertSame(1, User::where('vk_id', $raceVkId)->count());
         $this->assertTrue(Auth::check());
         $this->assertSame($found->id, Auth::id());
-        // Строка гонки создана вне транзакции теста — чистим адресно.
-        $this->assertNull(User::where('master_slug', 'brand-new-slug')->first());
+        $this->assertSame(
+            0,
+            User::where('master_slug', 'brand-new-slug')->count(),
+        );
     }
 
     // ── MAX path ──────────────────────────────────────────
@@ -438,29 +448,30 @@ class MasterSlugUniqueRetryTest extends TestCase
 
     public function test_max_race_on_phone_unique_still_finds_existing_user(): void
     {
-        $raceSlug = 'race-max-'.uniqid();
+        $raceSlug = 'race-max-'.uniqid('', true);
         $racePhone = '7900'.random_int(1000000, 9999999);
+        $raceMaxId = 'max_race_'.uniqid('', true);
 
         $slug = $this->mock(SlugService::class);
-        $slug->shouldReceive('generate')->andReturnUsing(function () use ($raceSlug, $racePhone): string {
+        $slug->shouldReceive('generate')->andReturnUsing(function () use ($raceSlug, $racePhone, $raceMaxId): string {
             $this->insertMasterOnSeparateConnection([
                 'phone' => $racePhone,
-                'max_id' => 'max_uid_1',
+                'max_id' => $raceMaxId,
                 'master_slug' => $raceSlug,
             ]);
 
-            return 'max-brand-new-slug-'.uniqid();
+            return 'max-brand-new-slug-'.uniqid('', true);
         });
 
         $this->mockMaxApi();
-        Cache::put(CacheKeys::MAX_CHAT_TOKEN.'max_uid_1', 'login-token-max', 3600);
+        Cache::put(CacheKeys::MAX_CHAT_TOKEN.$raceMaxId, 'login-token-max', 3600);
 
-        $this->postMaxContact('max_uid_1', $racePhone, 'Мастер', 'Имя')->assertOk();
+        $this->postMaxContact($raceMaxId, $racePhone, 'Мастер', 'Имя')->assertOk();
 
         $this->assertSame(1, User::where('phone', $racePhone)->count());
         $found = User::where('phone', $racePhone)->firstOrFail();
-        $this->assertSame('max_uid_1', $found->max_id);
-        $this->assertSame(1, User::where('max_id', 'max_uid_1')->count());
+        $this->assertSame($raceMaxId, $found->max_id);
+        $this->assertSame(1, User::where('max_id', $raceMaxId)->count());
     }
 
     // ── Telegram path ─────────────────────────────────────
@@ -616,24 +627,15 @@ class MasterSlugUniqueRetryTest extends TestCase
      * INSERT мастера на отдельном PDO-соединении с автокоммитом:
      * основное соединение теста остаётся в обёртке RefreshDatabase и видит
      * строку только после коммита (READ COMMITTED), как при реальной гонке.
+     * Короткий lock_timeout — не зависать на чужих блокировках test DB.
      *
      * @param  array{phone: string, master_slug: string, vk_id?: string, max_id?: string, telegram_id?: string}  $attrs
      */
     private function insertMasterOnSeparateConnection(array $attrs): void
     {
-        $config = config('database.connections.pgsql');
-        $dsn = sprintf(
-            'pgsql:host=%s;port=%s;dbname=%s',
-            $config['host'] ?? '127.0.0.1',
-            $config['port'] ?? 5432,
-            $config['database'] ?? 'vovremya_test',
-        );
+        $pdo = $this->openSeparatePdo(config('database.connections.pgsql'));
 
-        $pdo = new \PDO($dsn, $config['username'] ?? 'postgres', $config['password'] ?? 'root', [
-            \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
-        ]);
-
-        $id = (string) \Illuminate\Support\Str::uuid();
+        $id = (string) Str::uuid();
         $now = now()->toDateTimeString();
 
         $pdo->prepare(
@@ -656,16 +658,30 @@ class MasterSlugUniqueRetryTest extends TestCase
             $now,
         ]);
 
-        $this->raceMasterSlugs[] = $attrs['master_slug'];
+        $this->raceUserIds[] = $id;
         $pdo = null;
     }
 
     /**
-     * @param  list<string>  $masterSlugs
+     * @param  list<string>  $userIds
+     * @param  array<string, mixed>  $config
      */
-    private function deleteMastersOnSeparateConnection(array $masterSlugs): void
+    private function deleteUsersOnSeparateConnection(array $userIds, array $config): void
     {
-        $config = config('database.connections.pgsql');
+        $pdo = $this->openSeparatePdo($config);
+
+        $placeholders = implode(',', array_fill(0, count($userIds), '?'));
+        $pdo->prepare("DELETE FROM users WHERE id IN ({$placeholders})")
+            ->execute($userIds);
+
+        $pdo = null;
+    }
+
+    /**
+     * @param  array<string, mixed>  $config
+     */
+    private function openSeparatePdo(array $config): \PDO
+    {
         $dsn = sprintf(
             'pgsql:host=%s;port=%s;dbname=%s',
             $config['host'] ?? '127.0.0.1',
@@ -676,12 +692,10 @@ class MasterSlugUniqueRetryTest extends TestCase
         $pdo = new \PDO($dsn, $config['username'] ?? 'postgres', $config['password'] ?? 'root', [
             \PDO::ATTR_ERRMODE => \PDO::ERRMODE_EXCEPTION,
         ]);
+        // Не ждать дольше 2с, если test DB залочена другим процессом.
+        $pdo->exec("SET lock_timeout = '2s'");
 
-        $placeholders = implode(',', array_fill(0, count($masterSlugs), '?'));
-        $pdo->prepare("DELETE FROM users WHERE master_slug IN ({$placeholders})")
-            ->execute($masterSlugs);
-
-        $pdo = null;
+        return $pdo;
     }
 
     private function mockVkOAuth(?array $exchange = null, ?array $userInfo = null): void
@@ -738,7 +752,7 @@ class MasterSlugUniqueRetryTest extends TestCase
         string $phone,
         string $firstName,
         string $lastName,
-    ): \Illuminate\Testing\TestResponse {
+    ): TestResponse {
         $vcf = "BEGIN:VCARD\nVERSION:3.0\nN:{$lastName};{$firstName};;;\nFN:{$firstName} {$lastName}\nTEL;TYPE=CELL:{$phone}\nEND:VCARD";
         $vcfNormalized = rtrim(preg_replace("/\r\n|\r|\n/", "\r\n", $vcf))."\r\n";
 
@@ -785,7 +799,7 @@ class MasterSlugUniqueRetryTest extends TestCase
         string $phone,
         string $firstName,
         string $lastName,
-    ): \Illuminate\Testing\TestResponse {
+    ): TestResponse {
         return $this->postJson('/webhooks/telegram', [
             'update_id' => random_int(1, PHP_INT_MAX),
             'message' => [

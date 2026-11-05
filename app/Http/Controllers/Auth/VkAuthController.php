@@ -8,6 +8,7 @@ use App\Services\Auth\VkIdOAuthService;
 use App\Services\MasterSlugCreateRetry;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
+use Illuminate\Database\QueryException;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
@@ -224,7 +225,7 @@ class VkAuthController extends Controller
                     return $user;
                 },
             );
-        } catch (\Illuminate\Database\QueryException $e) {
+        } catch (QueryException $e) {
             if (MasterSlugCreateRetry::isMasterSlugUniqueViolation($e)) {
                 // Attempts exhausted — not a phone/vk_id conflict.
                 throw $e;
@@ -280,7 +281,7 @@ class VkAuthController extends Controller
         return trim(($firstName ?? '').' '.($lastName ?? ''));
     }
 
-    private function isUniqueViolation(\Illuminate\Database\QueryException $e): bool
+    private function isUniqueViolation(QueryException $e): bool
     {
         return str_contains($e->getMessage(), '23505')
             || str_contains(strtolower($e->getMessage()), 'unique');
