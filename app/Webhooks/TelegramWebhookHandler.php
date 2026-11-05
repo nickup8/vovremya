@@ -16,6 +16,7 @@ use App\Models\User;
 use App\Services\AppointmentStatusService;
 use App\Services\AppointmentVisitConfirmationService;
 use App\Services\Avatars\AvatarStorageService;
+use App\Services\MasterSlugCreateRetry;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
@@ -1171,20 +1172,26 @@ class TelegramWebhookHandler extends WebhookHandler
             }
 
             $username = $this->request->input('message.from.username');
-            $slug = app(SlugService::class)->generate($username, $firstName, $lastName);
 
-            $user = User::create([
-                'name' => $baseName,
-                'phone' => $phone,
-                'telegram_id' => $telegramId,
-                'telegram_notifications' => true,
-                'is_master' => true,
-                'master_slug' => $slug,
-                'specialty' => null,
-                'address' => null,
-                'pdn_consent_at' => now(),
-                'pdn_consent_version' => Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId) ?? config('legal.version'),
-            ]);
+            // Consent is read once — a failed attempt must not consume it.
+            $pendingConsent = Cache::pull(CacheKeys::TG_CONSENT_PENDING.$chatId)
+                ?? config('legal.version');
+
+            $user = app(MasterSlugCreateRetry::class)->run(
+                fn (): string => app(SlugService::class)->generate($username, $firstName, $lastName),
+                fn (string $slug): User => User::create([
+                    'name' => $baseName,
+                    'phone' => $phone,
+                    'telegram_id' => $telegramId,
+                    'telegram_notifications' => true,
+                    'is_master' => true,
+                    'master_slug' => $slug,
+                    'specialty' => null,
+                    'address' => null,
+                    'pdn_consent_at' => now(),
+                    'pdn_consent_version' => $pendingConsent,
+                ]),
+            );
 
             if (! $user->workspace_id) {
                 app(WorkspaceService::class)->createForUser($user);

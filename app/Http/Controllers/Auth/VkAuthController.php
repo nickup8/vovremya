@@ -5,12 +5,12 @@ namespace App\Http\Controllers\Auth;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use App\Services\Auth\VkIdOAuthService;
+use App\Services\MasterSlugCreateRetry;
 use App\Services\SlugService;
 use App\Services\WorkspaceService;
 use Illuminate\Http\RedirectResponse;
 use Illuminate\Http\Request;
 use Illuminate\Support\Facades\Auth;
-use Illuminate\Support\Facades\DB;
 use Illuminate\Support\Facades\Log;
 
 class VkAuthController extends Controller
@@ -19,6 +19,7 @@ class VkAuthController extends Controller
         private VkIdOAuthService $oauth,
         private SlugService $slug,
         private WorkspaceService $workspace,
+        private MasterSlugCreateRetry $slugRetry,
     ) {}
 
     public function start(Request $request): RedirectResponse
@@ -201,26 +202,34 @@ class VkAuthController extends Controller
             return $user;
         }
 
-        // D. New user — try create, catch race
+        // D. New user — slug race: regenerate + create inside a fresh
+        // transaction per attempt; other unique conflicts keep the
+        // existing phone/vk_id search below.
         try {
-            return DB::transaction(function () use ($vkUserId, $phone, $name, $legalVersion, $firstName, $lastName) {
-                $slug = $this->slug->generate(null, $firstName, $lastName);
+            return $this->slugRetry->run(
+                fn (): string => $this->slug->generate(null, $firstName, $lastName),
+                function (string $slug) use ($vkUserId, $phone, $name, $legalVersion): User {
+                    $user = User::create([
+                        'name' => $name !== '' ? $name : 'Мастер',
+                        'phone' => $phone,
+                        'vk_id' => $vkUserId,
+                        'is_master' => true,
+                        'master_slug' => $slug,
+                        'pdn_consent_at' => now(),
+                        'pdn_consent_version' => $legalVersion,
+                    ]);
 
-                $user = User::create([
-                    'name' => $name !== '' ? $name : 'Мастер',
-                    'phone' => $phone,
-                    'vk_id' => $vkUserId,
-                    'is_master' => true,
-                    'master_slug' => $slug,
-                    'pdn_consent_at' => now(),
-                    'pdn_consent_version' => $legalVersion,
-                ]);
+                    $this->workspace->createForUser($user);
 
-                $this->workspace->createForUser($user);
-
-                return $user;
-            });
+                    return $user;
+                },
+            );
         } catch (\Illuminate\Database\QueryException $e) {
+            if (MasterSlugCreateRetry::isMasterSlugUniqueViolation($e)) {
+                // Attempts exhausted — not a phone/vk_id conflict.
+                throw $e;
+            }
+
             if (! $this->isUniqueViolation($e)) {
                 throw $e;
             }

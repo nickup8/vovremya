@@ -22,6 +22,7 @@ use App\Services\AppointmentStatusService;
 use App\Services\AppointmentVisitConfirmationService;
 use App\Services\Client\ClientMergeService;
 use App\Services\MaxApiClient;
+use App\Services\MasterSlugCreateRetry;
 use App\Services\Notification\AppointmentNotificationRecorder;
 use App\Services\Notification\MasterNotificationService;
 use App\Services\SlotOfferAcceptanceService;
@@ -542,30 +543,45 @@ class MaxWebhookHandler
                 $baseName = __('bot.fallback.master_name').' '.$phone;
             }
 
-            $slug = app(SlugService::class)->generate(null, $firstName, $lastName);
+            // Consent is read once — a failed attempt must not consume it.
+            $pendingConsent = Cache::pull(CacheKeys::MAX_CONSENT_PENDING.$userId)
+                ?? config('legal.version');
+
+            $created = false;
 
             try {
-                $user = User::create([
-                    'name' => $baseName,
-                    'phone' => $phone,
-                    'max_id' => $userId,
-                    'max_notifications' => true,
-                    'is_master' => true,
-                    'master_slug' => $slug,
-                    'pdn_consent_at' => now(),
-                    'pdn_consent_version' => Cache::pull(CacheKeys::MAX_CONSENT_PENDING.$userId) ?? config('legal.version'),
-                ]);
+                $user = app(MasterSlugCreateRetry::class)->run(
+                    fn (): string => app(SlugService::class)->generate(null, $firstName, $lastName),
+                    fn (string $slug): User => User::create([
+                        'name' => $baseName,
+                        'phone' => $phone,
+                        'max_id' => $userId,
+                        'max_notifications' => true,
+                        'is_master' => true,
+                        'master_slug' => $slug,
+                        'pdn_consent_at' => now(),
+                        'pdn_consent_version' => $pendingConsent,
+                    ]),
+                );
+                $created = true;
+            } catch (UniqueConstraintViolationException $e) {
+                if (MasterSlugCreateRetry::isMasterSlugUniqueViolation($e)) {
+                    // Attempts exhausted — not a phone/max_id conflict.
+                    throw $e;
+                }
 
+                Log::info('[MAX] handleAuthContact: user already created by parallel request');
+                $user = User::where('max_id', $userId)->first()
+                    ?? User::where('phone', $phone)->firstOrFail();
+            }
+
+            if ($created) {
                 if (! $user->workspace_id) {
                     app(WorkspaceService::class)->createForUser($user);
                     $user->refresh();
                 }
 
                 Log::info('[MAX] handleAuthContact: user created', ['user_id' => $user->id]);
-            } catch (UniqueConstraintViolationException $e) {
-                Log::info('[MAX] handleAuthContact: user already created by parallel request');
-                $user = User::where('max_id', $userId)->first()
-                    ?? User::where('phone', $phone)->firstOrFail();
             }
         } else {
             $updates = [];
