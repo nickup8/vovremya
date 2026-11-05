@@ -330,7 +330,7 @@ class MasterSlugUniqueRetryTest extends TestCase
         $response->assertRedirect(route('auth.choose'));
         $response->assertSessionHas(
             'error',
-            'Не удалось завершить регистрацию. Попробуйте ещё раз.',
+            'Не удалось завершить регистрацию. Попробуйте ещё раз',
         );
 
         $this->assertSame($usersBefore, User::count());

@@ -48,14 +48,17 @@ class MasterSlugCreateRetry
     }
 
     /**
-     * Точное совпадение: SQLSTATE 23505 из метаданных ошибки (errorInfo[0])
-     * и точное имя индекса users_master_slug_unique в основной строке
-     * исходного сообщения PostgreSQL (русская локаль — $index/$columns пусты).
-     * DETAIL/HINT и текст SQL-вставки, добавленный QueryException, не ищутся.
+     * Точное совпадение: SQLSTATE 23505 из метаданных ошибки (errorInfo[0]
+     * или код исключения) и точное имя индекса users_master_slug_unique
+     * в основной строке исходного сообщения PostgreSQL (русская локаль —
+     * $index/$columns пусты). DETAIL/HINT и текст SQL-вставки, добавленный
+     * QueryException, не ищутся.
      */
     public static function isMasterSlugUniqueViolation(QueryException $exception): bool
     {
-        if (($exception->errorInfo[0] ?? null) !== '23505') {
+        $sqlState = $exception->errorInfo[0] ?? (string) $exception->getCode();
+
+        if ($sqlState !== '23505') {
             return false;
         }
 

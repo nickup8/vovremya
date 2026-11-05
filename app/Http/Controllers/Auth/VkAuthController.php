@@ -232,7 +232,7 @@ class VkAuthController extends Controller
                     'error' => $e->getMessage(),
                 ]);
 
-                throw new \RuntimeException('Не удалось завершить регистрацию. Попробуйте ещё раз.', 0, $e);
+                throw new \RuntimeException('Не удалось завершить регистрацию. Попробуйте ещё раз', 0, $e);
             }
 
             if (! $this->isUniqueViolation($e)) {
