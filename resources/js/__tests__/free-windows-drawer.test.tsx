@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, act, cleanup } from '@testing-library/react';
+import { toast } from 'sonner';
 
 vi.mock('@inertiajs/react', () => ({
     usePage: () => ({ props: { master_slug: 'test-master' } }),
@@ -910,6 +911,99 @@ describe('FreeWindowsDrawer', () => {
                 expect(screen.getByText('Заполните поле «дата начала».')).toBeDefined();
             });
             expect(screen.queryByText('The given data was invalid.')).toBeNull();
+        });
+    });
+
+    describe('publication error text', () => {
+        async function renderGenerated() {
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: true,
+                status: 200,
+                json: () => Promise.resolve(SERVICE_RESULT),
+            }) as never;
+
+            render(
+                <FreeWindowsDrawer open onOpenChange={vi.fn()} isPro services={SERVICES} />,
+            );
+
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Показать' }));
+                await vi.waitFor(() => {});
+            });
+        }
+
+        beforeEach(() => {
+            toast.error.mockClear();
+        });
+
+        it('422 publication shows validation text from HTTP response', async () => {
+            await renderGenerated();
+
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: false,
+                status: 422,
+                json: () =>
+                    Promise.resolve({
+                        message: 'The given data was invalid.',
+                        errors: { days: ['Дата выходит за пределы указанного диапазона.'] },
+                    }),
+            });
+
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Скопировать текст/ }));
+                await vi.waitFor(() => {});
+            });
+
+            await vi.waitFor(() => {
+                expect(toast.error).toHaveBeenCalledWith(
+                    'Дата выходит за пределы указанного диапазона.',
+                );
+            });
+            expect(toast.error).not.toHaveBeenCalledWith(
+                expect.stringMatching(/SQLSTATE|Unexpected|The given/),
+            );
+        });
+
+        it('unexpected non-HTTP exception shows publish fallback', async () => {
+            await renderGenerated();
+
+            // fetch бросает не TypeError, а обычный Error с «внутренним» текстом
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+                new Error('Internal renderer blew up: secret-stack'),
+            );
+
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Скопировать текст/ }));
+                await vi.waitFor(() => {});
+            });
+
+            await vi.waitFor(() => {
+                expect(toast.error).toHaveBeenCalledWith(
+                    'Не удалось создать публикацию. Попробуйте ещё раз.',
+                );
+            });
+            expect(toast.error).not.toHaveBeenCalledWith(
+                expect.stringContaining('secret-stack'),
+            );
+        });
+
+        it('network TypeError shows publish fallback', async () => {
+            await renderGenerated();
+
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockRejectedValueOnce(
+                new TypeError('Failed to fetch'),
+            );
+
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: /Скопировать ссылку/ }));
+                await vi.waitFor(() => {});
+            });
+
+            await vi.waitFor(() => {
+                expect(toast.error).toHaveBeenCalledWith(
+                    'Не удалось создать публикацию. Попробуйте ещё раз.',
+                );
+            });
         });
     });
 });

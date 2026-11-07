@@ -63,6 +63,17 @@ async function readJsonSafe(response: Response): Promise<Record<string, unknown>
 }
 
 /**
+ * Ошибка публикации с уже обработанным русским текстом из HTTP-ответа.
+ * Внешний catch показывает только этот тип — прочие исключения → FW_PUBLISH_FALLBACK.
+ */
+class FreeWindowsPublishError extends Error {
+    constructor(userMessage: string) {
+        super(userMessage);
+        this.name = 'FreeWindowsPublishError';
+    }
+}
+
+/**
  * Понятный русский текст ошибки для ответа free-windows.
  * 422 — сообщение валидации; 500/не-JSON — общий текст без внутреннего message.
  */
@@ -358,12 +369,14 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                 });
 
                 if (!res.ok) {
-                    throw new Error(await readFreeWindowsError(res, FW_PUBLISH_FALLBACK));
+                    throw new FreeWindowsPublishError(
+                        await readFreeWindowsError(res, FW_PUBLISH_FALLBACK),
+                    );
                 }
 
                 const pubData = await readJsonSafe(res);
                 if (!pubData) {
-                    throw new Error(FW_PUBLISH_FALLBACK);
+                    throw new FreeWindowsPublishError(FW_PUBLISH_FALLBACK);
                 }
                 return pubData as unknown as PublicationResponse;
             } finally {
@@ -379,11 +392,10 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
             setPublicationSignature(contentSignature);
             return pubData.url;
         } catch (err) {
-            // TypeError (сеть) и прочие внутренние тексты не показываем.
-            const message = err instanceof Error && !(err instanceof TypeError) && err.message
-                ? err.message
-                : FW_PUBLISH_FALLBACK;
-            toast.error(message);
+            // Только текст из обработанного HTTP-ответа; сетевые/внутренние — fallback.
+            toast.error(
+                err instanceof FreeWindowsPublishError ? err.message : FW_PUBLISH_FALLBACK,
+            );
             return null;
         }
     }, [result, visibleDays, allHidden, publicationUrl, contentSignature, publicationSignature, selectedServiceId]);
