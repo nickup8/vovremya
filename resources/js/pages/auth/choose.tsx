@@ -153,6 +153,18 @@ export default function Choose({ maxBotName }: PageProps) {
                         ) : null}
                     </div>
 
+                    {/* Support link */}
+                    <p className="mx-auto w-[360px] max-w-full text-center text-[14px] leading-[20px] max-md:w-full max-md:text-left">
+                        <a
+                            href="https://vk.me/irsi_app"
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-[var(--color-ink,#181818)] underline decoration-[#9B9893] decoration-1 underline-offset-[2px] transition-colors duration-150 hover:text-[var(--color-orange,#FF5A1F)] hover:decoration-[var(--color-orange,#FF5A1F)] dark:text-stone-300 dark:hover:text-orange-400"
+                        >
+                            Написать в поддержку
+                        </a>
+                    </p>
+
                     {/* Supporting text */}
                     <p className="mx-auto w-[340px] max-w-full text-center text-[14px] leading-[20px] text-[var(--color-graphite,#62615F)] dark:text-stone-400 max-md:w-full max-md:text-left">
                         Бот попросит подтвердить вход<br />
