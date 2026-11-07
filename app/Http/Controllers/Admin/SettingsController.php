@@ -135,7 +135,11 @@ class SettingsController extends Controller
             return back()->with('error', 'Нет данных для обновления');
         }
 
-        $validated = $request->validate($activeRules);
+        $messages = [
+            'master_slug.unique' => 'Эта ссылка уже занята. Придумайте другую',
+        ];
+
+        $validated = $request->validate($activeRules, $messages);
 
         unset($validated['role'], $validated['workspace_id'], $validated['is_master']);
 

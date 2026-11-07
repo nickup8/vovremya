@@ -923,10 +923,23 @@ export default function Widget() {
             const data = await response.json();
 
             if (!response.ok) {
-                if (response.status === 422 && data.errors?.limit) {
-                    setErrors({ limit: data.errors.limit });
+                // Laravel отдаёт errors как массивы строк — сворачиваем к первой.
+                const rawErrors: Record<string, unknown> = data.errors ?? {};
+                const flatErrors: Record<string, string> = {};
+                for (const [key, value] of Object.entries(rawErrors)) {
+                    flatErrors[key] = Array.isArray(value) ? String(value[0] ?? '') : String(value ?? '');
+                }
+
+                if (response.status === 422 && flatErrors.limit) {
+                    setErrors({ limit: flatErrors.limit });
+                } else if (Object.keys(flatErrors).length > 0) {
+                    // Показываем ошибку под полем времени, даже если ключ другой.
+                    if (!flatErrors.time && !flatErrors.limit) {
+                        flatErrors.time = Object.values(flatErrors)[0];
+                    }
+                    setErrors(flatErrors);
                 } else {
-                    setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
+                    setErrors({ time: data.message || 'Не удалось записаться. Попробуйте ещё раз.' });
                 }
                 setLoadingProvider(null);
                 return;

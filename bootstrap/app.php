@@ -16,6 +16,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -57,7 +59,13 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
+        // JSON-клиенты (виджет, drawer, axios) получают 422 c текстом ошибки,
+        // а не HTML-редирект. Auth/403/404 без validate() остаются как раньше.
         $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
+            fn (Request $request, Throwable $e) => $request->is('api/*')
+                || ($request->expectsJson() && (
+                    $e instanceof ValidationException
+                    || ($e instanceof HttpException && $e->getStatusCode() === 422)
+                )),
         );
     })->create();

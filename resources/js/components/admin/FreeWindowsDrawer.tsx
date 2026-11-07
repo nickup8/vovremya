@@ -213,6 +213,7 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
             const res = await fetch(`/admin/free-windows?${queryParams.toString()}`, {
                 credentials: 'same-origin',
                 headers: {
+                    'Accept': 'application/json',
                     'X-Requested-With': 'XMLHttpRequest',
                     'X-CSRF-TOKEN': document.querySelector('meta[name="csrf-token"]')?.getAttribute('content') ?? '',
                 },
@@ -223,7 +224,11 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                     setError('Функция доступна на тарифе Профи');
                 } else {
                     const err = await res.json().catch(() => null);
-                    setError(err?.message ?? 'Не удалось получить данные');
+                    // ValidationException: errors[field] — массив строк, message — сводка.
+                    const firstError = err?.errors
+                        ? Object.values(err.errors).flat().map(String)[0]
+                        : null;
+                    setError(firstError ?? err?.message ?? 'Не удалось получить данные. Попробуйте ещё раз.');
                 }
                 return;
             }
@@ -308,7 +313,10 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
 
                 if (!res.ok) {
                     const err = await res.json().catch(() => null);
-                    throw new Error(err?.message ?? 'Не удалось создать публикацию');
+                    const firstError = err?.errors
+                        ? Object.values(err.errors).flat().map(String)[0]
+                        : null;
+                    throw new Error(firstError ?? err?.message ?? 'Не удалось создать публикацию. Попробуйте ещё раз.');
                 }
 
                 const pubData: PublicationResponse = await res.json();

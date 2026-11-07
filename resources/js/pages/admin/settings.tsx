@@ -195,13 +195,11 @@ return;
             } else {
                 const errorData = await response.json().catch(() => ({}));
                 toast.error(
-                    'Ошибка при загрузке: ' +
-                        (errorData.message || 'Неизвестная ошибка'),
+                    errorData.message || 'Не удалось сохранить фото. Попробуйте ещё раз.',
                 );
             }
-        } catch (error) {
-            console.error(error);
-            toast.error('Ошибка обработки: ' + (error as Error).message);
+        } catch {
+            toast.error('Не удалось сохранить фото. Попробуйте ещё раз.');
         } finally {
             setUploading(false);
         }
