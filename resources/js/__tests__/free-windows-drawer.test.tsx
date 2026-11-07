@@ -833,4 +833,83 @@ describe('FreeWindowsDrawer', () => {
             if (shareBtn) expect(shareBtn.hasAttribute('disabled')).toBe(true);
         });
     });
+
+    describe('unexpected responses', () => {
+        async function generateWithResponse(response: {
+            ok: boolean;
+            status: number;
+            json?: () => Promise<unknown>;
+        }) {
+            const json =
+                response.json ??
+                (() => Promise.reject(new SyntaxError('Unexpected token < in JSON')));
+            globalThis.fetch = vi.fn().mockResolvedValue({
+                ok: response.ok,
+                status: response.status,
+                json,
+            }) as never;
+
+            render(
+                <FreeWindowsDrawer open onOpenChange={vi.fn()} isPro services={SERVICES} />,
+            );
+
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Показать' }));
+                await vi.waitFor(() => {});
+            });
+        }
+
+        it('500 with internal message shows Russian fallback', async () => {
+            await generateWithResponse({
+                ok: false,
+                status: 500,
+                json: () =>
+                    Promise.resolve({
+                        message: 'SQLSTATE[23505]: unique constraint "users_master_slug_unique"',
+                    }),
+            });
+
+            await vi.waitFor(() => {
+                expect(
+                    screen.getByText('Сервер временно недоступен. Попробуйте позже.'),
+                ).toBeDefined();
+            });
+            expect(screen.queryByText(/SQLSTATE/)).toBeNull();
+            expect(screen.queryByText(/unique constraint/)).toBeNull();
+        });
+
+        it('non-JSON body shows Russian fallback', async () => {
+            await generateWithResponse({
+                ok: false,
+                status: 500,
+                json: () => Promise.reject(new SyntaxError('Unexpected token <')),
+            });
+
+            await vi.waitFor(() => {
+                expect(
+                    screen.getByText('Сервер временно недоступен. Попробуйте позже.'),
+                ).toBeDefined();
+            });
+            expect(screen.queryByText(/<html/i)).toBeNull();
+        });
+
+        it('422 with validation errors bag shows first Russian message', async () => {
+            await generateWithResponse({
+                ok: false,
+                status: 422,
+                json: () =>
+                    Promise.resolve({
+                        message: 'The given data was invalid.',
+                        errors: {
+                            date_from: ['Заполните поле «дата начала».'],
+                        },
+                    }),
+            });
+
+            await vi.waitFor(() => {
+                expect(screen.getByText('Заполните поле «дата начала».')).toBeDefined();
+            });
+            expect(screen.queryByText('The given data was invalid.')).toBeNull();
+        });
+    });
 });

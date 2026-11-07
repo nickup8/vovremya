@@ -44,6 +44,57 @@ interface FreeWindowsDrawerProps {
     services: ServiceOption[];
 }
 
+/* ═══════════════ Error helpers ═══════════════ */
+
+const FW_LOAD_FALLBACK = 'Не удалось получить данные. Попробуйте ещё раз.';
+const FW_PUBLISH_FALLBACK = 'Не удалось создать публикацию. Попробуйте ещё раз.';
+const FW_SERVER_BUSY = 'Сервер временно недоступен. Попробуйте позже.';
+
+async function readJsonSafe(response: Response): Promise<Record<string, unknown> | null> {
+    try {
+        const data: unknown = await response.json();
+        if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+            return data as Record<string, unknown>;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/**
+ * Понятный русский текст ошибки для ответа free-windows.
+ * 422 — сообщение валидации; 500/не-JSON — общий текст без внутреннего message.
+ */
+async function readFreeWindowsError(response: Response, fallback: string): Promise<string> {
+    if (response.status === 403) {
+        return 'Функция доступна на тарифе Профи';
+    }
+
+    const body = await readJsonSafe(response);
+
+    if (response.status === 422 && body) {
+        const errors = body.errors;
+        if (errors !== null && typeof errors === 'object' && !Array.isArray(errors)) {
+            const first = Object.values(errors as Record<string, unknown>)
+                .flat()
+                .map(String)
+                .find(Boolean);
+            if (first) return first;
+        }
+        if (typeof body.message === 'string' && body.message.trim()) {
+            return body.message.trim();
+        }
+    }
+
+    if (response.status >= 500) {
+        return FW_SERVER_BUSY;
+    }
+
+    // Не показываем внутренний message (HTML-страница, 4xx без валидации и т.п.)
+    return fallback;
+}
+
 /* ═══════════════ Constants ═══════════════ */
 
 const PERIOD_OPTIONS = [
@@ -220,21 +271,16 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
             });
 
             if (!res.ok) {
-                if (res.status === 403) {
-                    setError('Функция доступна на тарифе Профи');
-                } else {
-                    const err = await res.json().catch(() => null);
-                    // ValidationException: errors[field] — массив строк, message — сводка.
-                    const firstError = err?.errors
-                        ? Object.values(err.errors).flat().map(String)[0]
-                        : null;
-                    setError(firstError ?? err?.message ?? 'Не удалось получить данные. Попробуйте ещё раз.');
-                }
+                setError(await readFreeWindowsError(res, FW_LOAD_FALLBACK));
                 return;
             }
 
-            const data: FreeWindowsResponse = await res.json();
-            setResult(data);
+            const data = await readJsonSafe(res);
+            if (!data) {
+                setError(FW_LOAD_FALLBACK);
+                return;
+            }
+            setResult(data as unknown as FreeWindowsResponse);
         } catch {
             setError('Не удалось получить актуальное расписание. Попробуйте ещё раз.');
         } finally {
@@ -312,15 +358,14 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
                 });
 
                 if (!res.ok) {
-                    const err = await res.json().catch(() => null);
-                    const firstError = err?.errors
-                        ? Object.values(err.errors).flat().map(String)[0]
-                        : null;
-                    throw new Error(firstError ?? err?.message ?? 'Не удалось создать публикацию. Попробуйте ещё раз.');
+                    throw new Error(await readFreeWindowsError(res, FW_PUBLISH_FALLBACK));
                 }
 
-                const pubData: PublicationResponse = await res.json();
-                return pubData;
+                const pubData = await readJsonSafe(res);
+                if (!pubData) {
+                    throw new Error(FW_PUBLISH_FALLBACK);
+                }
+                return pubData as unknown as PublicationResponse;
             } finally {
                 pubInFlight.current = null;
             }
@@ -333,8 +378,12 @@ export default function FreeWindowsDrawer({ open, onOpenChange, isPro, services 
             setPublicationUrl(pubData.url);
             setPublicationSignature(contentSignature);
             return pubData.url;
-        } catch {
-            toast.error('Не удалось создать ссылку публикации');
+        } catch (err) {
+            // TypeError (сеть) и прочие внутренние тексты не показываем.
+            const message = err instanceof Error && !(err instanceof TypeError) && err.message
+                ? err.message
+                : FW_PUBLISH_FALLBACK;
+            toast.error(message);
             return null;
         }
     }, [result, visibleDays, allHidden, publicationUrl, contentSignature, publicationSignature, selectedServiceId]);

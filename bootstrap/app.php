@@ -59,13 +59,21 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        // JSON-клиенты (виджет, drawer, axios) получают 422 c текстом ошибки,
-        // а не HTML-редирект. Auth/403/404 без validate() остаются как раньше.
+        // Подтверждённые JSON-клиенты N12 (Accept: application/json):
+        //   POST /book/{master}                 — виджет записи
+        //   GET  /admin/free-windows            — панель свободных окон
+        //   POST /admin/free-windows/publications
+        // Валидация и abort(422) → 422 JSON; auth/403/404/500 — без изменений.
+        // Остальные web-маршруты — redirect + session errors, как раньше.
         $exceptions->shouldRenderJsonWhen(
             fn (Request $request, Throwable $e) => $request->is('api/*')
-                || ($request->expectsJson() && (
-                    $e instanceof ValidationException
-                    || ($e instanceof HttpException && $e->getStatusCode() === 422)
-                )),
+                || (
+                    $request->expectsJson()
+                    && ($request->is('book/*') || $request->is('admin/free-windows*'))
+                    && (
+                        $e instanceof ValidationException
+                        || ($e instanceof HttpException && $e->getStatusCode() === 422)
+                    )
+                ),
         );
     })->create();
