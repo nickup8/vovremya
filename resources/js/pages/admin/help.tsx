@@ -10,6 +10,7 @@ import {
     DocumentTextIcon,
 } from '@heroicons/react/24/outline';
 import AdminLayout from '@/layouts/AdminLayout';
+import { Button } from '@/components/ui/button';
 
 /* ═══════════════ Data ═══════════════ */
 
@@ -117,6 +118,19 @@ export default function HelpPage() {
                             Короткие инструкции по основным возможностям ИРСИ.
                         </p>
 
+                        <Button
+                            asChild
+                            className="mb-4 h-10 gap-1.5 bg-[var(--color-orange)] text-sm font-semibold text-white hover:bg-[var(--color-orange-600)] max-md:min-h-11"
+                        >
+                            <a
+                                href="https://vk.me/irsi_app"
+                                target="_blank"
+                                rel="noopener noreferrer"
+                            >
+                                Написать в поддержку
+                            </a>
+                        </Button>
+
                         {/* Sections Grid */}
                         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
                             {SECTIONS.map((section) => (
@@ -141,7 +155,7 @@ export default function HelpPage() {
                                         {section.items.map((item, i) => (
                                             <li
                                                 key={i}
-                                                className="relative text-[13px] leading-snug text-[var(--color-ink)] before:absolute before:-left-4 before:top-[7px] before:size-1 before:rounded-full before:bg-[var(--color-line)]"
+                                                className="relative text-[13px] leading-snug text-[var(--color-ink)] before:absolute before:top-[7px] before:-left-4 before:size-1 before:rounded-full before:bg-[var(--color-line)]"
                                             >
                                                 {item}
                                             </li>
