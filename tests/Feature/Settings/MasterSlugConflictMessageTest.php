@@ -105,9 +105,11 @@ class MasterSlugConflictMessageTest extends TestCase
                 'master_slug' => 'My_Slug_With_Underscore',
             ]);
 
-        // В этом контексте session('errors') — уже массив (не ViewErrorBag).
-        $errors = session('errors');
-        $errors = is_array($errors) ? $errors : $errors->toArray();
+        // session('errors') после save() при serialization=json — сырой массив
+        // ['default' => ['messages' => [...]]], а не ViewErrorBag.
+        // $response->session() стартует сессию и marshalErrorBag восстанавливает bag.
+        $response->assertSessionHasErrors(['name', 'phone', 'master_slug']);
+        $errors = $response->session()->get('errors')->getBag('default')->getMessages();
 
         $this->assertArrayHasKey('name', $errors);
         $this->assertArrayHasKey('phone', $errors);
