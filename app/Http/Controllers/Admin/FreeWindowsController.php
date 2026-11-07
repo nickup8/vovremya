@@ -4,9 +4,9 @@ namespace App\Http\Controllers\Admin;
 
 use App\Http\Controllers\Controller;
 use App\Models\MasterService;
-use App\Models\User;
-use App\Services\Booking\FreeWindowsService;
 use App\Services\Booking\FreeWindowPublicationService;
+use App\Services\Booking\FreeWindowsService;
+use Carbon\Carbon;
 use Illuminate\Http\JsonResponse;
 use Illuminate\Http\Request;
 use Illuminate\Validation\ValidationException;
@@ -27,8 +27,8 @@ class FreeWindowsController extends Controller
         ]);
 
         // Validate max range: 14 calendar days
-        $dateFrom = \Carbon\Carbon::parse($validated['date_from']);
-        $dateTo = \Carbon\Carbon::parse($validated['date_to']);
+        $dateFrom = Carbon::parse($validated['date_from']);
+        $dateTo = Carbon::parse($validated['date_to']);
 
         if (abs($dateTo->diffInDays($dateFrom)) > 13) {
             throw ValidationException::withMessages([
@@ -95,8 +95,8 @@ class FreeWindowsController extends Controller
         ]);
 
         // Validate max range: 14 calendar days
-        $dateFrom = \Carbon\Carbon::parse($validated['date_from']);
-        $dateTo = \Carbon\Carbon::parse($validated['date_to']);
+        $dateFrom = Carbon::parse($validated['date_from']);
+        $dateTo = Carbon::parse($validated['date_to']);
 
         if (abs($dateTo->diffInDays($dateFrom)) > 13) {
             throw ValidationException::withMessages([
@@ -132,7 +132,7 @@ class FreeWindowsController extends Controller
         foreach ($validated['days'] as $day) {
             if ($day['date'] < $validated['date_from'] || $day['date'] > $validated['date_to']) {
                 throw ValidationException::withMessages([
-                    'days' => 'Дата {$day["date"]} выходит за пределы указанного диапазона.',
+                    'days' => "Дата {$day['date']} выходит за пределы указанного диапазона.",
                 ]);
             }
 
@@ -141,7 +141,7 @@ class FreeWindowsController extends Controller
                 foreach ($day['starts'] as $start) {
                     if (! preg_match('/^\d{2}:\d{2}$/', $start)) {
                         throw ValidationException::withMessages([
-                            'days' => 'Неверный формат времени: {$start}.',
+                            'days' => "Неверный формат времени: {$start}.",
                         ]);
                     }
                 }

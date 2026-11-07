@@ -16,6 +16,8 @@ use Illuminate\Foundation\Configuration\Exceptions;
 use Illuminate\Foundation\Configuration\Middleware;
 use Illuminate\Http\Middleware\AddLinkHeadersForPreloadedAssets;
 use Illuminate\Http\Request;
+use Illuminate\Validation\ValidationException;
+use Symfony\Component\HttpKernel\Exception\HttpException;
 
 return Application::configure(basePath: dirname(__DIR__))
     ->withRouting(
@@ -57,7 +59,29 @@ return Application::configure(basePath: dirname(__DIR__))
         ]);
     })
     ->withExceptions(function (Exceptions $exceptions): void {
-        $exceptions->shouldRenderJsonWhen(
-            fn (Request $request) => $request->is('api/*'),
-        );
+        // Три подтверждённых маршрута N12 (только Accept: application/json):
+        //   POST /book/{master}                      — booking.reserve (виджет)
+        //   GET  /admin/free-windows                 — admin.free-windows
+        //   POST /admin/free-windows/publications    — admin.free-windows.publications.store
+        // Валидация и abort(422) → 422 JSON; api/* — как раньше;
+        // auth/403/404/500 и остальные web-маршруты — redirect/session errors.
+        $exceptions->shouldRenderJsonWhen(function (Request $request, Throwable $e) {
+            if ($request->is('api/*')) {
+                return true;
+            }
+
+            if (! $request->expectsJson()) {
+                return false;
+            }
+
+            $path = $request->path();
+            $confirmedRoute =
+                ($request->isMethod('POST') && (bool) preg_match('#^book/[^/]+$#', $path))
+                || ($request->isMethod('GET') && $path === 'admin/free-windows')
+                || ($request->isMethod('POST') && $path === 'admin/free-windows/publications');
+
+            return $confirmedRoute
+                && ($e instanceof ValidationException
+                    || ($e instanceof HttpException && $e->getStatusCode() === 422));
+        });
     })->create();

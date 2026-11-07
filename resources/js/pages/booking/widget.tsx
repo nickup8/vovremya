@@ -96,6 +96,86 @@ function formatDuration(mins: number): string {
     return m ? `${h} ч ${m} мин` : `${h} ч`;
 }
 
+/* ═══════════════ Error helpers ═══════════════ */
+
+const BOOKING_UNEXPECTED_ERROR = 'Не удалось записаться. Попробуйте ещё раз.';
+const BOOKING_SERVER_BUSY = 'Сервер временно недоступен. Попробуйте позже.';
+
+/** Ключи ошибок, привязанных к полям шага подтверждения. */
+const FIELD_ERROR_KEYS = new Set(['service_id', 'date', 'time', 'limit', 'general']);
+
+async function readJsonSafe(response: Response): Promise<Record<string, unknown> | null> {
+    try {
+        const data: unknown = await response.json();
+        if (data !== null && typeof data === 'object' && !Array.isArray(data)) {
+            return data as Record<string, unknown>;
+        }
+        return null;
+    } catch {
+        return null;
+    }
+}
+
+/** Laravel отдаёт errors как массивы строк — сворачиваем к первой. */
+function flattenValidationErrors(raw: unknown): Record<string, string> {
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) {
+        return {};
+    }
+    const flat: Record<string, string> = {};
+    for (const [key, value] of Object.entries(raw as Record<string, unknown>)) {
+        if (Array.isArray(value)) {
+            flat[key] = String(value[0] ?? '');
+        } else if (value !== null && value !== undefined) {
+            flat[key] = String(value);
+        }
+    }
+    return flat;
+}
+
+/**
+ * Строит bag ошибок для шага подтверждения.
+ * - limit — отдельно;
+ * - service_id/date/time — к полям summary;
+ * - остальное (и неожиданные ответы) — general рядом с кнопками.
+ */
+function buildSubmitErrors(
+    status: number,
+    data: Record<string, unknown> | null,
+): Record<string, string> {
+    if (status === 422) {
+        const flat = flattenValidationErrors(data?.errors);
+
+        if (flat.limit) {
+            return { limit: flat.limit };
+        }
+
+        if (Object.keys(flat).length > 0) {
+            const result: Record<string, string> = {};
+            for (const [key, value] of Object.entries(flat)) {
+                if (!value) continue;
+                if (FIELD_ERROR_KEYS.has(key)) {
+                    result[key] = value;
+                } else if (!result.general) {
+                    result.general = value;
+                }
+            }
+            if (Object.keys(result).length > 0) {
+                return result;
+            }
+        }
+
+        const message = typeof data?.message === 'string' ? data.message.trim() : '';
+        return { general: message || BOOKING_UNEXPECTED_ERROR };
+    }
+
+    // 500 и прочее: не показываем внутренний message сервера.
+    if (status >= 500) {
+        return { general: BOOKING_SERVER_BUSY };
+    }
+
+    return { general: BOOKING_UNEXPECTED_ERROR };
+}
+
 /* ═══════════════ Compact Header ═══════════════ */
 
 function CompactHeader({ step, master, showBack, onBack }: { step: number; master: Master; showBack: boolean; onBack: () => void }) {
@@ -646,6 +726,11 @@ function StepProvider({
                     <p className="font-bold" style={{ fontSize: '14px', color: C.ink }}>
                         {selectedService.title}
                     </p>
+                    {errors.service_id && (
+                        <p className="mt-1" style={{ fontSize: '12px', color: '#C44351' }}>
+                            {errors.service_id}
+                        </p>
+                    )}
                     <div className="flex items-center justify-between mt-1">
                         <span style={{ fontSize: '12px', color: C.muted }}>
                             {selectedDate.getDate()} {monthNamesGen[selectedDate.getMonth()]} · {selectedTime}
@@ -654,6 +739,11 @@ function StepProvider({
                             {selectedService.price.toLocaleString('ru-RU')} ₽
                         </span>
                     </div>
+                    {(errors.date || errors.time) && (
+                        <p className="mt-1" style={{ fontSize: '12px', color: '#C44351' }}>
+                            {errors.date || errors.time}
+                        </p>
+                    )}
                 </div>
             )}
 
@@ -663,10 +753,18 @@ function StepProvider({
                         <p style={{ fontSize: '13px', color: '#B8860B' }}>{errors.limit}</p>
                     </div>
                 )}
-                {errors.time && (
+                {errors.general && (
                     <div className="rounded-xl border px-4 py-3" style={{ borderColor: '#F0C0C0', background: '#FFF5F5' }}>
-                        <p style={{ fontSize: '13px', color: '#C44351' }}>{errors.time}</p>
+                        <p style={{ fontSize: '13px', color: '#C44351' }}>{errors.general}</p>
                     </div>
+                )}
+                {/* Страховка: служебные ключи, не попавшие в general/service/date/time */}
+                {Object.entries(errors).map(([key, value]) =>
+                    FIELD_ERROR_KEYS.has(key) || !value ? null : (
+                        <div key={key} className="rounded-xl border px-4 py-3" style={{ borderColor: '#F0C0C0', background: '#FFF5F5' }}>
+                            <p style={{ fontSize: '13px', color: '#C44351' }}>{value}</p>
+                        </div>
+                    ),
                 )}
 
                 <div className="flex flex-col" style={{ gap: '8px' }}>
@@ -920,14 +1018,17 @@ export default function Widget() {
                 }),
             });
 
-            const data = await response.json();
+            // Тело может быть не JSON (HTML-страница ошибки) — не роняем обработчик.
+            const data = await readJsonSafe(response);
 
             if (!response.ok) {
-                if (response.status === 422 && data.errors?.limit) {
-                    setErrors({ limit: data.errors.limit });
-                } else {
-                    setErrors(data.errors ?? { time: data.message || 'Ошибка сервера' });
-                }
+                setErrors(buildSubmitErrors(response.status, data));
+                setLoadingProvider(null);
+                return;
+            }
+
+            if (!data) {
+                setErrors({ general: BOOKING_UNEXPECTED_ERROR });
                 setLoadingProvider(null);
                 return;
             }
@@ -936,15 +1037,15 @@ export default function Widget() {
                 ? data.vk_url
                 : data.max_url;
 
-            if (!redirectUrl) {
-                setErrors({ time: 'Не удалось получить ссылку для перехода. Попробуйте позже.' });
+            if (typeof redirectUrl !== 'string' || !redirectUrl) {
+                setErrors({ general: 'Не удалось получить ссылку для перехода. Попробуйте позже.' });
                 setLoadingProvider(null);
                 return;
             }
 
             window.location.href = redirectUrl;
         } catch {
-            setErrors({ time: 'Ошибка сети. Попробуйте ещё раз.' });
+            setErrors({ general: 'Ошибка сети. Попробуйте ещё раз.' });
             setLoadingProvider(null);
         }
     }
