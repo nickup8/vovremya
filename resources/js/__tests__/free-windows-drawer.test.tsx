@@ -387,13 +387,27 @@ describe('FreeWindowsDrawer', () => {
 
             fireEvent.click(screen.getByRole('button', { name: 'Скрыть время 09:00' }));
 
-            await act(async () => {
-                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
-                await vi.waitFor(() => {});
+            // POST /admin/free-windows/publications → успешный ответ с url
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () =>
+                    Promise.resolve({
+                        token: 'tok1',
+                        url: 'https://example.com/pub/1',
+                        mode: 'service',
+                        expires_at: '2025-10-01',
+                    }),
             });
 
             const writeTextMock = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
-            expect(writeTextMock).toHaveBeenCalledTimes(1);
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+                await vi.waitFor(() => {
+                    expect(writeTextMock).toHaveBeenCalledTimes(1);
+                });
+            });
+
             const copiedText = writeTextMock.mock.calls[0][0] as string;
             expect(copiedText).not.toContain('09:00');
             expect(copiedText).toContain('09:15');
@@ -405,13 +419,27 @@ describe('FreeWindowsDrawer', () => {
 
             fireEvent.click(screen.getByRole('button', { name: 'Скрыть диапазон 10:00–13:00' }));
 
-            await act(async () => {
-                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
-                await vi.waitFor(() => {});
+            // POST /admin/free-windows/publications → успешный ответ с url
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () =>
+                    Promise.resolve({
+                        token: 'tok1',
+                        url: 'https://example.com/pub/1',
+                        mode: 'all',
+                        expires_at: '2025-10-01',
+                    }),
             });
 
             const writeTextMock = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
-            expect(writeTextMock).toHaveBeenCalledTimes(1);
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+                await vi.waitFor(() => {
+                    expect(writeTextMock).toHaveBeenCalledTimes(1);
+                });
+            });
+
             const copiedText = writeTextMock.mock.calls[0][0] as string;
             expect(copiedText).not.toContain('10:00–13:00');
             expect(copiedText).toContain('14:00–16:00');
@@ -422,13 +450,27 @@ describe('FreeWindowsDrawer', () => {
 
             fireEvent.click(screen.getByRole('button', { name: 'Скрыть день 28 сентября' }));
 
-            await act(async () => {
-                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
-                await vi.waitFor(() => {});
+            // POST /admin/free-windows/publications → успешный ответ с url
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () =>
+                    Promise.resolve({
+                        token: 'tok1',
+                        url: 'https://example.com/pub/1',
+                        mode: 'service',
+                        expires_at: '2025-10-01',
+                    }),
             });
 
             const writeTextMock = navigator.clipboard.writeText as ReturnType<typeof vi.fn>;
-            expect(writeTextMock).toHaveBeenCalledTimes(1);
+            await act(async () => {
+                fireEvent.click(screen.getByRole('button', { name: 'Скопировать текст' }));
+                await vi.waitFor(() => {
+                    expect(writeTextMock).toHaveBeenCalledTimes(1);
+                });
+            });
+
             const copiedText = writeTextMock.mock.calls[0][0] as string;
             expect(copiedText).not.toContain('28 сентября');
             expect(copiedText).toContain('29 сентября');
@@ -445,13 +487,27 @@ describe('FreeWindowsDrawer', () => {
             const shareBtn = document.querySelector('button.w-full.sm\\:w-auto');
             expect(shareBtn).toBeTruthy();
 
-            await act(async () => {
-                fireEvent.click(shareBtn!);
-                await vi.waitFor(() => {});
+            // POST /admin/free-windows/publications → успешный ответ с url
+            (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValueOnce({
+                ok: true,
+                status: 200,
+                json: () =>
+                    Promise.resolve({
+                        token: 'tok1',
+                        url: 'https://example.com/pub/1',
+                        mode: 'service',
+                        expires_at: '2025-10-01',
+                    }),
             });
 
             const shareMock = navigator.share as ReturnType<typeof vi.fn>;
-            expect(shareMock).toHaveBeenCalledTimes(1);
+            await act(async () => {
+                fireEvent.click(shareBtn!);
+                await vi.waitFor(() => {
+                    expect(shareMock).toHaveBeenCalledTimes(1);
+                });
+            });
+
             const sharedText = shareMock.mock.calls[0][0].text as string;
             expect(sharedText).not.toContain('09:00');
             expect(sharedText).toContain('09:15');
