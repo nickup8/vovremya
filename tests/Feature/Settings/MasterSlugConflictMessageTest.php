@@ -105,7 +105,9 @@ class MasterSlugConflictMessageTest extends TestCase
                 'master_slug' => 'My_Slug_With_Underscore',
             ]);
 
-        $errors = session('errors')->toArray();
+        // В этом контексте session('errors') — уже массив (не ViewErrorBag).
+        $errors = session('errors');
+        $errors = is_array($errors) ? $errors : $errors->toArray();
 
         $this->assertArrayHasKey('name', $errors);
         $this->assertArrayHasKey('phone', $errors);
