@@ -105,24 +105,28 @@ class MasterSlugConflictMessageTest extends TestCase
                 'master_slug' => 'My_Slug_With_Underscore',
             ]);
 
-        // session('errors') после save() при serialization=json — сырой массив
-        // ['default' => ['messages' => [...]]], а не ViewErrorBag.
-        // $response->session() стартует сессию и marshalErrorBag восстанавливает bag.
+        // Поля — публичный assertSessionHasErrors; текст — callback у assertSessionHas
+        // (TestResponse::session() в Laravel 13 protected, из теста недоступен).
         $response->assertSessionHasErrors(['name', 'phone', 'master_slug']);
-        $errors = $response->session()->get('errors')->getBag('default')->getMessages();
 
-        $this->assertArrayHasKey('name', $errors);
-        $this->assertArrayHasKey('phone', $errors);
-        $this->assertArrayHasKey('master_slug', $errors);
+        $response->assertSessionHas('errors', function ($errors): bool {
+            $messages = $errors->getBag('default')->getMessages();
 
-        $all = implode("\n", array_map(fn ($v) => implode("\n", (array) $v), $errors));
+            $this->assertArrayHasKey('name', $messages);
+            $this->assertArrayHasKey('phone', $messages);
+            $this->assertArrayHasKey('master_slug', $messages);
 
-        $this->assertStringNotContainsString('The given data was invalid', $all);
-        $this->assertStringNotContainsString('field is required', $all);
-        $this->assertStringNotContainsString('already been taken', $all);
-        $this->assertStringNotContainsString('format is invalid', $all);
+            $all = implode("\n", array_map(fn ($v) => implode("\n", (array) $v), $messages));
 
-        $this->assertStringContainsString('Заполните поле', $errors['name'][0]);
-        $this->assertStringContainsString('Заполните поле', $errors['phone'][0]);
+            $this->assertStringNotContainsString('The given data was invalid', $all);
+            $this->assertStringNotContainsString('field is required', $all);
+            $this->assertStringNotContainsString('already been taken', $all);
+            $this->assertStringNotContainsString('format is invalid', $all);
+
+            $this->assertStringContainsString('Заполните поле', $messages['name'][0]);
+            $this->assertStringContainsString('Заполните поле', $messages['phone'][0]);
+
+            return true;
+        });
     }
 }
