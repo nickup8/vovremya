@@ -13,6 +13,8 @@ import FreeWindowsDrawer from '@/components/admin/FreeWindowsDrawer';
 
 import { useCalendarActions } from '@/hooks/useCalendarActions';
 import { useCalendarData } from '@/hooks/useCalendarData';
+import { AppointmentStatus } from '@/types/appointment-status';
+import { Switch } from '@/components/ui/switch';
 import type { PageProps, Appointment, ClientOption } from './components/calendar/types';
 import {
     getWeekDates, formatDateRange, getYearFromDate, dateToKey, timeToMinutes, getMonthGrid,
@@ -252,6 +254,19 @@ export default function CalendarPage() {
         safeSetItem('calendar_view_mode', mode);
     };
 
+    // ═══════════════ Show cancelled bookings (N11) ═══════════════
+    // Выбор хранится отдельно для каждого мастера (ключ по auth.user.id).
+    // Без localStorage свитч продолжает работать в памяти до ухода со страницы.
+    const showCancelledKey = `calendar_show_cancelled_${auth?.user?.id ?? 'anon'}`;
+    const [showCancelled, setShowCancelledState] = useState<boolean>(() =>
+        safeGetItem(showCancelledKey) === '1',
+    );
+
+    const setShowCancelled = (checked: boolean): void => {
+        setShowCancelledState(checked);
+        safeSetItem(showCancelledKey, checked ? '1' : '0');
+    };
+
     const [localClients, setLocalClients] = useState<ClientOption[]>(clients);
 
     const handleClientCreated = (c: ClientOption) => {
@@ -336,7 +351,6 @@ export default function CalendarPage() {
 
     const {
         localAppointments,
-        getAppointmentsForDay,
         getBlockedTimesForDay,
         applyOptimisticMove,
         rollbackAppointment,
@@ -442,6 +456,19 @@ export default function CalendarPage() {
     };
 
     // ═══════════════ Grid Computed ═══════════════
+
+    // Отменённые записи в сетке (N11). Фильтр влияет ТОЛЬКО на списки рендера:
+    // localAppointments целиком продолжает питать DnD и hasCollision, поэтому
+    // переключатель не меняет доступность слотов и статусы других записей.
+    const displayAppointments = useMemo(
+        () => (showCancelled
+            ? localAppointments
+            : localAppointments.filter(a => a.status !== AppointmentStatus.Cancelled)),
+        [localAppointments, showCancelled],
+    );
+
+    const getDisplayAppointmentsForDay = (dayIndex: number): Appointment[] =>
+        displayAppointments.filter(a => a.date === weekDateKeys[dayIndex]);
 
     const visibleAppointments = useMemo(() => {
         if (viewMode === 'day') {
@@ -568,11 +595,11 @@ return [];
                             />
 
                             {/* ─── Quick Actions ─── */}
-                            <div className="flex shrink-0 items-center gap-2 border-b border-[var(--color-line)] px-4 py-2 lg:px-7">
+                            <div className="flex shrink-0 items-center gap-2 overflow-x-auto whitespace-nowrap border-b border-[var(--color-line)] px-4 py-2 scrollbar-none lg:px-7">
                                 <button
                                     type="button"
                                     onClick={() => setFreeWindowsOpen(true)}
-                                    className="flex h-8 items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 text-[12px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
+                                    className="flex h-8 shrink-0 items-center gap-1.5 rounded-lg border border-[var(--color-line)] bg-[var(--color-surface)] px-3 text-[12px] font-semibold text-[var(--color-graphite)] transition-colors hover:bg-[var(--color-surface-hover)] hover:text-[var(--color-ink)]"
                                 >
                                     <CalendarClock className="size-3.5" />
                                     Свободные окна
@@ -582,6 +609,19 @@ return [];
                                         </span>
                                     )}
                                 </button>
+                                <label
+                                    htmlFor="show-cancelled-bookings"
+                                    className="ml-auto flex shrink-0 cursor-pointer items-center gap-1.5 text-[11px] font-medium text-[var(--color-graphite)] lg:text-[12px]"
+                                >
+                                    Отменённые записи
+                                    <Switch
+                                        id="show-cancelled-bookings"
+                                        checked={showCancelled}
+                                        onCheckedChange={setShowCancelled}
+                                        aria-label="Отменённые записи"
+                                        className="data-[state=checked]:bg-[var(--color-orange)]"
+                                    />
+                                </label>
                             </div>
 
                             {/* ─── Booking Mode Banner ─── */}
@@ -651,7 +691,7 @@ return [];
                                     dayStartHour={DAY_START_HOUR}
                                     slotInterval={slotInterval}
                                     workingHours={workingHours}
-                                    localAppointments={localAppointments}
+                                    localAppointments={displayAppointments}
                                     blockedTimes={initialBlockedTimes}
                                     onSlotClick={(date, time, masterId) => openNewAppointmentForDate(date, time, masterId)}
                                     onAppointmentClick={openDetail}
@@ -661,7 +701,7 @@ return [];
                                 />
                             ) : viewMode === 'month' ? (
                                 <MonthView
-                                    appointments={localAppointments}
+                                    appointments={displayAppointments}
                                     centerDate={monthCenterDate}
                                     onDayColumnClick={openDayFromMonth}
                                 />
@@ -681,7 +721,7 @@ return [];
                                     onSlotHover={setHoveredSlot}
                                     onSlotClick={openNewAppointmentForDate}
                                     onAppointmentClick={openDetail}
-                                    getAppointmentsForDay={getAppointmentsForDay}
+                                    getAppointmentsForDay={getDisplayAppointmentsForDay}
                                     getBlockedTimesForDay={getBlockedTimesForDay}
                                     isToday={isToday}
                                     timezone={timezone}

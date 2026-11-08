@@ -78,7 +78,7 @@ function DroppableSlot({ id, children, ...rest }: { id: string; children: React.
     const { setNodeRef } = useDroppable({ id });
 
     return (
-        <div ref={setNodeRef} {...rest}>
+        <div id={id} ref={setNodeRef} {...rest}>
             {children}
         </div>
     );
