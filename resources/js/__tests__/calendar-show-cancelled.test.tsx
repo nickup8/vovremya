@@ -717,6 +717,69 @@ describe('N11 — показ отменённых не влияет на дос�
         expect(readFormTime(dialog)).toBe('10:00');
     });
 
+    it('раскладка кластера: на 10:45 три карточки оставляют отдельную зону слота', async () => {
+        // Цепочка пересечений 10:00–10:30, 10:15–11:00, 10:30–11:00, 10:45–11:00.
+        renderPage({
+            appointments: [
+                { ...cancelledBooking, id: 'c1', time: '10:00', duration: 30 },
+                { ...cancelledBooking, id: 'c2', time: '10:15', duration: 45 },
+                { ...cancelledBooking, id: 'c3', time: '10:30', duration: 30 },
+                { ...cancelledBooking, id: 'c4', time: '10:45', duration: 15 },
+            ],
+        });
+        fireEvent.click(getSwitch());
+
+        const cardC1 = screen.getByText('10:00–10:30').closest('button');
+        const cardC2 = screen.getByText('10:15–11:00').closest('button');
+        const cardC3 = screen.getByText('10:30–11:00').closest('button');
+        const cardC4 = screen.getByText('10:45–11:00').closest('button');
+
+        // Маркер кластера держит колонку 0 весь интервал 10:00–11:00 → 4 колонки.
+        [cardC1, cardC2, cardC3, cardC4].forEach((card) => {
+            expect(card?.style.width).toBe('calc(25% - 12px)');
+        });
+
+        // На 10:45 видны три карточки — заняты колонки 1–3, колонка 0 свободна.
+        const covering = [cardC2, cardC3, cardC4];
+        const lefts = covering.map((card) => card?.style.left);
+        expect(new Set(lefts).size).toBe(3);
+        expect(lefts).not.toContain('calc(0% + 6px)');
+        expect(cardC1?.style.left).toBe('calc(25% + 6px)');
+        expect(cardC3?.style.left).toBe('calc(25% + 6px)');
+
+        // Зона слота, содержащего 10:45 (строка 10:30), кликабельна.
+        const slot = document.getElementById(`${todayKey}__10:30`);
+        expect(slot).not.toBeNull();
+        fireEvent.click(slot as HTMLElement);
+        let dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:30');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+
+        // ─── День: та же раскладка ───
+        fireEvent.click(screen.getAllByRole('button', { name: 'День' })[0]);
+
+        const dayC2 = screen.getByText('10:15–11:00').closest('button');
+        const dayC3 = screen.getByText('10:30–11:00').closest('button');
+        const dayC4 = screen.getByText('10:45–11:00').closest('button');
+        expect(dayC2?.style.width).toBe('calc(25% - 12px)');
+        expect(dayC3?.style.width).toBe('calc(25% - 12px)');
+        expect(dayC4?.style.width).toBe('calc(25% - 12px)');
+
+        const dayLefts = [dayC2, dayC3, dayC4].map((card) => card?.style.left);
+        expect(new Set(dayLefts).size).toBe(3);
+        expect(dayLefts).not.toContain('calc(0% + 6px)');
+
+        const daySlot = document.getElementById(`${todayKey}__m1__10:30`);
+        expect(daySlot).not.toBeNull();
+        fireEvent.click(daySlot as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:30');
+    });
+
     it('действующая запись на время отменённой открывается в карточке при любом положении свитча', async () => {
         renderPage();
 

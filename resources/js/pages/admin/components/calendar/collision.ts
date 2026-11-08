@@ -53,8 +53,12 @@ function withFreeSlotMarkers(appointments: Appointment[]): Appointment[] {
         }
     }
 
-    const markers = clusters.map(({ first }) => ({
+    const markers = clusters.map(({ first, end }) => ({
         ...first,
+        // Маркер резервирует колонку на весь интервал кластера: при
+        // наследовании first.duration колонку могла занять более поздняя
+        // запись, и свободная зона исчезала.
+        duration: end - timeToMinutes(first.time),
         id: `${FREE_SLOT_PREFIX}${first.id}`,
     }));
 
