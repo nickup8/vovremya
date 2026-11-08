@@ -478,7 +478,7 @@ export function AppointmentDetailDrawer({
                             ) : canEdit ? (
                                 <DrawerFooter>
                                     {/* Row 1: Изменить + Повторять */}
-                                    <div className="flex gap-3">
+                                    <div className="flex gap-3 mb-3">
                                         {isRecurring ? (
                                             <Popover open={editMenuOpen} onOpenChange={setEditMenuOpen}>
                                                 <PopoverTrigger asChild>
