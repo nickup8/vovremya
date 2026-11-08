@@ -44,7 +44,7 @@ export function AppointmentCard({ appointment, onClick, dayStartHour }: Props) {
             {...listeners}
             {...attributes}
             onClick={onClick}
-            className={`absolute z-10 flex overflow-hidden rounded-[8px] text-left transition-shadow duration-150 hover:shadow-md ${styles.bg} ${isDragging ? 'opacity-40 shadow-lg' : 'shadow-xs'} ${isDraggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'} ${isCancelled ? 'pointer-events-none' : ''}`}
+            className={`absolute z-10 flex overflow-hidden rounded-[8px] text-left transition-shadow duration-150 hover:shadow-md ${styles.bg} ${isDragging ? 'opacity-40 shadow-lg' : 'shadow-xs'} ${isDraggable ? 'cursor-grab active:cursor-grabbing' : 'cursor-default'}`}
             style={{
                 top,
                 height: Math.max(height, 28),

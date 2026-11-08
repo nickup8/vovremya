@@ -1,5 +1,47 @@
+import { AppointmentStatus } from '@/types/appointment-status';
 import type { Appointment, AppointmentWithCollision } from './types';
 import { timeToMinutes } from './helpers';
+
+const FREE_SLOT_PREFIX = '__free_slot__:';
+
+/**
+ * Маркер свободной зоны под отменённой записью (N11).
+ * Если запись отменена и не пересекается с действующими — слот считается
+ * свободным: добавляем маркер с тем же временем и длительностью, чтобы
+ * calculateCollisions отвёл отменённой карточке свою колонку, а вторая
+ * колонка осталась открытой для клика по слоту (создание записи).
+ * Маркеры участвуют только в раскладке и не рендерятся.
+ */
+function withFreeSlotMarkers(appointments: Appointment[]): Appointment[] {
+    const markers: Appointment[] = [];
+
+    for (const appt of appointments) {
+        if (appt.status !== AppointmentStatus.Cancelled) {
+            continue;
+        }
+
+        const start = timeToMinutes(appt.time);
+        const end = start + appt.duration;
+        const occupied = appointments.some((other) => {
+            if (
+                other.id === appt.id ||
+                other.status === AppointmentStatus.Cancelled
+            ) {
+                return false;
+            }
+
+            const otherStart = timeToMinutes(other.time);
+
+            return start < otherStart + other.duration && otherStart < end;
+        });
+
+        if (!occupied) {
+            markers.push({ ...appt, id: `${FREE_SLOT_PREFIX}${appt.id}` });
+        }
+    }
+
+    return markers.length > 0 ? [...appointments, ...markers] : appointments;
+}
 
 /**
  * Алгоритм расчёта коллизий для записей одного дня.
@@ -92,4 +134,16 @@ return startDiff;
     }
 
     return result;
+}
+
+/**
+ * Раскладка записей одного дня для сетки: маркеры свободной зоны участвуют
+ * только в расчёте колонок и в результат не попадают (N11).
+ */
+export function calculateDayLayout(
+    appointments: Appointment[],
+): AppointmentWithCollision[] {
+    return calculateCollisions(withFreeSlotMarkers(appointments)).filter(
+        (appt) => !appt.id.startsWith(FREE_SLOT_PREFIX),
+    );
 }

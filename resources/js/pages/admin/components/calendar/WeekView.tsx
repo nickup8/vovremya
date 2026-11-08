@@ -14,7 +14,7 @@ import { BlockedTimeCard } from './BlockedTimeCard';
 import { BreakZone } from './BreakZone';
 import { DAY_NAMES, HOUR_HEIGHT, MINUTE_HEIGHT } from './constants';
 import { timeToMinutes, getEndTime, hasCollision, formatGmtOffset } from './helpers';
-import { calculateCollisions } from './collision';
+import { calculateDayLayout } from './collision';
 
 interface WeekViewProps {
     weekDates: Date[];
@@ -393,7 +393,7 @@ export function WeekView({
                                             dayEndHour={DAY_END_HOUR}
                                         />
                                     ))}
-                                    {calculateCollisions(dayAppts).map((appt) => (
+                                    {calculateDayLayout(dayAppts).map((appt) => (
                                         <AppointmentCard
                                             key={appt.id}
                                             appointment={appt}

@@ -492,8 +492,8 @@ describe('N11 — показ отменённых не влияет на дос�
         expect(source).toContain('appointments={displayAppointments}');
     });
 
-    it('видимая отменённая запись не мешает открыть форму на 10:00 — «Неделя» и «День»', async () => {
-        // На 10:00 только отменённая запись: действующей на это время нет.
+    it('отменённая карточка открывает детали, свободная зона того же слота — новую запись на 10:00', async () => {
+        // На 10:00 только отменённая запись: слот фактически свободен.
         renderPage({ appointments: [cancelledBooking] });
 
         const readFormTime = (dialog: HTMLElement): string => {
@@ -510,7 +510,7 @@ describe('N11 — показ отменённых не влияет на дос�
             );
         };
 
-        // ─── Неделя, свитч выключен: карточки нет, слот кликабелен ───
+        // ─── Неделя, свитч выключен: отменённая скрыта, слот открыт ───
         let slot = document.getElementById(`${todayKey}__10:00`);
         expect(slot).not.toBeNull();
 
@@ -522,14 +522,22 @@ describe('N11 — показ отменённых не влияет на дос�
         expect(readFormTime(dialog)).toBe('10:00');
         fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
 
-        // ─── Неделя, свитч включён: карточка видима, но клик проходит на слот ───
+        // ─── Неделя, свитч включён ───
         fireEvent.click(getSwitch());
-        const cancelledCard = screen
-            .getByText('Пётр Отменённый')
-            .closest('button');
-        expect(cancelledCard).not.toBeNull();
-        expect(cancelledCard?.className).toContain('pointer-events-none');
+        const card = screen.getByText('Пётр Отменённый').closest('button');
+        expect(card).not.toBeNull();
+        // Карточка интерактивна (мышь/касание/клавиатура) и занимает свою
+        // колонку — вторая колонка слота остаётся свободной зоной.
+        expect(card?.className).not.toContain('pointer-events-none');
+        expect(card?.style.width).toBe('calc(50% - 12px)');
 
+        // Клик по отменённой карточке — её детали.
+        fireEvent.click(card as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        // Клик по свободной зоне того же слота — новая запись на 10:00.
         slot = document.getElementById(`${todayKey}__10:00`);
         expect(slot).not.toBeNull();
         fireEvent.click(slot as HTMLElement);
@@ -539,24 +547,21 @@ describe('N11 — показ отменённых не влияет на дос�
         expect(readFormTime(dialog)).toBe('10:00');
         fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
 
-        // ─── День, свитч включён ───
+        // ─── День, свитч включён: та же пара зон ───
         fireEvent.click(screen.getAllByRole('button', { name: 'День' })[0]);
         expect(screen.getByText('Пётр Отменённый')).toBeInTheDocument();
 
-        let daySlot = document.getElementById(`${todayKey}__m1__10:00`);
-        expect(daySlot).not.toBeNull();
-        fireEvent.click(daySlot as HTMLElement);
+        const dayCard = screen.getByText('Пётр Отменённый').closest('button');
+        expect(dayCard).not.toBeNull();
+        expect(dayCard?.className).not.toContain('pointer-events-none');
+        expect(dayCard?.style.width).toBe('calc(50% - 12px)');
+
+        fireEvent.click(dayCard as HTMLElement);
         dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
-        await act(async () => {});
-        expect(readFormTime(dialog)).toBe('10:00');
-        fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+        expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
 
-        // ─── День, свитч выключен ───
-        fireEvent.click(getSwitch());
-        expect(screen.queryByText('Пётр Отменённый')).toBeNull();
-
-        daySlot = document.getElementById(`${todayKey}__m1__10:00`);
+        const daySlot = document.getElementById(`${todayKey}__m1__10:00`);
         expect(daySlot).not.toBeNull();
         fireEvent.click(daySlot as HTMLElement);
         dialog = document.querySelector('[role="dialog"]') as HTMLElement;
@@ -576,12 +581,25 @@ describe('N11 — показ отменённых не влияет на дос�
 
         fireEvent.keyDown(document, { key: 'Escape' });
 
-        // Свитч включён: обе записи видимы, действующая по-прежнему открывается.
+        // Свитч включён: обе карточки видимы и открываются отдельно.
         fireEvent.click(getSwitch());
+        expect(screen.getByText('Анна Активная')).toBeInTheDocument();
+        expect(screen.getByText('Пётр Отменённый')).toBeInTheDocument();
+
         fireEvent.click(screen.getByText('Анна Активная'));
         dialog = document.querySelector('[role="dialog"]') as HTMLElement;
         expect(dialog).not.toBeNull();
         expect(within(dialog).getByText('Анна Активная')).toBeInTheDocument();
+        expect(within(dialog).queryByText('Пётр Отменённый')).toBeNull();
+
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        // Отменённая на то же время открывается своей карточкой.
+        fireEvent.click(screen.getByText('Пётр Отменённый'));
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(dialog).not.toBeNull();
+        expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        expect(within(dialog).queryByText('Анна Активная')).toBeNull();
 
         fireEvent.keyDown(document, { key: 'Escape' });
 
