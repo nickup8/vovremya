@@ -227,6 +227,21 @@ function getSwitch(): HTMLElement {
     return screen.getByRole('switch', { name: 'Отменённые записи' });
 }
 
+// Значение поля «Время» в открытой форме новой записи (скрытый native select).
+function readFormTime(dialog: HTMLElement): string {
+    const label = Array.from(dialog.querySelectorAll('label')).find((l) =>
+        l.textContent?.trim().startsWith('Время'),
+    );
+
+    return (
+        (
+            label?.parentElement?.querySelector(
+                'select',
+            ) as HTMLSelectElement | null
+        )?.value ?? ''
+    );
+}
+
 beforeEach(() => {
     fetchMock.mockReset();
     routerReload.mockReset();
@@ -496,20 +511,6 @@ describe('N11 — показ отменённых не влияет на дос�
         // На 10:00 только отменённая запись: слот фактически свободен.
         renderPage({ appointments: [cancelledBooking] });
 
-        const readFormTime = (dialog: HTMLElement): string => {
-            const label = Array.from(dialog.querySelectorAll('label')).find(
-                (l) => l.textContent?.trim().startsWith('Время'),
-            );
-
-            return (
-                (
-                    label?.parentElement?.querySelector(
-                        'select',
-                    ) as HTMLSelectElement | null
-                )?.value ?? ''
-            );
-        };
-
         // ─── Неделя, свитч выключен: отменённая скрыта, слот открыт ───
         let slot = document.getElementById(`${todayKey}__10:00`);
         expect(slot).not.toBeNull();
@@ -559,6 +560,152 @@ describe('N11 — показ отменённых не влияет на дос�
         fireEvent.click(dayCard as HTMLElement);
         dialog = document.querySelector('[role="dialog"]') as HTMLElement;
         expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        const daySlot = document.getElementById(`${todayKey}__m1__10:00`);
+        expect(daySlot).not.toBeNull();
+        fireEvent.click(daySlot as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
+    });
+
+    it('частичное пересечение: свободные 10:00 открывает форму, детали обеих — отдельно', async () => {
+        // Отменённая 10:00–11:00, действующая 10:30–11:00.
+        renderPage({
+            appointments: [
+                cancelledBooking,
+                { ...activeBooking, time: '10:30', duration: 30 },
+            ],
+        });
+        fireEvent.click(getSwitch());
+
+        // Обе в своих колонках: правая (действующая) не закрывает ряд 10:00.
+        const cancelledCard = screen
+            .getByText('Пётр Отменённый')
+            .closest('button');
+        const activeCard = screen.getByText('Анна Активная').closest('button');
+        expect(cancelledCard?.style.width).toBe('calc(50% - 12px)');
+        expect(activeCard?.style.width).toBe('calc(50% - 12px)');
+        expect(activeCard?.style.left).toBe('calc(50% + 6px)');
+
+        // Детали отменённой.
+        fireEvent.click(cancelledCard as HTMLElement);
+        let dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        // Детали действующей.
+        fireEvent.click(activeCard as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Анна Активная')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        // Свободные 10:00 → форма с временем 10:00.
+        const slot = document.getElementById(`${todayKey}__10:00`);
+        expect(slot).not.toBeNull();
+        fireEvent.click(slot as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+
+        // ─── День: те же проверки ───
+        fireEvent.click(screen.getAllByRole('button', { name: 'День' })[0]);
+
+        const dayCancelled = screen
+            .getByText('Пётр Отменённый')
+            .closest('button');
+        const dayActive = screen.getByText('Анна Активная').closest('button');
+        expect(dayCancelled?.style.width).toBe('calc(50% - 12px)');
+        expect(dayActive?.style.width).toBe('calc(50% - 12px)');
+        expect(dayActive?.style.left).toBe('calc(50% + 6px)');
+
+        fireEvent.click(dayCancelled as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        fireEvent.click(dayActive as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Анна Активная')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        const daySlot = document.getElementById(`${todayKey}__m1__10:00`);
+        expect(daySlot).not.toBeNull();
+        fireEvent.click(daySlot as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
+    });
+
+    it('две отменённые на одно время: обе карточки открываются, слот остаётся свободным', async () => {
+        renderPage({
+            appointments: [
+                cancelledBooking,
+                {
+                    ...cancelledBooking,
+                    id: 'c2',
+                    client_name: 'Второй Отменённый',
+                },
+            ],
+        });
+        fireEvent.click(getSwitch());
+
+        // Один маркер на кластер → 3 колонки, а не 4 отдельными маркерами.
+        const card1 = screen.getByText('Пётр Отменённый').closest('button');
+        const card2 = screen.getByText('Второй Отменённый').closest('button');
+        expect(card1?.style.width).toContain('33.33');
+        expect(card2?.style.width).toContain('33.33');
+
+        // Обе открываются отдельно.
+        fireEvent.click(card1 as HTMLElement);
+        let dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        expect(within(dialog).queryByText('Второй Отменённый')).toBeNull();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        fireEvent.click(card2 as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(
+            within(dialog).getByText('Второй Отменённый'),
+        ).toBeInTheDocument();
+        expect(within(dialog).queryByText('Пётр Отменённый')).toBeNull();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        // Свободный слот → форма с временем 10:00.
+        const slot = document.getElementById(`${todayKey}__10:00`);
+        expect(slot).not.toBeNull();
+        fireEvent.click(slot as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+
+        // ─── День: те же проверки ───
+        fireEvent.click(screen.getAllByRole('button', { name: 'День' })[0]);
+
+        const dayCard1 = screen.getByText('Пётр Отменённый').closest('button');
+        const dayCard2 = screen
+            .getByText('Второй Отменённый')
+            .closest('button');
+        expect(dayCard1?.style.width).toContain('33.33');
+        expect(dayCard2?.style.width).toContain('33.33');
+
+        fireEvent.click(dayCard1 as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Пётр Отменённый')).toBeInTheDocument();
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        fireEvent.click(dayCard2 as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(
+            within(dialog).getByText('Второй Отменённый'),
+        ).toBeInTheDocument();
         fireEvent.keyDown(document, { key: 'Escape' });
 
         const daySlot = document.getElementById(`${todayKey}__m1__10:00`);

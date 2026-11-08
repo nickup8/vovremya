@@ -4,43 +4,61 @@ import { timeToMinutes } from './helpers';
 
 const FREE_SLOT_PREFIX = '__free_slot__:';
 
+function overlapsInTime(a: Appointment, b: Appointment): boolean {
+    const aStart = timeToMinutes(a.time);
+    const bStart = timeToMinutes(b.time);
+
+    return aStart < bStart + b.duration && bStart < aStart + a.duration;
+}
+
 /**
  * Маркер свободной зоны под отменённой записью (N11).
  * Если запись отменена и не пересекается с действующими — слот считается
- * свободным: добавляем маркер с тем же временем и длительностью, чтобы
- * calculateCollisions отвёл отменённой карточке свою колонку, а вторая
- * колонка осталась открытой для клика по слоту (создание записи).
- * Маркеры участвуют только в раскладке и не рендерятся.
+ * свободным: добавляем маркер, чтобы calculateCollisions отвёл карточке
+ * свою колонку, а соседняя осталась открытой для клика по слоту (создание
+ * записи). Маркеры участвуют только в раскладке и не рендерятся.
  */
 function withFreeSlotMarkers(appointments: Appointment[]): Appointment[] {
-    const markers: Appointment[] = [];
+    // Освобождённые отменённые: не пересекаются с действующими записями.
+    const freed = appointments.filter(
+        (appt) =>
+            appt.status === AppointmentStatus.Cancelled &&
+            !appointments.some(
+                (other) =>
+                    other.id !== appt.id &&
+                    other.status !== AppointmentStatus.Cancelled &&
+                    overlapsInTime(appt, other),
+            ),
+    );
 
-    for (const appt of appointments) {
-        if (appt.status !== AppointmentStatus.Cancelled) {
-            continue;
-        }
+    if (freed.length === 0) {
+        return appointments;
+    }
 
+    // Один маркер на цепочку взаимно пересекающихся отменённых: отдельный
+    // маркер на каждую запись добавлял бы колонки и сужал карточки.
+    const sorted = [...freed].sort(
+        (a, b) => timeToMinutes(a.time) - timeToMinutes(b.time),
+    );
+    const clusters: Array<{ first: Appointment; end: number }> = [];
+
+    for (const appt of sorted) {
         const start = timeToMinutes(appt.time);
-        const end = start + appt.duration;
-        const occupied = appointments.some((other) => {
-            if (
-                other.id === appt.id ||
-                other.status === AppointmentStatus.Cancelled
-            ) {
-                return false;
-            }
+        const top = clusters[clusters.length - 1];
 
-            const otherStart = timeToMinutes(other.time);
-
-            return start < otherStart + other.duration && otherStart < end;
-        });
-
-        if (!occupied) {
-            markers.push({ ...appt, id: `${FREE_SLOT_PREFIX}${appt.id}` });
+        if (!top || start >= top.end) {
+            clusters.push({ first: appt, end: start + appt.duration });
+        } else {
+            top.end = Math.max(top.end, start + appt.duration);
         }
     }
 
-    return markers.length > 0 ? [...appointments, ...markers] : appointments;
+    const markers = clusters.map(({ first }) => ({
+        ...first,
+        id: `${FREE_SLOT_PREFIX}${first.id}`,
+    }));
+
+    return [...appointments, ...markers];
 }
 
 /**
