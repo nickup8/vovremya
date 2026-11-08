@@ -51,33 +51,67 @@ const echoState = vi.hoisted(() => {
     };
 });
 
-vi.mock('@inertiajs/react', () => ({
-    Head: () => null,
-    usePage: () => mockUsePage(),
-    Link: ({ children }: { children: React.ReactNode }) => <a>{children}</a>,
-    useForm: (initial: Record<string, unknown> = {}) => ({
-        data: initial,
-        setData: vi.fn(),
-        processing: false,
-        errors: {},
-        reset: vi.fn(),
-        clearErrors: vi.fn(),
-        transform: vi.fn(),
-        post: vi.fn(),
-        patch: vi.fn(),
-        put: vi.fn(),
-        delete: vi.fn(),
-        submit: vi.fn(),
-    }),
-    router: {
-        reload: routerReload,
-        patch: vi.fn(),
-        post: vi.fn(),
-        get: vi.fn(),
-        visit: vi.fn(),
-        on: vi.fn(() => vi.fn()),
-    },
-}));
+vi.mock('@inertiajs/react', async () => {
+    const { useState } = await import('react');
+
+    return {
+        Head: () => null,
+        usePage: () => mockUsePage(),
+        Link: ({ children }: { children: React.ReactNode }) => (
+            <a>{children}</a>
+        ),
+        // «Живой» useForm: setData обновляет data через useState, иначе
+        // предзаполнение формы (дата/время из слота) в тесте не наблюдаемо.
+        useForm: (initial: Record<string, unknown> = {}) => {
+            const [data, setDataState] =
+                useState<Record<string, unknown>>(initial);
+
+            const setData = (
+                key: string | Record<string, unknown>,
+                value?: unknown,
+            ): void => {
+                setDataState((prev) => {
+                    if (typeof key === 'object') {
+                        const next = { ...prev, ...key };
+
+                        return Object.keys(next).every(
+                            (k) => next[k] === prev[k],
+                        )
+                            ? prev
+                            : next;
+                    }
+
+                    return prev[key] === value
+                        ? prev
+                        : { ...prev, [key]: value };
+                });
+            };
+
+            return {
+                data,
+                setData,
+                processing: false,
+                errors: {},
+                reset: () => setDataState(initial),
+                clearErrors: vi.fn(),
+                transform: vi.fn(),
+                post: vi.fn(),
+                patch: vi.fn(),
+                put: vi.fn(),
+                delete: vi.fn(),
+                submit: vi.fn(),
+            };
+        },
+        router: {
+            reload: routerReload,
+            patch: vi.fn(),
+            post: vi.fn(),
+            get: vi.fn(),
+            visit: vi.fn(),
+            on: vi.fn(() => vi.fn()),
+        },
+    };
+});
 
 vi.mock('@/echo-config', () => ({ echo: echoState.echo }));
 
@@ -202,13 +236,29 @@ beforeEach(() => {
     vi.stubGlobal('fetch', fetchMock);
     localStorage.clear();
 
-    fetchMock.mockResolvedValue(
-        okJson({
+    fetchMock.mockImplementation(async (input: string) => {
+        // Слоты для формы новой записи: валидация времени сверяет form.data.time
+        // с этим списком, иначе предзаполненное время очищается.
+        if (String(input).includes('/admin/calendar/available-slots')) {
+            return okJson({
+                freeSlots: [
+                    '09:00',
+                    '09:30',
+                    '10:00',
+                    '10:30',
+                    '11:00',
+                    '11:30',
+                ],
+                outsideSlots: [],
+            });
+        }
+
+        return okJson({
             date: tzDateKey(new Date(), 'UTC'),
             timezone: 'UTC',
             appointments: [],
-        }),
-    );
+        });
+    });
 });
 
 describe('N11 — фильтр отменённых записей в сетке', () => {
@@ -442,32 +492,80 @@ describe('N11 — показ отменённых не влияет на дос�
         expect(source).toContain('appointments={displayAppointments}');
     });
 
-    it('клик по свободному слоту открывает диалог новой записи при любом положении свитча', () => {
-        renderPage();
+    it('видимая отменённая запись не мешает открыть форму на 10:00 — «Неделя» и «День»', async () => {
+        // На 10:00 только отменённая запись: действующей на это время нет.
+        renderPage({ appointments: [cancelledBooking] });
 
-        // Слот 11:00 (вне записей) в режиме «Неделя».
-        const slot = document.getElementById(`${todayKey}__11:00`);
+        const readFormTime = (dialog: HTMLElement): string => {
+            const label = Array.from(dialog.querySelectorAll('label')).find(
+                (l) => l.textContent?.trim().startsWith('Время'),
+            );
+
+            return (
+                (
+                    label?.parentElement?.querySelector(
+                        'select',
+                    ) as HTMLSelectElement | null
+                )?.value ?? ''
+            );
+        };
+
+        // ─── Неделя, свитч выключен: карточки нет, слот кликабелен ───
+        let slot = document.getElementById(`${todayKey}__10:00`);
         expect(slot).not.toBeNull();
 
         fireEvent.click(slot as HTMLElement);
-        // «Новая запись» есть и в шапке AdminLayout — сверяемся с заголовком диалога.
         let dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-        expect(dialog).not.toBeNull();
         expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
-
+        // Прокрутить загрузку available-slots и валидацию времени в форме.
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
         fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
-        // Свитч включён — слот по-прежнему доступен.
-        fireEvent.click(getSwitch());
 
-        const slotAfter = document.getElementById(`${todayKey}__11:30`);
-        expect(slotAfter).not.toBeNull();
-        fireEvent.click(slotAfter as HTMLElement);
+        // ─── Неделя, свитч включён: карточка видима, но клик проходит на слот ───
+        fireEvent.click(getSwitch());
+        const cancelledCard = screen
+            .getByText('Пётр Отменённый')
+            .closest('button');
+        expect(cancelledCard).not.toBeNull();
+        expect(cancelledCard?.className).toContain('pointer-events-none');
+
+        slot = document.getElementById(`${todayKey}__10:00`);
+        expect(slot).not.toBeNull();
+        fireEvent.click(slot as HTMLElement);
         dialog = document.querySelector('[role="dialog"]') as HTMLElement;
-        expect(dialog).not.toBeNull();
         expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+
+        // ─── День, свитч включён ───
+        fireEvent.click(screen.getAllByRole('button', { name: 'День' })[0]);
+        expect(screen.getByText('Пётр Отменённый')).toBeInTheDocument();
+
+        let daySlot = document.getElementById(`${todayKey}__m1__10:00`);
+        expect(daySlot).not.toBeNull();
+        fireEvent.click(daySlot as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
+        fireEvent.click(within(dialog).getByRole('button', { name: 'Отмена' }));
+
+        // ─── День, свитч выключен ───
+        fireEvent.click(getSwitch());
+        expect(screen.queryByText('Пётр Отменённый')).toBeNull();
+
+        daySlot = document.getElementById(`${todayKey}__m1__10:00`);
+        expect(daySlot).not.toBeNull();
+        fireEvent.click(daySlot as HTMLElement);
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(within(dialog).getByText('Новая запись')).toBeInTheDocument();
+        await act(async () => {});
+        expect(readFormTime(dialog)).toBe('10:00');
     });
 
-    it('действующая запись на время отменённой открывается в карточке при любом положении свитча', () => {
+    it('действующая запись на время отменённой открывается в карточке при любом положении свитча', async () => {
         renderPage();
 
         // Свитч выключен: отменённая скрыта, действующая кликабельна.
@@ -480,6 +578,17 @@ describe('N11 — показ отменённых не влияет на дос�
 
         // Свитч включён: обе записи видимы, действующая по-прежнему открывается.
         fireEvent.click(getSwitch());
+        fireEvent.click(screen.getByText('Анна Активная'));
+        dialog = document.querySelector('[role="dialog"]') as HTMLElement;
+        expect(dialog).not.toBeNull();
+        expect(within(dialog).getByText('Анна Активная')).toBeInTheDocument();
+
+        fireEvent.keyDown(document, { key: 'Escape' });
+
+        // Режим «День»: та же проверка при совпадении записей по времени.
+        fireEvent.click(screen.getAllByRole('button', { name: 'День' })[0]);
+        expect(screen.getByText('Пётр Отменённый')).toBeInTheDocument();
+
         fireEvent.click(screen.getByText('Анна Активная'));
         dialog = document.querySelector('[role="dialog"]') as HTMLElement;
         expect(dialog).not.toBeNull();
