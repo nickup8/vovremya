@@ -5,6 +5,7 @@ namespace Tests\Feature\Console;
 use Illuminate\Console\Scheduling\Event;
 use Illuminate\Console\Scheduling\Schedule;
 use Illuminate\Contracts\Console\Kernel;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use RuntimeException;
 use Symfony\Component\Console\Output\BufferedOutput;
@@ -303,6 +304,168 @@ class BackupAvatarsDailyCommandTest extends TestCase
         $this->assertNotNull($dumpEvent);
         $this->assertSame('30 3 * * *', $dumpEvent->expression);
         $this->assertSame('Europe/Moscow', $dumpEvent->timezone);
+    }
+
+    public function test_existing_backup_read_null_reports_error_and_skips_put(): void
+    {
+        $this->enableBackup();
+
+        $source = Storage::disk('media_s3');
+        $source->put('avatars/aa/broken.jpg', 'broken-bytes');
+        $source->put('avatars/aa/ok.jpg', 'ok-bytes');
+
+        $realTarget = Storage::disk('backups_s3');
+        $realTarget->put($this->namespace().'avatars/aa/broken.jpg', 'broken-bytes');
+        $realTarget->put($this->namespace().'avatars/aa/ok.jpg', 'ok-bytes');
+
+        $written = [];
+        $wrapper = new InterceptingFilesystem($realTarget);
+        $wrapper->beforePut = function (string $path) use (&$written): void {
+            $written[] = $path;
+        };
+        // Чтение существующего объекта резерва возвращает null (сбой чтения).
+        $wrapper->tamperRead = fn (string $value): ?string => $value === 'broken-bytes' ? null : $value;
+        Storage::set('backups_s3', $wrapper);
+
+        $this->artisan('backups:avatars-daily')
+            ->expectsOutputToContain('Скопировано: 0')
+            ->expectsOutputToContain('Уже в резерве: 1')
+            ->expectsOutputToContain('Ошибок копирования: 1')
+            ->expectsOutputToContain('avatars/aa/broken.jpg: Не удалось прочитать существующий объект резерва.')
+            ->assertExitCode(1);
+
+        $this->assertSame([], $written, 'put для нечитаемого ключа не вызывался');
+        $this->assertSame(
+            'broken-bytes',
+            $realTarget->get($this->namespace().'avatars/aa/broken.jpg'),
+            'объект резерва не перезаписан',
+        );
+        // Остальные объекты обработаны: ok.jpg подтверждён как уже лежащий.
+        $this->assertTrue($realTarget->exists($this->namespace().'avatars/aa/ok.jpg'));
+    }
+
+    public function test_journal_records_successful_run(): void
+    {
+        $this->enableBackup();
+        Log::spy();
+
+        Storage::disk('media_s3')->put('avatars/one.jpg', 'bytes-1');
+        Storage::disk('media_s3')->put('avatars/two.jpg', 'bytes-2');
+
+        $this->artisan('backups:avatars-daily')->assertExitCode(0);
+
+        $captured = null;
+        Log::shouldHaveReceived('info')
+            ->once()
+            ->withArgs(function ($message, array $context = []) use (&$captured): bool {
+                if ($message !== 'Backups: итог копирования аватаров' || ! isset($context['status'])) {
+                    return false;
+                }
+
+                $captured = $context;
+
+                return true;
+            });
+
+        $this->assertIsArray($captured, 'итог успешного запуска не записан в журнал');
+        $this->assertSame('success', $captured['status']);
+        $this->assertSame(2, $captured['total']);
+        $this->assertSame(2, $captured['copied']);
+        $this->assertSame(0, $captured['present']);
+        $this->assertSame(0, $captured['failed']);
+        $this->assertArrayNotHasKey('errors', $captured);
+    }
+
+    public function test_journal_records_failed_run_without_object_keys_urls_or_secrets(): void
+    {
+        $this->enableBackup();
+        Log::spy();
+
+        config(['filesystems.disks.backups_s3.secret' => 'SuperSecretValue123']);
+        Storage::disk('media_s3')->put('avatars/aa/one.jpg', 'bytes');
+
+        $broken = new InterceptingFilesystem(Storage::disk('backups_s3'));
+        $broken->beforePut = function (): void {
+            throw new RuntimeException(
+                'PutObject https://s3.twcstorage.ru/irsi-db-backups/irsi-media-backup/testing/avatars/aa/one.jpg'
+                .'?X-Amz-Signature=Leak999 failed; secret=SuperSecretValue123'
+            );
+        };
+        Storage::set('backups_s3', $broken);
+
+        $this->artisan('backups:avatars-daily')->assertExitCode(1);
+
+        $captured = null;
+        Log::shouldHaveReceived('error')
+            ->once()
+            ->withArgs(function ($message, array $context = []) use (&$captured): bool {
+                if ($message !== 'Backups: итог копирования аватаров' || ! isset($context['status'])) {
+                    return false;
+                }
+
+                $captured = $context;
+
+                return true;
+            });
+
+        $this->assertIsArray($captured, 'итог неуспешного запуска не записан в журнал');
+        $this->assertSame('copy_error', $captured['status']);
+        $this->assertSame(1, $captured['total']);
+        $this->assertSame(0, $captured['copied']);
+        $this->assertSame(0, $captured['present']);
+        $this->assertSame(1, $captured['failed']);
+        $this->assertIsArray($captured['errors'] ?? null, 'причины ошибок должны быть видны в журнале');
+
+        $encoded = (string) json_encode($captured);
+        $this->assertStringContainsString('<URL>', $encoded);
+        $this->assertStringContainsString('***', $encoded);
+        $this->assertStringNotContainsString('avatars/', $encoded, 'ключи объектов не должны попадать в журнал');
+        $this->assertStringNotContainsString('https://', $encoded);
+        $this->assertStringNotContainsString('Leak999', $encoded);
+        $this->assertStringNotContainsString('SuperSecretValue123', $encoded);
+    }
+
+    public function test_journal_records_config_and_list_errors(): void
+    {
+        $this->enableBackup();
+        Log::spy();
+
+        // Ошибка конфигурации: рабочий и резервный бакеты совпадают.
+        config(['filesystems.disks.media_s3.bucket' => 'irsi-db-backups']);
+        $this->artisan('backups:avatars-daily')->assertExitCode(1);
+
+        // Ошибка списка: получение ключей источника бросает исключение.
+        config(['filesystems.disks.media_s3.bucket' => 'irsi-media']);
+        $wrapper = new InterceptingFilesystem(Storage::disk('media_s3'));
+        $wrapper->beforeList = function (): void {
+            throw new RuntimeException('listing failed https://cdn.example.com/avatars?sig=LEAK999');
+        };
+        Storage::set('media_s3', $wrapper);
+
+        $this->artisan('backups:avatars-daily')->assertExitCode(1);
+
+        $byStatus = [];
+        Log::shouldHaveReceived('error')
+            ->twice()
+            ->withArgs(function ($message, array $context = []) use (&$byStatus): bool {
+                if ($message !== 'Backups: итог копирования аватаров' || ! isset($context['status'])) {
+                    return false;
+                }
+
+                $byStatus[$context['status']] = $context;
+
+                return true;
+            });
+
+        $this->assertArrayHasKey('config_error', $byStatus, 'отказ конфигурации не записан в журнал');
+        $this->assertArrayHasKey('list_error', $byStatus, 'ошибка списка не записана в журнал');
+        $this->assertNotEmpty($byStatus['config_error']['errors']);
+        $this->assertNotEmpty($byStatus['list_error']['errors']);
+
+        $encoded = (string) json_encode($byStatus);
+        $this->assertStringNotContainsString('https://', $encoded);
+        $this->assertStringNotContainsString('LEAK999', $encoded);
+        $this->assertStringNotContainsString('avatars/', $encoded, 'ключи объектов не должны попадать в журнал');
     }
 
     private function enableBackup(): void

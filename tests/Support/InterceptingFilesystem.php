@@ -15,8 +15,11 @@ final class InterceptingFilesystem implements Filesystem
     /** @var ?Closure(string, mixed): void */
     public ?Closure $beforePut = null;
 
-    /** @var ?Closure(string): string */
+    /** @var ?Closure(string): string|null */
     public ?Closure $tamperRead = null;
+
+    /** @var ?Closure(string|null): void */
+    public ?Closure $beforeList = null;
 
     public function __construct(private Filesystem $inner) {}
 
@@ -122,6 +125,10 @@ final class InterceptingFilesystem implements Filesystem
 
     public function allFiles($directory = null)
     {
+        if ($this->beforeList !== null) {
+            ($this->beforeList)($directory);
+        }
+
         return $this->inner->allFiles($directory);
     }
 

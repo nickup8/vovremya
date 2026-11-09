@@ -6,6 +6,7 @@ use App\Exceptions\Backups\BackupException;
 use App\Services\Backups\BackupError;
 use Illuminate\Console\Command;
 use Illuminate\Contracts\Filesystem\Filesystem;
+use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Facades\Storage;
 use Illuminate\Support\Str;
 use Throwable;
@@ -19,7 +20,8 @@ use Throwable;
  * Рабочий бакет только читается; в резерве ничего не удаляется — удаление
  * исходника не трогает копию, а повторный запуск дозаполняет недостающее
  * и переписывает расхождения. Включение — AVATAR_BACKUP_ENABLED (по
- * умолчанию выключен).
+ * умолчанию выключен). Итог запуска пишется в журнал приложения (Log)
+ * со статусом и счётчиками — без ключей объектов, URL и секретов.
  */
 class BackupAvatarsDaily extends Command
 {
@@ -28,6 +30,9 @@ class BackupAvatarsDaily extends Command
 
     /** Максимум ошибок в итоговом списке (остальные — счётчиком). */
     private const MAX_REPORTED_ERRORS = 20;
+
+    /** Сообщение итога в журнале приложения (у дампов префикс «Backups:»). */
+    private const JOURNAL_MESSAGE = 'Backups: итог копирования аватаров';
 
     protected $signature = 'backups:avatars-daily';
 
@@ -39,7 +44,7 @@ class BackupAvatarsDaily extends Command
 
     private int $failed = 0;
 
-    /** @var list<string> */
+    /** @var list<array{key: string, reason: string}> */
     private array $errors = [];
 
     public function handle(): int
@@ -63,6 +68,7 @@ class BackupAvatarsDaily extends Command
 
         if ($refusal !== null) {
             $this->error($refusal);
+            $this->journal('config_error', self::zeroCounters(), [$this->sanitize($refusal)]);
 
             return self::FAILURE;
         }
@@ -73,7 +79,9 @@ class BackupAvatarsDaily extends Command
         try {
             $keys = $source->allFiles(self::SOURCE_PREFIX);
         } catch (Throwable $e) {
-            $this->error('Не удалось получить список объектов источника: '.$this->sanitize($e->getMessage()));
+            $reason = $this->sanitize($e->getMessage());
+            $this->error('Не удалось получить список объектов источника: '.$reason);
+            $this->journal('list_error', self::zeroCounters(), [$reason]);
 
             return self::FAILURE;
         }
@@ -185,7 +193,15 @@ class BackupAvatarsDaily extends Command
             if ($target->exists($targetKey)) {
                 $existing = $target->get($targetKey);
 
-                if (is_string($existing) && strlen($existing) === $size && hash('sha256', $existing) === $hash) {
+                if (! is_string($existing)) {
+                    // Существующий объект не читается (null): ошибка объекта,
+                    // put для этого ключа не выполняется — вслепую не
+                    // перезаписываем и не затираем то, что не смогли проверить.
+                    // Исключение при чтении уходит в общий catch ниже.
+                    throw new BackupException('Не удалось прочитать существующий объект резерва.');
+                }
+
+                if (strlen($existing) === $size && hash('sha256', $existing) === $hash) {
                     $this->present++;
 
                     return;
@@ -205,7 +221,10 @@ class BackupAvatarsDaily extends Command
             $this->copied++;
         } catch (Throwable $e) {
             $this->failed++;
-            $this->errors[] = $key.': '.$this->sanitize($e->getMessage());
+            $this->errors[] = [
+                'key' => $key,
+                'reason' => $this->sanitize($e->getMessage()),
+            ];
         }
     }
 
@@ -227,8 +246,16 @@ class BackupAvatarsDaily extends Command
         $this->line('Скопировано: '.$this->copied);
         $this->line('Уже в резерве: '.$this->present);
 
+        $counters = [
+            'total' => $total,
+            'copied' => $this->copied,
+            'present' => $this->present,
+            'failed' => $this->failed,
+        ];
+
         if ($this->failed === 0) {
             $this->info('Ошибок нет; файлы источника не изменялись, из резерва ничего не удалялось.');
+            $this->journal('success', $counters);
 
             return self::SUCCESS;
         }
@@ -236,7 +263,7 @@ class BackupAvatarsDaily extends Command
         $this->error('Ошибок копирования: '.$this->failed);
 
         foreach (array_slice($this->errors, 0, self::MAX_REPORTED_ERRORS) as $error) {
-            $this->line('  - '.$error);
+            $this->line('  - '.$error['key'].': '.$error['reason']);
         }
 
         $rest = count($this->errors) - self::MAX_REPORTED_ERRORS;
@@ -245,7 +272,49 @@ class BackupAvatarsDaily extends Command
             $this->line('  … и ещё '.$rest);
         }
 
+        $this->journal(
+            'copy_error',
+            $counters,
+            array_slice(
+                array_map(
+                    static fn (array $error): string => $error['reason'],
+                    $this->errors,
+                ),
+                0,
+                self::MAX_REPORTED_ERRORS,
+            ),
+        );
+
         return self::FAILURE;
+    }
+
+    /**
+     * Итог запуска в журнал приложения (Log — тот же журнал, куда пишутся
+     * итоги дампов БД). Статус и счётчики; ошибки — только причины, без
+     * ключей объектов, URL и секретов.
+     *
+     * @param  array<string, int>  $counters
+     * @param  list<string>  $errors
+     */
+    private function journal(string $status, array $counters, array $errors = []): void
+    {
+        $context = array_merge(['status' => $status], $counters);
+
+        if ($errors !== []) {
+            $context['errors'] = array_values(array_unique($errors));
+        }
+
+        if ($status === 'success') {
+            Log::info(self::JOURNAL_MESSAGE, $context);
+        } else {
+            Log::error(self::JOURNAL_MESSAGE, $context);
+        }
+    }
+
+    /** @return array<string, int> */
+    private static function zeroCounters(): array
+    {
+        return ['total' => 0, 'copied' => 0, 'present' => 0, 'failed' => 0];
     }
 
     /**
