@@ -373,6 +373,7 @@ class BackupAvatarsDailyCommandTest extends TestCase
         $this->assertSame(2, $captured['copied']);
         $this->assertSame(0, $captured['present']);
         $this->assertSame(0, $captured['failed']);
+        $this->assertArrayNotHasKey('reason_codes', $captured, 'у успеха нет причин');
         $this->assertArrayNotHasKey('errors', $captured);
     }
 
@@ -388,7 +389,7 @@ class BackupAvatarsDailyCommandTest extends TestCase
         $broken->beforePut = function (): void {
             throw new RuntimeException(
                 'PutObject https://s3.twcstorage.ru/irsi-db-backups/irsi-media-backup/testing/avatars/aa/one.jpg'
-                .'?X-Amz-Signature=Leak999 failed; secret=SuperSecretValue123'
+                .'?X-Amz-Signature=Leak999 failed for object avatars/aa/one.jpg; secret=SuperSecretValue123',
             );
         };
         Storage::set('backups_s3', $broken);
@@ -414,12 +415,18 @@ class BackupAvatarsDailyCommandTest extends TestCase
         $this->assertSame(0, $captured['copied']);
         $this->assertSame(0, $captured['present']);
         $this->assertSame(1, $captured['failed']);
-        $this->assertIsArray($captured['errors'] ?? null, 'причины ошибок должны быть видны в журнале');
+        $this->assertSame(
+            ['backup_write_failed'],
+            $captured['reason_codes'] ?? null,
+            'в журнале фиксированный код причины, а не текст исключения',
+        );
 
-        $encoded = (string) json_encode($captured);
-        $this->assertStringContainsString('<URL>', $encoded);
-        $this->assertStringContainsString('***', $encoded);
-        $this->assertStringNotContainsString('avatars/', $encoded, 'ключи объектов не должны попадать в журнал');
+        // Сериализация без экранирования слэшей: проверка реально ловит
+        // утечку ключа вида avatars/... (с обычным json_encode слэши
+        // экранируются в \/ и проверка ничего не ловила бы).
+        $encoded = (string) json_encode($captured, JSON_UNESCAPED_SLASHES);
+        $this->assertStringNotContainsString('avatars/', $encoded, 'ключ объекта не должен попадать в журнал');
+        $this->assertStringNotContainsString('PutObject', $encoded, 'текст исключения не должен попадать в журнал');
         $this->assertStringNotContainsString('https://', $encoded);
         $this->assertStringNotContainsString('Leak999', $encoded);
         $this->assertStringNotContainsString('SuperSecretValue123', $encoded);
@@ -434,11 +441,14 @@ class BackupAvatarsDailyCommandTest extends TestCase
         config(['filesystems.disks.media_s3.bucket' => 'irsi-db-backups']);
         $this->artisan('backups:avatars-daily')->assertExitCode(1);
 
-        // Ошибка списка: получение ключей источника бросает исключение.
+        // Ошибка списка: получение ключей источника бросает исключение
+        // с ключом объекта вне URL — в журнал он попасть не должен.
         config(['filesystems.disks.media_s3.bucket' => 'irsi-media']);
         $wrapper = new InterceptingFilesystem(Storage::disk('media_s3'));
         $wrapper->beforeList = function (): void {
-            throw new RuntimeException('listing failed https://cdn.example.com/avatars?sig=LEAK999');
+            throw new RuntimeException(
+                'listing failed for avatars/aa/one.jpg; https://cdn.example.com/list?sig=LEAK999',
+            );
         };
         Storage::set('media_s3', $wrapper);
 
@@ -459,13 +469,14 @@ class BackupAvatarsDailyCommandTest extends TestCase
 
         $this->assertArrayHasKey('config_error', $byStatus, 'отказ конфигурации не записан в журнал');
         $this->assertArrayHasKey('list_error', $byStatus, 'ошибка списка не записана в журнал');
-        $this->assertNotEmpty($byStatus['config_error']['errors']);
-        $this->assertNotEmpty($byStatus['list_error']['errors']);
+        $this->assertSame(['bucket_same'], $byStatus['config_error']['reason_codes'] ?? null);
+        $this->assertSame(['source_list_failed'], $byStatus['list_error']['reason_codes'] ?? null);
 
-        $encoded = (string) json_encode($byStatus);
+        $encoded = (string) json_encode($byStatus, JSON_UNESCAPED_SLASHES);
+        $this->assertStringNotContainsString('avatars/', $encoded, 'ключ объекта не должен попадать в журнал');
+        $this->assertStringNotContainsString('listing failed', $encoded, 'текст исключения не должен попадать в журнал');
         $this->assertStringNotContainsString('https://', $encoded);
         $this->assertStringNotContainsString('LEAK999', $encoded);
-        $this->assertStringNotContainsString('avatars/', $encoded, 'ключи объектов не должны попадать в журнал');
     }
 
     private function enableBackup(): void

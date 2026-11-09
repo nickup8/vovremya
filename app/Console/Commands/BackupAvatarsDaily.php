@@ -21,7 +21,8 @@ use Throwable;
  * исходника не трогает копию, а повторный запуск дозаполняет недостающее
  * и переписывает расхождения. Включение — AVATAR_BACKUP_ENABLED (по
  * умолчанию выключен). Итог запуска пишется в журнал приложения (Log)
- * со статусом и счётчиками — без ключей объектов, URL и секретов.
+ * со статусом, счётчиками и фиксированными кодами причин — без текстов
+ * исключений, ключей объектов, URL и секретов.
  */
 class BackupAvatarsDaily extends Command
 {
@@ -44,7 +45,7 @@ class BackupAvatarsDaily extends Command
 
     private int $failed = 0;
 
-    /** @var list<array{key: string, reason: string}> */
+    /** @var list<array{key: string, text: string, code: string}> */
     private array $errors = [];
 
     public function handle(): int
@@ -67,8 +68,8 @@ class BackupAvatarsDaily extends Command
         $refusal = $this->refuseUnsafeTarget($sourceDisk, $targetDisk);
 
         if ($refusal !== null) {
-            $this->error($refusal);
-            $this->journal('config_error', self::zeroCounters(), [$this->sanitize($refusal)]);
+            $this->error($refusal['message']);
+            $this->journal('config_error', self::zeroCounters(), [$refusal['code']]);
 
             return self::FAILURE;
         }
@@ -79,9 +80,9 @@ class BackupAvatarsDaily extends Command
         try {
             $keys = $source->allFiles(self::SOURCE_PREFIX);
         } catch (Throwable $e) {
-            $reason = $this->sanitize($e->getMessage());
-            $this->error('Не удалось получить список объектов источника: '.$reason);
-            $this->journal('list_error', self::zeroCounters(), [$reason]);
+            // Текст исключения — только в консоль, в журнал уходит код.
+            $this->error('Не удалось получить список объектов источника: '.$this->sanitize($e->getMessage()));
+            $this->journal('list_error', self::zeroCounters(), ['source_list_failed']);
 
             return self::FAILURE;
         }
@@ -105,38 +106,41 @@ class BackupAvatarsDaily extends Command
      * Отказ до любых обращений к S3: источник и назначение обязаны быть
      * разными (бакет/каталог/диск), а префикс резервной копии — не
      * пересекаться с префиксом дампов, иначе ротация дампов могла бы
-     * затронуть объекты аватаров и наоборот.
+     * затронуть объекты аватаров и наоборот. Код — для журнала, сообщение —
+     * для консоли.
+     *
+     * @return array{code: string, message: string}|null
      */
-    private function refuseUnsafeTarget(string $sourceDisk, string $targetDisk): ?string
+    private function refuseUnsafeTarget(string $sourceDisk, string $targetDisk): ?array
     {
         if ($sourceDisk === '') {
-            return 'Диск-источник не задан (backups.avatars.source_disk).';
+            return ['code' => 'source_disk_unset', 'message' => 'Диск-источник не задан (backups.avatars.source_disk).'];
         }
 
         if ($targetDisk === '') {
-            return 'Резервный диск не задан (backups.disk).';
+            return ['code' => 'target_disk_unset', 'message' => 'Резервный диск не задан (backups.disk).'];
         }
 
         if ($sourceDisk === $targetDisk) {
-            return "Источник и назначение совпадают (диск [{$sourceDisk}]) — копирование отменено.";
+            return ['code' => 'disk_same', 'message' => "Источник и назначение совпадают (диск [{$sourceDisk}]) — копирование отменено."];
         }
 
         $source = config("filesystems.disks.{$sourceDisk}");
         $target = config("filesystems.disks.{$targetDisk}");
 
         if (! is_array($source)) {
-            return "Диск-источник [{$sourceDisk}] не настроен — копирование отменено.";
+            return ['code' => 'source_disk_missing', 'message' => "Диск-источник [{$sourceDisk}] не настроен — копирование отменено."];
         }
 
         if (! is_array($target)) {
-            return "Резервный диск [{$targetDisk}] не настроен — копирование отменено.";
+            return ['code' => 'target_disk_missing', 'message' => "Резервный диск [{$targetDisk}] не настроен — копирование отменено."];
         }
 
         $sourceBucket = trim((string) ($source['bucket'] ?? ''));
         $targetBucket = trim((string) ($target['bucket'] ?? ''));
 
         if ($sourceBucket !== '' && $sourceBucket === $targetBucket) {
-            return 'Рабочий и резервный бакеты совпадают — копирование отменено.';
+            return ['code' => 'bucket_same', 'message' => 'Рабочий и резервный бакеты совпадают — копирование отменено.'];
         }
 
         $sourceRoot = rtrim((string) ($source['root'] ?? ''), '/\\');
@@ -146,24 +150,24 @@ class BackupAvatarsDaily extends Command
             && ($target['driver'] ?? null) === 'local'
             && $sourceRoot !== ''
             && $sourceRoot === $targetRoot) {
-            return 'Источник и назначение указывают на один каталог — копирование отменено.';
+            return ['code' => 'root_same', 'message' => 'Источник и назначение указывают на один каталог — копирование отменено.'];
         }
 
         $avatarPrefix = trim((string) config('backups.avatars.prefix'), '/');
         $dumpPrefix = trim((string) config('backups.prefix'), '/');
 
         if ($avatarPrefix === '') {
-            return 'Префикс резервной копии аватаров пуст — копирование отменено.';
+            return ['code' => 'avatar_prefix_empty', 'message' => 'Префикс резервной копии аватаров пуст — копирование отменено.'];
         }
 
         if ($dumpPrefix === '') {
-            return 'Префикс дампов (backups.prefix) пуст — копирование отменено.';
+            return ['code' => 'dump_prefix_empty', 'message' => 'Префикс дампов (backups.prefix) пуст — копирование отменено.'];
         }
 
         if ($avatarPrefix === $dumpPrefix
             || str_starts_with($avatarPrefix, $dumpPrefix.'/')
             || str_starts_with($dumpPrefix, $avatarPrefix.'/')) {
-            return 'Префикс резервной копии аватаров пересекается с префиксом дампов — копирование отменено.';
+            return ['code' => 'prefix_overlap', 'message' => 'Префикс резервной копии аватаров пересекается с префиксом дампов — копирование отменено.'];
         }
 
         return null;
@@ -177,6 +181,8 @@ class BackupAvatarsDaily extends Command
     private function copyOne(Filesystem $source, Filesystem $target, string $key, string $namespace): void
     {
         $targetKey = $namespace.$key;
+        // Фиксированный код фазы для журнала (текст исключения — в консоль).
+        $code = 'source_read_failed';
 
         try {
             $contents = $source->get($key);
@@ -187,6 +193,8 @@ class BackupAvatarsDaily extends Command
 
             $size = strlen($contents);
             $hash = hash('sha256', $contents);
+
+            $code = 'backup_read_failed';
 
             // Уже лежащая идентичная копия не переписывается — повторный
             // запуск после сбоя дозаполняет только недостающее/расходящееся.
@@ -208,9 +216,13 @@ class BackupAvatarsDaily extends Command
                 }
             }
 
+            $code = 'backup_write_failed';
+
             if ($target->put($targetKey, $contents) !== true) {
                 throw new BackupException('Запись в резервный диск не подтверждена.');
             }
+
+            $code = 'backup_verify_failed';
 
             $stored = $target->get($targetKey);
 
@@ -223,7 +235,8 @@ class BackupAvatarsDaily extends Command
             $this->failed++;
             $this->errors[] = [
                 'key' => $key,
-                'reason' => $this->sanitize($e->getMessage()),
+                'text' => $this->sanitize($e->getMessage()),
+                'code' => $code,
             ];
         }
     }
@@ -263,7 +276,7 @@ class BackupAvatarsDaily extends Command
         $this->error('Ошибок копирования: '.$this->failed);
 
         foreach (array_slice($this->errors, 0, self::MAX_REPORTED_ERRORS) as $error) {
-            $this->line('  - '.$error['key'].': '.$error['reason']);
+            $this->line('  - '.$error['key'].': '.$error['text']);
         }
 
         $rest = count($this->errors) - self::MAX_REPORTED_ERRORS;
@@ -275,13 +288,9 @@ class BackupAvatarsDaily extends Command
         $this->journal(
             'copy_error',
             $counters,
-            array_slice(
-                array_map(
-                    static fn (array $error): string => $error['reason'],
-                    $this->errors,
-                ),
-                0,
-                self::MAX_REPORTED_ERRORS,
+            array_map(
+                static fn (array $error): string => $error['code'],
+                $this->errors,
             ),
         );
 
@@ -290,18 +299,19 @@ class BackupAvatarsDaily extends Command
 
     /**
      * Итог запуска в журнал приложения (Log — тот же журнал, куда пишутся
-     * итоги дампов БД). Статус и счётчики; ошибки — только причины, без
-     * ключей объектов, URL и секретов.
+     * итоги дампов БД): только статус, счётчики и фиксированные коды
+     * причин. Тексты исключений, ключи объектов, URL и секреты в журнал
+     * не попадают — они остаются в консоли команды.
      *
      * @param  array<string, int>  $counters
-     * @param  list<string>  $errors
+     * @param  list<string>  $reasonCodes
      */
-    private function journal(string $status, array $counters, array $errors = []): void
+    private function journal(string $status, array $counters, array $reasonCodes = []): void
     {
         $context = array_merge(['status' => $status], $counters);
 
-        if ($errors !== []) {
-            $context['errors'] = array_values(array_unique($errors));
+        if ($reasonCodes !== []) {
+            $context['reason_codes'] = array_values(array_unique($reasonCodes));
         }
 
         if ($status === 'success') {
