@@ -17,6 +17,9 @@ use Tests\TestCase;
  * целочисленном YANDEX_METRIKA_COUNTER_ID (config/analytics.php);
  * остальные страницы — вход, виджет записи, кабинеты — счётчика не видят
  * при любом значении.
+ *
+ * init включает Вебвизор и карту кликов (webvisor, clickmap) и явно
+ * оставляет выключенным трекинг ссылок (trackLinks).
  */
 class YandexMetrikaTest extends TestCase
 {
@@ -38,10 +41,10 @@ class YandexMetrikaTest extends TestCase
         $response->assertSee(self::TAG_JS, false);
         $response->assertSee('ym('.self::COUNTER_ID.', "init"', false);
         $response->assertSee('https://mc.yandex.ru/watch/'.self::COUNTER_ID, false);
-        // Вебвизор, карта кликов и автоматический трекинг ссылок выключены явно.
-        $response->assertSee('webvisor: false', false);
+        // Вебвизор и карта кликов включены явно, трекинг ссылок — выключен.
+        $response->assertSee('webvisor: true', false);
         $response->assertSee('trackLinks: false', false);
-        $response->assertSee('clickmap: false', false);
+        $response->assertSee('clickmap: true', false);
 
         // noscript-пиксель лежит в <body> под тем же условием, что и скрипт.
         $content = $response->getContent();
