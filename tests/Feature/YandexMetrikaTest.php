@@ -13,9 +13,10 @@ use Tests\TestCase;
 /**
  * ANALYTICS-01: асинхронный счётчик Яндекс Метрики на гостевой главной /.
  *
- * Счётчик подключается только на welcome-v2 при непустом
- * YANDEX_METRIKA_COUNTER_ID (config/analytics.php); остальные страницы —
- * вход, виджет записи, кабинеты — счётчика не видят при любом значении.
+ * Счётчик подключается только на welcome-v2 при положительном
+ * целочисленном YANDEX_METRIKA_COUNTER_ID (config/analytics.php);
+ * остальные страницы — вход, виджет записи, кабинеты — счётчика не видят
+ * при любом значении.
  */
 class YandexMetrikaTest extends TestCase
 {
@@ -37,9 +38,18 @@ class YandexMetrikaTest extends TestCase
         $response->assertSee(self::TAG_JS, false);
         $response->assertSee('ym('.self::COUNTER_ID.', "init"', false);
         $response->assertSee('https://mc.yandex.ru/watch/'.self::COUNTER_ID, false);
-        // Вебвизор и автоматический трекинг ссылок выключены явно.
+        // Вебвизор, карта кликов и автоматический трекинг ссылок выключены явно.
         $response->assertSee('webvisor: false', false);
         $response->assertSee('trackLinks: false', false);
+        $response->assertSee('clickmap: false', false);
+
+        // noscript-пиксель лежит в <body> под тем же условием, что и скрипт.
+        $content = $response->getContent();
+        $this->assertGreaterThan(
+            strpos($content, '<body'),
+            strpos($content, 'https://mc.yandex.ru/watch/'.self::COUNTER_ID),
+            'noscript-пиксель должен находиться в <body>',
+        );
     }
 
     public function test_home_renders_exactly_one_snippet_and_keeps_utm(): void
@@ -51,7 +61,7 @@ class YandexMetrikaTest extends TestCase
         $response->assertOk();
 
         $content = $response->getContent();
-        // Один снippet в HTML — один init и один просмотр при загрузке
+        // Один snippet в HTML — один init и один просмотр при загрузке
         // (дубли при SSR/гидратации исключены: сниппет вне React-дерева).
         $this->assertSame(1, substr_count($content, self::TAG_JS));
         $this->assertSame(1, substr_count($content, 'ym('.self::COUNTER_ID.', "init"'));
@@ -83,14 +93,33 @@ class YandexMetrikaTest extends TestCase
         $this->assertStringNotContainsString('mc.yandex.ru', $response->getContent());
     }
 
-    public function test_home_has_no_metrika_when_counter_id_not_numeric(): void
+    public function test_home_has_no_metrika_when_counter_id_invalid(): void
     {
-        config(['analytics.yandex_metrika_counter_id' => 'not-a-counter']);
+        // Счётчик включается только положительным целым ID:
+        // строки с мусором, 0, отрицательные и булевы значения — выключен.
+        foreach (['123abc', 'not-a-counter', '0', '-1', 0, true] as $invalid) {
+            config(['analytics.yandex_metrika_counter_id' => $invalid]);
+
+            $response = $this->get('/');
+
+            $response->assertOk();
+            $this->assertStringNotContainsString(
+                'mc.yandex.ru',
+                $response->getContent(),
+                'ID '.var_export($invalid, true).' должен оставлять счётчик выключенным.',
+            );
+        }
+    }
+
+    public function test_home_accepts_positive_integer_counter_id(): void
+    {
+        config(['analytics.yandex_metrika_counter_id' => 99999999]);
 
         $response = $this->get('/');
 
         $response->assertOk();
-        $this->assertStringNotContainsString('mc.yandex.ru', $response->getContent());
+        $response->assertSee('ym(99999999, "init"', false);
+        $response->assertSee('https://mc.yandex.ru/watch/99999999', false);
     }
 
     // ─── Исключённые страницы: вход, виджет записи, кабинеты, правовые ───

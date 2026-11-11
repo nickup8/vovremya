@@ -48,14 +48,24 @@
             <title>{{ config('app.brand', 'ИРСИ') }}</title>
         </x-inertia::head>
 
-        @php($yandexMetrikaCounterId = (int) config('analytics.yandex_metrika_counter_id'))
+        @php
+            // ID — только положительное целое: '', 0, true, '123abc' и любые
+            // прочие значения оставляют счётчик выключенным.
+            $yandexMetrikaCounterId = config('analytics.yandex_metrika_counter_id');
+            $yandexMetrikaCounterId = is_int($yandexMetrikaCounterId)
+                ? $yandexMetrikaCounterId
+                : (is_string($yandexMetrikaCounterId) && ctype_digit($yandexMetrikaCounterId)
+                    ? (int) $yandexMetrikaCounterId
+                    : 0);
+            $yandexMetrikaEnabled = $yandexMetrikaCounterId > 0 && $page['component'] === 'welcome-v2';
+        @endphp
         {{-- Яндекс Метрика — только гостевая главная (welcome-v2, маршрут /).
              Сниппет статичен в blade и лежит вне React-дерева: SSR-рендер и
              гидратация не выполняют его повторно, один init = один просмотр.
-             Пустой/нечисловый YANDEX_METRIKA_COUNTER_ID (0) — счётчик выключен.
-             webvisor и trackLinks выключены явно; аналитика форм включается
-             вместе с Вебвизором в настройках счётчика и остаётся выключенной. --}}
-        @if($yandexMetrikaCounterId > 0 && $page['component'] === 'welcome-v2')
+             clickmap, trackLinks и webvisor выключены явно; аналитика форм
+             включается вместе с Вебвизором в настройках счётчика и остаётся
+             выключенной. --}}
+        @if($yandexMetrikaEnabled)
             <script type="text/javascript">
                 (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
                 m[i].l=1*new Date();
@@ -64,16 +74,18 @@
                 (window, document, "script", "https://mc.yandex.ru/metrika/tag.js", "ym");
 
                 ym({{ $yandexMetrikaCounterId }}, "init", {
-                    clickmap: true,
+                    clickmap: false,
                     trackLinks: false,
                     accurateTrackBounce: false,
                     webvisor: false
                 });
             </script>
-            <noscript><div><img src="https://mc.yandex.ru/watch/{{ $yandexMetrikaCounterId }}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
         @endif
     </head>
     <body class="font-sans antialiased">
+        @if($yandexMetrikaEnabled)
+            <noscript><div><img src="https://mc.yandex.ru/watch/{{ $yandexMetrikaCounterId }}" style="position:absolute; left:-9999px;" alt="" /></div></noscript>
+        @endif
         <x-inertia::app />
     </body>
 </html>
