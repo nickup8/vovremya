@@ -62,9 +62,7 @@
         {{-- Яндекс Метрика — только гостевая главная (welcome-v2, маршрут /).
              Сниппет статичен в blade и лежит вне React-дерева: SSR-рендер и
              гидратация не выполняют его повторно, один init = один просмотр.
-             webvisor и clickmap включены явно; trackLinks остаётся выключенным.
-             Аналитика форм включается вместе с Вебвизором в настройках счётчика
-             и остаётся выключенной. --}}
+             webvisor и clickmap включены явно; trackLinks остаётся выключенным. --}}
         @if($yandexMetrikaEnabled)
             <script type="text/javascript">
                 (function(m,e,t,r,i,k,a){m[i]=m[i]||function(){(m[i].a=m[i].a||[]).push(arguments)};
